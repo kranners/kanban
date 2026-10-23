@@ -15,7 +15,6 @@ import {
 	focusedSessionId,
 	focusOrigin,
 	knownCwds,
-	layout,
 	litMessage,
 	newSessionOpen,
 	now,
@@ -23,6 +22,7 @@ import {
 	previews,
 	sessionMatches,
 	sessionsById,
+	stageLayout,
 	subagentsById,
 } from "./state.ts";
 import { TopBar } from "./TopBar.tsx";
@@ -139,7 +139,7 @@ function Placeholder(props: { title: string; body: string; action?: boolean }) {
 
 function Stage() {
 	const current = board.value;
-	const placed = layout.value;
+	const placed = stageLayout.value;
 	if (!current || !placed) {
 		return (
 			<Placeholder

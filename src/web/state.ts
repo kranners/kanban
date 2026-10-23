@@ -1,5 +1,11 @@
 import { computed, signal } from "@preact/signals";
-import type { Activity, Board, Preview, Session } from "../shared/types.ts";
+import type {
+	Activity,
+	Board,
+	Layout,
+	Preview,
+	Session,
+} from "../shared/types.ts";
 import { layoutForStage } from "./layout.ts";
 import type { Size } from "./viewport.ts";
 
@@ -42,7 +48,9 @@ railOpen.subscribe(() => {
 	stageSize.value = measureStage();
 });
 
-export const layout = computed(() =>
+export const layout = signal<Layout>({});
+
+export const stageLayout = computed(() =>
 	board.value ? layoutForStage(board.value, stageSize.value) : null,
 );
 

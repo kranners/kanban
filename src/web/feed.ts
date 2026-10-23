@@ -3,6 +3,7 @@ import {
 	awaitingShort,
 	board,
 	connection,
+	layout,
 	openSession,
 	previews,
 } from "./state.ts";
@@ -25,6 +26,10 @@ function receive(frame: BoardFeed): void {
 			awaitingShort.value = null;
 			openSession(created.id);
 		}
+		return;
+	}
+	if (frame.type === "layout") {
+		layout.value = frame.layout;
 		return;
 	}
 	const next = new Map(previews.value);
