@@ -2,32 +2,9 @@ import "./focus.css";
 import { CircleAlert, LoaderCircle, X } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
-import type {
-	NewSessionRequest,
-	NewSessionResult,
-} from "../../shared/types.ts";
-import { directoryName, isAbsoluteDirectory, needsTrust } from "./paths.ts";
+import { createSession } from "../spawns.ts";
+import { isAbsoluteDirectory, needsTrust } from "./paths.ts";
 import { commandKey } from "./platform.ts";
-
-async function createSession(
-	request: NewSessionRequest,
-): Promise<NewSessionResult> {
-	try {
-		const response = await fetch("/api/sessions", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(request),
-		});
-		const text = await response.text();
-		try {
-			return JSON.parse(text) as NewSessionResult;
-		} catch {
-			return { ok: false, error: text || `HTTP ${response.status}` };
-		}
-	} catch (caught) {
-		return { ok: false, error: `Couldn't reach the board server (${caught})` };
-	}
-}
 
 function Failure(props: { error: string; cwd: string }): JSX.Element {
 	return (
@@ -58,7 +35,6 @@ export function NewSession(props: {
 	const listId = useId();
 	const [cwd, setCwd] = useState("");
 	const [name, setName] = useState("");
-	const [nameEdited, setNameEdited] = useState(false);
 	const [prompt, setPrompt] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -68,13 +44,8 @@ export function NewSession(props: {
 		directory.current?.focus();
 	}, []);
 
-	const shownName = nameEdited ? name : directoryName(cwd);
 	const cwdInvalid = cwd !== "" && !isAbsoluteDirectory(cwd);
-	const ready =
-		isAbsoluteDirectory(cwd) &&
-		shownName.trim() !== "" &&
-		prompt.trim() !== "" &&
-		!busy;
+	const ready = isAbsoluteDirectory(cwd) && prompt.trim() !== "" && !busy;
 
 	const submit = async (event?: Event) => {
 		event?.preventDefault();
@@ -83,7 +54,7 @@ export function NewSession(props: {
 		setError(null);
 		const result = await createSession({
 			cwd: cwd.trim(),
-			name: shownName.trim(),
+			...(name.trim() ? { name: name.trim() } : {}),
 			prompt: prompt.trim(),
 		});
 		setBusy(false);
@@ -163,14 +134,11 @@ export function NewSession(props: {
 					<span>Name</span>
 					<input
 						type="text"
-						value={shownName}
-						onInput={(event) => {
-							setNameEdited(true);
-							setName(event.currentTarget.value);
-						}}
+						value={name}
+						onInput={(event) => setName(event.currentTarget.value)}
+						placeholder="Optional; Claude Code names it otherwise"
 						spellcheck={false}
 						autocomplete="off"
-						required
 					/>
 				</label>
 

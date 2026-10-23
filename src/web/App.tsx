@@ -1,16 +1,26 @@
 import { Plus } from "lucide-preact";
-import type { Board } from "../shared/types.ts";
+import type { Board, Session } from "../shared/types.ts";
+import { withoutSessions } from "./actions.ts";
 import { arrangement, arrangeNode, groups } from "./arrangement.ts";
 import { Canvas } from "./Canvas.tsx";
 import { SessionCard, SubagentCard } from "./Card.tsx";
 import { Arcs, Links, messagePairs } from "./Edges.tsx";
+import {
+	CloseButton,
+	ExitDialog,
+	ExitNotice,
+	exitStateClass,
+} from "./ExitControls.tsx";
+import type { ExitState } from "./exits.ts";
+import { departed, exits } from "./exits.ts";
 import { Focus } from "./focus/Focus.tsx";
 import { NewSession } from "./focus/NewSession.tsx";
 import { GroupFrames } from "./Groups.tsx";
-import type { NodeKey } from "./layout.ts";
+import type { NodeKey, PlacedNode } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import type { Arrangement } from "./placement.ts";
 import { Rail } from "./Rail.tsx";
+import { BoardMenu, SpawnLayer, useBoardGestures } from "./Spawning.tsx";
 import {
 	awaitingShort,
 	board,
@@ -57,6 +67,17 @@ function litNodes(current: Board): {
 	return { pair: pair?.key ?? null, nodes: new Set([from, to]) };
 }
 
+function leavingCards(
+	current: Board,
+): { session: Session; node: PlacedNode }[] {
+	const listed = new Set(current.sessions.map((s) => s.id));
+	return [...exits.value.values()].flatMap((state) =>
+		state.phase === "leaving" && state.node && !listed.has(state.session.id)
+			? [{ session: state.session, node: state.node }]
+			: [],
+	);
+}
+
 function World(props: { board: Board; layout: Arrangement }) {
 	const visible = visibility();
 	const lit = litNodes(props.board);
@@ -64,6 +85,29 @@ function World(props: { board: Board; layout: Arrangement }) {
 	const t = now.value;
 	const frames = groups.value;
 	const grouped = new Set(frames.flatMap((g) => g.members));
+	const exiting = exits.value;
+	const card = (
+		session: Session,
+		node: PlacedNode,
+		state: ExitState | undefined,
+	) => (
+		<SessionCard
+			key={node.key}
+			node={node}
+			session={session}
+			preview={sessionPreviews.get(session.id)}
+			now={t}
+			emphasis={{
+				dimmed: !visible(node.key),
+				lit: lit.nodes.has(node.key),
+				grouped: grouped.has(node.key),
+			}}
+			onOpen={openSession}
+			state={exitStateClass(state)}
+			corner={<CloseButton session={session} state={state} />}
+			notice={<ExitNotice session={session} state={state} />}
+		/>
+	);
 	return (
 		<>
 			<GroupFrames groups={frames} />
@@ -72,23 +116,11 @@ function World(props: { board: Board; layout: Arrangement }) {
 				const node = props.layout.nodes.get(
 					nodeKey({ kind: "session", id: session.id }),
 				);
-				if (!node) return null;
-				return (
-					<SessionCard
-						key={node.key}
-						node={node}
-						session={session}
-						preview={sessionPreviews.get(session.id)}
-						now={t}
-						emphasis={{
-							dimmed: !visible(node.key),
-							lit: lit.nodes.has(node.key),
-							grouped: grouped.has(node.key),
-						}}
-						onOpen={openSession}
-					/>
-				);
+				return node ? card(session, node, exiting.get(session.id)) : null;
 			})}
+			{leavingCards(props.board).map(({ session, node }) =>
+				card(session, node, exiting.get(session.id)),
+			)}
 			{props.board.subagents.map((subagent) => {
 				const node = props.layout.nodes.get(
 					nodeKey({ kind: "subagent", id: subagent.id }),
@@ -182,7 +214,8 @@ function Stage() {
 			rectOf={(key) => arrangement.peek()?.nodes.get(key)}
 			onArrange={arrangeNode}
 		>
-			<World board={current} layout={placed} />
+			<World board={withoutSessions(current, departed.value)} layout={placed} />
+			<SpawnLayer />
 		</Canvas>
 	);
 }
@@ -195,6 +228,7 @@ function created(short: string): void {
 }
 
 export function App() {
+	useBoardGestures();
 	const session = focusedSession.value;
 	return (
 		<div class="app">
@@ -221,6 +255,8 @@ export function App() {
 					}}
 				/>
 			)}
+			<ExitDialog />
+			<BoardMenu />
 		</div>
 	);
 }

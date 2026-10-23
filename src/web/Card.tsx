@@ -104,6 +104,8 @@ export function SessionCard(props: {
 	emphasis: Emphasis;
 	onOpen: (id: string, origin: DOMRect) => void;
 	corner?: ComponentChildren;
+	notice?: ComponentChildren;
+	state?: string;
 }) {
 	const { session } = props;
 	const KindIcon = session.kind === "interactive" ? Terminal : Server;
@@ -114,7 +116,10 @@ export function SessionCard(props: {
 		);
 	return (
 		<div
-			class={nodeClass(`node session act-${session.activity}`, props.emphasis)}
+			class={nodeClass(
+				`node session act-${session.activity} ${props.state ?? ""}`.trim(),
+				props.emphasis,
+			)}
 			style={position(props.node)}
 			data-node={props.node.key}
 		>
@@ -160,6 +165,7 @@ export function SessionCard(props: {
 					</span>
 				</div>
 			</button>
+			{props.notice}
 			<span class="resize-handle" data-resize aria-hidden="true" />
 			{props.corner && <div class="node-corner">{props.corner}</div>}
 		</div>
