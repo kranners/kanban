@@ -1,4 +1,4 @@
-import type { Board, BoardFeed, Preview } from "../shared/types.ts";
+import type { Board, BoardFeed, Layout, Preview } from "../shared/types.ts";
 
 export type FeedSocket = {
 	readonly readyState: number;
@@ -10,17 +10,19 @@ export type Feed = {
 	add(socket: FeedSocket): void;
 	board(board: Board): void;
 	preview(preview: Preview): void;
+	layout(layout: Layout): void;
 	size(): number;
 };
 
 export type FeedOptions = {
 	board: () => Board;
 	previews: () => Preview[];
+	layout: () => Layout;
 };
 
 const socketOpen = 1;
 
-export const createFeed = ({ board, previews }: FeedOptions): Feed => {
+export const createFeed = ({ board, previews, layout }: FeedOptions): Feed => {
 	const clients = new Set<FeedSocket>();
 
 	const send = (socket: FeedSocket, frame: BoardFeed) => {
@@ -38,11 +40,13 @@ export const createFeed = ({ board, previews }: FeedOptions): Feed => {
 			clients.add(socket);
 			socket.on("close", () => clients.delete(socket));
 			send(socket, { type: "board", board: board() });
+			send(socket, { type: "layout", layout: layout() });
 			for (const preview of previews())
 				send(socket, { type: "preview", preview });
 		},
 		board: (next) => broadcast({ type: "board", board: next }),
 		preview: (preview) => broadcast({ type: "preview", preview }),
+		layout: (next) => broadcast({ type: "layout", layout: next }),
 		size: () => clients.size,
 	};
 };

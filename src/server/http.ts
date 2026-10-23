@@ -20,7 +20,9 @@ import {
 } from "./attach.ts";
 import type { Audit } from "./audit.ts";
 import { type Authenticate, originAllowed } from "./auth.ts";
+import type { SessionExiter } from "./exit.ts";
 import type { Feed } from "./feed.ts";
+import { boardKeys, type LayoutStore, parseLayoutUpdate } from "./layout.ts";
 import { type SessionLauncher, validateNewSession } from "./sessions.ts";
 
 export type BoardSource = {
@@ -34,6 +36,8 @@ export type ServerDeps = {
 	authenticate: Authenticate;
 	source: BoardSource;
 	launch: SessionLauncher;
+	exit: SessionExiter;
+	layout: LayoutStore;
 	attach: AttachHub;
 	feed: Feed;
 	audit: Audit;
@@ -43,6 +47,8 @@ export type Route =
 	| { kind: "healthz" }
 	| { kind: "transcript"; sessionId: string; limit: number }
 	| { kind: "create-session" }
+	| { kind: "exit-session"; sessionId: string }
+	| { kind: "update-layout" }
 	| { kind: "static"; path: string }
 	| { kind: "not-found" }
 	| { kind: "method-not-allowed" };
@@ -102,6 +108,17 @@ export const matchRoute = (method: string, url: URL): Route => {
 	if (path === "/api/sessions") {
 		return method === "POST"
 			? { kind: "create-session" }
+			: { kind: "method-not-allowed" };
+	}
+	const exit = path.match(/^\/api\/sessions\/([^/]+)\/exit$/);
+	if (exit?.[1]) {
+		return method === "POST"
+			? { kind: "exit-session", sessionId: exit[1] }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/layout") {
+		return method === "PUT"
+			? { kind: "update-layout" }
 			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api" || path.startsWith("/api/")) return { kind: "not-found" };
@@ -231,22 +248,34 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		maxPayload: 1024 * 1024,
 	});
 
+	const readBody = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+	): Promise<{ body: unknown } | null> => {
+		if (!originAllowed(req, deps.origins)) {
+			sendError(res, 403);
+			return null;
+		}
+		if (!req.headers["content-type"]?.startsWith("application/json")) {
+			sendError(res, 415);
+			return null;
+		}
+		try {
+			return { body: await readJson(req) };
+		} catch {
+			sendJson(res, 400, { ok: false, error: "Invalid JSON body" });
+			return null;
+		}
+	};
+
 	const createSession = async (
 		req: IncomingMessage,
 		res: ServerResponse,
 		identity: string | null,
 	) => {
-		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
-		if (!req.headers["content-type"]?.startsWith("application/json")) {
-			return sendError(res, 415);
-		}
-		let body: unknown;
-		try {
-			body = await readJson(req);
-		} catch {
-			return sendJson(res, 400, { ok: false, error: "Invalid JSON body" });
-		}
-		const request = await validateNewSession(body);
+		const read = await readBody(req, res);
+		if (!read) return;
+		const request = await validateNewSession(read.body);
 		if ("error" in request) {
 			return sendJson(res, 400, { ok: false, error: request.error });
 		}
@@ -254,11 +283,63 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		deps.audit({
 			action: "session-create",
 			cwd: request.cwd,
-			name: request.name,
+			name: request.name ?? null,
 			identity,
 			result: result.ok ? result.short : result.error,
 		});
+		if (result.ok && request.at) deps.layout.expect(result.short, request.at);
 		sendJson(res, result.ok ? 201 : 422, result);
+	};
+
+	const exitSession = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+		sessionId: string,
+		identity: string | null,
+	) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const force = (read.body as Record<string, unknown> | null)?.force;
+		if (typeof force !== "boolean") {
+			return sendJson(res, 400, {
+				ok: false,
+				error: "force must be a boolean",
+			});
+		}
+		const session = deps.source
+			.board()
+			.sessions.find((session) => session.id === sessionId);
+		if (!session) return sendError(res, 404);
+		const result = await deps.exit(session, force);
+		deps.audit({
+			action: "session-exit",
+			sessionId: session.id,
+			short: session.short,
+			kind: session.kind,
+			force,
+			identity,
+			result: !result.ok
+				? `error: ${result.error}`
+				: result.exited
+					? "exited"
+					: `not ready: ${result.reason}`,
+		});
+		sendJson(res, result.ok ? 200 : 422, result);
+	};
+
+	const updateLayout = async (req: IncomingMessage, res: ServerResponse) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const update = parseLayoutUpdate(read.body);
+		if ("error" in update) {
+			return sendJson(res, 400, { ok: false, error: update.error });
+		}
+		if (!boardKeys(deps.source.board()).has(update.key)) {
+			return sendError(res, 404);
+		}
+		deps.layout.set(update);
+		res.writeHead(204, { "cache-control": "no-store" });
+		res.end();
 	};
 
 	const handle = async (req: IncomingMessage, res: ServerResponse) => {
@@ -284,6 +365,10 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			}
 			case "create-session":
 				return createSession(req, res, auth.identity);
+			case "exit-session":
+				return exitSession(req, res, route.sessionId, auth.identity);
+			case "update-layout":
+				return updateLayout(req, res);
 			case "static":
 				return serveStatic(res, deps.dist, route.path, req.method === "HEAD");
 		}

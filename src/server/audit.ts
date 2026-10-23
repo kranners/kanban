@@ -12,7 +12,16 @@ export type AuditEvent =
 	| {
 			action: "session-create";
 			cwd: string;
-			name: string;
+			name: string | null;
+			identity: string | null;
+			result: string;
+	  }
+	| {
+			action: "session-exit";
+			sessionId: string;
+			short: string | null;
+			kind: "interactive" | "background";
+			force: boolean;
 			identity: string | null;
 			result: string;
 	  };

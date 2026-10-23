@@ -14,6 +14,7 @@ export type Config = {
 	claudeHome: string;
 	dist: string;
 	auditLog: string;
+	stateDir: string;
 };
 
 const repoRoot = resolve(import.meta.dirname, "../..");
@@ -99,5 +100,6 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
 		auditLog:
 			env.KANBAN_AUDIT_LOG ||
 			join(homedir(), "Library/Logs/kanban/audit.jsonl"),
+		stateDir: env.KANBAN_STATE || join(homedir(), ".local/state/kanban"),
 	};
 };

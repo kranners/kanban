@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import type { NewSessionRequest, NewSessionResult } from "../shared/types.ts";
 import { stripAnsi } from "./ansi.ts";
+import { parsePoint } from "./layout.ts";
 
 export type SessionLauncher = (
 	request: NewSessionRequest,
@@ -23,19 +24,20 @@ export const validateNewSession = async (
 	body: unknown,
 ): Promise<NewSessionRequest | { error: string }> => {
 	if (typeof body !== "object" || body === null) {
-		return { error: "Expected a JSON object with cwd, name and prompt" };
+		return { error: "Expected a JSON object with cwd and prompt" };
 	}
-	const { cwd, name, prompt } = body as Record<string, unknown>;
+	const { cwd, name, prompt, at } = body as Record<string, unknown>;
 	if (typeof cwd !== "string" || !isAbsolute(cwd)) {
 		return { error: "cwd must be an absolute path" };
 	}
 	if (!(await isDirectory(cwd))) {
 		return { error: `${cwd} is not an existing directory` };
 	}
-	if (typeof name !== "string" || name.trim() === "") {
-		return { error: "name is required" };
+	if (name !== undefined && typeof name !== "string") {
+		return { error: "name must be a string" };
 	}
-	if (name.trim().length > maxNameLength || controlCharacters.test(name)) {
+	const trimmed = name?.trim() ?? "";
+	if (trimmed.length > maxNameLength || controlCharacters.test(trimmed)) {
 		return {
 			error: `name must be at most ${maxNameLength} characters on one line`,
 		};
@@ -43,7 +45,16 @@ export const validateNewSession = async (
 	if (typeof prompt !== "string" || prompt.trim() === "") {
 		return { error: "prompt is required" };
 	}
-	return { cwd, name: name.trim(), prompt };
+	const point = at === undefined ? undefined : parsePoint(at);
+	if (point === null) {
+		return { error: "at must be a point with finite x and y" };
+	}
+	return {
+		cwd,
+		prompt,
+		...(trimmed ? { name: trimmed } : {}),
+		...(point ? { at: point } : {}),
+	};
 };
 
 export const parseBackgrounded = (stdout: string): string | null =>
@@ -70,13 +81,20 @@ export const launchResult = (
 	};
 };
 
+export const launchArgs = (request: NewSessionRequest): string[] => [
+	"--bg",
+	...(request.name ? [`--name=${request.name}`] : []),
+	"--",
+	request.prompt,
+];
+
 export const claudeLauncher =
 	(claudeBin: string): SessionLauncher =>
 	(request) =>
 		new Promise((resolve) => {
 			execFile(
 				claudeBin,
-				["--bg", `--name=${request.name}`, "--", request.prompt],
+				launchArgs(request),
 				{ cwd: request.cwd, timeout: 60_000, maxBuffer: 1024 * 1024 },
 				(_error, stdout, stderr) =>
 					resolve(launchResult(request.cwd, stdout, stderr)),

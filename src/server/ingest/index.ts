@@ -56,8 +56,9 @@ const messageLimit = 200;
 export function startBoard(opts: {
 	claudeHome: string;
 	onChange: (board: Board) => void;
+	ignore?: (sessionId: string) => boolean;
 }): BoardHandle {
-	const { claudeHome, onChange } = opts;
+	const { claudeHome, onChange, ignore = () => false } = opts;
 	const tails = new Map<string, Tail>();
 	const agentTails = new Map<string, Tail>();
 	const locateAttempts = new Map<string, number>();
@@ -88,8 +89,8 @@ export function startBoard(opts: {
 
 	function build(): Board {
 		const now = Date.now();
-		const registry = readRegistry(claudeHome).filter((entry) =>
-			isAlive(entry.pid),
+		const registry = readRegistry(claudeHome).filter(
+			(entry) => !ignore(entry.sessionId) && isAlive(entry.pid),
 		);
 		for (const entry of registry) {
 			byPid.set(entry.pid, entry.sessionId);

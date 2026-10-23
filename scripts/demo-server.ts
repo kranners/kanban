@@ -10,8 +10,13 @@ import {
 import type {
 	Board,
 	BoardFeed,
+	ExitRequest,
+	ExitResult,
+	Layout,
+	LayoutUpdate,
 	Link,
 	Message,
+	NewSessionRequest,
 	NodeRef,
 	Preview,
 	Session,
@@ -354,6 +359,21 @@ const previews: Preview[] = Object.entries(transcripts).map(
 	}),
 );
 
+const layout: Layout = {};
+
+const notReady: Record<string, string> = {
+	a1f0c2d4e5:
+		"Still running the auth test suite; two specs have not finished yet.",
+	b2e1d3c4f6: "Waiting for you to approve the staging migration.",
+	d4c3f5a6b8: "There are uncommitted changes to the checkout labels.",
+};
+
+const readBody = async (req: AsyncIterable<Buffer>): Promise<unknown> => {
+	let body = "";
+	for await (const chunk of req) body += chunk;
+	return JSON.parse(body || "{}");
+};
+
 const terminalText = (entries: TranscriptEntry[]): string =>
 	entries
 		.map(({ role, text }) => `${role === "user" ? ">" : "●"} ${text}`)
@@ -362,17 +382,14 @@ const terminalText = (entries: TranscriptEntry[]): string =>
 const server = createServer(async (req, res) => {
 	const url = new URL(req.url ?? "/", "http://localhost");
 	if (req.method === "POST" && url.pathname === "/api/sessions") {
-		let body = "";
-		for await (const chunk of req) body += chunk;
-		const request = JSON.parse(body || "{}") as { cwd?: string; name?: string };
+		const request = (await readBody(req)) as Partial<NewSessionRequest>;
 		const id = Math.random().toString(16).slice(2, 12);
+		const cwd = request.cwd ?? "/Users/me/dev/acme-api";
 		const created = session({
 			id,
-			name: request.name || "new session",
-			project:
-				(request.cwd ?? "/Users/me/dev/acme-api").split("/").pop() ??
-				"acme-api",
-			cwd: request.cwd ?? "/Users/me/dev/acme-api",
+			name: request.name || (request.prompt ?? "new session").slice(0, 40),
+			project: cwd.split("/").pop() ?? "acme-api",
+			cwd,
 			activity: "working",
 			doing: "Starting",
 			startedAt: Date.now(),
@@ -380,10 +397,47 @@ const server = createServer(async (req, res) => {
 		});
 		setTimeout(() => {
 			sessions.push(created);
+			if (request.at) {
+				layout[`session:${id}`] = { x: request.at.x, y: request.at.y };
+				broadcast({ type: "layout", layout });
+			}
 			broadcast({ type: "board", board: snapshot() });
-		}, 600);
-		res.writeHead(200, { "content-type": "application/json" });
+		}, 1500);
+		res.writeHead(201, { "content-type": "application/json" });
 		res.end(JSON.stringify({ ok: true, short: created.short }));
+		return;
+	}
+	if (req.method === "PUT" && url.pathname === "/api/layout") {
+		const update = (await readBody(req)) as LayoutUpdate;
+		layout[update.key] = update.placement;
+		broadcast({ type: "layout", layout });
+		res.writeHead(204).end();
+		return;
+	}
+	const exit = url.pathname.match(/^\/api\/sessions\/([^/]+)\/exit$/);
+	if (req.method === "POST" && exit) {
+		const { force } = (await readBody(req)) as ExitRequest;
+		const id = exit[1] ?? "";
+		const index = sessions.findIndex((item) => item.id === id);
+		await new Promise((resolve) => setTimeout(resolve, 1500));
+		const reason = notReady[id];
+		const result: ExitResult =
+			index === -1
+				? { ok: false, error: "This session is no longer on the board" }
+				: reason && !force
+					? { ok: true, exited: false, reason }
+					: { ok: true, exited: true };
+		if (result.ok && result.exited) {
+			sessions.splice(
+				sessions.findIndex((item) => item.id === id),
+				1,
+			);
+			broadcast({ type: "board", board: snapshot() });
+		}
+		res.writeHead(result.ok ? 200 : 422, {
+			"content-type": "application/json",
+		});
+		res.end(JSON.stringify(result));
 		return;
 	}
 	const transcript = url.pathname.match(
@@ -424,10 +478,16 @@ server.on("upgrade", (req, socket, head) => {
 });
 
 function snapshot(): Board {
+	const live = new Set(sessions.map((item) => item.id));
+	const shown = board.subagents.filter((item) => live.has(item.sessionId));
+	const nodes = new Set([...live, ...shown.map((item) => item.id)]);
+	const connects = (edge: { from: NodeRef; to: NodeRef }) =>
+		nodes.has(edge.from.id) && nodes.has(edge.to.id);
 	return {
-		...board,
 		sessions: [...sessions],
-		messages: [...messages],
+		subagents: shown,
+		links: board.links.filter(connects),
+		messages: messages.filter(connects),
 		generatedAt: Date.now(),
 	};
 }
@@ -442,6 +502,7 @@ function broadcast(frame: BoardFeed): void {
 
 feed.on("connection", (ws) => {
 	send(ws, { type: "board", board: snapshot() });
+	send(ws, { type: "layout", layout });
 	for (const preview of previews) send(ws, { type: "preview", preview });
 });
 

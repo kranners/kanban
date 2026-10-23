@@ -20,6 +20,7 @@ const worker = "0a1b2c3d-0000-4000-8000-000000000002";
 const fork = "0f0f0f0f-0000-4000-8000-000000000003";
 const dead = "dddddddd-0000-4000-8000-000000000004";
 const old = "0e0e0e0e-0000-4000-8000-000000000005";
+const probe = "0c0c0c0c-0000-4000-8000-000000000006";
 const deadPid = 2 ** 22 - 7;
 const leadDir = "-Users-me-dev-acme-api";
 
@@ -89,6 +90,16 @@ function buildFixture() {
 		name: "acme-web fix",
 		status: "idle",
 		updatedAt: now - 120_000,
+	});
+	write("sessions/1.json", {
+		pid: 1,
+		sessionId: probe,
+		cwd: "/Users/me/dev/acme-api",
+		startedAt: now - 1000,
+		kind: "interactive",
+		entrypoint: "sdk-cli",
+		status: "busy",
+		updatedAt: now - 1000,
 	});
 	write(`sessions/${deadPid}.json`, {
 		pid: deadPid,
@@ -357,6 +368,7 @@ describe("startBoard", () => {
 		handle = startBoard({
 			claudeHome: home,
 			onChange: (next) => changes.push(next),
+			ignore: (id) => id === probe,
 		});
 		board = handle.board();
 	});
@@ -372,7 +384,7 @@ describe("startBoard", () => {
 		return found;
 	};
 
-	test("lists live sessions and recent jobs, dropping dead and old ones", () => {
+	test("lists live sessions and recent jobs, dropping dead, old and ignored ones", () => {
 		assert.deepEqual(
 			board.sessions.map((item) => item.id).sort(),
 			[worker, fork, lead].sort(),

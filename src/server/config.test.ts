@@ -22,6 +22,11 @@ describe("loadConfig", () => {
 		assert.equal(config.claudeBin, "/opt/homebrew/bin/claude");
 		assert.match(config.claudeHome, /\/\.claude$/);
 		assert.match(config.dist, /\/dist$/);
+		assert.match(config.stateDir, /\/\.local\/state\/kanban$/);
+		assert.equal(
+			loadConfig({ ...access, KANBAN_STATE: "/tmp/kanban-state" }).stateDir,
+			"/tmp/kanban-state",
+		);
 	});
 
 	it("refuses access auth without team or audience", () => {

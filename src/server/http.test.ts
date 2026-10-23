@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import WebSocket from "ws";
-import type { Board, BoardFeed, NewSessionRequest } from "../shared/types.ts";
+import type {
+	Board,
+	BoardFeed,
+	ExitResult,
+	NewSessionRequest,
+	Point,
+} from "../shared/types.ts";
 import type { AttachHub } from "./attach.ts";
 import type { AuditEvent } from "./audit.ts";
 import type { Authenticate } from "./auth.ts";
@@ -17,6 +23,7 @@ import {
 	matchUpgrade,
 	staticFile,
 } from "./http.ts";
+import { createLayoutStore } from "./layout.ts";
 
 const route = (method: string, path: string) =>
 	matchRoute(method, new URL(path, "http://x"));
@@ -43,6 +50,17 @@ describe("matchRoute", () => {
 			kind: "create-session",
 		});
 		assert.deepEqual(route("GET", "/api/sessions"), {
+			kind: "method-not-allowed",
+		});
+		assert.deepEqual(route("POST", "/api/sessions/abc-1/exit"), {
+			kind: "exit-session",
+			sessionId: "abc-1",
+		});
+		assert.deepEqual(route("GET", "/api/sessions/abc-1/exit"), {
+			kind: "method-not-allowed",
+		});
+		assert.deepEqual(route("PUT", "/api/layout"), { kind: "update-layout" });
+		assert.deepEqual(route("POST", "/api/layout"), {
 			kind: "method-not-allowed",
 		});
 		assert.deepEqual(route("GET", "/api/nope"), { kind: "not-found" });
@@ -112,6 +130,11 @@ describe("createKanbanServer", () => {
 			: { ok: false, status: 403 };
 	};
 	const launched: NewSessionRequest[] = [];
+	const expected: [string, Point][] = [];
+	const exits: [string, boolean][] = [];
+	let exitResult: ExitResult = { ok: true, exited: true };
+	let layoutFile = "";
+	let layoutSaved = () => Promise.resolve();
 	const attached: string[] = [];
 	const events: AuditEvent[] = [];
 	const origins: string[] = [];
@@ -133,7 +156,16 @@ describe("createKanbanServer", () => {
 			},
 			attached: () => [],
 		};
-		const feed = createFeed({
+		layoutFile = join(dist, "state", "layout.json");
+		let feed: ReturnType<typeof createFeed> | null = null;
+		const store = createLayoutStore({
+			file: layoutFile,
+			initial: {},
+			onChange: (layout) => feed?.layout(layout),
+		});
+		layoutSaved = store.saved;
+		feed = createFeed({
+			layout: store.current,
 			board: () => board,
 			previews: () => [
 				{
@@ -156,6 +188,17 @@ describe("createKanbanServer", () => {
 			launch: async (request) => {
 				launched.push(request);
 				return { ok: true, short: "feedbeef" };
+			},
+			exit: async (session, force) => {
+				exits.push([session.id, force]);
+				return exitResult;
+			},
+			layout: {
+				...store,
+				expect: (short, at) => {
+					expected.push([short, at]);
+					store.expect(short, at);
+				},
 			},
 			attach,
 			feed,
@@ -273,6 +316,103 @@ describe("createKanbanServer", () => {
 			415,
 		);
 		assert.equal(launched.length, 1);
+		assert.deepEqual(expected, []);
+
+		const placed = await post({ ...request, at: { x: 40, y: 80 } });
+		assert.equal(placed.status, 201);
+		assert.deepEqual(expected, [["feedbeef", { x: 40, y: 80 }]]);
+	});
+
+	const send = (method: string, path: string, body: unknown) =>
+		fetch(`${base}${path}`, {
+			method,
+			headers: { ...authed, "content-type": "application/json", origin },
+			body: JSON.stringify(body),
+		});
+
+	it("exits a session on the board and audits the outcome", async () => {
+		const id = board.sessions[0]?.id ?? "";
+		const exited = await send("POST", `/api/sessions/${id}/exit`, {
+			force: false,
+		});
+		assert.equal(exited.status, 200);
+		assert.deepEqual(await exited.json(), { ok: true, exited: true });
+		assert.deepEqual(events.at(-1), {
+			action: "session-exit",
+			sessionId: id,
+			short: "abcd1234",
+			kind: "background",
+			force: false,
+			identity: "me@example.com",
+			result: "exited",
+		});
+
+		exitResult = { ok: true, exited: false, reason: "Tests still running" };
+		const busy = await send("POST", `/api/sessions/${id}/exit`, {
+			force: false,
+		});
+		assert.deepEqual(await busy.json(), exitResult);
+		const audited = events.at(-1);
+		assert.equal(
+			audited?.action === "session-exit" && audited.result,
+			"not ready: Tests still running",
+		);
+
+		exitResult = { ok: false, error: "Stopped, but claude rm refused: x" };
+		const refused = await send("POST", `/api/sessions/${id}/exit`, {
+			force: true,
+		});
+		assert.equal(refused.status, 422);
+
+		assert.equal(
+			(await send("POST", "/api/sessions/nope/exit", { force: true })).status,
+			404,
+		);
+		assert.equal(
+			(await send("POST", `/api/sessions/${id}/exit`, { force: "yes" })).status,
+			400,
+		);
+		assert.deepEqual(exits, [
+			[id, false],
+			[id, false],
+			[id, true],
+		]);
+	});
+
+	it("stores placements for nodes on the board and broadcasts them", async () => {
+		const key = `session:${board.sessions[0]?.id}`;
+		const socket = new WebSocket(`${base.replace("http", "ws")}/api/feed`, {
+			headers: { ...authed, origin },
+		});
+		const broadcast = new Promise<BoardFeed>((resolve) => {
+			let layouts = 0;
+			socket.on("message", (data) => {
+				const frame = JSON.parse(String(data)) as BoardFeed;
+				if (frame.type === "layout" && ++layouts === 2) resolve(frame);
+			});
+		});
+		await new Promise((resolve) => socket.on("open", resolve));
+		const placement = { x: 24, y: -48, w: 480, h: 360 };
+		const stored = await send("PUT", "/api/layout", { key, placement });
+		assert.equal(stored.status, 204);
+		assert.deepEqual(await broadcast, {
+			type: "layout",
+			layout: { [key]: placement },
+		});
+		socket.close();
+		assert.equal(
+			(await send("PUT", "/api/layout", { key: "session:nope", placement }))
+				.status,
+			404,
+		);
+		assert.equal(
+			(await send("PUT", "/api/layout", { key, placement: { x: 1 } })).status,
+			400,
+		);
+		await layoutSaved();
+		assert.deepEqual(JSON.parse(await readFile(layoutFile, "utf8")), {
+			[key]: placement,
+		});
 	});
 
 	const upgradeStatus = (path: string, headers: Record<string, string>) =>
@@ -323,7 +463,7 @@ describe("createKanbanServer", () => {
 			});
 			socket.on("message", (data) => {
 				received.push(JSON.parse(String(data)));
-				if (received.length === 2) {
+				if (received.length === 3) {
 					socket.close();
 					resolve(received);
 				}
@@ -331,7 +471,7 @@ describe("createKanbanServer", () => {
 		});
 		assert.deepEqual(
 			frames.map((frame) => frame.type),
-			["board", "preview"],
+			["board", "layout", "preview"],
 		);
 	});
 
