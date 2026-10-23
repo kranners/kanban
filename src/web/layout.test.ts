@@ -216,6 +216,9 @@ test("a board too big to fit legibly wraps to the stage width at legible zoom", 
 	const available = stage.width - 2 * fitPadding;
 	assert.ok(placed.width * legibleZoom <= available);
 	assert.ok(
-		placed.width + defaultLayoutOptions.session.w > available / legibleZoom,
+		placed.width +
+			defaultLayoutOptions.familyGap +
+			defaultLayoutOptions.session.w >
+			available / legibleZoom,
 	);
 });

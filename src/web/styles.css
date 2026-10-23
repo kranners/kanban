@@ -25,6 +25,8 @@
 	--focus-ring: 0 0 0 3px rgb(181 80 47 / 0.28);
 	--shadow-pop: 0 8px 24px rgb(29 28 26 / 0.08);
 
+	--group-bg: color-mix(in srgb, var(--ink) 3.5%, var(--page));
+	--label-height: 44px;
 	--motion: 1;
 	--radius: 10px;
 	--radius-sm: 8px;
@@ -341,17 +343,28 @@ button.reconnecting {
 	overflow: clip;
 	touch-action: none;
 	cursor: grab;
-	background-color: var(--page);
-	background-image: radial-gradient(
-		circle,
-		var(--hairline) 1px,
-		transparent 1.2px
+	--dot: color-mix(
+		in srgb,
+		var(--hairline-strong) calc(var(--dot-fade, 1) * 100%),
+		transparent
 	);
-	background-size: 24px 24px;
+	background-color: var(--page);
+	background-image: radial-gradient(circle, var(--dot) 1px, transparent 1.4px);
+	background-size: var(--dot-spacing, 24px) var(--dot-spacing, 24px);
+	background-position: var(--dot-x, 0) var(--dot-y, 0);
 }
 
-.viewport.panning {
+.viewport.panning,
+.viewport.arranging {
 	cursor: grabbing;
+}
+
+.viewport.arranging {
+	--dot: color-mix(
+		in srgb,
+		var(--muted) calc(var(--dot-fade, 1) * 70%),
+		transparent
+	);
 }
 
 .viewport.panning .node {
@@ -362,6 +375,8 @@ button.reconnecting {
 	position: absolute;
 	inset: 0 auto auto 0;
 	transform-origin: 0 0;
+	user-select: none;
+	-webkit-user-select: none;
 	will-change: transform;
 }
 
@@ -400,14 +415,101 @@ button.reconnecting {
 }
 
 .node {
+	--group-fill: var(--page);
 	position: absolute;
 	left: 0;
 	top: 0;
 	transition:
 		transform calc(320ms * var(--motion)) cubic-bezier(0.2, 0.7, 0.2, 1),
+		width calc(320ms * var(--motion)) cubic-bezier(0.2, 0.7, 0.2, 1),
+		height calc(320ms * var(--motion)) cubic-bezier(0.2, 0.7, 0.2, 1),
 		opacity calc(160ms * var(--motion));
 	animation: node-enter calc(320ms * var(--motion))
 		cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.node[data-arranging] {
+	z-index: 3;
+}
+
+.node.grouped {
+	--group-fill: var(--group-bg);
+}
+
+.resize-handle {
+	position: absolute;
+	right: -6px;
+	bottom: -6px;
+	width: 22px;
+	height: 22px;
+	cursor: nwse-resize;
+	opacity: 0;
+	transition: opacity calc(140ms * var(--motion));
+}
+
+.resize-handle::after {
+	content: "";
+	position: absolute;
+	right: 9px;
+	bottom: 9px;
+	width: 8px;
+	height: 8px;
+	border-right: 2px solid var(--muted);
+	border-bottom: 2px solid var(--muted);
+	border-bottom-right-radius: 3px;
+}
+
+.node:hover .resize-handle,
+.node[data-arranging="resize"] .resize-handle {
+	opacity: 1;
+}
+
+.node[data-arranging="resize"] .resize-handle::after {
+	border-color: var(--accent);
+}
+
+.node-corner {
+	position: absolute;
+	top: calc(var(--label-height) - 10px);
+	right: -10px;
+	z-index: 1;
+}
+
+.group-frame {
+	position: absolute;
+	left: 0;
+	top: 0;
+	border: 1px solid var(--hairline);
+	border-radius: 16px;
+	background: var(--group-bg);
+	pointer-events: none;
+	transition:
+		transform calc(320ms * var(--motion)) cubic-bezier(0.2, 0.7, 0.2, 1),
+		width calc(320ms * var(--motion)) cubic-bezier(0.2, 0.7, 0.2, 1),
+		height calc(320ms * var(--motion)) cubic-bezier(0.2, 0.7, 0.2, 1);
+	animation: node-enter calc(320ms * var(--motion))
+		cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.group-label {
+	position: absolute;
+	top: 7px;
+	left: 14px;
+	max-width: calc(100% - 28px);
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	color: var(--muted);
+	font-size: 11.5px;
+	font-weight: 600;
+	letter-spacing: 0.01em;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.group-label svg {
+	flex: none;
 }
 
 @keyframes node-enter {
@@ -422,7 +524,7 @@ button.reconnecting {
 }
 
 .label {
-	height: 44px;
+	height: var(--label-height);
 	padding: 0 0 6px;
 	display: flex;
 	flex-direction: column;
@@ -434,7 +536,7 @@ button.reconnecting {
 	width: fit-content;
 	max-width: 100%;
 	padding: 0 4px;
-	background: var(--page);
+	background: var(--group-fill);
 	font-weight: 600;
 	font-size: 14px;
 	line-height: 20px;
@@ -448,7 +550,7 @@ button.reconnecting {
 	width: fit-content;
 	max-width: 100%;
 	padding: 0 4px;
-	background: var(--page);
+	background: var(--group-fill);
 	color: var(--muted);
 	font-size: 12.5px;
 	line-height: 18px;
@@ -463,7 +565,7 @@ button.reconnecting {
 	font: inherit;
 	color: inherit;
 	text-align: left;
-	height: 190px;
+	height: calc(100% - var(--label-height));
 	display: flex;
 	flex-direction: column;
 	border: 1px solid var(--hairline);
@@ -483,6 +585,12 @@ button.reconnecting {
 
 .node.lit .frame {
 	box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.node[data-arranging="move"] .frame,
+.node.subagent[data-arranging="move"] {
+	box-shadow: var(--shadow-pop);
+	scale: 1.015;
 }
 
 .body {
@@ -1175,4 +1283,15 @@ button.reconnecting {
 .node.lit.dimmed,
 .arc.lit.dimmed {
 	opacity: 1;
+}
+
+.viewport.panning .resize-handle {
+	opacity: 0;
+}
+
+.viewport.arranging .node,
+.viewport.arranging .group-frame,
+.viewport.arranging .edge > path,
+.viewport.arranging .arc > path {
+	transition-duration: calc(70ms * var(--motion));
 }

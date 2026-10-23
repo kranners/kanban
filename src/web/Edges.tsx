@@ -2,8 +2,9 @@ import { GitBranch } from "lucide-preact";
 import type { ComponentChildren } from "preact";
 import type { Board, Message } from "../shared/types.ts";
 import { messageArc, treeMidpoint, treePath } from "./geometry.ts";
-import type { BoardLayout, NodeKey } from "./layout.ts";
+import type { NodeKey } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
+import type { Arrangement } from "./placement.ts";
 
 const freshMessageMs = 60_000;
 const reducedMotion =
@@ -36,9 +37,11 @@ function curveStyle(path: string) {
 	return { d: `path("${path}")` };
 }
 
+type Placed = Pick<Arrangement, "nodes" | "bounds">;
+
 type EdgeProps = {
 	board: Board;
-	layout: BoardLayout;
+	layout: Placed;
 	visible: (key: NodeKey) => boolean;
 };
 
@@ -49,19 +52,22 @@ function faded(props: EdgeProps, a: NodeKey, b: NodeKey): string {
 }
 
 function EdgeLayer(props: {
-	layout: BoardLayout;
+	layout: Placed;
 	class: string;
 	children: ComponentChildren;
 }) {
-	const width = props.layout.width + layerPad * 2;
-	const height = props.layout.height + layerPad * 2;
+	const { bounds } = props.layout;
+	const left = bounds.x - layerPad;
+	const top = bounds.y - layerPad;
+	const width = bounds.width + layerPad * 2;
+	const height = bounds.height + layerPad * 2;
 	return (
 		<svg
 			class={props.class}
 			width={width}
 			height={height}
-			viewBox={`${-layerPad} ${-layerPad} ${width} ${height}`}
-			style={{ transform: `translate(${-layerPad}px, ${-layerPad}px)` }}
+			viewBox={`${left} ${top} ${width} ${height}`}
+			style={{ transform: `translate(${left}px, ${top}px)` }}
 			aria-hidden="true"
 		>
 			{props.children}

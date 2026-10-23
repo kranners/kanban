@@ -12,6 +12,7 @@ export type PlacedNode = {
 	y: number;
 	w: number;
 	h: number;
+	follows?: NodeKey;
 };
 
 export type BoardLayout = {
@@ -35,12 +36,12 @@ export const sessionLabelHeight = 44;
 
 export const defaultLayoutOptions: LayoutOptions = {
 	maxWidth: 2400,
-	session: { w: 300, h: 190 + sessionLabelHeight },
-	subagent: { w: 220, h: 64 },
-	siblingGap: 32,
-	levelGap: 56,
+	session: { w: 312, h: 240 },
+	subagent: { w: 216, h: 72 },
+	siblingGap: 24,
+	levelGap: 48,
 	familyGap: 96,
-	rowGap: 120,
+	rowGap: 96,
 };
 
 const treeLinkKinds: ReadonlySet<LinkKind> = new Set([
@@ -235,17 +236,6 @@ export function layoutBoard(
 	});
 
 	return { nodes: placed, families, width, height: rowBottom };
-}
-
-export function newestRoot(layout: BoardLayout): PlacedNode | null {
-	const family = (layout.families[0] ?? []).flatMap((key) => {
-		const node = layout.nodes.get(key);
-		return node ? [node] : [];
-	});
-	return family.reduce<PlacedNode | null>(
-		(top, node) => (top === null || node.y < top.y ? node : top),
-		null,
-	);
 }
 
 export function layoutForStage(

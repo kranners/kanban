@@ -1,4 +1,22 @@
+import type { Point } from "../shared/types.ts";
+
 export type View = { x: number; y: number; k: number };
+
+export function toBoard(view: View, screen: Point): Point {
+	return { x: (screen.x - view.x) / view.k, y: (screen.y - view.y) / view.k };
+}
+
+export function toScreen(view: View, board: Point): Point {
+	return { x: board.x * view.k + view.x, y: board.y * view.k + view.y };
+}
+
+export function fromOrigin(view: View, origin: Point): View {
+	return {
+		k: view.k,
+		x: view.x - origin.x * view.k,
+		y: view.y - origin.y * view.k,
+	};
+}
 
 export const minZoom = 0.15;
 export const maxZoom = 2;

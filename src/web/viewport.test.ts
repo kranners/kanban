@@ -3,10 +3,13 @@ import { test } from "node:test";
 import {
 	fitPadding,
 	fitView,
+	fromOrigin,
 	initialView,
 	legibleZoom,
 	maxZoom,
 	minZoom,
+	toBoard,
+	toScreen,
 	zoomAround,
 } from "./viewport.ts";
 
@@ -72,4 +75,16 @@ test("a board too large to read starts legible at its top instead", () => {
 	);
 	assert.equal(roomy.k, 1);
 	assert.equal(roomy.x, 200);
+});
+
+test("screen and board points convert both ways", () => {
+	const view = { x: 40, y: -20, k: 0.5 };
+	const board = toBoard(view, { x: 140, y: 80 });
+	assert.deepEqual(board, { x: 200, y: 200 });
+	assert.deepEqual(toScreen(view, board), { x: 140, y: 80 });
+});
+
+test("a view fitted to content at the origin can be moved to content elsewhere", () => {
+	const view = fromOrigin({ x: 10, y: 20, k: 2 }, { x: 100, y: -50 });
+	assert.deepEqual(toScreen(view, { x: 100, y: -50 }), { x: 10, y: 20 });
 });

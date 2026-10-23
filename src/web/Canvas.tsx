@@ -2,42 +2,113 @@ import { signal } from "@preact/signals";
 import { Maximize, Minus, Plus } from "lucide-preact";
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
-import type { Size, Span, View } from "./viewport.ts";
-import { fitPadding, fitView, initialView, zoomAround } from "./viewport.ts";
+import type { Point } from "../shared/types.ts";
+import type { Arranging } from "./arrangement.ts";
+import { dotGrid, snap, snapWithin } from "./grid.ts";
+import type { NodeKey } from "./layout.ts";
+import type { Bounds, Rect } from "./placement.ts";
+import { maxSessionSize, minSessionSize } from "./placement.ts";
+import type { Span, View } from "./viewport.ts";
+import {
+	fitPadding,
+	fitView,
+	fromOrigin,
+	initialView,
+	toBoard,
+	toScreen,
+	zoomAround,
+} from "./viewport.ts";
 
 export const view = signal<View>({ x: 0, y: 0, k: 1 });
 
 const dragThreshold = 4;
 let suppressClick = false;
+let stage: HTMLDivElement | null = null;
+
+export function boardPointAt(clientX: number, clientY: number): Point | null {
+	if (!stage) return null;
+	const box = stage.getBoundingClientRect();
+	return toBoard(view.value, { x: clientX - box.left, y: clientY - box.top });
+}
+
+export function clientPointOf(point: Point): Point | null {
+	if (!stage) return null;
+	const box = stage.getBoundingClientRect();
+	const screen = toScreen(view.value, point);
+	return { x: screen.x + box.left, y: screen.y + box.top };
+}
+
+type Grab = {
+	pointerId: number;
+	key: NodeKey;
+	mode: Arranging["mode"];
+	card: HTMLElement;
+	origin: Rect;
+	start: Point;
+	rect: Rect;
+	moved: boolean;
+};
+
+function sameRect(a: Rect, b: Rect): boolean {
+	return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+}
+
+function arranged(grab: Grab, dx: number, dy: number): Rect {
+	const { origin } = grab;
+	if (grab.mode === "move")
+		return { ...origin, x: snap(origin.x + dx), y: snap(origin.y + dy) };
+	return {
+		...origin,
+		w: snapWithin(origin.w + dx, minSessionSize.w, maxSessionSize.w),
+		h: snapWithin(origin.h + dy, minSessionSize.h, maxSessionSize.h),
+	};
+}
 
 export function Canvas(props: {
-	content: Size | null;
+	content: Bounds | null;
 	anchor?: Span;
 	fitKey: string;
+	rectOf?: (key: NodeKey) => Rect | undefined;
+	onArrange?: (gesture: Arranging) => void;
 	children: ComponentChildren;
 }) {
 	const viewport = useRef<HTMLDivElement>(null);
 	const fitted = useRef("");
+	const latest = useRef(props);
+	latest.current = props;
 
 	const fit = () => {
 		const el = viewport.current;
-		if (!el || !props.content) return;
-		view.value = fitView(props.content, {
-			width: el.clientWidth,
-			height: el.clientHeight,
-		});
+		const content = props.content;
+		if (!el || !content) return;
+		view.value = fromOrigin(
+			fitView(content, { width: el.clientWidth, height: el.clientHeight }),
+			content,
+		);
 	};
 
 	useEffect(() => {
 		const el = viewport.current;
-		if (!el || !props.content || fitted.current === props.fitKey) return;
+		const content = props.content;
+		if (!el || !content || fitted.current === props.fitKey) return;
 		fitted.current = props.fitKey;
-		view.value = initialView(
-			props.content,
-			{ width: el.clientWidth, height: el.clientHeight },
-			props.anchor,
+		const anchor = props.anchor;
+		view.value = fromOrigin(
+			initialView(
+				content,
+				{ width: el.clientWidth, height: el.clientHeight },
+				anchor ? { x: anchor.x - content.x, w: anchor.w } : undefined,
+			),
+			content,
 		);
 	});
+
+	useEffect(() => {
+		stage = viewport.current;
+		return () => {
+			stage = null;
+		};
+	}, []);
 
 	useEffect(() => {
 		const el = viewport.current;
@@ -65,6 +136,62 @@ export function Canvas(props: {
 		let start: { x: number; y: number } | null = null;
 		let moved = false;
 		let pinch: { distance: number; k: number } | null = null;
+		let grab: Grab | null = null;
+
+		const grabCard = (event: PointerEvent): Grab | null => {
+			const target = event.target as Element;
+			const card = target.closest<HTMLElement>("[data-node]");
+			const key = card?.dataset.node;
+			const rect = key ? latest.current.rectOf?.(key) : undefined;
+			if (!card || !key || !rect || !latest.current.onArrange) return null;
+			return {
+				pointerId: event.pointerId,
+				key,
+				mode: target.closest("[data-resize]") ? "resize" : "move",
+				card,
+				origin: rect,
+				start: { x: event.clientX, y: event.clientY },
+				rect,
+				moved: false,
+			};
+		};
+
+		const finishGrab = (phase: "drop" | "cancel") => {
+			if (!grab) return;
+			const { key, mode, rect, card, moved: wasMoved } = grab;
+			grab = null;
+			if (!wasMoved) return;
+			delete card.dataset.arranging;
+			el.classList.remove("arranging");
+			latest.current.onArrange?.({ key, mode, rect, phase });
+			suppressClick = true;
+			setTimeout(() => {
+				suppressClick = false;
+			}, 0);
+		};
+
+		const moveGrab = (event: PointerEvent) => {
+			if (!grab || event.pointerId !== grab.pointerId) return;
+			const dx = event.clientX - grab.start.x;
+			const dy = event.clientY - grab.start.y;
+			if (!grab.moved && Math.hypot(dx, dy) < dragThreshold) return;
+			if (!grab.moved) {
+				grab.moved = true;
+				el.setPointerCapture(event.pointerId);
+				el.classList.add("arranging");
+				grab.card.dataset.arranging = grab.mode;
+			}
+			const k = view.value.k;
+			const rect = arranged(grab, dx / k, dy / k);
+			if (sameRect(rect, grab.rect)) return;
+			grab.rect = rect;
+			latest.current.onArrange?.({
+				key: grab.key,
+				mode: grab.mode,
+				rect,
+				phase: "move",
+			});
+		};
 
 		const spread = () => {
 			const [a, b] = [...pointers.values()];
@@ -76,8 +203,12 @@ export function Canvas(props: {
 		};
 
 		const onDown = (event: PointerEvent) => {
-			if (event.button !== 0) return;
+			if (event.button !== 0 || grab) return;
 			if ((event.target as Element).closest("input, a, [data-no-pan]")) return;
+			if (pointers.size === 0) {
+				grab = grabCard(event);
+				if (grab) return;
+			}
 			pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
 			start = { x: event.clientX, y: event.clientY };
 			moved = false;
@@ -85,6 +216,10 @@ export function Canvas(props: {
 			pinch = s ? { distance: s.distance, k: view.value.k } : null;
 		};
 		const onMove = (event: PointerEvent) => {
+			if (grab) {
+				moveGrab(event);
+				return;
+			}
 			const last = pointers.get(event.pointerId);
 			if (!last) return;
 			const current = { x: event.clientX, y: event.clientY };
@@ -126,6 +261,10 @@ export function Canvas(props: {
 			};
 		};
 		const onUp = (event: PointerEvent) => {
+			if (grab && event.pointerId === grab.pointerId) {
+				finishGrab(event.type === "pointercancel" ? "cancel" : "drop");
+				return;
+			}
 			if (!pointers.delete(event.pointerId)) return;
 			if (pointers.size < 2) pinch = null;
 			if (pointers.size === 0) {
@@ -189,8 +328,18 @@ export function Canvas(props: {
 	};
 
 	const v = view.value;
+	const dots = dotGrid(v);
 	return (
-		<div class="viewport" ref={viewport}>
+		<div
+			class="viewport"
+			ref={viewport}
+			style={{
+				"--dot-spacing": `${dots.spacing}px`,
+				"--dot-x": `${dots.x}px`,
+				"--dot-y": `${dots.y}px`,
+				"--dot-fade": dots.fade,
+			}}
+		>
 			<div
 				class="world"
 				style={{ transform: `translate(${v.x}px, ${v.y}px) scale(${v.k})` }}

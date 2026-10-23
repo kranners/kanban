@@ -1,12 +1,15 @@
 import { Plus } from "lucide-preact";
 import type { Board } from "../shared/types.ts";
+import { arrangement, arrangeNode, groups } from "./arrangement.ts";
 import { Canvas } from "./Canvas.tsx";
 import { SessionCard, SubagentCard } from "./Card.tsx";
 import { Arcs, Links, messagePairs } from "./Edges.tsx";
 import { Focus } from "./focus/Focus.tsx";
 import { NewSession } from "./focus/NewSession.tsx";
-import type { BoardLayout, NodeKey } from "./layout.ts";
-import { newestRoot, nodeKey } from "./layout.ts";
+import { GroupFrames } from "./Groups.tsx";
+import type { NodeKey } from "./layout.ts";
+import { nodeKey } from "./layout.ts";
+import type { Arrangement } from "./placement.ts";
 import { Rail } from "./Rail.tsx";
 import {
 	awaitingShort,
@@ -22,7 +25,6 @@ import {
 	previews,
 	sessionMatches,
 	sessionsById,
-	stageLayout,
 	subagentsById,
 } from "./state.ts";
 import { TopBar } from "./TopBar.tsx";
@@ -55,13 +57,16 @@ function litNodes(current: Board): {
 	return { pair: pair?.key ?? null, nodes: new Set([from, to]) };
 }
 
-function World(props: { board: Board; layout: BoardLayout }) {
+function World(props: { board: Board; layout: Arrangement }) {
 	const visible = visibility();
 	const lit = litNodes(props.board);
 	const sessionPreviews = previews.value;
 	const t = now.value;
+	const frames = groups.value;
+	const grouped = new Set(frames.flatMap((g) => g.members));
 	return (
 		<>
+			<GroupFrames groups={frames} />
 			<Links board={props.board} layout={props.layout} visible={visible} />
 			{props.board.sessions.map((session) => {
 				const node = props.layout.nodes.get(
@@ -78,6 +83,7 @@ function World(props: { board: Board; layout: BoardLayout }) {
 						emphasis={{
 							dimmed: !visible(node.key),
 							lit: lit.nodes.has(node.key),
+							grouped: grouped.has(node.key),
 						}}
 						onOpen={openSession}
 					/>
@@ -137,9 +143,19 @@ function Placeholder(props: { title: string; body: string; action?: boolean }) {
 	);
 }
 
+function newestSession(current: Board, placed: Arrangement) {
+	const newest = current.sessions.reduce<Board["sessions"][number] | null>(
+		(top, s) => (top === null || s.startedAt > top.startedAt ? s : top),
+		null,
+	);
+	return newest
+		? placed.nodes.get(nodeKey({ kind: "session", id: newest.id }))
+		: undefined;
+}
+
 function Stage() {
 	const current = board.value;
-	const placed = stageLayout.value;
+	const placed = arrangement.value;
 	if (!current || !placed) {
 		return (
 			<Placeholder
@@ -157,12 +173,14 @@ function Stage() {
 			/>
 		);
 	}
-	const root = newestRoot(placed);
+	const anchor = newestSession(current, placed);
 	return (
 		<Canvas
-			content={{ width: placed.width, height: placed.height }}
-			anchor={root ? { x: root.x, w: root.w } : undefined}
+			content={placed.bounds}
+			anchor={anchor ? { x: anchor.x, w: anchor.w } : undefined}
 			fitKey="board"
+			rectOf={(key) => arrangement.peek()?.nodes.get(key)}
+			onArrange={arrangeNode}
 		>
 			<World board={current} layout={placed} />
 		</Canvas>

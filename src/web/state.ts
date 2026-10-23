@@ -6,7 +6,6 @@ import type {
 	Preview,
 	Session,
 } from "../shared/types.ts";
-import { layoutForStage } from "./layout.ts";
 import type { Size } from "./viewport.ts";
 
 export type Connection = "connecting" | "open" | "reconnecting" | "lost";
@@ -49,10 +48,6 @@ railOpen.subscribe(() => {
 });
 
 export const layout = signal<Layout>({});
-
-export const stageLayout = computed(() =>
-	board.value ? layoutForStage(board.value, stageSize.value) : null,
-);
 
 export const sessionsById = computed(
 	() => new Map((board.value?.sessions ?? []).map((s) => [s.id, s])),

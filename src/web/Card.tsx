@@ -1,14 +1,20 @@
 import { Bot, Server, Terminal } from "lucide-preact";
+import type { ComponentChildren } from "preact";
 import { useLayoutEffect, useRef } from "preact/hooks";
 import type { Preview, Session, Subagent } from "../shared/types.ts";
 import { ActivityBadge, activityLabel } from "./activity.tsx";
 import type { PlacedNode } from "./layout.ts";
 import { relativeTime } from "./time.ts";
 
-type Emphasis = { dimmed: boolean; lit: boolean };
+type Emphasis = { dimmed: boolean; lit: boolean; grouped?: boolean };
 
 function nodeClass(base: string, emphasis: Emphasis): string {
-	return [base, emphasis.dimmed && "dimmed", emphasis.lit && "lit"]
+	return [
+		base,
+		emphasis.dimmed && "dimmed",
+		emphasis.lit && "lit",
+		emphasis.grouped && "grouped",
+	]
 		.filter(Boolean)
 		.join(" ");
 }
@@ -17,6 +23,7 @@ function position(node: PlacedNode) {
 	return {
 		transform: `translate(${node.x}px, ${node.y}px)`,
 		width: `${node.w}px`,
+		height: `${node.h}px`,
 	};
 }
 
@@ -96,6 +103,7 @@ export function SessionCard(props: {
 	now: number;
 	emphasis: Emphasis;
 	onOpen: (id: string, origin: DOMRect) => void;
+	corner?: ComponentChildren;
 }) {
 	const { session } = props;
 	const KindIcon = session.kind === "interactive" ? Terminal : Server;
@@ -108,7 +116,7 @@ export function SessionCard(props: {
 		<div
 			class={nodeClass(`node session act-${session.activity}`, props.emphasis)}
 			style={position(props.node)}
-			data-node
+			data-node={props.node.key}
 		>
 			<div class="label">
 				<div class="label-name">{session.name}</div>
@@ -152,6 +160,8 @@ export function SessionCard(props: {
 					</span>
 				</div>
 			</button>
+			<span class="resize-handle" data-resize aria-hidden="true" />
+			{props.corner && <div class="node-corner">{props.corner}</div>}
 		</div>
 	);
 }
@@ -186,8 +196,8 @@ export function SubagentCard(props: {
 				`node subagent${subagent.live ? " live" : ""}`,
 				props.emphasis,
 			)}
-			style={{ ...position(props.node), height: `${props.node.h}px` }}
-			data-node
+			style={position(props.node)}
+			data-node={props.node.key}
 			title={subagent.description}
 		>
 			<span class="sub-icon">
