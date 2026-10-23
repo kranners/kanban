@@ -75,15 +75,32 @@ export type TranscriptEntry = {
 	text: string;
 };
 
+export type Point = { x: number; y: number };
+
+export type Placement = Point & { w?: number; h?: number };
+
+export type Layout = Record<string, Placement>;
+
+export type LayoutUpdate = { key: string; placement: Placement };
+
 export type BoardFeed =
 	| { type: "board"; board: Board }
-	| { type: "preview"; preview: Preview };
+	| { type: "preview"; preview: Preview }
+	| { type: "layout"; layout: Layout };
 
 export type NewSessionRequest = {
 	cwd: string;
-	name: string;
+	name?: string;
 	prompt: string;
+	at?: Point;
 };
+
+export type ExitRequest = { force: boolean };
+
+export type ExitResult =
+	| { ok: true; exited: true }
+	| { ok: true; exited: false; reason: string }
+	| { ok: false; error: string };
 
 export type NewSessionResult =
 	| { ok: true; short: string }
