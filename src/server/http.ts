@@ -8,7 +8,7 @@ import {
 	STATUS_CODES,
 } from "node:http";
 import { extname, join, normalize, sep } from "node:path";
-import type { Duplex } from "node:stream";
+import { type Duplex, pipeline } from "node:stream";
 import { WebSocketServer } from "ws";
 import type { Board, TranscriptEntry } from "../shared/types.ts";
 import {
@@ -200,9 +200,13 @@ const serveStatic = async (
 			? "no-cache"
 			: "public, max-age=3600",
 		"x-content-type-options": "nosniff",
+		"content-security-policy": "frame-ancestors 'none'",
+		"x-frame-options": "DENY",
 	});
 	if (head) return res.end();
-	createReadStream(file).pipe(res);
+	pipeline(createReadStream(file), res, (error) => {
+		if (error) res.destroy();
+	});
 };
 
 const rejectUpgrade = (socket: Duplex, status: number) => {
@@ -303,6 +307,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			return rejectUpgrade(socket, 404);
 		}
 		sockets.handleUpgrade(req, socket, head, (ws) => {
+			ws.on("error", () => ws.terminate());
 			try {
 				if (route.kind === "feed") deps.feed.add(ws);
 				else if (target && route.kind === "attach") {

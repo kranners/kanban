@@ -1,4 +1,4 @@
-import { Moon, Plus, Search, Sun, SunMoon } from "lucide-preact";
+import { Moon, Plus, RotateCw, Search, Sun, SunMoon } from "lucide-preact";
 import { ActivityIcon, activityLabel, activityOrder } from "./activity.tsx";
 import { Mark } from "./Mark.tsx";
 import {
@@ -32,6 +32,17 @@ export function TopBar() {
 						<span class="pulse" />
 						Reconnecting
 					</span>
+				)}
+				{connection.value === "lost" && (
+					<button
+						type="button"
+						class="reconnecting"
+						onClick={() => location.reload()}
+						title="The board lost its connection; reload to sign in again"
+					>
+						<RotateCw size={12} />
+						Reload
+					</button>
 				)}
 			</div>
 			<fieldset class="pills" aria-label="Filter by activity">

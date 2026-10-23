@@ -1,7 +1,7 @@
 import { Bot, Server, Terminal } from "lucide-preact";
-import { useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useLayoutEffect, useRef } from "preact/hooks";
 import type { Preview, Session, Subagent } from "../shared/types.ts";
-import { ActivityBadge } from "./activity.tsx";
+import { ActivityBadge, activityLabel } from "./activity.tsx";
 import type { PlacedNode } from "./layout.ts";
 import { relativeTime } from "./time.ts";
 
@@ -20,46 +20,40 @@ function position(node: PlacedNode) {
 	};
 }
 
-const previewFontPx = 10;
-const monoAdvance = 0.6;
-const minPreviewScale = 0.5;
-
-function widestLine(element: HTMLElement): number {
-	const rows = element.querySelectorAll("pre > div");
-	let widest = 0;
-	for (const row of rows) {
-		widest = Math.max(widest, (row.textContent ?? "").trimEnd().length);
-	}
-	return widest;
-}
-
 function TerminalPreview(props: { html: string }) {
-	const frame = useRef<HTMLDivElement>(null);
 	const content = useRef<HTMLDivElement>(null);
-	const [scale, setScale] = useState(1);
 	useLayoutEffect(() => {
-		const outer = frame.current;
-		const inner = content.current;
-		if (!outer || !inner) return;
-		inner.innerHTML = props.html;
-		const natural = widestLine(inner) * previewFontPx * monoAdvance;
-		const available = outer.clientWidth - 20;
-		setScale(
-			natural > available ? Math.max(minPreviewScale, available / natural) : 1,
-		);
+		if (content.current) content.current.innerHTML = props.html;
 	}, [props.html]);
 	return (
-		<div class="term" ref={frame} aria-hidden="true">
-			<div
-				class="term-content"
-				ref={content}
-				style={{ transform: `scale(${scale})` }}
-			/>
+		<div class="term" aria-hidden="true">
+			<div class="term-content" ref={content} />
 		</div>
 	);
 }
 
-function InteractiveBody(props: { session: Session }) {
+function ReadOnlyChip() {
+	return (
+		<span class="chip">
+			<Terminal size={12} aria-hidden="true" />
+			In a terminal · read-only
+		</span>
+	);
+}
+
+function InteractiveBody(props: {
+	session: Session;
+	preview: Preview | undefined;
+}) {
+	if (props.preview)
+		return (
+			<>
+				<TerminalPreview html={props.preview.html} />
+				<div class="chip-overlay">
+					<ReadOnlyChip />
+				</div>
+			</>
+		);
 	return (
 		<div class="term placeholder" aria-hidden="true">
 			<div class="term-lines">
@@ -72,10 +66,7 @@ function InteractiveBody(props: { session: Session }) {
 					</div>
 				)}
 			</div>
-			<span class="chip">
-				<Terminal size={12} aria-hidden="true" />
-				In a terminal · read-only
-			</span>
+			<ReadOnlyChip />
 		</div>
 	);
 }
@@ -89,6 +80,13 @@ function BackgroundBody(props: { preview: Preview | undefined }) {
 			</div>
 		</div>
 	);
+}
+
+function cardStatus(session: Session): string {
+	const detail =
+		session.activity === "needs-you" ? session.needs : session.doing;
+	const label = activityLabel[session.activity];
+	return detail ? `${label}: ${detail}` : label;
 }
 
 export function SessionCard(props: {
@@ -119,12 +117,12 @@ export function SessionCard(props: {
 			<button
 				type="button"
 				class="frame"
-				aria-label={`Open ${session.name}`}
+				aria-label={`Open ${session.name}, ${cardStatus(session)}`}
 				onClick={open}
 			>
 				<div class="body">
 					{session.kind === "interactive" ? (
-						<InteractiveBody session={session} />
+						<InteractiveBody session={session} preview={props.preview} />
 					) : (
 						<BackgroundBody preview={props.preview} />
 					)}

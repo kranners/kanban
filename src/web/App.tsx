@@ -2,11 +2,11 @@ import { Plus } from "lucide-preact";
 import type { Board } from "../shared/types.ts";
 import { Canvas } from "./Canvas.tsx";
 import { SessionCard, SubagentCard } from "./Card.tsx";
-import { Edges, messagePairs } from "./Edges.tsx";
+import { Arcs, Links, messagePairs } from "./Edges.tsx";
 import { Focus } from "./focus/Focus.tsx";
 import { NewSession } from "./focus/NewSession.tsx";
 import type { BoardLayout, NodeKey } from "./layout.ts";
-import { nodeKey } from "./layout.ts";
+import { newestRoot, nodeKey } from "./layout.ts";
 import { Rail } from "./Rail.tsx";
 import {
 	awaitingShort,
@@ -26,7 +26,6 @@ import {
 	subagentsById,
 } from "./state.ts";
 import { TopBar } from "./TopBar.tsx";
-import type { Rect } from "./viewport.ts";
 
 function visibility(): (key: NodeKey) => boolean {
 	const sessions = sessionsById.value;
@@ -63,13 +62,7 @@ function World(props: { board: Board; layout: BoardLayout }) {
 	const t = now.value;
 	return (
 		<>
-			<Edges
-				board={props.board}
-				layout={props.layout}
-				now={t}
-				litPair={lit.pair}
-				visible={visible}
-			/>
+			<Links board={props.board} layout={props.layout} visible={visible} />
 			{props.board.sessions.map((session) => {
 				const node = props.layout.nodes.get(
 					nodeKey({ kind: "session", id: session.id }),
@@ -108,6 +101,13 @@ function World(props: { board: Board; layout: BoardLayout }) {
 					/>
 				);
 			})}
+			<Arcs
+				board={props.board}
+				layout={props.layout}
+				now={t}
+				litPair={lit.pair}
+				visible={visible}
+			/>
 		</>
 	);
 }
@@ -157,25 +157,16 @@ function Stage() {
 			/>
 		);
 	}
+	const root = newestRoot(placed);
 	return (
 		<Canvas
 			content={{ width: placed.width, height: placed.height }}
-			anchor={anchorOf(placed)}
+			anchor={root ? { x: root.x, w: root.w } : undefined}
 			fitKey="board"
 		>
 			<World board={current} layout={placed} />
 		</Canvas>
 	);
-}
-
-function anchorOf(placed: BoardLayout): Rect | null {
-	const first = placed.families[0]?.[0];
-	const node = first ? placed.nodes.get(first) : undefined;
-	if (!node) return null;
-	const root = [...placed.nodes.values()]
-		.filter((n) => n.family === node.family)
-		.reduce((top, n) => (n.y < top.y ? n : top), node);
-	return { x: root.x, y: root.y, w: root.w, h: root.h };
 }
 
 function created(short: string): void {

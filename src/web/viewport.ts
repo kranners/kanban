@@ -22,42 +22,58 @@ export function zoomAround(
 	};
 }
 
-export type Rect = { x: number; y: number; w: number; h: number };
+export type Size = { width: number; height: number };
 
-const legibleZoom = 0.45;
+export const fitPadding = 48;
+export const legibleZoom = 0.7;
 
-export function initialView(
-	content: { width: number; height: number },
-	box: { width: number; height: number },
-	anchor: Rect | null,
-): View {
-	const whole = fitView(content, box);
-	if (whole.k >= legibleZoom || !anchor) return whole;
-	const k = clampZoom(Math.min(1, (box.width - 48) / anchor.w));
+export function availableSize(box: Size, padding = fitPadding): Size {
 	return {
-		k,
-		x: box.width / 2 - (anchor.x + anchor.w / 2) * k,
-		y: 24 - anchor.y * k,
+		width: Math.max(1, box.width - padding * 2),
+		height: Math.max(1, box.height - padding * 2),
 	};
 }
 
-export function fitView(
-	content: { width: number; height: number },
-	box: { width: number; height: number },
-	padding = 48,
-): View {
-	const availableW = Math.max(1, box.width - padding * 2);
-	const availableH = Math.max(1, box.height - padding * 2);
+export type Span = { x: number; w: number };
+
+export function initialView(content: Size, box: Size, anchor?: Span): View {
+	const whole = fitView(content, box);
+	if (whole.k >= legibleZoom) return whole;
+	const available = availableSize(box);
 	const k = clampZoom(
-		Math.min(
-			1,
-			availableW / Math.max(1, content.width),
-			availableH / Math.max(1, content.height),
+		Math.max(
+			legibleZoom,
+			Math.min(1, available.width / Math.max(1, content.width)),
 		),
 	);
+	const fitsAcross = content.width * k <= available.width;
+	if (fitsAcross) {
+		return { k, x: (box.width - content.width * k) / 2, y: fitPadding };
+	}
+	const centred = anchor
+		? box.width / 2 - (anchor.x + anchor.w / 2) * k
+		: fitPadding;
+	const leftmost = box.width - fitPadding - content.width * k;
+	return {
+		k,
+		x: Math.min(fitPadding, Math.max(leftmost, centred)),
+		y: fitPadding,
+	};
+}
+
+export function fitView(content: Size, box: Size, padding = fitPadding): View {
+	const k = clampZoom(fitZoom(content, availableSize(box, padding)));
 	return {
 		k,
 		x: (box.width - content.width * k) / 2,
 		y: Math.max(padding, (box.height - content.height * k) / 2),
 	};
+}
+
+export function fitZoom(content: Size, available: Size): number {
+	return Math.min(
+		1,
+		available.width / Math.max(1, content.width),
+		available.height / Math.max(1, content.height),
+	);
 }

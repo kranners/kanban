@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	fitPadding,
 	fitView,
 	initialView,
+	legibleZoom,
 	maxZoom,
 	minZoom,
 	zoomAround,
@@ -38,19 +40,35 @@ test("fit never zooms past 1 and centres the content", () => {
 	assert.equal(wide.k, 0.25);
 });
 
-test("a board too large to read starts on its anchor instead", () => {
-	const anchor = { x: 1000, y: 0, w: 300, h: 234 };
-	const view = initialView(
+test("a board too large to read starts legible at its top instead", () => {
+	const tall = initialView(
+		{ width: 1344, height: 1288 },
+		{ width: 1160, height: 758 },
+	);
+	assert.ok(tall.k >= legibleZoom && tall.k <= 1);
+	assert.equal(tall.k, (1160 - 2 * fitPadding) / 1344);
+	assert.equal(tall.y, fitPadding);
+	const wide = initialView(
 		{ width: 4000, height: 3000 },
 		{ width: 390, height: 700 },
-		anchor,
 	);
-	assert.equal(view.k, 1);
-	assert.equal(view.x + (anchor.x + anchor.w / 2) * view.k, 195);
+	assert.equal(wide.k, legibleZoom);
+	assert.deepEqual([wide.x, wide.y], [fitPadding, fitPadding]);
+	const anchored = initialView(
+		{ width: 1136, height: 1000 },
+		{ width: 390, height: 784 },
+		{ x: 418, w: 300 },
+	);
+	assert.equal(anchored.x + (418 + 150) * anchored.k, 195);
+	const nearEdge = initialView(
+		{ width: 1136, height: 1000 },
+		{ width: 390, height: 784 },
+		{ x: 0, w: 300 },
+	);
+	assert.equal(nearEdge.x, fitPadding);
 	const roomy = initialView(
 		{ width: 800, height: 600 },
 		{ width: 1200, height: 800 },
-		anchor,
 	);
 	assert.equal(roomy.k, 1);
 	assert.equal(roomy.x, 200);

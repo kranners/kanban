@@ -7,7 +7,7 @@
 	background: color-mix(in srgb, var(--page) 70%, transparent);
 	backdrop-filter: blur(2px);
 	animation: focus-fade 180ms ease-out;
-	font-family: "Inter Variable", system-ui, sans-serif;
+	font-family: var(--sans);
 	color: var(--ink);
 }
 
@@ -35,7 +35,7 @@
 	min-height: 0;
 	background: var(--surface);
 	border: 1px solid var(--hairline);
-	border-radius: 12px;
+	border-radius: var(--radius);
 	overflow: hidden;
 	box-shadow:
 		0 1px 2px rgb(0 0 0 / 0.06),
@@ -110,50 +110,14 @@
 	line-height: 16px;
 }
 
-.focus-badge {
-	--focus-state: var(--muted);
-	flex: none;
-	display: inline-flex;
-	align-items: center;
-	gap: 6px;
-	padding: 3px 8px 3px 6px;
-	border-radius: 999px;
-	font-size: 12px;
-	font-weight: 500;
-	color: var(--focus-state);
-	background: color-mix(in srgb, var(--focus-state) 12%, transparent);
-}
-
-.focus-badge[data-activity="working"] {
-	--focus-state: var(--accent);
-}
-
-.focus-badge[data-activity="needs-you"] {
-	--focus-state: #c48a0c;
-}
-
-.focus-badge[data-activity="done"] {
-	--focus-state: #2f8f5b;
-}
-
-.focus-badge[data-activity="failed"] {
-	--focus-state: #c4413a;
-}
-
-@keyframes focus-pulse {
-	50% {
-		opacity: 0.35;
-	}
-}
-
 .focus-button {
 	display: inline-flex;
 	align-items: center;
 	gap: 6px;
-	height: 30px;
+	height: 32px;
 	padding: 0 10px;
 	border: 1px solid var(--hairline);
-	border-radius: 7px;
+	border-radius: var(--radius-sm);
 	background: var(--surface);
 	color: var(--ink);
 	font: inherit;
@@ -165,13 +129,6 @@
 	background: color-mix(in srgb, var(--ink) 5%, var(--surface));
 }
 
-.focus-button:focus-visible,
-.focus-field input:focus-visible,
-.focus-field textarea:focus-visible {
-	outline: 2px solid var(--accent);
-	outline-offset: 1px;
-}
-
 .focus-button:disabled {
 	opacity: 0.5;
 	cursor: default;
@@ -180,15 +137,16 @@
 .focus-button-primary {
 	border-color: var(--accent);
 	background: var(--accent);
-	color: #fff;
+	color: var(--on-accent);
 }
 
 .focus-button-primary:hover:not(:disabled) {
-	background: color-mix(in srgb, #000 10%, var(--accent));
+	border-color: var(--accent-hover);
+	background: var(--accent-hover);
 }
 
 .focus-icon-button {
-	width: 30px;
+	width: 32px;
 	padding: 0;
 	justify-content: center;
 }
@@ -216,7 +174,7 @@
 	flex: 1;
 	min-width: 0;
 	display: flex;
-	background: #141413;
+	background: var(--term-bg);
 	padding: 10px 0 4px 12px;
 }
 
@@ -308,7 +266,7 @@
 	max-width: 85%;
 	padding: 8px 12px;
 	border: 1px solid var(--hairline);
-	border-radius: 10px;
+	border-radius: var(--radius);
 	background: var(--surface);
 	margin-top: 8px;
 }
@@ -321,7 +279,7 @@
 	display: flex;
 	align-items: baseline;
 	gap: 6px;
-	font-family: "JetBrains Mono", ui-monospace, monospace;
+	font-family: var(--mono);
 	font-size: 12px;
 	color: var(--muted);
 }
@@ -341,7 +299,7 @@
 .focus-entry-peer {
 	padding: 8px 12px;
 	border-left: 2px solid var(--accent);
-	border-radius: 0 8px 8px 0;
+	border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 	background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
@@ -368,10 +326,10 @@
 	width: min(520px, calc(100vw - 32px));
 	padding: 0;
 	border: 1px solid var(--hairline);
-	border-radius: 12px;
+	border-radius: var(--radius);
 	background: var(--surface);
 	color: var(--ink);
-	font-family: "Inter Variable", system-ui, sans-serif;
+	font-family: var(--sans);
 	box-shadow: 0 24px 64px -16px rgb(0 0 0 / 0.3);
 }
 
@@ -423,7 +381,7 @@
 .focus-field textarea {
 	padding: 8px 10px;
 	border: 1px solid var(--hairline);
-	border-radius: 7px;
+	border-radius: var(--radius-sm);
 	background: var(--page);
 	color: var(--ink);
 	font: inherit;
@@ -432,8 +390,15 @@
 }
 
 .focus-field input[list] {
-	font-family: "JetBrains Mono", ui-monospace, monospace;
+	font-family: var(--mono);
 	font-size: 13px;
+}
+
+.focus-field input[list]::-webkit-calendar-picker-indicator {
+	width: 0;
+	margin: 0;
+	padding: 0;
+	opacity: 0;
 }
 
 .focus-field textarea {
@@ -443,7 +408,7 @@
 }
 
 .focus-field input[aria-invalid="true"] {
-	border-color: #c4413a;
+	border-color: var(--red);
 }
 
 .focus-field-hint {
@@ -451,22 +416,22 @@
 }
 
 .focus-field-hint-error {
-	color: #c4413a;
+	color: var(--red);
 }
 
 .focus-form-error {
 	display: flex;
 	gap: 8px;
 	padding: 10px 12px;
-	border-radius: 8px;
-	background: color-mix(in srgb, #c4413a 9%, transparent);
+	border-radius: var(--radius-sm);
+	background: color-mix(in srgb, var(--red) 9%, transparent);
 	color: var(--ink);
 	font-size: 13px;
 }
 
 .focus-form-error svg {
 	flex: none;
-	color: #c4413a;
+	color: var(--red);
 	margin-top: 2px;
 }
 
@@ -479,13 +444,14 @@
 }
 
 .focus-form-error code {
-	font-family: "JetBrains Mono", ui-monospace, monospace;
+	font-family: var(--mono);
 	font-size: 12px;
 }
 
 .focus-form-footer {
 	display: flex;
 	align-items: center;
+	justify-content: flex-end;
 	gap: 8px;
 }
 
@@ -502,10 +468,6 @@
 	to {
 		transform: rotate(360deg);
 	}
-}
-
-.focus-badge[data-activity="working"] svg {
-	animation: focus-pulse 1.4s ease-in-out infinite;
 }
 
 @media (max-width: 640px) {

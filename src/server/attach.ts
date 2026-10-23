@@ -83,21 +83,38 @@ export const parseClientFrame = (raw: unknown): AttachClientFrame | null => {
 	}
 };
 
+const windowTitles = new RegExp(
+	`${escapeKey}\\][02];([^${String.fromCharCode(7)}${escapeKey}]*)`,
+	"g",
+);
+const agentViewTitle = /claude agents$/;
+
 export const escapeGuard = (
 	sendKey: (key: string) => void,
 	now: () => number = Date.now,
 ): ((output: string) => void) => {
-	let tail = "";
+	let inAgentView = false;
+	let screen = "";
 	let lastEscape = Number.NEGATIVE_INFINITY;
 	return (output) => {
-		tail = (tail + stripAnsi(output)).slice(-tailLimit);
-		const compact = tail.replace(/\s+/g, "").toLowerCase();
+		let fresh = output;
+		for (const match of output.matchAll(windowTitles)) {
+			const entering = agentViewTitle.test(match[1] ?? "");
+			if (entering && !inAgentView) {
+				screen = "";
+				fresh = output.slice(match.index);
+			}
+			inAgentView = entering;
+		}
+		if (!inAgentView) return;
+		screen = (screen + stripAnsi(fresh)).slice(-tailLimit);
+		const compact = screen.replace(/\s+/g, "").toLowerCase();
 		const rule = escapeRules.find(({ markers }) =>
 			markers.every((marker) => compact.includes(marker)),
 		);
 		if (!rule) return;
-		tail = "";
 		if (now() - lastEscape < escapeDebounceMs) return;
+		screen = "";
 		lastEscape = now();
 		sendKey(rule.key);
 	};

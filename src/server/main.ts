@@ -5,7 +5,7 @@ import { type Config, loadConfig } from "./config.ts";
 import { createFeed, type Feed } from "./feed.ts";
 import { createKanbanServer } from "./http.ts";
 import { startBoard } from "./ingest/index.ts";
-import { claudeLogs, createPreviewer } from "./preview.ts";
+import { createPreviewer } from "./preview.ts";
 import { claudeLauncher } from "./sessions.ts";
 
 const configOrExit = (): Config => {
@@ -21,20 +21,21 @@ const config = configOrExit();
 const audit = fileAudit(config.auditLog);
 
 let feed: Feed | null = null;
-const source = startBoard({
-	claudeHome: config.claudeHome,
-	onChange: (board) => feed?.board(board),
-});
 const previewer = createPreviewer({
-	board: source.board,
-	logs: claudeLogs(config.claudeBin),
+	transcript: (sessionId, limit) => source.transcript(sessionId, limit),
 	emit: (preview) => feed?.preview(preview),
 });
+const source = startBoard({
+	claudeHome: config.claudeHome,
+	onChange: (board) => {
+		feed?.board(board);
+		void previewer.update(board);
+	},
+});
+void previewer.update(source.board());
 feed = createFeed({
 	board: source.board,
 	previews: previewer.latest,
-	onFirstClient: previewer.start,
-	onLastClient: previewer.stop,
 });
 
 const server = createKanbanServer({
@@ -55,7 +56,6 @@ server.listen(config.port, config.host, () => {
 });
 
 const shutdown = () => {
-	previewer.stop();
 	source.stop();
 	server.close();
 	server.closeAllConnections();

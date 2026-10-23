@@ -2,8 +2,8 @@ import { signal } from "@preact/signals";
 import { Maximize, Minus, Plus } from "lucide-preact";
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
-import type { Rect, View } from "./viewport.ts";
-import { fitView, initialView, zoomAround } from "./viewport.ts";
+import type { Size, Span, View } from "./viewport.ts";
+import { fitPadding, fitView, initialView, zoomAround } from "./viewport.ts";
 
 export const view = signal<View>({ x: 0, y: 0, k: 1 });
 
@@ -11,8 +11,8 @@ const dragThreshold = 4;
 let suppressClick = false;
 
 export function Canvas(props: {
-	content: { width: number; height: number } | null;
-	anchor: Rect | null;
+	content: Size | null;
+	anchor?: Span;
 	fitKey: string;
 	children: ComponentChildren;
 }) {
@@ -77,8 +77,7 @@ export function Canvas(props: {
 
 		const onDown = (event: PointerEvent) => {
 			if (event.button !== 0) return;
-			if ((event.target as Element).closest("button, input, a, [data-no-pan]"))
-				return;
+			if ((event.target as Element).closest("input, a, [data-no-pan]")) return;
 			pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
 			start = { x: event.clientX, y: event.clientY };
 			moved = false;
@@ -143,6 +142,25 @@ export function Canvas(props: {
 				event.preventDefault();
 			}
 		};
+		const onFocusIn = (event: FocusEvent) => {
+			const target = event.target as Element;
+			if (!target.closest(".world") || !target.matches(":focus-visible"))
+				return;
+			const box = el.getBoundingClientRect();
+			const card = target.getBoundingClientRect();
+			const shift = (start: number, end: number, from: number, to: number) => {
+				if (start < from + fitPadding) return from + fitPadding - start;
+				if (end > to - fitPadding) return to - fitPadding - end;
+				return 0;
+			};
+			const v = view.value;
+			view.value = {
+				...v,
+				x: v.x + shift(card.left, card.right, box.left, box.right),
+				y: v.y + shift(card.top, card.bottom, box.top, box.bottom),
+			};
+		};
+		el.addEventListener("focusin", onFocusIn);
 		el.addEventListener("pointerdown", onDown);
 		el.addEventListener("pointermove", onMove);
 		el.addEventListener("pointerup", onUp);
@@ -150,6 +168,7 @@ export function Canvas(props: {
 		el.addEventListener("click", onClickCapture, true);
 		return () => {
 			el.removeEventListener("wheel", onWheel);
+			el.removeEventListener("focusin", onFocusIn);
 			el.removeEventListener("pointerdown", onDown);
 			el.removeEventListener("pointermove", onMove);
 			el.removeEventListener("pointerup", onUp);

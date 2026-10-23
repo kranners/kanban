@@ -20,12 +20,13 @@ const entry = (status: string): RegistryEntry => ({
 	updatedAt: 0,
 });
 
-const job = (state: string): Job => ({
+const job = (state: string, tempo: string | null = null): Job => ({
 	short: "0a1b2c3d",
 	sessionId: "s",
 	cwd: "/Users/me/dev/acme-api",
 	name: null,
 	state,
+	tempo,
 	detail: null,
 	needs: null,
 	createdAt: 0,
@@ -45,7 +46,12 @@ describe("activityOf", () => {
 		assert.equal(activityOf(entry("idle"), job("done")), "done");
 		assert.equal(activityOf(entry("idle"), job("failed")), "failed");
 		assert.equal(activityOf(entry("idle"), job("crashed")), "failed");
-		assert.equal(activityOf(entry("idle"), job("working")), "working");
+		assert.equal(activityOf(entry("idle"), job("working")), "idle");
+		assert.equal(
+			activityOf(entry("idle"), job("working", "blocked")),
+			"needs-you",
+		);
+		assert.equal(activityOf(entry("busy"), job("working")), "working");
 		assert.equal(activityOf(entry("busy"), job("done")), "working");
 	});
 

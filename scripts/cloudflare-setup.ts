@@ -128,6 +128,8 @@ export const appBody = (config: SetupConfig, policyId: string) => ({
 	domain: config.hostname,
 	destinations: [{ type: "public", uri: config.hostname }],
 	session_duration: "24h",
+	same_site_cookie_attribute: "lax",
+	http_only_cookie_attribute: true,
 	app_launcher_visible: false,
 	policies: [{ id: policyId, precedence: 1 }],
 });

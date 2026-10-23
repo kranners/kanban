@@ -3,45 +3,69 @@ import { sessionLabelHeight } from "./layout.ts";
 
 export type Point = { x: number; y: number };
 
-function entryY(node: PlacedNode): number {
-	return node.ref.kind === "session" ? node.y + sessionLabelHeight - 1 : node.y;
+const labelInset = 12;
+
+function entryPoint(node: PlacedNode): Point {
+	return node.ref.kind === "session"
+		? { x: node.x + labelInset, y: node.y }
+		: { x: node.x + node.w / 2, y: node.y };
+}
+
+function exitPoint(node: PlacedNode): Point {
+	return { x: node.x + node.w / 2, y: node.y + node.h };
 }
 
 export function treePath(from: PlacedNode, to: PlacedNode): string {
-	const x1 = from.x + from.w / 2;
-	const y1 = from.y + from.h;
-	const x2 = to.x + to.w / 2;
-	const y2 = entryY(to);
-	const mid = (y1 + y2) / 2;
-	return `M${x1} ${y1} C${x1} ${mid} ${x2} ${mid} ${x2} ${y2}`;
+	const a = exitPoint(from);
+	const b = entryPoint(to);
+	const mid = (a.y + b.y) / 2;
+	return `M${a.x} ${a.y} C${a.x} ${mid} ${b.x} ${mid} ${b.x} ${b.y}`;
 }
 
 export function treeMidpoint(from: PlacedNode, to: PlacedNode): Point {
+	const a = exitPoint(from);
+	const b = entryPoint(to);
+	return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+type Frame = { centre: Point; halfWidth: number; halfHeight: number };
+
+function frameOf(node: PlacedNode): Frame {
+	const top =
+		node.ref.kind === "session" ? node.y + sessionLabelHeight : node.y;
 	return {
-		x: (from.x + from.w / 2 + to.x + to.w / 2) / 2,
-		y: (from.y + from.h + entryY(to)) / 2,
+		centre: { x: node.x + node.w / 2, y: (top + node.y + node.h) / 2 },
+		halfWidth: node.w / 2,
+		halfHeight: (node.y + node.h - top) / 2,
 	};
 }
 
-function frameCentre(node: PlacedNode): Point {
-	const top =
-		node.ref.kind === "session" ? node.y + sessionLabelHeight : node.y;
-	return { x: node.x + node.w / 2, y: (top + node.y + node.h) / 2 };
+function frameEdgeToward(frame: Frame, target: Point): Point {
+	const dx = target.x - frame.centre.x;
+	const dy = target.y - frame.centre.y;
+	const scale = Math.min(
+		dx === 0 ? Number.POSITIVE_INFINITY : frame.halfWidth / Math.abs(dx),
+		dy === 0 ? Number.POSITIVE_INFINITY : frame.halfHeight / Math.abs(dy),
+		1,
+	);
+	return { x: frame.centre.x + dx * scale, y: frame.centre.y + dy * scale };
 }
 
 export type Arc = { path: string; mid: Point };
 
 export function messageArc(from: PlacedNode, to: PlacedNode): Arc {
-	const a = frameCentre(from);
-	const b = frameCentre(to);
-	const dx = b.x - a.x;
-	const dy = b.y - a.y;
+	const source = frameOf(from);
+	const target = frameOf(to);
+	const dx = target.centre.x - source.centre.x;
+	const dy = target.centre.y - source.centre.y;
 	const length = Math.hypot(dx, dy) || 1;
 	const bend = Math.max(48, length * 0.22);
 	const control = {
-		x: (a.x + b.x) / 2 + (dy / length) * bend,
-		y: (a.y + b.y) / 2 - (dx / length) * bend,
+		x: (source.centre.x + target.centre.x) / 2 + (dy / length) * bend,
+		y: (source.centre.y + target.centre.y) / 2 - (dx / length) * bend,
 	};
+	const a = frameEdgeToward(source, control);
+	const b = frameEdgeToward(target, control);
 	return {
 		path: `M${a.x} ${a.y} Q${control.x} ${control.y} ${b.x} ${b.y}`,
 		mid: {

@@ -16,18 +16,19 @@ type Interruption =
 	| { kind: "lost" };
 
 const claudeAccent = "#d97757";
+const terminalBackground = "#141413";
 const fullReset = "\x1bc";
 
-function accentColour(): string {
+function cssToken(name: string, fallback: string): string {
 	return (
-		getComputedStyle(document.documentElement)
-			.getPropertyValue("--accent")
-			.trim() || claudeAccent
+		getComputedStyle(document.documentElement).getPropertyValue(name).trim() ||
+		fallback
 	);
 }
 
 function createTerminal(): Terminal {
-	const accent = accentColour();
+	const accent = cssToken("--accent", claudeAccent);
+	const background = cssToken("--term-bg", terminalBackground);
 	return new Terminal({
 		allowProposedApi: true,
 		cursorBlink: true,
@@ -35,10 +36,10 @@ function createTerminal(): Terminal {
 		fontSize: 13,
 		scrollback: 5000,
 		theme: {
-			background: "#141413",
+			background,
 			foreground: "#ecebe7",
 			cursor: accent,
-			cursorAccent: "#141413",
+			cursorAccent: background,
 			selectionBackground: "#ecebe733",
 		},
 	});

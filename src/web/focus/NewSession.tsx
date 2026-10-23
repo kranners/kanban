@@ -54,6 +54,7 @@ export function NewSession(props: {
 }): JSX.Element {
 	const dialog = useRef<HTMLDialogElement>(null);
 	const directory = useRef<HTMLInputElement>(null);
+	const pressedBackdrop = useRef(false);
 	const listId = useId();
 	const [cwd, setCwd] = useState("");
 	const [name, setName] = useState("");
@@ -96,7 +97,8 @@ export function NewSession(props: {
 	};
 
 	const closeOnBackdrop = (event: MouseEvent) => {
-		if (event.target === event.currentTarget && !busy) props.onClose();
+		const onBackdrop = event.target === event.currentTarget;
+		if (onBackdrop && pressedBackdrop.current && !busy) props.onClose();
 	};
 
 	return (
@@ -106,7 +108,13 @@ export function NewSession(props: {
 			onCancel={(event) => {
 				if (busy) event.preventDefault();
 			}}
-			onClose={() => props.onClose()}
+			onClose={() => {
+				if (busy) dialog.current?.showModal();
+				else props.onClose();
+			}}
+			onPointerDown={(event) => {
+				pressedBackdrop.current = event.target === event.currentTarget;
+			}}
 			onClick={closeOnBackdrop}
 			onKeyDown={submitOnShortcut}
 			aria-labelledby={`${listId}-title`}

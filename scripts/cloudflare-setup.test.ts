@@ -144,6 +144,8 @@ describe("cloudflare setup", () => {
 		assert.equal(app?.type, "self_hosted");
 		assert.equal(app?.domain, "board.example.test");
 		assert.equal(app?.session_duration, "24h");
+		assert.equal(app?.same_site_cookie_attribute, "lax");
+		assert.equal(app?.http_only_cookie_attribute, true);
 		assert.equal(app?.app_launcher_visible, false);
 		assert.deepEqual(app?.policies, [{ id: "pol-2", precedence: 1 }]);
 		assert.deepEqual(fake.state.ingress, {

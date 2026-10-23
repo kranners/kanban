@@ -165,7 +165,7 @@ describe("createAttachHub", () => {
 		const { hub, ptys } = setup();
 		hub.open(new FakeSocket(), target("abcd1234"), size, null);
 		ptys[0]?.emitData(
-			"\x1b[1mDescribe\x1b[2Ca task for a new\x1b[0m session\r\n\x1b[38;2;1;2;3menter to return · space to reply",
+			"\x1b]0;claude agents\x07\x1b[1mDescribe\x1b[2Ca task for a new\x1b[0m session\r\n\x1b[38;2;1;2;3menter to return · space to reply",
 		);
 		assert.deepEqual(ptys[0]?.written, ["\r"]);
 	});
@@ -174,13 +174,16 @@ describe("createAttachHub", () => {
 		const { hub, ptys } = setup();
 		hub.open(new FakeSocket(), target("abcd1234"), size, null);
 		ptys[0]?.emitData(
-			"Accessing workspace:\r\n /Users/me\r\n\x1b[7m❯ No, exit\x1b[0m\r\n   Yes, I trust this folder",
+			"\x1b]0;claude agents\x07Accessing workspace:\r\n /Users/me\r\n\x1b[7m❯ No, exit\x1b[0m\r\n   Yes, I trust this folder",
 		);
 		assert.deepEqual(ptys[0]?.written, ["\x1b"]);
 	});
 });
 
 describe("escapeGuard", () => {
+	const agentViewTitle = "\x1b]0;claude agents\x07";
+	const agentViewFooter = "describe a task for a new session enter to return";
+
 	it("needs every marker and debounces for a second", () => {
 		let clock = 0;
 		let enters = 0;
@@ -191,22 +194,53 @@ describe("escapeGuard", () => {
 			},
 			() => clock,
 		);
-		guard("describe a task for a new session");
+		guard(`${agentViewTitle}describe a task for a new session`);
 		assert.equal(enters, 0);
 		guard(" enter to return");
 		assert.equal(enters, 1);
-		clock = 500;
-		guard("describe a task for a new session enter to return");
-		assert.equal(enters, 1);
 		clock = 1600;
-		guard("describe a task for a new session enter to return");
+		guard(agentViewFooter);
 		assert.equal(enters, 2);
+	});
+
+	it("keeps a debounced screen and sends once the second has passed", () => {
+		let clock = 0;
+		let enters = 0;
+		const guard = escapeGuard(
+			() => enters++,
+			() => clock,
+		);
+		guard(`${agentViewTitle}${agentViewFooter}`);
+		guard("\x1b]0;session\x07");
+		clock = 500;
+		guard(`${agentViewTitle}${agentViewFooter}`);
+		assert.equal(enters, 1);
+		clock = 1200;
+		guard("✻");
+		assert.equal(enters, 2);
+	});
+
+	it("ignores the markers outside the agent view", () => {
+		let keys = 0;
+		const guard = escapeGuard(() => keys++);
+		guard(agentViewFooter);
+		guard("Accessing workspace: /x Yes, I trust this folder");
+		guard(`${agentViewTitle}\x1b]0;session\x07${agentViewFooter}`);
+		assert.equal(keys, 0);
+	});
+
+	it("starts a fresh screen on entering the agent view", () => {
+		let enters = 0;
+		const guard = escapeGuard(() => enters++);
+		guard("describe a task for a new session");
+		guard(`${agentViewTitle}enter to return`);
+		assert.equal(enters, 0);
 	});
 
 	it("forgets output older than the rolling tail", () => {
 		let enters = 0;
 		const guard = escapeGuard(() => enters++);
-		guard("describe a task for a new session");
+		guard(`${agentViewTitle}describe a task for a new session`);
 		guard("x".repeat(5000));
 		guard("enter to return");
 		assert.equal(enters, 0);

@@ -16,18 +16,11 @@ export type Feed = {
 export type FeedOptions = {
 	board: () => Board;
 	previews: () => Preview[];
-	onFirstClient: () => void;
-	onLastClient: () => void;
 };
 
 const socketOpen = 1;
 
-export const createFeed = ({
-	board,
-	previews,
-	onFirstClient,
-	onLastClient,
-}: FeedOptions): Feed => {
+export const createFeed = ({ board, previews }: FeedOptions): Feed => {
 	const clients = new Set<FeedSocket>();
 
 	const send = (socket: FeedSocket, frame: BoardFeed) => {
@@ -43,14 +36,10 @@ export const createFeed = ({
 	return {
 		add(socket) {
 			clients.add(socket);
-			socket.on("close", () => {
-				clients.delete(socket);
-				if (clients.size === 0) onLastClient();
-			});
+			socket.on("close", () => clients.delete(socket));
 			send(socket, { type: "board", board: board() });
 			for (const preview of previews())
 				send(socket, { type: "preview", preview });
-			if (clients.size === 1) onFirstClient();
 		},
 		board: (next) => broadcast({ type: "board", board: next }),
 		preview: (preview) => broadcast({ type: "preview", preview }),

@@ -1,4 +1,5 @@
 import { GitBranch } from "lucide-preact";
+import type { ComponentChildren } from "preact";
 import type { Board, Message } from "../shared/types.ts";
 import { messageArc, treeMidpoint, treePath } from "./geometry.ts";
 import type { BoardLayout, NodeKey } from "./layout.ts";
@@ -35,20 +36,41 @@ function curveStyle(path: string) {
 	return { d: `path("${path}")` };
 }
 
-export function Edges(props: {
+type EdgeProps = {
 	board: Board;
 	layout: BoardLayout;
-	now: number;
-	litPair: string | null;
 	visible: (key: NodeKey) => boolean;
-}) {
-	const { board, layout } = props;
-	const pad = 400;
-	const width = layout.width + pad * 2;
-	const height = layout.height + pad * 2;
-	const faded = (a: NodeKey, b: NodeKey) =>
-		props.visible(a) && props.visible(b) ? "" : " dimmed";
+};
 
+const layerPad = 400;
+
+function faded(props: EdgeProps, a: NodeKey, b: NodeKey): string {
+	return props.visible(a) && props.visible(b) ? "" : " dimmed";
+}
+
+function EdgeLayer(props: {
+	layout: BoardLayout;
+	class: string;
+	children: ComponentChildren;
+}) {
+	const width = props.layout.width + layerPad * 2;
+	const height = props.layout.height + layerPad * 2;
+	return (
+		<svg
+			class={props.class}
+			width={width}
+			height={height}
+			viewBox={`${-layerPad} ${-layerPad} ${width} ${height}`}
+			style={{ transform: `translate(${-layerPad}px, ${-layerPad}px)` }}
+			aria-hidden="true"
+		>
+			{props.children}
+		</svg>
+	);
+}
+
+export function Links(props: EdgeProps) {
+	const { board, layout } = props;
 	const links = board.links.flatMap((link, index) => {
 		const from = layout.nodes.get(nodeKey(link.from));
 		const to = layout.nodes.get(nodeKey(link.to));
@@ -57,7 +79,10 @@ export function Edges(props: {
 		const mid = treeMidpoint(from, to);
 		const id = `${from.key}>${to.key}>${index}`;
 		return [
-			<g key={id} class={`edge edge-${link.kind}${faded(from.key, to.key)}`}>
+			<g
+				key={id}
+				class={`edge edge-${link.kind}${faded(props, from.key, to.key)}`}
+			>
 				<path
 					d={path}
 					style={curveStyle(path)}
@@ -75,7 +100,30 @@ export function Edges(props: {
 			</g>,
 		];
 	});
+	return (
+		<EdgeLayer layout={layout} class="edges">
+			<defs>
+				<marker
+					id="arrow"
+					viewBox="0 0 10 10"
+					refX="8"
+					refY="5"
+					markerWidth="7"
+					markerHeight="7"
+					orient="auto-start-reverse"
+				>
+					<path d="M1 1 L9 5 L1 9 Z" class="arrow-head" />
+				</marker>
+			</defs>
+			{links}
+		</EdgeLayer>
+	);
+}
 
+export function Arcs(
+	props: EdgeProps & { now: number; litPair: string | null },
+) {
+	const { board, layout } = props;
 	const arcs = messagePairs(board).flatMap((pair, index) => {
 		const from = layout.nodes.get(pair.from);
 		const to = layout.nodes.get(pair.to);
@@ -86,7 +134,7 @@ export function Edges(props: {
 		return [
 			<g
 				key={pair.key}
-				class={`arc${lit ? " lit" : ""}${faded(pair.from, pair.to)}`}
+				class={`arc${lit ? " lit" : ""}${faded(props, pair.from, pair.to)}`}
 			>
 				<path id={`arc-${index}`} d={arc.path} style={curveStyle(arc.path)} />
 				{fresh && !reducedMotion && (
@@ -110,31 +158,9 @@ export function Edges(props: {
 			</g>,
 		];
 	});
-
 	return (
-		<svg
-			class="edges"
-			width={width}
-			height={height}
-			viewBox={`${-pad} ${-pad} ${width} ${height}`}
-			style={{ transform: `translate(${-pad}px, ${-pad}px)` }}
-			aria-hidden="true"
-		>
-			<defs>
-				<marker
-					id="arrow"
-					viewBox="0 0 10 10"
-					refX="8"
-					refY="5"
-					markerWidth="7"
-					markerHeight="7"
-					orient="auto-start-reverse"
-				>
-					<path d="M1 1 L9 5 L1 9 Z" class="arrow-head" />
-				</marker>
-			</defs>
-			<g>{links}</g>
-			<g>{arcs}</g>
-		</svg>
+		<EdgeLayer layout={layout} class="edges arcs">
+			{arcs}
+		</EdgeLayer>
 	);
 }

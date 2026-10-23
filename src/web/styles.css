@@ -9,10 +9,9 @@
 	--hairline-strong: #d6d2ca;
 	--ink: #1d1c1a;
 	--muted: #6f6b64;
-	--faint: #a29e96;
-	--accent: #c96442;
-	--accent-hover: #b55837;
-	--accent-soft: rgb(201 100 66 / 0.1);
+	--accent: #b5502f;
+	--accent-hover: #a0452a;
+	--accent-soft: rgb(181 80 47 / 0.1);
 	--on-accent: #ffffff;
 	--amber: #d29922;
 	--amber-soft: rgb(210 153 34 / 0.14);
@@ -23,7 +22,7 @@
 	--term-bg: #1a1918;
 	--term-ink: #d9d6cf;
 	--term-dim: #8b877f;
-	--focus-ring: 0 0 0 3px rgb(201 100 66 / 0.28);
+	--focus-ring: 0 0 0 3px rgb(181 80 47 / 0.28);
 	--shadow-pop: 0 8px 24px rgb(29 28 26 / 0.08);
 
 	--motion: 1;
@@ -44,7 +43,6 @@
 		--hairline-strong: #3d3a36;
 		--ink: #ecebe7;
 		--muted: #9a968e;
-		--faint: #6c6861;
 		--accent: #e07a55;
 		--accent-hover: #ea8c69;
 		--accent-soft: rgb(224 122 85 / 0.14);
@@ -67,7 +65,6 @@
 	--hairline-strong: #3d3a36;
 	--ink: #ecebe7;
 	--muted: #9a968e;
-	--faint: #6c6861;
 	--accent: #e07a55;
 	--accent-hover: #ea8c69;
 	--accent-soft: rgb(224 122 85 / 0.14);
@@ -186,6 +183,12 @@ button {
 	white-space: nowrap;
 }
 
+button.reconnecting {
+	border: 0;
+	font-family: inherit;
+	cursor: pointer;
+}
+
 .reconnecting .pulse {
 	width: 6px;
 	height: 6px;
@@ -278,7 +281,7 @@ button {
 }
 
 .search input::placeholder {
-	color: var(--faint);
+	color: var(--muted);
 }
 
 .search input::-webkit-search-cancel-button {
@@ -335,7 +338,7 @@ button {
 	flex: 1;
 	min-width: 0;
 	position: relative;
-	overflow: hidden;
+	overflow: clip;
 	touch-action: none;
 	cursor: grab;
 	background-color: var(--page);
@@ -403,6 +406,15 @@ button {
 	transition:
 		transform calc(320ms * var(--motion)) cubic-bezier(0.2, 0.7, 0.2, 1),
 		opacity calc(160ms * var(--motion));
+	animation: node-enter calc(320ms * var(--motion))
+		cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@keyframes node-enter {
+	from {
+		opacity: 0;
+		scale: 0.94;
+	}
 }
 
 .node.dimmed {
@@ -491,23 +503,62 @@ button {
 	padding: 8px 10px;
 }
 
+.term::after {
+	content: "";
+	position: absolute;
+	inset: 0 0 auto;
+	height: 24px;
+	background: linear-gradient(var(--term-bg), transparent);
+}
+
 .term-content {
 	position: absolute;
 	left: 10px;
+	right: 10px;
 	bottom: 8px;
-	transform-origin: 0 100%;
-	white-space: pre;
-}
-
-.term-content,
-.term-content * {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
 	font-family: var(--mono);
 	font-size: 10px;
 	line-height: 1.35;
 }
 
-.term-content pre {
-	margin: 0;
+.body:has(.needs) .term-content {
+	bottom: 36px;
+}
+
+.tx {
+	padding-left: 2ch;
+	text-indent: -2ch;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.tx-mark {
+	display: inline-block;
+	width: 1ch;
+	text-indent: 0;
+}
+
+.tx-assistant .tx-mark {
+	color: var(--term-ink);
+}
+
+.tx-tool .tx-mark {
+	color: #8fbf7a;
+}
+
+.tx-tool b {
+	font-weight: 700;
+}
+
+.tx-user {
+	color: var(--term-dim);
+}
+
+.tx-peer {
+	color: #9fb4e8;
 }
 
 .term.placeholder {
@@ -559,6 +610,15 @@ button {
 	font-size: 11.5px;
 }
 
+.chip-overlay {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	padding: 8px 10px 14px;
+	background: linear-gradient(var(--term-bg) 60%, transparent);
+}
+
 .needs {
 	position: absolute;
 	left: 0;
@@ -604,7 +664,7 @@ button {
 
 .foot-kind {
 	display: inline-flex;
-	color: var(--faint);
+	color: var(--muted);
 }
 
 .badge {
@@ -760,7 +820,7 @@ button {
 	align-self: flex-start;
 	margin-top: 12px;
 	font-size: 11.5px;
-	color: var(--faint);
+	color: var(--muted);
 }
 
 .edges {
@@ -771,7 +831,8 @@ button {
 	pointer-events: none;
 }
 
-.edges path {
+.edge > path,
+.arc > path {
 	fill: none;
 	transition: d calc(320ms * var(--motion)) cubic-bezier(0.2, 0.7, 0.2, 1);
 }
@@ -786,12 +847,12 @@ button {
 	opacity: 0.2;
 }
 
-.edge-subagent path {
+.edge-subagent > path {
 	stroke: var(--edge);
 	stroke-width: 1.5;
 }
 
-.edge-spawned path {
+.edge-spawned > path {
 	stroke: var(--accent);
 	stroke-width: 1.75;
 }
@@ -801,7 +862,7 @@ button {
 	stroke: none;
 }
 
-.edge-forked path {
+.edge-forked > path {
 	stroke: var(--muted);
 	stroke-width: 1.5;
 	stroke-dasharray: 6 5;
@@ -817,7 +878,7 @@ button {
 	color: var(--muted);
 }
 
-.arc path {
+.arc > path {
 	stroke: var(--muted);
 	stroke-width: 1.25;
 	stroke-dasharray: 1.5 5;
@@ -825,7 +886,7 @@ button {
 	opacity: 0.8;
 }
 
-.arc.lit path {
+.arc.lit > path {
 	stroke: var(--accent);
 	stroke-width: 2;
 	opacity: 1;
@@ -981,11 +1042,10 @@ button {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	min-width: 0;
-	max-width: 40%;
 }
 
 .message-arrow {
-	color: var(--faint);
+	color: var(--muted);
 	flex: none;
 }
 
@@ -993,7 +1053,7 @@ button {
 	margin-left: auto;
 	flex: none;
 	font-size: 12px;
-	color: var(--faint);
+	color: var(--muted);
 }
 
 .message-summary {

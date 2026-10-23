@@ -22,6 +22,7 @@ export type Job = {
 	cwd: string;
 	name: string | null;
 	state: string | null;
+	tempo: string | null;
 	detail: string | null;
 	needs: string | null;
 	createdAt: number;
@@ -85,7 +86,8 @@ export function activityOf(
 		case "stopped":
 			return "idle";
 		default:
-			return "working";
+			if (entry.status !== "idle") return "working";
+			return job?.tempo === "blocked" ? "needs-you" : "idle";
 	}
 }
 
@@ -130,6 +132,7 @@ function toJob(short: string, value: unknown): Job | null {
 		cwd,
 		name: asString(record.name),
 		state: asString(record.state),
+		tempo: asString(record.tempo),
 		detail: asString(record.detail) || null,
 		needs: asString(record.needs) || null,
 		createdAt,

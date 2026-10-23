@@ -7,6 +7,8 @@ import {
 	previews,
 } from "./state.ts";
 
+const attemptsBeforeLost = 4;
+
 function feedUrl(): string {
 	const scheme = location.protocol === "https:" ? "wss:" : "ws:";
 	return `${scheme}//${location.host}/api/feed`;
@@ -45,7 +47,8 @@ export function connectFeed(): void {
 			} catch {}
 		});
 		socket.addEventListener("close", () => {
-			connection.value = "reconnecting";
+			connection.value =
+				attempt >= attemptsBeforeLost ? "lost" : "reconnecting";
 			const delay =
 				Math.min(15_000, 500 * 2 ** attempt) * (0.75 + Math.random() / 2);
 			attempt += 1;

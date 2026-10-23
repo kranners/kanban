@@ -11,11 +11,16 @@ import {
 	defaultLayoutOptions,
 	familiesOf,
 	layoutBoard,
-	layoutForAspect,
+	layoutForStage,
 	nodeKey,
 } from "./layout.ts";
+import { fitPadding, legibleZoom } from "./viewport.ts";
 
-function session(id: string, updatedAt: number): Session {
+function session(
+	id: string,
+	startedAt: number,
+	updatedAt = startedAt,
+): Session {
 	return {
 		id,
 		short: id,
@@ -27,7 +32,7 @@ function session(id: string, updatedAt: number): Session {
 		activity: "idle",
 		doing: null,
 		needs: null,
-		startedAt: updatedAt,
+		startedAt,
 		updatedAt,
 		attachable: true,
 	};
@@ -75,7 +80,7 @@ test("links join families but messages do not", () => {
 	]);
 });
 
-test("families are ordered by most recent activity", () => {
+test("families are ordered newest first by when they started", () => {
 	const b = board({
 		sessions: [session("old", 1), session("new", 9), session("mid", 5)],
 	});
@@ -84,6 +89,36 @@ test("families are ordered by most recent activity", () => {
 		["session:mid"],
 		["session:old"],
 	]);
+});
+
+test("activity does not move families", () => {
+	const quiet = board({
+		sessions: [session("old", 1, 2), session("new", 9, 10)],
+	});
+	const busy = board({
+		sessions: [session("old", 1, 99), session("new", 9, 10)],
+	});
+	assert.deepEqual(familiesOf(busy), familiesOf(quiet));
+	assert.deepEqual(
+		layoutBoard(busy).nodes.get("session:old"),
+		layoutBoard(quiet).nodes.get("session:old"),
+	);
+});
+
+test("a family is dated by its earliest node, so children keep it in place", () => {
+	const b = board({
+		sessions: [session("root", 1), session("child", 20), session("mid", 5)],
+		links: [{ from: s("root"), to: s("child"), kind: "spawned" }],
+	});
+	assert.deepEqual(
+		familiesOf(b).map((f) => [...f].sort()),
+		[["session:mid"], ["session:child", "session:root"]],
+	);
+});
+
+test("equal start times order by key", () => {
+	const b = board({ sessions: [session("b", 1), session("a", 1)] });
+	assert.deepEqual(familiesOf(b), [["session:a"], ["session:b"]]);
 });
 
 test("subagents join their session even without an explicit link", () => {
@@ -159,14 +194,28 @@ test("links to unknown nodes are ignored", () => {
 	assert.deepEqual([p?.x, p?.y], [0, 0]);
 });
 
-test("wide viewports get one row and tall viewports get several", () => {
+test("wide stages get one row and tall stages get several", () => {
 	const sessions = Array.from({ length: 6 }, (_, i) => session(`s${i}`, i));
-	const rows = (aspect: number) =>
+	const rows = (width: number, height: number) =>
 		new Set(
-			[...layoutForAspect(board({ sessions }), aspect).nodes.values()].map(
-				(n) => n.y,
-			),
+			[
+				...layoutForStage(board({ sessions }), {
+					width,
+					height,
+				}).nodes.values(),
+			].map((n) => n.y),
 		).size;
-	assert.equal(rows(16), 1);
-	assert.ok(rows(0.5) >= 3);
+	assert.equal(rows(4000, 400), 1);
+	assert.ok(rows(800, 2400) >= 3);
+});
+
+test("a board too big to fit legibly wraps to the stage width at legible zoom", () => {
+	const sessions = Array.from({ length: 12 }, (_, i) => session(`s${i}`, i));
+	const stage = { width: 1160, height: 758 };
+	const placed = layoutForStage(board({ sessions }), stage);
+	const available = stage.width - 2 * fitPadding;
+	assert.ok(placed.width * legibleZoom <= available);
+	assert.ok(
+		placed.width + defaultLayoutOptions.session.w > available / legibleZoom,
+	);
 });

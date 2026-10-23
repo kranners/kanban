@@ -31,7 +31,7 @@ Everything is read from `~/.claude`; kanban keeps no database.
 | Spawned by `claude --bg`                | `backgrounded · <short>` in a parent's Bash tool result                                      |
 | Forked by `/bg`                         | `continued-in` record in the parent transcript                                               |
 | Messages                                | `SendMessage` tool results (`msg_id`) matched to recipients' `origin.kind == "peer"` records |
-| Card preview                            | `claude logs <short>` replayed through a headless xterm                                      |
+| Card preview                            | last 12 transcript entries, rendered server-side when `updatedAt` changes                    |
 
 Secrets that are never read or served: `sessions/*.key`, `daemon/control.key`, roster `ptyAuth`/`rvAuth`, `respawnFlags`, `providerEnv`.
 
@@ -63,13 +63,13 @@ One Node 24 process on `127.0.0.1:7420` serves the built page and these endpoint
 | `WS /api/attach/:short`            | a `claude attach` pty: binary output down, `AttachClientFrame`s up                                   |
 | `GET /healthz`                     | liveness                                                                                             |
 
-One attach per session: a second attach takes over and the first gets `taken-over`, because Claude Code redraws a shared session at the last attacher's size. Closing the socket kills the attach process, which detaches without stopping the session. If the attach drops into Claude's agent view (← on an empty prompt), kanban sends Enter to return, so the page can never reach other sessions through it.
+One attach per session: a second attach takes over and the first gets `taken-over`, because Claude Code redraws a shared session at the last attacher's size. Closing the socket kills the attach process, which detaches without stopping the session. If the attach drops into Claude's agent view (← on an empty prompt, recognised by its `claude agents` window title), kanban sends Enter to return, and Escape for a workspace trust dialog there. This guard is a convenience against stray keys, not a security boundary: whoever passes Cloudflare Access can already drive any background session, so Access is the boundary.
 
 The server calls the real `claude` binary, not a terminal's shim, so `--bg` sessions resume as themselves.
 
 ## User flows
 
-1. **Scan.** Open the board. Cards group into families (a session and everything it spawned), ordered by most recent activity. Each card shows its name and what it is doing above a live preview, with a state badge.
+1. **Scan.** Open the board. Cards group into families (a session and everything it spawned), newest first by when they started, so cards stay put while sessions work. Each card shows its name and what it is doing above a live preview, with a state badge.
 2. **Follow messages.** A message animates along a dashed arc from sender to recipient; the messages rail lists them newest first, and selecting one highlights both ends.
 3. **Focus.** Click a background card. It expands into a full-window terminal attached to the session, with focus in the prompt; type to send. Close returns to the board, and the session keeps running.
 4. **Read.** Click an interactive card (started in a terminal). It opens a live transcript, read-only, with a note that sessions started from the board are the ones you can drive.

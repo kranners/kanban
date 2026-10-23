@@ -3,7 +3,10 @@ import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
-import { renderPreview } from "../src/server/preview.ts";
+import {
+	previewEntryCount,
+	renderTranscriptPreview,
+} from "../src/server/preview.ts";
 import type {
 	Board,
 	BoardFeed,
@@ -244,84 +247,117 @@ const board: Board = {
 	generatedAt: start,
 };
 
-const ansi = {
-	reset: "\x1b[0m",
-	dim: "\x1b[2m",
-	bold: "\x1b[1m",
-	green: "\x1b[32m",
-	red: "\x1b[31m",
-	yellow: "\x1b[33m",
-	orange: "\x1b[38;5;173m",
-	grey: "\x1b[38;5;245m",
-};
+const said = (
+	minutesAgo: number,
+	role: TranscriptEntry["role"],
+	text: string,
+): TranscriptEntry => ({ at: start - minutesAgo * minute, role, text });
 
-const transcripts: Record<string, string[]> = {
+const transcripts: Record<string, TranscriptEntry[]> = {
 	a1f0c2d4e5: [
-		`${ansi.orange}●${ansi.reset} I'll add the currency field and run the auth tests.`,
-		"",
-		`${ansi.green}●${ansi.reset} ${ansi.bold}Update${ansi.reset}(src/orders/summary.ts)`,
-		`  ${ansi.grey}⎿  Updated src/orders/summary.ts with 6 additions${ansi.reset}`,
-		`     ${ansi.green}+   currency: order.currency ?? "USD",${ansi.reset}`,
-		"",
-		`${ansi.green}●${ansi.reset} ${ansi.bold}Bash${ansi.reset}(npm test -- --filter auth)`,
-		`  ${ansi.grey}⎿  ▶ session expiry${ansi.reset}`,
-		`       ${ansi.green}✔${ansi.reset} refreshes a token within the grace window ${ansi.dim}(4ms)${ansi.reset}`,
-		`       ${ansi.green}✔${ansi.reset} rejects a token past expiry ${ansi.dim}(2ms)${ansi.reset}`,
-		`       ${ansi.green}✔${ansi.reset} rotates the refresh token ${ansi.dim}(3ms)${ansi.reset}`,
-		`       ${ansi.yellow}…${ansi.reset} running 41 more`,
-		"",
-		`${ansi.orange}✻${ansi.reset} ${ansi.orange}Testing…${ansi.reset} ${ansi.dim}(38s · ↓ 2.1k tokens)${ansi.reset}`,
+		said(
+			9,
+			"peer",
+			"acme-web: Can you add the currency field to the order summary?",
+		),
+		said(8, "assistant", "I'll add the currency field and run the auth tests."),
+		said(7, "tool", "Read: src/orders/summary.ts"),
+		said(6, "tool", "Edit: src/orders/summary.ts"),
+		said(5, "tool", "SendMessage"),
+		said(
+			4,
+			"assistant",
+			"Currency is in. Running the auth suite before I hand back.",
+		),
+		said(1, "tool", "Bash: npm test -- --filter auth"),
 	],
 	b2e1d3c4f6: [
-		`${ansi.green}●${ansi.reset} The backfill is ready. It runs in batches of 5,000 rows.`,
-		"",
-		`${ansi.green}●${ansi.reset} ${ansi.bold}Bash${ansi.reset}(npm run db:migrate -- --env staging)`,
-		"",
-		` ${ansi.yellow}Do you want to proceed?${ansi.reset}`,
-		` ${ansi.orange}❯ 1. Yes${ansi.reset}`,
-		"   2. Yes, and don't ask again for npm run db:migrate",
-		"   3. No, and tell Claude what to do differently",
+		said(20, "user", "Backfill the orders table on staging, in batches."),
+		said(12, "tool", "Write: migrations/0042_orders_currency.sql"),
+		said(
+			6,
+			"assistant",
+			"The backfill is ready. It runs in batches of 5,000 rows.",
+		),
+		said(3, "tool", "Bash: npm run db:migrate -- --env staging"),
 	],
 	c3d2e4f5a7: [
-		`${ansi.green}●${ansi.reset} ${ansi.bold}Bash${ansi.reset}(gh pr create --fill)`,
-		`  ${ansi.grey}⎿  https://github.com/acme/acme-api/pull/482${ansi.reset}`,
-		"",
-		`${ansi.green}●${ansi.reset} Opened #482: fix token refresh race in the auth middleware.`,
-		"",
-		`${ansi.dim}Job finished in 14m 2s${ansi.reset}`,
+		said(40, "tool", "Edit: src/auth/middleware.ts"),
+		said(30, "tool", "Bash: npm test"),
+		said(28, "tool", "Bash: gh pr create --fill"),
+		said(
+			26,
+			"assistant",
+			"Opened #482: fix token refresh race in the auth middleware.\n\nThe refresh now holds a per-session lock, so two tabs can no longer both rotate the token.",
+		),
+	],
+	d4c3f5a6b8: [
+		said(16, "user", "Make the checkout summary show the currency."),
+		said(15, "assistant", "I'll read the summary component first."),
+		said(15, "tool", "Read: src/checkout/Summary.tsx"),
+		said(
+			2,
+			"peer",
+			"acme-api: Currency field added to OrderSummary; tests are running.",
+		),
+		said(1, "tool", "Edit: src/checkout/Summary.tsx"),
+		said(
+			1,
+			"assistant",
+			"Summary.tsx now renders the currency code next to the total.",
+		),
 	],
 	e5b4a6c7d9: [
-		`${ansi.green}●${ansi.reset} ${ansi.bold}Bash${ansi.reset}(npx axe-cli http://localhost:5173/checkout)`,
-		`  ${ansi.grey}⎿${ansi.reset}  ${ansi.red}✖ 14 violations found${ansi.reset}`,
-		`     ${ansi.red}label${ansi.reset}: Form elements must have labels (9)`,
-		`     ${ansi.red}color-contrast${ansi.reset}: Elements must meet contrast (5)`,
-		"",
-		`${ansi.red}●${ansi.reset} The accessibility gate failed; stopping here.`,
+		said(14, "tool", "Bash: npx axe-cli http://localhost:5173/checkout"),
+		said(
+			12,
+			"assistant",
+			"14 violations: 9 missing form labels and 5 contrast failures, all in checkout.",
+		),
+		said(12, "tool", "SendMessage"),
+		said(12, "assistant", "The accessibility gate failed; stopping here."),
 	],
 	f6a5b7d8e0: [
-		`${ansi.green}●${ansi.reset} ${ansi.bold}Bash${ansi.reset}(terraform plan -out plan.tfplan)`,
-		`  ${ansi.grey}⎿  Plan: 2 to add, 1 to change, 0 to destroy.${ansi.reset}`,
-		"",
-		`${ansi.green}●${ansi.reset} Plan saved. Review it before I apply.`,
+		said(185, "user", "Plan the NAT gateway change but do not apply it."),
+		said(182, "tool", "Bash: terraform plan -out plan.tfplan"),
+		said(
+			180,
+			"assistant",
+			"Plan saved: 2 to add, 1 to change, 0 to destroy. Review it before I apply.",
+		),
 	],
 	a7f6c8e9f1: [
-		`${ansi.green}●${ansi.reset} Last month's spend is up 8%, mostly NAT gateway traffic.`,
-		"",
-		`${ansi.orange}>${ansi.reset} ${ansi.dim}Try "summarise by service"${ansi.reset}`,
+		said(55, "user", "Why did last month's bill go up?"),
+		said(52, "tool", "Bash: aws ce get-cost-and-usage --granularity MONTHLY"),
+		said(
+			50,
+			"assistant",
+			"Last month's spend is up 8%, mostly NAT gateway traffic from the image proxy.",
+		),
+	],
+	b8e7d9f0a2: [
+		said(10, "user", "Draft release notes for 2.4 from the changelog."),
+		said(8, "tool", "Read: CHANGELOG.md"),
+		said(
+			8,
+			"assistant",
+			"Drafting now. 2.4 has three user-facing changes and one fix.",
+		),
 	],
 };
 
-async function previewsFor(): Promise<Preview[]> {
-	return Promise.all(
-		Object.entries(transcripts).map(async ([sessionId, lines]) => ({
-			sessionId,
-			html: await renderPreview(lines.join("\r\n")),
-			capturedAt: Date.now(),
-		})),
-	);
-}
+const previews: Preview[] = Object.entries(transcripts).map(
+	([sessionId, entries]) => ({
+		sessionId,
+		html: renderTranscriptPreview(entries.slice(-previewEntryCount)),
+		capturedAt: Date.now(),
+	}),
+);
 
-const previews = await previewsFor();
+const terminalText = (entries: TranscriptEntry[]): string =>
+	entries
+		.map(({ role, text }) => `${role === "user" ? ">" : "●"} ${text}`)
+		.join("\r\n\r\n");
 
 const server = createServer(async (req, res) => {
 	const url = new URL(req.url ?? "/", "http://localhost");
@@ -354,33 +390,7 @@ const server = createServer(async (req, res) => {
 		/^\/api\/sessions\/([^/]+)\/transcript$/,
 	);
 	if (transcript) {
-		const entries: TranscriptEntry[] = [
-			{
-				at: Date.now() - 4 * minute,
-				role: "user",
-				text: "Make the checkout summary show the currency.",
-			},
-			{
-				at: Date.now() - 3 * minute,
-				role: "assistant",
-				text: "I'll read the summary component first.",
-			},
-			{
-				at: Date.now() - 3 * minute,
-				role: "tool",
-				text: "Read src/checkout/Summary.tsx",
-			},
-			{
-				at: Date.now() - 2 * minute,
-				role: "peer",
-				text: "Currency field added to OrderSummary.",
-			},
-			{
-				at: Date.now() - minute,
-				role: "assistant",
-				text: "Updated Summary.tsx to render the currency code.",
-			},
-		];
+		const entries = transcripts[transcript[1] ?? ""] ?? [];
 		res.writeHead(200, { "content-type": "application/json" });
 		res.end(JSON.stringify(entries));
 		return;
@@ -437,9 +447,7 @@ feed.on("connection", (ws) => {
 
 attach.on("connection", (ws) => {
 	ws.send(
-		Buffer.from(
-			`${(transcripts.a1f0c2d4e5 ?? []).join("\r\n")}\r\n\r\n${ansi.orange}>${ansi.reset} `,
-		),
+		Buffer.from(`${terminalText(transcripts.a1f0c2d4e5 ?? [])}\r\n\r\n> `),
 	);
 	ws.on("message", (data, binary) => {
 		if (binary) return;

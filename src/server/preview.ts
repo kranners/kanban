@@ -1,99 +1,98 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import serialize from "@xterm/addon-serialize";
-import headless from "@xterm/headless";
-import type { Board, Preview, Session } from "../shared/types.ts";
+import type {
+	Board,
+	Preview,
+	Session,
+	TranscriptEntry,
+} from "../shared/types.ts";
 
-export type LogsRunner = (short: string) => Promise<string>;
+export const previewEntryCount = 12;
+const linesPerEntry = 4;
+const lineLength = 200;
 
-const run = promisify(execFile);
-const previewRows = 24;
-const concurrency = 4;
-
-export const claudeLogs =
-	(claudeBin: string): LogsRunner =>
-	async (short) => {
-		const { stdout } = await run(claudeBin, ["logs", short], {
-			timeout: 5000,
-			maxBuffer: 8 * 1024 * 1024,
-		});
-		return stdout;
-	};
-
-const lastContentLine = (buffer: headless.IBuffer): number => {
-	for (let line = buffer.length - 1; line >= 0; line--) {
-		if (buffer.getLine(line)?.translateToString(true).trim()) return line;
-	}
-	return 0;
+const htmlEscapes: Record<string, string> = {
+	"&": "&amp;",
+	"<": "&lt;",
+	">": "&gt;",
+	'"': "&quot;",
+	"'": "&#39;",
 };
 
-const fragment = (html: string): string => {
-	const rows = html.match(/<pre><div[^>]*>([\s\S]*)<\/div><\/pre>/)?.[1] ?? "";
-	return `<pre>${rows.replace(/(<span>[^<]*?) +<\/span><\/div>/g, "$1</span></div>")}</pre>`;
+const escapeHtml = (text: string): string =>
+	text.replace(/[&<>"']/g, (char) => htmlEscapes[char] ?? char);
+
+const clip = (text: string, max: number): string =>
+	text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+
+const compactLines = (text: string): string => {
+	const lines = text
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.filter((line) => line.trim() !== "");
+	const kept = lines
+		.slice(0, linesPerEntry)
+		.map((line) => clip(line, lineLength));
+	if (lines.length > linesPerEntry) kept.push("…");
+	return escapeHtml(kept.join("\n"));
 };
 
-export const renderPreview = async (ansi: string): Promise<string> => {
-	const terminal = new headless.Terminal({
-		cols: 200,
-		rows: 50,
-		scrollback: 1000,
-		allowProposedApi: true,
-	});
-	const serializer = new serialize.SerializeAddon();
-	terminal.loadAddon(serializer);
-	await new Promise<void>((resolve) => terminal.write(ansi, resolve));
-	const buffer = terminal.buffer.active;
-	const endLine = lastContentLine(buffer);
-	const html = serializer.serializeAsHTML({
-		onlySelection: false,
-		includeGlobalBackground: false,
-		range: {
-			startLine: Math.max(0, endLine - previewRows + 1),
-			endLine,
-			startCol: 0,
-		},
-	});
-	terminal.dispose();
-	return fragment(html);
+const toolCall = (summary: string): string => {
+	const separator = summary.indexOf(": ");
+	if (separator === -1) return `<b>${escapeHtml(summary)}</b>`;
+	const name = escapeHtml(summary.slice(0, separator));
+	const detail = compactLines(summary.slice(separator + 2));
+	return `<b>${name}</b>(${detail})`;
 };
+
+const marks: Record<TranscriptEntry["role"], string> = {
+	user: "&gt;",
+	assistant: "●",
+	tool: "●",
+	peer: "✉",
+};
+
+const renderEntry = ({ role, text }: TranscriptEntry): string => {
+	const body = role === "tool" ? toolCall(text) : compactLines(text);
+	return `<div class="tx tx-${role}"><span class="tx-mark">${marks[role]}</span> ${body}</div>`;
+};
+
+export const renderTranscriptPreview = (entries: TranscriptEntry[]): string =>
+	entries
+		.filter((entry) => entry.text.trim() !== "")
+		.map(renderEntry)
+		.join("");
+
+export type TranscriptReader = (
+	sessionId: string,
+	limit: number,
+) => Promise<TranscriptEntry[]>;
 
 export type Previewer = {
-	start(): void;
-	stop(): void;
-	tick(): Promise<void>;
+	update(board: Board): Promise<void>;
 	latest(): Preview[];
 };
 
 export type PreviewerOptions = {
-	board: () => Board;
-	logs: LogsRunner;
+	transcript: TranscriptReader;
 	emit: (preview: Preview) => void;
-	intervalMs?: number;
 	now?: () => number;
 };
 
-const previewable = (
-	session: Session,
-): session is Session & { short: string } =>
-	session.kind === "background" && session.short !== null;
-
 export const createPreviewer = ({
-	board,
-	logs,
+	transcript,
 	emit,
-	intervalMs = 3000,
 	now = Date.now,
 }: PreviewerOptions): Previewer => {
 	const latest = new Map<string, Preview>();
-	const capturedVersion = new Map<string, number>();
-	let timer: NodeJS.Timeout | null = null;
-	let running: Promise<void> | null = null;
+	const renderedVersion = new Map<string, number>();
+	let queue = Promise.resolve();
 
-	const refresh = async (session: Session & { short: string }) => {
-		capturedVersion.set(session.id, session.updatedAt);
+	const refresh = async (session: Session) => {
+		renderedVersion.set(session.id, session.updatedAt);
 		try {
-			const html = await renderPreview(await logs(session.short));
-			if (timer === null || latest.get(session.id)?.html === html) return;
+			const html = renderTranscriptPreview(
+				await transcript(session.id, previewEntryCount),
+			);
+			if (html === "" || latest.get(session.id)?.html === html) return;
 			const preview = { sessionId: session.id, html, capturedAt: now() };
 			latest.set(session.id, preview);
 			emit(preview);
@@ -102,43 +101,24 @@ export const createPreviewer = ({
 		}
 	};
 
-	const pass = async () => {
-		const sessions = board().sessions.filter(previewable);
-		const known = new Set(sessions.map((session) => session.id));
+	const pass = async (board: Board) => {
+		const known = new Set(board.sessions.map((session) => session.id));
 		for (const id of latest.keys()) if (!known.has(id)) latest.delete(id);
-		for (const id of capturedVersion.keys()) {
-			if (!known.has(id)) capturedVersion.delete(id);
+		for (const id of renderedVersion.keys()) {
+			if (!known.has(id)) renderedVersion.delete(id);
 		}
-		const due = sessions.filter(
-			(session) =>
-				session.activity === "working" ||
-				capturedVersion.get(session.id) !== session.updatedAt,
-		);
-		for (let start = 0; start < due.length; start += concurrency) {
-			await Promise.all(due.slice(start, start + concurrency).map(refresh));
+		for (const session of board.sessions) {
+			if (renderedVersion.get(session.id) !== session.updatedAt) {
+				await refresh(session);
+			}
 		}
-	};
-
-	const tick = () => {
-		running ??= pass().finally(() => {
-			running = null;
-		});
-		return running;
 	};
 
 	return {
-		start() {
-			if (timer !== null) return;
-			timer = setInterval(tick, intervalMs).unref();
-			void tick();
+		update(board) {
+			queue = queue.then(() => pass(board));
+			return queue;
 		},
-		stop() {
-			if (timer !== null) clearInterval(timer);
-			timer = null;
-			latest.clear();
-			capturedVersion.clear();
-		},
-		tick,
 		latest: () => [...latest.values()],
 	};
 };

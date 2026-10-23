@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -124,6 +124,8 @@ describe("createKanbanServer", () => {
 		await mkdir(join(dist, "assets"));
 		await writeFile(join(dist, "index.html"), "<!doctype html>board");
 		await writeFile(join(dist, "assets", "app.js"), "export {}");
+		await writeFile(join(dist, "locked.js"), "export {}");
+		await chmod(join(dist, "locked.js"), 0o000);
 		const attach: AttachHub = {
 			open: (socket, target) => {
 				attached.push(`${target.short} ${target.cwd}`);
@@ -140,8 +142,6 @@ describe("createKanbanServer", () => {
 					capturedAt: 1,
 				},
 			],
-			onFirstClient: () => {},
-			onLastClient: () => {},
 		});
 		const server = createKanbanServer({
 			origins,
@@ -203,6 +203,20 @@ describe("createKanbanServer", () => {
 		const deep = await fetch(`${base}/some/route`, { headers: authed });
 		assert.equal(deep.headers.get("content-type"), "text/html; charset=utf-8");
 		assert.equal(await deep.text(), "<!doctype html>board");
+		assert.equal(
+			deep.headers.get("content-security-policy"),
+			"frame-ancestors 'none'",
+		);
+		assert.equal(deep.headers.get("x-frame-options"), "DENY");
+	});
+
+	it("survives a static file it cannot read", async () => {
+		await assert.rejects(
+			fetch(`${base}/locked.js`, { headers: authed }).then((response) =>
+				response.text(),
+			),
+		);
+		assert.equal((await fetch(`${base}/healthz`)).status, 200);
 	});
 
 	it("serves transcripts for known sessions without caching", async () => {
@@ -319,5 +333,18 @@ describe("createKanbanServer", () => {
 			frames.map((frame) => frame.type),
 			["board", "preview"],
 		);
+	});
+
+	it("survives a websocket frame over the payload limit", async () => {
+		const code = await new Promise<number>((resolve) => {
+			const socket = new WebSocket(`${base.replace("http", "ws")}/api/feed`, {
+				headers: { ...authed, origin },
+			});
+			socket.on("open", () => socket.send("x".repeat(2 * 1024 * 1024)));
+			socket.on("close", (closeCode) => resolve(closeCode));
+			socket.on("error", () => {});
+		});
+		assert.ok(code === 1006 || code === 1009);
+		assert.equal((await fetch(`${base}/healthz`)).status, 200);
 	});
 });

@@ -3,7 +3,7 @@ import { X } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useLayoutEffect, useRef } from "preact/hooks";
 import type { Session } from "../../shared/types.ts";
-import { ActivityBadge } from "./ActivityBadge.tsx";
+import { ActivityBadge } from "../activity.tsx";
 import { AttachedTerminal } from "./AttachedTerminal.tsx";
 import { commandKey } from "./platform.ts";
 import { TranscriptView } from "./TranscriptView.tsx";
@@ -38,12 +38,29 @@ export function Focus(props: {
 	origin?: DOMRect;
 }): JSX.Element {
 	const { session, onClose } = props;
+	const backdrop = useRef<HTMLDivElement>(null);
 	const panel = useRef<HTMLDivElement>(null);
+	const closeButton = useRef<HTMLButtonElement>(null);
 	const close = useRef(onClose);
 	close.current = onClose;
 
 	useLayoutEffect(() => {
 		if (panel.current && props.origin) growFrom(panel.current, props.origin);
+	}, []);
+
+	useEffect(() => {
+		const opener = document.activeElement;
+		const own = backdrop.current;
+		const behind = [...(own?.parentElement?.children ?? [])].filter(
+			(element): element is HTMLElement =>
+				element !== own && element instanceof HTMLElement,
+		);
+		for (const element of behind) element.inert = true;
+		closeButton.current?.focus();
+		return () => {
+			for (const element of behind) element.inert = false;
+			if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+		};
 	}, []);
 
 	useEffect(() => {
@@ -62,6 +79,7 @@ export function Focus(props: {
 
 	return (
 		<div
+			ref={backdrop}
 			class="focus-backdrop"
 			role="dialog"
 			aria-modal="true"
@@ -93,6 +111,7 @@ export function Focus(props: {
 						</div>
 					</div>
 					<button
+						ref={closeButton}
 						type="button"
 						class="focus-button focus-close"
 						onClick={onClose}

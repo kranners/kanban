@@ -1,8 +1,9 @@
 import { computed, signal } from "@preact/signals";
 import type { Activity, Board, Preview, Session } from "../shared/types.ts";
-import { layoutForAspect } from "./layout.ts";
+import { layoutForStage } from "./layout.ts";
+import type { Size } from "./viewport.ts";
 
-export type Connection = "connecting" | "open" | "reconnecting";
+export type Connection = "connecting" | "open" | "reconnecting" | "lost";
 
 export const board = signal<Board | null>(null);
 export const previews = signal<ReadonlyMap<string, Preview>>(new Map());
@@ -26,26 +27,23 @@ setInterval(() => {
 
 const compactWidth = 720;
 
-function stageAspect(): number {
+function measureStage(): Size {
 	const railWidth = innerWidth <= compactWidth ? 0 : railOpen.value ? 320 : 44;
-	return Math.max(
-		0.3,
-		(innerWidth - railWidth) / Math.max(1, innerHeight - 52),
-	);
+	return { width: innerWidth - railWidth, height: innerHeight - 52 };
 }
 
-export const viewportAspect = signal(1.6);
+export const stageSize = signal<Size>(measureStage());
 
 addEventListener("resize", () => {
-	viewportAspect.value = stageAspect();
+	stageSize.value = measureStage();
 });
 
 railOpen.subscribe(() => {
-	viewportAspect.value = stageAspect();
+	stageSize.value = measureStage();
 });
 
 export const layout = computed(() =>
-	board.value ? layoutForAspect(board.value, viewportAspect.value) : null,
+	board.value ? layoutForStage(board.value, stageSize.value) : null,
 );
 
 export const sessionsById = computed(

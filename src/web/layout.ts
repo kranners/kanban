@@ -1,4 +1,6 @@
 import type { Board, LinkKind, NodeRef } from "../shared/types.ts";
+import type { Size } from "./viewport.ts";
+import { availableSize, fitZoom, legibleZoom } from "./viewport.ts";
 
 export type NodeKey = string;
 
@@ -55,7 +57,6 @@ type GraphNode = {
 	key: NodeKey;
 	ref: NodeRef;
 	startedAt: number;
-	updatedAt: number;
 };
 
 function collectNodes(board: Board): Map<NodeKey, GraphNode> {
@@ -66,7 +67,6 @@ function collectNodes(board: Board): Map<NodeKey, GraphNode> {
 			key: nodeKey(ref),
 			ref,
 			startedAt: s.startedAt,
-			updatedAt: s.updatedAt,
 		});
 	}
 	for (const a of board.subagents) {
@@ -75,7 +75,6 @@ function collectNodes(board: Board): Map<NodeKey, GraphNode> {
 			key: nodeKey(ref),
 			ref,
 			startedAt: a.startedAt,
-			updatedAt: a.updatedAt,
 		});
 	}
 	return nodes;
@@ -121,9 +120,12 @@ export function familiesOf(board: Board): NodeKey[][] {
 		group.push(k);
 		groups.set(root, group);
 	}
-	const recency = (group: NodeKey[]) =>
-		Math.max(...group.map((k) => nodes.get(k)?.updatedAt ?? 0));
-	return [...groups.values()].sort((a, b) => recency(b) - recency(a));
+	const founded = (group: NodeKey[]) =>
+		Math.min(...group.map((k) => nodes.get(k)?.startedAt ?? 0));
+	const firstKey = (group: NodeKey[]) => [...group].sort()[0] ?? "";
+	return [...groups.values()].sort(
+		(a, b) => founded(b) - founded(a) || firstKey(a).localeCompare(firstKey(b)),
+	);
 }
 
 type Tree = { key: NodeKey; children: Tree[]; width: number };
@@ -235,26 +237,40 @@ export function layoutBoard(
 	return { nodes: placed, families, width, height: rowBottom };
 }
 
-export function layoutForAspect(
+export function newestRoot(layout: BoardLayout): PlacedNode | null {
+	const family = (layout.families[0] ?? []).flatMap((key) => {
+		const node = layout.nodes.get(key);
+		return node ? [node] : [];
+	});
+	return family.reduce<PlacedNode | null>(
+		(top, node) => (top === null || node.y < top.y ? node : top),
+		null,
+	);
+}
+
+export function layoutForStage(
 	board: Board,
-	aspect: number,
+	stage: Size,
 	options: LayoutOptions = defaultLayoutOptions,
 ): BoardLayout {
+	const available = availableSize(stage);
 	const singleRow = layoutBoard(board, {
 		...options,
 		maxWidth: Number.POSITIVE_INFINITY,
 	});
-	const fitScore = (l: BoardLayout) =>
-		Math.min(aspect / Math.max(1, l.width), 1 / Math.max(1, l.height));
+	const zoom = (l: BoardLayout) => fitZoom(l, available);
 	let best = singleRow;
-	const step = options.subagent.w;
 	for (
 		let maxWidth = options.session.w;
 		maxWidth < singleRow.width;
-		maxWidth += step
+		maxWidth += options.subagent.w
 	) {
 		const candidate = layoutBoard(board, { ...options, maxWidth });
-		if (fitScore(candidate) > fitScore(best)) best = candidate;
+		if (zoom(candidate) > zoom(best)) best = candidate;
 	}
-	return best;
+	if (zoom(best) >= legibleZoom) return best;
+	return layoutBoard(board, {
+		...options,
+		maxWidth: available.width / legibleZoom,
+	});
 }
