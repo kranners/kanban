@@ -13,7 +13,7 @@ export type Group = {
 	frame: Rect;
 };
 
-export const groupReach = 2 * gridSize;
+export const groupReach = 4 * gridSize;
 export const groupPadding = gridSize;
 export const groupLabelSpace = gridSize + 8;
 

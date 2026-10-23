@@ -76,7 +76,7 @@ test("grouping is transitive across a chain of neighbours", () => {
 
 test("sessions further apart than the reach stay separate", () => {
 	const sessions = [session("a", "api"), session("b", "api")];
-	const placed = nodes(node("a", 0, 0), node("b", 312 + 3 * gridSize, 0));
+	const placed = nodes(node("a", 0, 0), node("b", 312 + 5 * gridSize, 0));
 	assert.equal(groupsOf(sessions, placed).length, 0);
 });
 

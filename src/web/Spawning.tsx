@@ -159,6 +159,8 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 	const [prompt, setPrompt] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const { k } = view.value;
+	const legible = Math.max(1, 1 / k);
 	useRestoreFocus();
 
 	useEffect(() => {
@@ -202,8 +204,8 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 			class="quick-prompt"
 			data-no-pan
 			style={{
-				transform: `translate(${open.at.x}px, ${open.at.y}px)`,
-				width: `${sessionSize.w}px`,
+				transform: `translate(${open.at.x}px, ${open.at.y}px) scale(${legible})`,
+				width: `min(${sessionSize.w}px, calc((100vw - 32px) / ${legible * k}))`,
 			}}
 		>
 			<div class={`quick-prompt-field${busy ? " busy" : ""}`}>
