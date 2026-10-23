@@ -1,0 +1,56 @@
+import type { BoardFeed } from "../shared/types.ts";
+import {
+	awaitingShort,
+	board,
+	connection,
+	openSession,
+	previews,
+} from "./state.ts";
+
+function feedUrl(): string {
+	const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+	return `${scheme}//${location.host}/api/feed`;
+}
+
+function receive(frame: BoardFeed): void {
+	if (frame.type === "board") {
+		board.value = frame.board;
+		const short = awaitingShort.value;
+		const created = short
+			? frame.board.sessions.find((s) => s.short === short)
+			: undefined;
+		if (created) {
+			awaitingShort.value = null;
+			openSession(created.id);
+		}
+		return;
+	}
+	const next = new Map(previews.value);
+	next.set(frame.preview.sessionId, frame.preview);
+	previews.value = next;
+}
+
+export function connectFeed(): void {
+	let attempt = 0;
+	const open = () => {
+		const socket = new WebSocket(feedUrl());
+		socket.addEventListener("open", () => {
+			attempt = 0;
+			connection.value = "open";
+		});
+		socket.addEventListener("message", (event) => {
+			if (typeof event.data !== "string") return;
+			try {
+				receive(JSON.parse(event.data) as BoardFeed);
+			} catch {}
+		});
+		socket.addEventListener("close", () => {
+			connection.value = "reconnecting";
+			const delay =
+				Math.min(15_000, 500 * 2 ** attempt) * (0.75 + Math.random() / 2);
+			attempt += 1;
+			setTimeout(open, delay);
+		});
+	};
+	open();
+}

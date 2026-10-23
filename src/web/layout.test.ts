@@ -1,0 +1,172 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import type {
+	Board,
+	Link,
+	NodeRef,
+	Session,
+	Subagent,
+} from "../shared/types.ts";
+import {
+	defaultLayoutOptions,
+	familiesOf,
+	layoutBoard,
+	layoutForAspect,
+	nodeKey,
+} from "./layout.ts";
+
+function session(id: string, updatedAt: number): Session {
+	return {
+		id,
+		short: id,
+		pid: null,
+		name: id,
+		cwd: `/Users/me/dev/${id}`,
+		project: id,
+		kind: "background",
+		activity: "idle",
+		doing: null,
+		needs: null,
+		startedAt: updatedAt,
+		updatedAt,
+		attachable: true,
+	};
+}
+
+function subagent(id: string, sessionId: string, at = 1): Subagent {
+	return {
+		id,
+		sessionId,
+		parentAgentId: null,
+		type: "explore",
+		description: id,
+		live: true,
+		startedAt: at,
+		updatedAt: at,
+	};
+}
+
+const s = (id: string): NodeRef => ({ kind: "session", id });
+const a = (id: string): NodeRef => ({ kind: "subagent", id });
+
+function board(parts: Partial<Board>): Board {
+	return {
+		sessions: [],
+		subagents: [],
+		links: [],
+		messages: [],
+		generatedAt: 0,
+		...parts,
+	};
+}
+
+test("links join families but messages do not", () => {
+	const b = board({
+		sessions: [session("acme-api", 1), session("acme-web", 2), session("x", 3)],
+		links: [{ from: s("acme-api"), to: s("acme-web"), kind: "spawned" }],
+		messages: [
+			{ id: "m", from: s("x"), to: s("acme-api"), at: 4, summary: "" },
+		],
+	});
+	const families = familiesOf(b).map((f) => [...f].sort());
+	assert.deepEqual(families, [
+		["session:x"],
+		["session:acme-api", "session:acme-web"],
+	]);
+});
+
+test("families are ordered by most recent activity", () => {
+	const b = board({
+		sessions: [session("old", 1), session("new", 9), session("mid", 5)],
+	});
+	assert.deepEqual(familiesOf(b), [
+		["session:new"],
+		["session:mid"],
+		["session:old"],
+	]);
+});
+
+test("subagents join their session even without an explicit link", () => {
+	const b = board({
+		sessions: [session("acme-api", 1)],
+		subagents: [subagent("sa1", "acme-api")],
+	});
+	assert.deepEqual(familiesOf(b).length, 1);
+});
+
+test("children sit below their parent and are centred under it", () => {
+	const links: Link[] = [
+		{ from: s("root"), to: a("one"), kind: "subagent" },
+		{ from: s("root"), to: a("two"), kind: "subagent" },
+	];
+	const b = board({
+		sessions: [session("root", 1)],
+		subagents: [subagent("one", "root", 1), subagent("two", "root", 2)],
+		links,
+	});
+	const { nodes } = layoutBoard(b);
+	const root = nodes.get(nodeKey(s("root")));
+	const one = nodes.get(nodeKey(a("one")));
+	const two = nodes.get(nodeKey(a("two")));
+	assert.ok(root && one && two);
+	assert.equal(one.y, root.y + root.h + defaultLayoutOptions.levelGap);
+	assert.equal(one.y, two.y);
+	assert.ok(one.x + one.w <= two.x);
+	const childrenCentre = (one.x + two.x + two.w) / 2;
+	assert.equal(root.x + root.w / 2, childrenCentre);
+	assert.equal(one.w, defaultLayoutOptions.subagent.w);
+});
+
+test("families wrap into rows by max width without overlapping", () => {
+	const sessions = Array.from({ length: 10 }, (_, i) => session(`s${i}`, i));
+	const { nodes, width } = layoutBoard(board({ sessions }), {
+		...defaultLayoutOptions,
+		maxWidth: 1000,
+	});
+	const placed = [...nodes.values()];
+	assert.ok(width <= 1000);
+	assert.ok(new Set(placed.map((n) => n.y)).size > 1);
+	for (const p of placed) {
+		for (const q of placed) {
+			if (p === q) continue;
+			const apart =
+				p.x + p.w <= q.x ||
+				q.x + q.w <= p.x ||
+				p.y + p.h <= q.y ||
+				q.y + q.h <= p.y;
+			assert.ok(apart, `${p.key} overlaps ${q.key}`);
+		}
+	}
+});
+
+test("a link cycle still places every node once", () => {
+	const b = board({
+		sessions: [session("p", 1), session("q", 2)],
+		links: [
+			{ from: s("p"), to: s("q"), kind: "forked" },
+			{ from: s("q"), to: s("p"), kind: "forked" },
+		],
+	});
+	assert.equal(layoutBoard(b).nodes.size, 2);
+});
+
+test("links to unknown nodes are ignored", () => {
+	const b = board({
+		sessions: [session("p", 1)],
+		links: [{ from: s("ghost"), to: s("p"), kind: "spawned" }],
+	});
+	const p = layoutBoard(b).nodes.get("session:p");
+	assert.deepEqual([p?.x, p?.y], [0, 0]);
+});
+
+test("wide viewports get one row and tall viewports get several", () => {
+	const sessions = Array.from({ length: 6 }, (_, i) => session(`s${i}`, i));
+	const rows = (aspect: number) =>
+		new Set(
+			[...layoutForAspect(board({ sessions }), aspect).nodes.values()].map(
+				(n) => n.y,
+			),
+		).size;
+	assert.equal(rows(16), 1);
+	assert.ok(rows(0.5) >= 3);
+});
