@@ -3,6 +3,7 @@ import "./actions.css";
 import { TriangleAlert, X } from "lucide-preact";
 import type { ComponentChildren, JSX } from "preact";
 import { useEffect, useId, useRef } from "preact/hooks";
+import { useRestoreFocus } from "./restoreFocus.ts";
 
 export function ConfirmDialog(props: {
 	title: string;
@@ -16,6 +17,7 @@ export function ConfirmDialog(props: {
 	const accept = useRef<HTMLButtonElement>(null);
 	const pressedBackdrop = useRef(false);
 	const id = useId();
+	useRestoreFocus();
 
 	useEffect(() => {
 		dialog.current?.showModal();
@@ -23,7 +25,7 @@ export function ConfirmDialog(props: {
 	}, []);
 
 	const acceptOnEnter = (event: KeyboardEvent) => {
-		if (event.key !== "Enter" || event.isComposing) return;
+		if (event.key !== "Enter" || event.isComposing || event.repeat) return;
 		if ((event.target as Element).closest("[data-cancel]")) return;
 		event.preventDefault();
 		props.onConfirm();

@@ -23,6 +23,10 @@ describe("loadConfig", () => {
 		assert.match(config.claudeHome, /\/\.claude$/);
 		assert.match(config.dist, /\/dist$/);
 		assert.match(config.stateDir, /\/\.local\/state\/kanban$/);
+		assert.match(
+			loadConfig({ ...access, KANBAN_PORT: "7421" }).stateDir,
+			/\/\.local\/state\/kanban-7421$/,
+		);
 		assert.equal(
 			loadConfig({ ...access, KANBAN_STATE: "/tmp/kanban-state" }).stateDir,
 			"/tmp/kanban-state",

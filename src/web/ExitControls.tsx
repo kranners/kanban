@@ -3,7 +3,7 @@ import { CircleAlert, LoaderCircle, X } from "lucide-preact";
 import type { JSX } from "preact";
 import type { Session } from "../shared/types.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
-import type { ExitState } from "./exits.ts";
+import type { ExitState } from "./exitState.ts";
 import {
 	askToExit,
 	dismissExit,

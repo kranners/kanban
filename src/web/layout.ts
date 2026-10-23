@@ -32,7 +32,7 @@ export type LayoutOptions = {
 	rowGap: number;
 };
 
-export const sessionLabelHeight = 44;
+export const sessionLabelHeight = 48;
 
 export const defaultLayoutOptions: LayoutOptions = {
 	maxWidth: 2400,

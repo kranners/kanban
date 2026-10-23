@@ -418,9 +418,16 @@ const server = createServer(async (req, res) => {
 	if (req.method === "POST" && exit) {
 		const { force } = (await readBody(req)) as ExitRequest;
 		const id = exit[1] ?? "";
-		const index = sessions.findIndex((item) => item.id === id);
+		if (!sessions.some((item) => item.id === id)) {
+			res.writeHead(404, { "content-type": "application/json" });
+			res.end(JSON.stringify({ ok: false, error: "Not Found" }));
+			return;
+		}
+		res.writeHead(202, { "content-type": "application/json" });
+		res.end(JSON.stringify({ ok: true }));
 		await new Promise((resolve) => setTimeout(resolve, 1500));
 		const reason = notReady[id];
+		const index = sessions.findIndex((item) => item.id === id);
 		const result: ExitResult =
 			index === -1
 				? { ok: false, error: "This session is no longer on the board" }
@@ -428,16 +435,10 @@ const server = createServer(async (req, res) => {
 					? { ok: true, exited: false, reason }
 					: { ok: true, exited: true };
 		if (result.ok && result.exited) {
-			sessions.splice(
-				sessions.findIndex((item) => item.id === id),
-				1,
-			);
+			sessions.splice(index, 1);
 			broadcast({ type: "board", board: snapshot() });
 		}
-		res.writeHead(result.ok ? 200 : 422, {
-			"content-type": "application/json",
-		});
-		res.end(JSON.stringify(result));
+		setTimeout(() => broadcast({ type: "exit", sessionId: id, result }), 400);
 		return;
 	}
 	const transcript = url.pathname.match(

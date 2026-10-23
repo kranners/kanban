@@ -1,4 +1,5 @@
 .close-bubble {
+	position: relative;
 	display: grid;
 	place-items: center;
 	width: 24px;
@@ -27,6 +28,20 @@
 	opacity: 1;
 	scale: 1;
 	pointer-events: auto;
+}
+
+@media (hover: none) {
+	.node .close-bubble {
+		opacity: 1;
+		scale: 1;
+		pointer-events: auto;
+	}
+
+	.close-bubble::before {
+		content: "";
+		position: absolute;
+		inset: -10px;
+	}
 }
 
 .close-bubble:hover:not(:disabled) {
@@ -61,8 +76,10 @@
 }
 
 .node.exit-refused {
-	animation: exit-shake calc(420ms * var(--motion))
-		cubic-bezier(0.36, 0, 0.3, 1);
+	animation-name: node-enter, exit-shake;
+	animation-duration: calc(320ms * var(--motion)), calc(420ms * var(--motion));
+	animation-timing-function:
+		cubic-bezier(0.2, 0.7, 0.2, 1), cubic-bezier(0.36, 0, 0.3, 1);
 }
 
 .node.exit-leaving,

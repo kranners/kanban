@@ -5,7 +5,12 @@ import type {
 	Point,
 } from "../shared/types.ts";
 import { cwdChoices, freeSpotNear } from "./actions.ts";
-import { arrangement, groups, previewPlacement } from "./arrangement.ts";
+import {
+	arrangement,
+	groups,
+	previewPlacement,
+	reserved,
+} from "./arrangement.ts";
 import type { Group } from "./groups.ts";
 import { groupAt } from "./groups.ts";
 import { nodeKey } from "./layout.ts";
@@ -35,7 +40,10 @@ export async function createSession(
 		try {
 			return JSON.parse(text) as NewSessionResult;
 		} catch {
-			return { ok: false, error: text || `HTTP ${response.status}` };
+			return {
+				ok: false,
+				error: `The board server answered HTTP ${response.status}`,
+			};
 		}
 	} catch (caught) {
 		return { ok: false, error: `Couldn't reach the board server (${caught})` };
@@ -68,6 +76,14 @@ function dropGhost(ghost: Ghost): void {
 	ghosts.value = ghosts.peek().filter((g) => g !== ghost);
 }
 
+function land(ghost: Ghost): boolean {
+	const arrived = board.peek()?.sessions.find((s) => s.short === ghost.short);
+	if (!arrived) return false;
+	previewPlacement(nodeKey({ kind: "session", id: arrived.id }), ghost.at);
+	dropGhost(ghost);
+	return true;
+}
+
 export async function spawnFromPrompt(prompt: string): Promise<string | null> {
 	const open = quickPrompt.peek();
 	if (!open) return null;
@@ -76,16 +92,19 @@ export async function spawnFromPrompt(prompt: string): Promise<string | null> {
 	const ghost = { short: result.short, at: open.at, prompt };
 	ghosts.value = [...ghosts.peek(), ghost];
 	if (quickPrompt.peek() === open) quickPrompt.value = null;
-	setTimeout(() => dropGhost(ghost), ghostMs);
+	if (!land(ghost)) setTimeout(() => dropGhost(ghost), ghostMs);
 	return null;
 }
 
 effect(() => {
-	const sessions = board.value?.sessions ?? [];
-	for (const ghost of ghosts.peek()) {
-		const arrived = sessions.find((s) => s.short === ghost.short);
-		if (!arrived) continue;
-		previewPlacement(nodeKey({ kind: "session", id: arrived.id }), ghost.at);
-		dropGhost(ghost);
-	}
+	if (!board.value) return;
+	for (const ghost of ghosts.peek()) land(ghost);
+});
+
+effect(() => {
+	const open = quickPrompt.value;
+	reserved.value = [
+		...ghosts.value.map((g) => ({ ...g.at, ...sessionSize })),
+		...(open ? [{ ...open.at, ...sessionSize }] : []),
+	];
 });

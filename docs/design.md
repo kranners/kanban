@@ -18,7 +18,7 @@ kanban builds on Claude Code's own primitives instead: the session registry, bac
 
 ## Sources of truth
 
-Everything about sessions is read from `~/.claude`; kanban keeps no database. The one thing it stores is where people put cards: `layout.json` in `KANBAN_STATE` (default `~/.local/state/kanban`), written atomically, with placements pruned a day after their node leaves the board.
+Everything about sessions is read from `~/.claude`; kanban keeps no database. The one thing it stores is where people put cards: `layout.json` in `KANBAN_STATE` (default `~/.local/state/kanban`, or `~/.local/state/kanban-<port>` off the default port so dev servers never share the board's file), written atomically, with placements pruned a day after their node leaves the board.
 
 | Need                                    | Source                                                                                       |
 | --------------------------------------- | -------------------------------------------------------------------------------------------- |
@@ -54,22 +54,22 @@ Secrets that are never read or served: `sessions/*.key`, `daemon/control.key`, r
 
 One Node 24 process on `127.0.0.1:7420` serves the built page and these endpoints:
 
-| Endpoint                           | Purpose                                                                                                                                 |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /`                            | the page                                                                                                                                |
-| `WS /api/feed`                     | `BoardFeed` frames: a full `board` on every change (debounced), `layout` on connect and on change, `preview` frames for card thumbnails |
-| `GET /api/sessions/:id/transcript` | recent `TranscriptEntry`s for read-only cards                                                                                           |
-| `POST /api/sessions`               | `NewSessionRequest` → `claude --bg`; without `name` Claude Code names it, with `at` the card spawns there                               |
-| `POST /api/sessions/:id/exit`      | `ExitRequest` → `ExitResult`: asks the session whether it is safe to exit (unless `force`), then ends it                                |
-| `PUT /api/layout`                  | `LayoutUpdate` → 204: stores one node's placement and broadcasts the layout                                                             |
-| `WS /api/attach/:short`            | a `claude attach` pty: binary output down, `AttachClientFrame`s up                                                                      |
-| `GET /healthz`                     | liveness                                                                                                                                |
+| Endpoint                           | Purpose                                                                                                                                |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /`                            | the page                                                                                                                               |
+| `WS /api/feed`                     | `BoardFeed` frames: `layout` then a full `board` on connect, each again on change, `preview` thumbnails, `exit` outcomes               |
+| `GET /api/sessions/:id/transcript` | recent `TranscriptEntry`s for read-only cards                                                                                          |
+| `POST /api/sessions`               | `NewSessionRequest` → `claude --bg`; without `name` Claude Code names it, with `at` the card spawns there                              |
+| `POST /api/sessions/:id/exit`      | `ExitRequest` → 202 at once; the `ExitResult` arrives later as an `exit` feed frame, since asking can outlast the tunnel's ~100s limit |
+| `PUT /api/layout`                  | `LayoutUpdate` → 204: stores one node's placement and broadcasts the layout                                                            |
+| `WS /api/attach/:short`            | a `claude attach` pty: binary output down, `AttachClientFrame`s up                                                                     |
+| `GET /healthz`                     | liveness                                                                                                                               |
 
 One attach per session: a second attach takes over and the first gets `taken-over`, because Claude Code redraws a shared session at the last attacher's size. Closing the socket kills the attach process, which detaches without stopping the session. If the attach drops into Claude's agent view (← on an empty prompt, recognised by its `claude agents` window title), kanban sends Enter to return, and Escape for a workspace trust dialog there. This guard is a convenience against stray keys, not a security boundary: whoever passes Cloudflare Access can already drive any background session, so Access is the boundary.
 
 The server calls the real `claude` binary, not a terminal's shim, so `--bg` sessions resume as themselves.
 
-Exiting asks the agent itself without touching the real session: `claude -p --resume <id> --fork-session --session-id <fork> --no-session-persistence --tools "" --output-format json --json-schema {ready, reason}` answers from a throwaway fork that cannot run tools and leaves no transcript. The fork registers in `~/.claude/sessions` while it runs, so ingest ignores its id. A ready (or forced) background session gets `claude stop` then `claude rm`, never with `--discard-unpushed` or `--force-remove-worktree`, so `rm` refusing leaves it stopped and says why. An interactive session gets SIGTERM, only while its pid is still that session's live registry entry. Every exit is audited.
+Exiting asks the agent itself without touching the real session: `claude -p --resume <id> --fork-session --session-id <fork> --no-session-persistence --tools "" --strict-mcp-config --permission-mode dontAsk --settings '{"disableAllHooks":true}' --output-format json --json-schema {ready, reason}` answers from a throwaway fork that loads no MCP servers or hooks, cannot run tools, and leaves no transcript. The fork registers in `~/.claude/sessions` while it runs, so ingest ignores its id. A ready (or forced) background session gets `claude stop` then `claude rm`, never with `--discard-unpushed` or `--force-remove-worktree`, so `rm` refusing leaves it stopped and says why. An interactive session gets SIGTERM, only while its pid is still that session's live registry entry and `ps` shows a claude process that started when the entry did, so a reused pid is never signalled. Every exit is audited.
 
 ## User flows
 

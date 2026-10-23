@@ -1,33 +1,21 @@
-import { computed, effect, signal } from "@preact/signals";
+import { effect, signal } from "@preact/signals";
 import type { ExitResult, Session } from "../shared/types.ts";
 import { arrangement } from "./arrangement.ts";
-import type { PlacedNode } from "./layout.ts";
+import type { ExitState } from "./exitState.ts";
+import { exits } from "./exitState.ts";
 import { nodeKey } from "./layout.ts";
 import { board } from "./state.ts";
-
-export type ExitState =
-	| { phase: "checking"; force: boolean }
-	| { phase: "refused"; title: string; message: string }
-	| { phase: "leaving"; session: Session; node: PlacedNode | undefined }
-	| { phase: "gone" };
 
 export type ExitAsk = { session: Session; force: boolean };
 
 const leaveMs = 260;
 const noticeMs = 15_000;
+const answerMs = 10 * 60_000;
 
-export const exits = signal<ReadonlyMap<string, ExitState>>(new Map());
+const answers = new Map<string, (result: ExitResult) => void>();
+
 export const exitAsk = signal<ExitAsk | null>(null);
 export const shiftHeld = signal(false);
-
-export const departed = computed(
-	() =>
-		new Set(
-			[...exits.value]
-				.filter(([, state]) => state.phase === "gone")
-				.map(([id]) => id),
-		),
-);
 
 addEventListener("keydown", (event) => {
 	if (event.key === "Shift") shiftHeld.value = true;
@@ -46,7 +34,9 @@ function setExit(id: string, state: ExitState | null): void {
 	exits.value = next;
 }
 
-async function postExit(id: string, force: boolean): Promise<ExitResult> {
+type Accepted = { ok: true } | { ok: false; error: string };
+
+async function postExit(id: string, force: boolean): Promise<Accepted> {
 	try {
 		const response = await fetch(
 			`/api/sessions/${encodeURIComponent(id)}/exit`,
@@ -56,15 +46,53 @@ async function postExit(id: string, force: boolean): Promise<ExitResult> {
 				body: JSON.stringify({ force }),
 			},
 		);
-		const text = await response.text();
-		try {
-			return JSON.parse(text) as ExitResult;
-		} catch {
-			return { ok: false, error: text || `HTTP ${response.status}` };
-		}
+		if (response.status === 202) return { ok: true };
+		return { ok: false, error: await errorOf(response) };
 	} catch (caught) {
 		return { ok: false, error: `Couldn't reach the board server (${caught})` };
 	}
+}
+
+async function errorOf(response: Response): Promise<string> {
+	try {
+		const body = (await response.json()) as { error?: unknown };
+		if (typeof body.error === "string" && body.error) return body.error;
+	} catch {}
+	return `The board server answered HTTP ${response.status}`;
+}
+
+function answerFor(id: string): {
+	answer: Promise<ExitResult>;
+	cancel: () => void;
+} {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const answer = new Promise<ExitResult>((resolve) => {
+		const settle = (result: ExitResult) => {
+			clearTimeout(timer);
+			answers.delete(id);
+			resolve(result);
+		};
+		answers.set(id, settle);
+		timer = setTimeout(
+			() =>
+				settle({
+					ok: false,
+					error: "The board server never said how the exit went",
+				}),
+			answerMs,
+		);
+	});
+	return {
+		answer,
+		cancel: () => {
+			clearTimeout(timer);
+			answers.delete(id);
+		},
+	};
+}
+
+export function receiveExit(id: string, result: ExitResult): void {
+	answers.get(id)?.(result);
 }
 
 function refuse(id: string, title: string, message: string): void {
@@ -93,9 +121,12 @@ export async function exitSession(
 	if (busy(id)) return;
 	const placed = () =>
 		arrangement.peek()?.nodes.get(nodeKey({ kind: "session", id }));
-	const before = placed();
-	setExit(id, { phase: "checking", force });
-	const result = await postExit(id, force);
+	const node = placed();
+	setExit(id, { phase: "checking", force, session, node });
+	const { answer, cancel } = answerFor(id);
+	const accepted = await postExit(id, force);
+	if (!accepted.ok) cancel();
+	const result = accepted.ok ? await answer : accepted;
 	if (!result.ok) {
 		refuse(id, "Couldn't exit", result.error);
 		return;
@@ -104,11 +135,7 @@ export async function exitSession(
 		refuse(id, "Can't exit yet", result.reason);
 		return;
 	}
-	setExit(id, {
-		phase: "leaving",
-		session,
-		node: placed() ?? before,
-	});
+	setExit(id, { phase: "leaving", session, node: placed() ?? node });
 	setTimeout(() => {
 		const listed = board.peek()?.sessions.some((s) => s.id === id);
 		setExit(id, listed ? { phase: "gone" } : null);

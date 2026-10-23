@@ -3,7 +3,7 @@ import { claudeAttachPty, createAttachHub } from "./attach.ts";
 import { fileAudit } from "./audit.ts";
 import { authenticatorFor } from "./auth.ts";
 import { type Config, loadConfig } from "./config.ts";
-import { claudeExitDeps, sessionExiter } from "./exit.ts";
+import { claudeExitDeps, exitSession } from "./exit.ts";
 import { createFeed, type Feed } from "./feed.ts";
 import { createKanbanServer } from "./http.ts";
 import { startBoard } from "./ingest/index.ts";
@@ -52,19 +52,19 @@ feed = createFeed({
 	layout: layout.current,
 });
 
+const exitDeps = claudeExitDeps({
+	claudeBin: config.claudeBin,
+	claudeHome: config.claudeHome,
+	probes,
+});
+
 const server = createKanbanServer({
 	origins: config.origins,
 	dist: config.dist,
 	authenticate: authenticatorFor(config.auth),
 	source,
 	launch: claudeLauncher(config.claudeBin),
-	exit: sessionExiter(
-		claudeExitDeps({
-			claudeBin: config.claudeBin,
-			claudeHome: config.claudeHome,
-			probes,
-		}),
-	),
+	exit: (session, force) => exitSession(exitDeps, session, force),
 	layout,
 	attach: createAttachHub(claudeAttachPty(config.claudeBin), audit),
 	feed,

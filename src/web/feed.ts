@@ -1,4 +1,5 @@
 import type { BoardFeed } from "../shared/types.ts";
+import { receiveExit } from "./exits.ts";
 import {
 	awaitingShort,
 	board,
@@ -30,6 +31,10 @@ function receive(frame: BoardFeed): void {
 	}
 	if (frame.type === "layout") {
 		layout.value = frame.layout;
+		return;
+	}
+	if (frame.type === "exit") {
+		receiveExit(frame.sessionId, frame.result);
 		return;
 	}
 	const next = new Map(previews.value);

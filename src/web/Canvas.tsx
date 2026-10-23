@@ -22,6 +22,7 @@ import {
 export const view = signal<View>({ x: 0, y: 0, k: 1 });
 
 const dragThreshold = 4;
+const touchHoldMs = 350;
 let suppressClick = false;
 let stage: HTMLDivElement | null = null;
 
@@ -45,8 +46,11 @@ type Grab = {
 	card: HTMLElement;
 	origin: Rect;
 	start: Point;
+	last: Point;
 	rect: Rect;
 	moved: boolean;
+	held: boolean;
+	hold?: ReturnType<typeof setTimeout>;
 };
 
 function sameRect(a: Rect, b: Rect): boolean {
@@ -144,21 +148,42 @@ export function Canvas(props: {
 			const key = card?.dataset.node;
 			const rect = key ? latest.current.rectOf?.(key) : undefined;
 			if (!card || !key || !rect || !latest.current.onArrange) return null;
-			return {
+			const mode = target.closest("[data-resize]") ? "resize" : "move";
+			const point = { x: event.clientX, y: event.clientY };
+			const next: Grab = {
 				pointerId: event.pointerId,
 				key,
-				mode: target.closest("[data-resize]") ? "resize" : "move",
+				mode,
 				card,
 				origin: rect,
-				start: { x: event.clientX, y: event.clientY },
+				start: point,
+				last: point,
 				rect,
 				moved: false,
+				held: event.pointerType !== "touch" || mode === "resize",
 			};
+			if (!next.held) {
+				next.hold = setTimeout(() => {
+					next.held = true;
+					navigator.vibrate?.(10);
+				}, touchHoldMs);
+			}
+			return next;
+		};
+
+		const releaseGrab = (): Grab | null => {
+			const released = grab;
+			if (!released) return null;
+			clearTimeout(released.hold);
+			if (released.moved) finishGrab("cancel");
+			grab = null;
+			return released;
 		};
 
 		const finishGrab = (phase: "drop" | "cancel") => {
 			if (!grab) return;
-			const { key, mode, rect, card, moved: wasMoved } = grab;
+			const { key, mode, rect, card, moved: wasMoved, hold } = grab;
+			clearTimeout(hold);
 			grab = null;
 			if (!wasMoved) return;
 			delete card.dataset.arranging;
@@ -172,9 +197,16 @@ export function Canvas(props: {
 
 		const moveGrab = (event: PointerEvent) => {
 			if (!grab || event.pointerId !== grab.pointerId) return;
+			grab.last = { x: event.clientX, y: event.clientY };
 			const dx = event.clientX - grab.start.x;
 			const dy = event.clientY - grab.start.y;
 			if (!grab.moved && Math.hypot(dx, dy) < dragThreshold) return;
+			if (!grab.held) {
+				const released = releaseGrab();
+				if (released) panFrom(released.pointerId, released.start);
+				onMove(event);
+				return;
+			}
 			if (!grab.moved) {
 				grab.moved = true;
 				el.setPointerCapture(event.pointerId);
@@ -202,8 +234,19 @@ export function Canvas(props: {
 			};
 		};
 
+		const panFrom = (pointerId: number, point: Point) => {
+			pointers.set(pointerId, point);
+			start = point;
+			moved = false;
+		};
+
 		const onDown = (event: PointerEvent) => {
-			if (event.button !== 0 || grab) return;
+			if (event.button !== 0) return;
+			if (grab) {
+				if (event.pointerType !== "touch") return;
+				const released = releaseGrab();
+				if (released) panFrom(released.pointerId, released.last);
+			}
 			if ((event.target as Element).closest("input, a, [data-no-pan]")) return;
 			if (pointers.size === 0) {
 				grab = grabCard(event);

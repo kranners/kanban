@@ -86,7 +86,8 @@ export type LayoutUpdate = { key: string; placement: Placement };
 export type BoardFeed =
 	| { type: "board"; board: Board }
 	| { type: "preview"; preview: Preview }
-	| { type: "layout"; layout: Layout };
+	| { type: "layout"; layout: Layout }
+	| { type: "exit"; sessionId: string; result: ExitResult };
 
 export type NewSessionRequest = {
 	cwd: string;

@@ -208,3 +208,14 @@ test("the nearest free spot is searched outward on the grid", () => {
 		null,
 	);
 });
+
+test("an unsaved session keeps clear of spots reserved for spawning cards", () => {
+	const b = board({ sessions: [session("a", 1)] });
+	const free = place(b).nodes.get("session:a");
+	assert.ok(free);
+	const ghost = { x: free.x, y: free.y, ...sessionSize };
+	const placed = arrange(b, {}, seedsOf(b, stage), new Map(), [ghost]);
+	const a = placed.nodes.get("session:a");
+	assert.ok(a);
+	assert.ok(!near(a, ghost, 0));
+});

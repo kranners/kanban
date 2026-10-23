@@ -11,8 +11,8 @@ import {
 	ExitNotice,
 	exitStateClass,
 } from "./ExitControls.tsx";
-import type { ExitState } from "./exits.ts";
-import { departed, exits } from "./exits.ts";
+import type { ExitState } from "./exitState.ts";
+import { departed, exits } from "./exitState.ts";
 import { Focus } from "./focus/Focus.tsx";
 import { NewSession } from "./focus/NewSession.tsx";
 import { GroupFrames } from "./Groups.tsx";
@@ -67,15 +67,23 @@ function litNodes(current: Board): {
 	return { pair: pair?.key ?? null, nodes: new Set([from, to]) };
 }
 
-function leavingCards(
+function sessionCards(
 	current: Board,
+	placed: Arrangement,
 ): { session: Session; node: PlacedNode }[] {
-	const listed = new Set(current.sessions.map((s) => s.id));
-	return [...exits.value.values()].flatMap((state) =>
-		state.phase === "leaving" && state.node && !listed.has(state.session.id)
+	const listed = current.sessions.flatMap((session) => {
+		const node = placed.nodes.get(nodeKey({ kind: "session", id: session.id }));
+		return node ? [{ session, node }] : [];
+	});
+	const ids = new Set(current.sessions.map((s) => s.id));
+	const held = [...exits.value.values()].flatMap((state) =>
+		(state.phase === "checking" || state.phase === "leaving") &&
+		state.node &&
+		!ids.has(state.session.id)
 			? [{ session: state.session, node: state.node }]
 			: [],
 	);
+	return [...listed, ...held];
 }
 
 function World(props: { board: Board; layout: Arrangement }) {
@@ -112,13 +120,7 @@ function World(props: { board: Board; layout: Arrangement }) {
 		<>
 			<GroupFrames groups={frames} />
 			<Links board={props.board} layout={props.layout} visible={visible} />
-			{props.board.sessions.map((session) => {
-				const node = props.layout.nodes.get(
-					nodeKey({ kind: "session", id: session.id }),
-				);
-				return node ? card(session, node, exiting.get(session.id)) : null;
-			})}
-			{leavingCards(props.board).map(({ session, node }) =>
+			{sessionCards(props.board, props.layout).map(({ session, node }) =>
 				card(session, node, exiting.get(session.id)),
 			)}
 			{props.board.subagents.map((subagent) => {

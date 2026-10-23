@@ -135,6 +135,7 @@ export function arrange(
 	saved: Layout,
 	seeds: Seeds,
 	remembered: ReadonlyMap<NodeKey, Point>,
+	reserved: readonly Rect[] = [],
 ): Arrangement {
 	const nodes = new Map<NodeKey, PlacedNode>();
 	const occupied: Rect[] = [];
@@ -223,6 +224,8 @@ export function arrange(
 		const taken = boundsOf(occupied);
 		return { x: start.x, y: snap(taken.y + taken.height + clearance) };
 	};
+
+	occupied.push(...reserved);
 
 	const unplaced = board.sessions
 		.filter((s) => !saved[nodeKey({ kind: "session", id: s.id })])

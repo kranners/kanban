@@ -2,13 +2,19 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { ExitResult, Session } from "../shared/types.ts";
 import { stripAnsi } from "./ansi.ts";
-import { isAlive, readRegistry } from "./ingest/registry.ts";
+import {
+	isAlive,
+	type RegistryEntry,
+	readRegistry,
+} from "./ingest/registry.ts";
 
 export type Readiness =
 	| { ok: true; ready: boolean; reason: string }
 	| { ok: false; error: string };
 
 export type CommandResult = { ok: boolean; output: string };
+
+export type ProcessInfo = { startedAt: number; command: string };
 
 export type ExitDeps = {
 	ask(session: Session): Promise<Readiness>;
@@ -48,6 +54,11 @@ export const readinessArgs = (sessionId: string, forkId: string): string[] => [
 	"--no-session-persistence",
 	"--tools",
 	"",
+	"--strict-mcp-config",
+	"--permission-mode",
+	"dontAsk",
+	"--settings",
+	JSON.stringify({ disableAllHooks: true }),
 	"--output-format",
 	"json",
 	"--json-schema",
@@ -117,7 +128,13 @@ export const exitSession = async (
 			: { ok: false, error: terminated.output };
 	}
 	const short = session.short ?? "";
-	await deps.stop(short);
+	const stopped = await deps.stop(short);
+	if (!stopped.ok) {
+		return {
+			ok: false,
+			error: `claude stop failed: ${stopped.output || "no output"}`,
+		};
+	}
 	const removed = await deps.remove(short);
 	return removed.ok
 		? { ok: true, exited: true }
@@ -139,6 +156,36 @@ const run = (
 			args,
 			{ cwd, timeout, maxBuffer: 4 * 1024 * 1024 },
 			(error, stdout, stderr) => resolve({ ok: !error, stdout, stderr }),
+		);
+	});
+
+const startTolerance = { before: 2000, after: 60_000 };
+
+export const sameProcess = (
+	entry: Pick<RegistryEntry, "startedAt">,
+	info: ProcessInfo | null,
+): boolean => {
+	if (!info || !/(^|\/)claude( |$)/.test(info.command)) return false;
+	const lag = entry.startedAt - info.startedAt;
+	return lag >= -startTolerance.before && lag <= startTolerance.after;
+};
+
+const lstartLength = "Sat Oct 24 10:32:40 2026".length;
+
+export const parseProcessInfo = (psLine: string): ProcessInfo | null => {
+	const line = psLine.trim();
+	const startedAt = new Date(line.slice(0, lstartLength)).getTime();
+	const command = line.slice(lstartLength).trim();
+	return Number.isFinite(startedAt) && command ? { startedAt, command } : null;
+};
+
+const inspectProcess = (pid: number): Promise<ProcessInfo | null> =>
+	new Promise((resolve) => {
+		execFile(
+			"/bin/ps",
+			["-o", "lstart=,comm=", "-p", String(pid)],
+			{ env: { ...process.env, LC_ALL: "C" }, timeout: 10_000 },
+			(error, stdout) => resolve(error ? null : parseProcessInfo(stdout)),
 		);
 	});
 
@@ -184,7 +231,8 @@ export const claudeExitDeps = (opts: {
 				!entry ||
 				entry.sessionId !== session.id ||
 				entry.kind !== "interactive" ||
-				!isAlive(entry.pid)
+				!isAlive(entry.pid) ||
+				!sameProcess(entry, await inspectProcess(entry.pid))
 			) {
 				return {
 					ok: false,
@@ -201,20 +249,5 @@ export const claudeExitDeps = (opts: {
 				};
 			}
 		},
-	};
-};
-
-export const sessionExiter = (deps: ExitDeps): SessionExiter => {
-	const inFlight = new Set<string>();
-	return async (session, force) => {
-		if (inFlight.has(session.id)) {
-			return { ok: false, error: "This session is already exiting" };
-		}
-		inFlight.add(session.id);
-		try {
-			return await exitSession(deps, session, force);
-		} finally {
-			inFlight.delete(session.id);
-		}
 	};
 };

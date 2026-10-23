@@ -5,8 +5,10 @@ import type {
 	Placement,
 	Point,
 } from "../shared/types.ts";
+import { departing } from "./exitState.ts";
 import { groupsOf } from "./groups.ts";
 import type { NodeKey } from "./layout.ts";
+import type { Rect } from "./placement.ts";
 import { arrange, seedsOf } from "./placement.ts";
 import { board, layout, stageSize } from "./state.ts";
 
@@ -14,6 +16,7 @@ const settleMs = 1500;
 const echoMs = 3000;
 
 export const overrides = signal<ReadonlyMap<NodeKey, Placement>>(new Map());
+export const reserved = signal<readonly Rect[]>([]);
 
 const seeds = computed(() =>
 	board.value ? seedsOf(board.value, stageSize.value) : null,
@@ -31,13 +34,24 @@ export const arrangement = computed(() => {
 	const current = board.value;
 	const seeded = seeds.value;
 	if (!current || !seeded) return null;
-	return arrange(current, withOverrides(layout.value), seeded, remembered);
+	return arrange(
+		current,
+		withOverrides(layout.value),
+		seeded,
+		remembered,
+		reserved.value,
+	);
 });
 
 export const groups = computed(() => {
 	const current = board.value;
 	const placed = arrangement.value;
-	return current && placed ? groupsOf(current.sessions, placed.nodes) : [];
+	if (!current || !placed) return [];
+	const leaving = departing.value;
+	return groupsOf(
+		current.sessions.filter((s) => !leaving.has(s.id)),
+		placed.nodes,
+	);
 });
 
 async function putLayout(update: LayoutUpdate): Promise<void> {

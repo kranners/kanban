@@ -4,10 +4,11 @@ import type { Session } from "../shared/types.ts";
 import {
 	type ExitDeps,
 	exitSession,
+	parseProcessInfo,
 	parseReadiness,
 	type Readiness,
 	readinessArgs,
-	sessionExiter,
+	sameProcess,
 } from "./exit.ts";
 
 const background: Session = {
@@ -36,6 +37,7 @@ const interactive: Session = {
 const fakeDeps = (
 	readiness: Readiness,
 	removeOk = true,
+	stopOk = true,
 ): { deps: ExitDeps; calls: string[] } => {
 	const calls: string[] = [];
 	return {
@@ -47,7 +49,9 @@ const fakeDeps = (
 			},
 			stop: async (short) => {
 				calls.push(`stop ${short}`);
-				return { ok: true, output: "" };
+				return stopOk
+					? { ok: true, output: "" }
+					: { ok: false, output: "no such job" };
 			},
 			remove: async (short) => {
 				calls.push(`rm ${short}`);
@@ -104,6 +108,15 @@ describe("exitSession", () => {
 		});
 	});
 
+	it("does not remove a session that claude stop failed to stop", async () => {
+		const { deps, calls } = fakeDeps(ready, true, false);
+		assert.deepEqual(await exitSession(deps, background, true), {
+			ok: false,
+			error: "claude stop failed: no such job",
+		});
+		assert.deepEqual(calls, ["stop abcd1234"]);
+	});
+
 	it("terminates an interactive session instead of using claude stop", async () => {
 		const { deps, calls } = fakeDeps(ready);
 		await exitSession(deps, interactive, false);
@@ -123,31 +136,12 @@ describe("exitSession", () => {
 		});
 		assert.equal(calls.length, 1);
 	});
-
-	it("refuses a second exit of the same session while one runs", async () => {
-		let release = () => {};
-		const { deps } = fakeDeps(ready);
-		const exiter = sessionExiter({
-			...deps,
-			ask: () =>
-				new Promise((resolve) => {
-					release = () => resolve(ready);
-				}),
-		});
-		const first = exiter(background, false);
-		assert.deepEqual(await exiter(background, true), {
-			ok: false,
-			error: "This session is already exiting",
-		});
-		release();
-		assert.deepEqual(await first, { ok: true, exited: true });
-	});
 });
 
 describe("readiness", () => {
 	it("asks a fork that cannot run tools or persist", () => {
 		const args = readinessArgs("sess-1", "fork-1");
-		assert.deepEqual(args.slice(0, 11), [
+		assert.deepEqual(args.slice(0, 9), [
 			"-p",
 			"--resume",
 			"sess-1",
@@ -157,10 +151,18 @@ describe("readiness", () => {
 			"--no-session-persistence",
 			"--tools",
 			"",
-			"--output-format",
-			"json",
 		]);
 		assert.equal(args.at(-2), "--");
+	});
+
+	it("loads no MCP servers or hooks and never runs a tool unasked", () => {
+		const args = readinessArgs("sess-1", "fork-1");
+		assert.ok(args.includes("--strict-mcp-config"));
+		assert.ok(!args.includes("--mcp-config"));
+		assert.equal(args[args.indexOf("--permission-mode") + 1], "dontAsk");
+		assert.deepEqual(JSON.parse(args[args.indexOf("--settings") + 1] ?? ""), {
+			disableAllHooks: true,
+		});
 	});
 
 	it("reads structured output from claude -p json", () => {
@@ -192,5 +194,33 @@ describe("readiness", () => {
 				error: "The session did not answer: Credit balance too low",
 			},
 		);
+	});
+});
+
+describe("process identity", () => {
+	const startedAt = new Date("Sat Oct 24 10:32:40 2026").getTime();
+
+	it("reads ps lstart and command", () => {
+		assert.deepEqual(
+			parseProcessInfo(
+				"Sat Oct 24 10:32:40 2026    /opt/homebrew/bin/claude\n",
+			),
+			{ startedAt, command: "/opt/homebrew/bin/claude" },
+		);
+		assert.equal(parseProcessInfo(""), null);
+	});
+
+	it("accepts the claude process that wrote the registry entry", () => {
+		const info = { startedAt, command: "/opt/homebrew/bin/claude" };
+		assert.ok(sameProcess({ startedAt: startedAt + 1400 }, info));
+		assert.ok(sameProcess({ startedAt }, { ...info, command: "claude" }));
+	});
+
+	it("refuses a reused pid", () => {
+		const info = { startedAt, command: "/opt/homebrew/bin/claude" };
+		assert.ok(!sameProcess({ startedAt: startedAt - 3_600_000 }, info));
+		assert.ok(!sameProcess({ startedAt: startedAt + 3_600_000 }, info));
+		assert.ok(!sameProcess({ startedAt }, { startedAt, command: "/bin/zsh" }));
+		assert.ok(!sameProcess({ startedAt }, null));
 	});
 });

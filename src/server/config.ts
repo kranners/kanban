@@ -23,8 +23,17 @@ const loopbackHosts = new Set(["127.0.0.1", "::1", "localhost"]);
 export const isLoopback = (host: string): boolean =>
 	loopbackHosts.has(host) || /^127\.\d+\.\d+\.\d+$/.test(host);
 
+const defaultPort = 7420;
+
+const defaultStateDir = (port: number): string =>
+	join(
+		homedir(),
+		".local/state",
+		port === defaultPort ? "kanban" : `kanban-${port}`,
+	);
+
 const parsePort = (raw: string | undefined): number => {
-	if (raw === undefined || raw === "") return 7420;
+	if (raw === undefined || raw === "") return defaultPort;
 	const port = Number(raw);
 	if (!Number.isInteger(port) || port < 1 || port > 65535) {
 		throw new Error(`KANBAN_PORT must be a port number, got "${raw}"`);
@@ -100,6 +109,6 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
 		auditLog:
 			env.KANBAN_AUDIT_LOG ||
 			join(homedir(), "Library/Logs/kanban/audit.jsonl"),
-		stateDir: env.KANBAN_STATE || join(homedir(), ".local/state/kanban"),
+		stateDir: env.KANBAN_STATE || defaultStateDir(port),
 	};
 };

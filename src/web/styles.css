@@ -26,7 +26,7 @@
 	--shadow-pop: 0 8px 24px rgb(29 28 26 / 0.08);
 
 	--group-bg: color-mix(in srgb, var(--ink) 3.5%, var(--page));
-	--label-height: 44px;
+	--label-height: 48px;
 	--motion: 1;
 	--radius: 10px;
 	--radius-sm: 8px;
@@ -462,6 +462,12 @@ button.reconnecting {
 .node:hover .resize-handle,
 .node[data-arranging="resize"] .resize-handle {
 	opacity: 1;
+}
+
+@media (hover: none) {
+	.node .resize-handle {
+		opacity: 1;
+	}
 }
 
 .node[data-arranging="resize"] .resize-handle::after {

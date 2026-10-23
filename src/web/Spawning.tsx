@@ -7,6 +7,7 @@ import { boardPointAt, view } from "./Canvas.tsx";
 import { exitAsk } from "./exits.ts";
 import { directoryName } from "./focus/paths.ts";
 import { sessionSize } from "./placement.ts";
+import { useRestoreFocus } from "./restoreFocus.ts";
 import type { QuickPrompt } from "./spawns.ts";
 import { focusedSessionId, newSessionOpen } from "./state.ts";
 
@@ -94,6 +95,7 @@ import {
 export function BoardMenu(): JSX.Element | null {
 	const menu = boardMenu.value;
 	const list = useRef<HTMLDivElement>(null);
+	useRestoreFocus(menu !== null);
 
 	useEffect(() => {
 		if (!menu) return;
@@ -157,6 +159,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 	const [prompt, setPrompt] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	useRestoreFocus();
 
 	useEffect(() => {
 		input.current?.focus({ preventScroll: true });

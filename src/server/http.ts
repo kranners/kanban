@@ -10,7 +10,7 @@ import {
 import { extname, join, normalize, sep } from "node:path";
 import { type Duplex, pipeline } from "node:stream";
 import { WebSocketServer } from "ws";
-import type { Board, TranscriptEntry } from "../shared/types.ts";
+import type { Board, ExitResult, TranscriptEntry } from "../shared/types.ts";
 import {
 	type AttachHub,
 	type AttachTarget,
@@ -248,6 +248,8 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		maxPayload: 1024 * 1024,
 	});
 
+	const exiting = new Set<string>();
+
 	const readBody = async (
 		req: IncomingMessage,
 		res: ServerResponse,
@@ -287,7 +289,10 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			identity,
 			result: result.ok ? result.short : result.error,
 		});
-		if (result.ok && request.at) deps.layout.expect(result.short, request.at);
+		if (result.ok && request.at) {
+			deps.layout.expect(result.short, request.at);
+			deps.layout.observe(deps.source.board());
+		}
 		sendJson(res, result.ok ? 201 : 422, result);
 	};
 
@@ -310,7 +315,23 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			.board()
 			.sessions.find((session) => session.id === sessionId);
 		if (!session) return sendError(res, 404);
-		const result = await deps.exit(session, force);
+		if (exiting.has(session.id)) {
+			return sendJson(res, 409, {
+				ok: false,
+				error: "This session is already exiting",
+			});
+		}
+		exiting.add(session.id);
+		sendJson(res, 202, { ok: true });
+		const result = await deps
+			.exit(session, force)
+			.catch(
+				(error: unknown): ExitResult => ({
+					ok: false,
+					error: `Exit failed: ${(error as Error).message}`,
+				}),
+			)
+			.finally(() => exiting.delete(session.id));
 		deps.audit({
 			action: "session-exit",
 			sessionId: session.id,
@@ -324,7 +345,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 					? "exited"
 					: `not ready: ${result.reason}`,
 		});
-		sendJson(res, result.ok ? 200 : 422, result);
+		deps.feed.exit(session.id, result);
 	};
 
 	const updateLayout = async (req: IncomingMessage, res: ServerResponse) => {

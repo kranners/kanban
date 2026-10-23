@@ -133,6 +133,7 @@ describe("createKanbanServer", () => {
 	const expected: [string, Point][] = [];
 	const exits: [string, boolean][] = [];
 	let exitResult: ExitResult = { ok: true, exited: true };
+	let exitGate: Promise<void> = Promise.resolve();
 	let layoutFile = "";
 	let layoutSaved = () => Promise.resolve();
 	const attached: string[] = [];
@@ -191,6 +192,7 @@ describe("createKanbanServer", () => {
 			},
 			exit: async (session, force) => {
 				exits.push([session.id, force]);
+				await exitGate;
 				return exitResult;
 			},
 			layout: {
@@ -330,13 +332,50 @@ describe("createKanbanServer", () => {
 			body: JSON.stringify(body),
 		});
 
-	it("exits a session on the board and audits the outcome", async () => {
+	const exitFrames = async () => {
+		const socket = new WebSocket(`${base.replace("http", "ws")}/api/feed`, {
+			headers: { ...authed, origin },
+		});
+		const frames: BoardFeed[] = [];
+		const waiting: (() => void)[] = [];
+		socket.on("message", (data) => {
+			const frame = JSON.parse(String(data)) as BoardFeed;
+			if (frame.type !== "exit") return;
+			frames.push(frame);
+			waiting.shift()?.();
+		});
+		await new Promise((resolve) => socket.on("open", resolve));
+		return {
+			next: async () => {
+				if (frames.length === 0)
+					await new Promise<void>((resolve) => waiting.push(resolve));
+				return frames.shift();
+			},
+			close: () => socket.close(),
+		};
+	};
+
+	it("accepts an exit at once, then broadcasts and audits the outcome", async () => {
 		const id = board.sessions[0]?.id ?? "";
-		const exited = await send("POST", `/api/sessions/${id}/exit`, {
+		const feed = await exitFrames();
+		let release = () => {};
+		exitGate = new Promise((resolve) => {
+			release = resolve;
+		});
+		const accepted = await send("POST", `/api/sessions/${id}/exit`, {
 			force: false,
 		});
-		assert.equal(exited.status, 200);
-		assert.deepEqual(await exited.json(), { ok: true, exited: true });
+		assert.equal(accepted.status, 202);
+		const twice = await send("POST", `/api/sessions/${id}/exit`, {
+			force: true,
+		});
+		assert.equal(twice.status, 409);
+		release();
+		assert.deepEqual(await feed.next(), {
+			type: "exit",
+			sessionId: id,
+			result: { ok: true, exited: true },
+		});
 		assert.deepEqual(events.at(-1), {
 			action: "session-exit",
 			sessionId: id,
@@ -348,21 +387,24 @@ describe("createKanbanServer", () => {
 		});
 
 		exitResult = { ok: true, exited: false, reason: "Tests still running" };
-		const busy = await send("POST", `/api/sessions/${id}/exit`, {
-			force: false,
+		await send("POST", `/api/sessions/${id}/exit`, { force: false });
+		const notReady = await feed.next();
+		assert.deepEqual(notReady?.type === "exit" && notReady.result, {
+			ok: true,
+			exited: false,
+			reason: "Tests still running",
 		});
-		assert.deepEqual(await busy.json(), exitResult);
 		const audited = events.at(-1);
 		assert.equal(
 			audited?.action === "session-exit" && audited.result,
 			"not ready: Tests still running",
 		);
 
-		exitResult = { ok: false, error: "Stopped, but claude rm refused: x" };
-		const refused = await send("POST", `/api/sessions/${id}/exit`, {
-			force: true,
-		});
-		assert.equal(refused.status, 422);
+		exitResult = { ok: false, error: "claude rm refused: x" };
+		await send("POST", `/api/sessions/${id}/exit`, { force: true });
+		const refused = await feed.next();
+		assert.deepEqual(refused?.type === "exit" && refused.result, exitResult);
+		feed.close();
 
 		assert.equal(
 			(await send("POST", "/api/sessions/nope/exit", { force: true })).status,
@@ -471,7 +513,7 @@ describe("createKanbanServer", () => {
 		});
 		assert.deepEqual(
 			frames.map((frame) => frame.type),
-			["board", "layout", "preview"],
+			["layout", "board", "preview"],
 		);
 	});
 
