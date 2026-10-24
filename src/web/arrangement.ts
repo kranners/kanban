@@ -10,7 +10,7 @@ import { groupsOf } from "./groups.ts";
 import type { NodeKey } from "./layout.ts";
 import type { Rect } from "./placement.ts";
 import { arrange, seedsOf } from "./placement.ts";
-import { board, layout, stageSize } from "./state.ts";
+import { board, layout } from "./state.ts";
 
 const settleMs = 1500;
 const echoMs = 3000;
@@ -18,9 +18,7 @@ const echoMs = 3000;
 export const overrides = signal<ReadonlyMap<NodeKey, Placement>>(new Map());
 export const reserved = signal<readonly Rect[]>([]);
 
-const seeds = computed(() =>
-	board.value ? seedsOf(board.value, stageSize.value) : null,
-);
+const seeds = computed(() => (board.value ? seedsOf(board.value) : null));
 
 const remembered = new Map<NodeKey, Point>();
 const requested = new Set<NodeKey>();

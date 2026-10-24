@@ -1,12 +1,7 @@
 import type { Board, Layout, NodeRef, Point } from "../shared/types.ts";
 import { gridSize, snap, snapPoint } from "./grid.ts";
 import type { BoardLayout, NodeKey, PlacedNode } from "./layout.ts";
-import {
-	defaultLayoutOptions,
-	layoutBoard,
-	layoutForStage,
-	nodeKey,
-} from "./layout.ts";
+import { defaultLayoutOptions, layoutBoard, nodeKey } from "./layout.ts";
 import type { Size } from "./viewport.ts";
 
 export type Rect = { x: number; y: number; w: number; h: number };
@@ -31,8 +26,8 @@ export type Arrangement = {
 	auto: Map<NodeKey, Point>;
 };
 
-export function seedsOf(board: Board, stage: Size): Seeds {
-	const tree = layoutForStage(board, stage);
+export function seedsOf(board: Board): Seeds {
+	const tree = layoutBoard(board);
 	const offsets = new Map<NodeKey, Offset>();
 	for (const session of board.sessions) {
 		const subagents = board.subagents.filter((a) => a.sessionId === session.id);

@@ -1,6 +1,4 @@
 import type { Board, LinkKind, NodeRef } from "../shared/types.ts";
-import type { Size } from "./viewport.ts";
-import { availableSize, fitZoom, legibleZoom } from "./viewport.ts";
 
 export type NodeKey = string;
 
@@ -40,8 +38,8 @@ export const defaultLayoutOptions: LayoutOptions = {
 	subagent: { w: 216, h: 72 },
 	siblingGap: 24,
 	levelGap: 48,
-	familyGap: 96,
-	rowGap: 96,
+	familyGap: 144,
+	rowGap: 144,
 };
 
 const treeLinkKinds: ReadonlySet<LinkKind> = new Set([
@@ -236,31 +234,4 @@ export function layoutBoard(
 	});
 
 	return { nodes: placed, families, width, height: rowBottom };
-}
-
-export function layoutForStage(
-	board: Board,
-	stage: Size,
-	options: LayoutOptions = defaultLayoutOptions,
-): BoardLayout {
-	const available = availableSize(stage);
-	const singleRow = layoutBoard(board, {
-		...options,
-		maxWidth: Number.POSITIVE_INFINITY,
-	});
-	const zoom = (l: BoardLayout) => fitZoom(l, available);
-	let best = singleRow;
-	for (
-		let maxWidth = options.session.w;
-		maxWidth < singleRow.width;
-		maxWidth += options.subagent.w
-	) {
-		const candidate = layoutBoard(board, { ...options, maxWidth });
-		if (zoom(candidate) > zoom(best)) best = candidate;
-	}
-	if (zoom(best) >= legibleZoom) return best;
-	return layoutBoard(board, {
-		...options,
-		maxWidth: available.width / legibleZoom,
-	});
 }

@@ -11,10 +11,8 @@ import {
 	defaultLayoutOptions,
 	familiesOf,
 	layoutBoard,
-	layoutForStage,
 	nodeKey,
 } from "./layout.ts";
-import { fitPadding, legibleZoom } from "./viewport.ts";
 
 function session(
 	id: string,
@@ -192,33 +190,4 @@ test("links to unknown nodes are ignored", () => {
 	});
 	const p = layoutBoard(b).nodes.get("session:p");
 	assert.deepEqual([p?.x, p?.y], [0, 0]);
-});
-
-test("wide stages get one row and tall stages get several", () => {
-	const sessions = Array.from({ length: 6 }, (_, i) => session(`s${i}`, i));
-	const rows = (width: number, height: number) =>
-		new Set(
-			[
-				...layoutForStage(board({ sessions }), {
-					width,
-					height,
-				}).nodes.values(),
-			].map((n) => n.y),
-		).size;
-	assert.equal(rows(4000, 400), 1);
-	assert.ok(rows(800, 2400) >= 3);
-});
-
-test("a board too big to fit legibly wraps to the stage width at legible zoom", () => {
-	const sessions = Array.from({ length: 12 }, (_, i) => session(`s${i}`, i));
-	const stage = { width: 1160, height: 758 };
-	const placed = layoutForStage(board({ sessions }), stage);
-	const available = stage.width - 2 * fitPadding;
-	assert.ok(placed.width * legibleZoom <= available);
-	assert.ok(
-		placed.width +
-			defaultLayoutOptions.familyGap +
-			defaultLayoutOptions.session.w >
-			available / legibleZoom,
-	);
 });

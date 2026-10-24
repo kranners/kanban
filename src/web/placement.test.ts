@@ -19,7 +19,7 @@ import {
 	subagentSize,
 } from "./placement.ts";
 
-const stage = { width: 1600, height: 900 };
+const _stage = { width: 1600, height: 900 };
 
 function session(id: string, startedAt: number): Session {
 	return {
@@ -70,7 +70,7 @@ function place(
 	saved: Layout = {},
 	remembered: ReadonlyMap<NodeKey, Point> = new Map(),
 ) {
-	return arrange(b, saved, seedsOf(b, stage), remembered);
+	return arrange(b, saved, seedsOf(b), remembered);
 }
 
 function assertApart(nodes: Iterable<PlacedNode>) {
@@ -214,7 +214,7 @@ test("an unsaved session keeps clear of spots reserved for spawning cards", () =
 	const free = place(b).nodes.get("session:a");
 	assert.ok(free);
 	const ghost = { x: free.x, y: free.y, ...sessionSize };
-	const placed = arrange(b, {}, seedsOf(b, stage), new Map(), [ghost]);
+	const placed = arrange(b, {}, seedsOf(b), new Map(), [ghost]);
 	const a = placed.nodes.get("session:a");
 	assert.ok(a);
 	assert.ok(!near(a, ghost, 0));

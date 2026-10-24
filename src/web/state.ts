@@ -6,7 +6,6 @@ import type {
 	Preview,
 	Session,
 } from "../shared/types.ts";
-import type { Size } from "./viewport.ts";
 
 export type Connection = "connecting" | "open" | "reconnecting" | "lost";
 
@@ -29,23 +28,6 @@ export const now = signal(Date.now());
 setInterval(() => {
 	now.value = Date.now();
 }, 5000);
-
-const compactWidth = 720;
-
-function measureStage(): Size {
-	const railWidth = innerWidth <= compactWidth ? 0 : railOpen.value ? 320 : 44;
-	return { width: innerWidth - railWidth, height: innerHeight - 52 };
-}
-
-export const stageSize = signal<Size>(measureStage());
-
-addEventListener("resize", () => {
-	stageSize.value = measureStage();
-});
-
-railOpen.subscribe(() => {
-	stageSize.value = measureStage();
-});
 
 export const layout = signal<Layout>({});
 
