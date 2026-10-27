@@ -266,18 +266,40 @@ describe("cloudflare setup", () => {
 });
 
 describe("parseConfig", () => {
-	it("requires an allowed email", () => {
-		assert.equal(parseConfig([], {}).missing.length, 1);
+	it("requires the account, zone, hostname, team and allowed email", () => {
+		assert.deepEqual(parseConfig([], {}).missing, [
+			"a Cloudflare account id: set KANBAN_CF_ACCOUNT or pass --account",
+			"a Cloudflare zone: set KANBAN_CF_ZONE or pass --zone",
+			"a hostname for the board: set KANBAN_HOSTNAME or pass --hostname",
+			"an Access team name: set KANBAN_ACCESS_TEAM or pass --team",
+			"an allowed email: set KANBAN_ALLOWED_EMAIL or pass --email",
+		]);
 	});
 
 	it("takes flags over env over defaults", () => {
-		const { config: parsed, dryRun } = parseConfig(
-			["--hostname", "x.example.test", "--dry-run"],
-			{ KANBAN_ALLOWED_EMAIL: "me@example.test", KANBAN_HOSTNAME: "y" },
+		const {
+			config: parsed,
+			dryRun,
+			missing,
+		} = parseConfig(
+			["--hostname", "x.example.test", "--team", "acme-team", "--dry-run"],
+			{
+				KANBAN_CF_ACCOUNT: "acct1",
+				KANBAN_CF_ZONE: "example.test",
+				KANBAN_ALLOWED_EMAIL: "me@example.test",
+				KANBAN_HOSTNAME: "y",
+			},
 		);
-		assert.equal(parsed.hostname, "x.example.test");
-		assert.equal(parsed.email, "me@example.test");
-		assert.equal(parsed.service, "http://127.0.0.1:7420");
+		assert.deepEqual(missing, []);
+		assert.deepEqual(parsed, {
+			account: "acct1",
+			zone: "example.test",
+			hostname: "x.example.test",
+			team: "acme-team",
+			email: "me@example.test",
+			service: "http://127.0.0.1:7420",
+			tunnelName: "kanban",
+		});
 		assert.equal(dryRun, true);
 	});
 });
