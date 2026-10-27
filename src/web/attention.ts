@@ -48,19 +48,22 @@ export function countNeedingYou(
 	return members.filter((key) => needing.has(key)).length;
 }
 
+const readingCompare = (a: Point, b: Point) => a.y - b.y || a.x - b.x;
+
 export function readingOrder<T extends Point & { key: NodeKey }>(
 	nodes: readonly T[],
 ): T[] {
-	return [...nodes].sort((a, b) => a.y - b.y || a.x - b.x);
+	return [...nodes].sort(readingCompare);
 }
 
-export function nextInLine(
-	keys: readonly NodeKey[],
-	after: NodeKey | null,
-): NodeKey | undefined {
-	if (keys.length === 0) return undefined;
-	const index = after === null ? -1 : keys.indexOf(after);
-	return keys[(index + 1) % keys.length];
+export function nextInLine<T extends Point>(
+	ordered: readonly T[],
+	after: Point | null,
+): T | undefined {
+	return (
+		(after && ordered.find((node) => readingCompare(node, after) > 0)) ??
+		ordered[0]
+	);
 }
 
 export function isNextNeedingYouKey(press: KeyPress, typing: boolean): boolean {

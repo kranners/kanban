@@ -11,7 +11,9 @@
 	--failed-ink: #b13232;
 	--busy-edge: var(--accent);
 	--busy-rest: color-mix(in srgb, var(--accent) 30%, var(--hairline));
-	--idle-edge: var(--hairline-strong);
+	--idle-edge: #5b7fa8;
+	--idle-ink: #3f6189;
+	--stopped-edge: var(--hairline-strong);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -23,7 +25,9 @@
 		--failed-soft: rgb(232 98 98 / 0.16);
 		--failed-ink: #f08a8a;
 		--failed-edge: #e06262;
-		--idle-edge: #4a4742;
+		--idle-edge: #7d9fc8;
+		--idle-ink: #9dbbe0;
+		--stopped-edge: #4a4742;
 	}
 }
 
@@ -35,7 +39,9 @@
 	--failed-soft: rgb(232 98 98 / 0.16);
 	--failed-ink: #f08a8a;
 	--failed-edge: #e06262;
-	--idle-edge: #4a4742;
+	--idle-edge: #7d9fc8;
+	--idle-ink: #9dbbe0;
+	--stopped-edge: #4a4742;
 }
 
 .world.gliding {
@@ -152,20 +158,17 @@
 	box-shadow: 0 0 0 calc(1px * var(--unzoom) - 1px) var(--failed-edge);
 }
 
-.node.session.act-idle .frame,
-.node.session.act-stopped .frame {
-	border-style: dashed;
+.node.session.act-idle .frame {
 	border-color: var(--idle-edge);
 }
 
-.node.session.act-idle .body {
-	opacity: 0.78;
+.node.session.act-idle::before {
+	box-shadow: 0 0 0 calc(1px * var(--unzoom) - 1px) var(--idle-edge);
 }
 
-.node.session.act-idle .frame:hover,
-.node.session.act-done .frame:hover {
-	translate: 0 -3px;
-	box-shadow: var(--shadow-pop);
+.node.session.act-stopped .frame {
+	border-style: dashed;
+	border-color: var(--stopped-edge);
 }
 
 .ribbon {
@@ -211,7 +214,14 @@
 	--ribbon-ink: var(--failed-ink);
 }
 
-.ribbon.act-done .ribbon-text {
+.ribbon.act-idle {
+	--ribbon-edge: var(--idle-edge);
+	--ribbon-fill: color-mix(in srgb, var(--idle-edge) 14%, var(--surface));
+	--ribbon-ink: var(--idle-ink);
+	padding: 0 4px;
+}
+
+.ribbon:is(.act-done, .act-idle) .ribbon-text {
 	display: none;
 }
 
@@ -224,13 +234,16 @@
 	display: none;
 }
 
-.world:not([data-far]) .node:hover .ribbon.act-done,
-.world:not([data-far]) .node:focus-within .ribbon.act-done {
+.world:not([data-far])
+	.node:is(:hover, :focus-within)
+	.ribbon:is(.act-done, .act-idle) {
 	padding: 0 8px 0 6px;
 }
 
-.world:not([data-far]) .node:hover .ribbon.act-done .ribbon-text,
-.world:not([data-far]) .node:focus-within .ribbon.act-done .ribbon-text {
+.world:not([data-far])
+	.node:is(:hover, :focus-within)
+	.ribbon:is(.act-done, .act-idle)
+	.ribbon-text {
 	display: inline;
 }
 
@@ -252,6 +265,12 @@
 	80% {
 		scale: 1;
 	}
+}
+
+.node.session.act-idle:hover .frame,
+.node.session.act-done:hover .frame {
+	translate: 0 -3px;
+	box-shadow: var(--shadow-pop);
 }
 
 .node.session.act-done.arrived .frame {
@@ -310,7 +329,7 @@
 
 .node.subagent.act-idle {
 	border-style: dashed;
-	border-color: var(--idle-edge);
+	border-color: var(--stopped-edge);
 }
 
 .node.subagent.act-done {
@@ -341,6 +360,12 @@
 
 .group-frame.wants-you .group-label {
 	border-color: var(--needs-edge);
+}
+
+.world[data-far] .group-frame.wants-you .group-label {
+	max-width: calc((100% - 20px) / var(--unzoom));
+	transform-origin: 0 0;
+	scale: var(--unzoom);
 }
 
 .group-needs {

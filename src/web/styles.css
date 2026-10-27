@@ -820,7 +820,7 @@ button.reconnecting {
 	--act: var(--amber);
 }
 .act-idle {
-	--act: var(--muted);
+	--act: var(--idle-edge);
 }
 .act-done {
 	--act: var(--green);
@@ -851,7 +851,10 @@ button.reconnecting {
 	background: var(--accent-soft);
 }
 
-.badge.act-idle,
+.badge.act-idle {
+	color: var(--idle-ink);
+}
+
 .badge.act-stopped {
 	color: var(--muted);
 }

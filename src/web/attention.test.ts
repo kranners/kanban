@@ -131,13 +131,18 @@ test("cards are visited top to bottom, then left to right", () => {
 	);
 });
 
-test("the next card follows the last one visited and wraps around", () => {
-	const keys = ["a", "b", "c"];
-	assert.equal(nextInLine(keys, null), "a");
-	assert.equal(nextInLine(keys, "a"), "b");
-	assert.equal(nextInLine(keys, "c"), "a");
-	assert.equal(nextInLine(keys, "gone"), "a");
-	assert.equal(nextInLine([], "a"), undefined);
+test("the next card follows the place last visited and wraps around", () => {
+	const a = { key: "a", x: 0, y: 0 };
+	const b = { key: "b", x: 500, y: 0 };
+	const c = { key: "c", x: 0, y: 400 };
+	const d = { key: "d", x: 0, y: 800 };
+	const keyAfter = (nodes: (typeof a)[], after: typeof a | null) =>
+		nextInLine(nodes, after)?.key;
+	assert.equal(keyAfter([a, b, c], null), "a");
+	assert.equal(keyAfter([a, b, c], a), "b");
+	assert.equal(keyAfter([a, b, c], c), "a");
+	assert.equal(keyAfter([a, c, d], b), "c");
+	assert.equal(keyAfter([], a), undefined);
 });
 
 test("J visits the next card that needs you unless typing or chorded", () => {

@@ -1,5 +1,5 @@
 import { computed, effect, signal } from "@preact/signals";
-import type { Activity } from "../shared/types.ts";
+import type { Activity, Point } from "../shared/types.ts";
 import { arrangement } from "./arrangement.ts";
 import type { Activities } from "./attention.ts";
 import {
@@ -41,7 +41,7 @@ effect(() => {
 	}, arrivalMs);
 });
 
-let lastVisited: NodeKey | null = null;
+let lastVisited: Point | null = null;
 let beckonTimer: ReturnType<typeof setTimeout> | undefined;
 
 export function visitNextNeedingYou(): void {
@@ -51,13 +51,10 @@ export function visitNextNeedingYou(): void {
 	const order = readingOrder(
 		[...placed.nodes.values()].filter((node) => waiting.has(node.key)),
 	);
-	const key = nextInLine(
-		order.map((node) => node.key),
-		lastVisited,
-	);
-	const node = key ? placed.nodes.get(key) : undefined;
-	if (!key || !node) return;
-	lastVisited = key;
+	const node = nextInLine(order, lastVisited);
+	if (!node) return;
+	const { key } = node;
+	lastVisited = { x: node.x, y: node.y };
 	centreOn(node);
 	beckoned.value = key;
 	clearTimeout(beckonTimer);

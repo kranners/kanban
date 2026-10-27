@@ -106,15 +106,16 @@ function BusyEdge() {
 
 function Ribbon(props: { session: Session; now: number }) {
 	const { activity } = props.session;
-	if (activity !== "needs-you" && activity !== "done" && activity !== "failed")
-		return null;
+	if (activity === "working" || activity === "stopped") return null;
 	return (
 		<span class={`ribbon act-${activity}`} aria-hidden="true">
 			<ActivityIcon activity={activity} size={13} />
 			<span class="ribbon-text">
 				{activity === "done"
 					? `Finished · ${ago(props.session.updatedAt, props.now)}`
-					: activityLabel[activity]}
+					: activity === "idle"
+						? `Idle · ${ago(props.session.updatedAt, props.now)}`
+						: activityLabel[activity]}
 			</span>
 		</span>
 	);
