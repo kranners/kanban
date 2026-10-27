@@ -2,12 +2,14 @@ import { join } from "node:path";
 import { claudeAttachPty, createAttachHub } from "./attach.ts";
 import { fileAudit } from "./audit.ts";
 import { authenticatorFor } from "./auth.ts";
+import { cmuxCli, createCmuxTargets } from "./cmux.ts";
 import { type Config, loadConfig } from "./config.ts";
-import { claudeExitDeps, exitSession } from "./exit.ts";
+import { claudeExitDeps, exitSession, liveInteractiveEntry } from "./exit.ts";
 import { createFeed, type Feed } from "./feed.ts";
 import { createKanbanServer } from "./http.ts";
 import { startBoard } from "./ingest/index.ts";
 import { createLayoutStore, loadLayout } from "./layout.ts";
+import { createMirrorHub } from "./mirror.ts";
 import { createPreviewer } from "./preview.ts";
 import { claudeLauncher } from "./sessions.ts";
 
@@ -21,6 +23,7 @@ const configOrExit = (): Config => {
 };
 
 const config = configOrExit();
+const cmuxSyncMs = 5000;
 const audit = fileAudit(config.auditLog);
 
 let feed: Feed | null = null;
@@ -31,6 +34,16 @@ const layout = createLayoutStore({
 	onChange: (next) => feed?.layout(next),
 });
 const probes = new Set<string>();
+const cmux = cmuxCli(config.cmuxBin);
+const cmuxTargets = createCmuxTargets({
+	cmux,
+	live: async (session) =>
+		(await liveInteractiveEntry(config.claudeHome, session)) !== null,
+	onError: (error) => console.error(`kanban: ${error}`),
+});
+const syncCmux = async () => {
+	if (await cmuxTargets.refresh()) source.refresh();
+};
 const previewer = createPreviewer({
 	transcript: (sessionId, limit) => source.transcript(sessionId, limit),
 	emit: (preview) => feed?.preview(preview),
@@ -38,12 +51,16 @@ const previewer = createPreviewer({
 const source = startBoard({
 	claudeHome: config.claudeHome,
 	ignore: (sessionId) => probes.has(sessionId),
+	inCmux: cmuxTargets.has,
 	onChange: (board) => {
 		feed?.board(board);
 		layout.observe(board);
 		void previewer.update(board);
+		void syncCmux();
 	},
 });
+void syncCmux();
+const cmuxPoll = setInterval(syncCmux, cmuxSyncMs);
 void previewer.update(source.board());
 layout.observe(source.board());
 feed = createFeed({
@@ -67,6 +84,7 @@ const server = createKanbanServer({
 	exit: (session, force) => exitSession(exitDeps, session, force),
 	layout,
 	attach: createAttachHub(claudeAttachPty(config.claudeBin), audit),
+	mirror: createMirrorHub({ cmux, resolve: cmuxTargets.resolve, audit }),
 	feed,
 	audit,
 });
@@ -79,6 +97,7 @@ server.listen(config.port, config.host, () => {
 
 const shutdown = () => {
 	source.stop();
+	clearInterval(cmuxPoll);
 	server.close();
 	server.closeAllConnections();
 	setTimeout(() => process.exit(0), 500).unref();

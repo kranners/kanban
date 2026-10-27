@@ -11,6 +11,7 @@ export type Config = {
 	auth: AuthConfig;
 	origins: string[];
 	claudeBin: string;
+	cmuxBin: string;
 	claudeHome: string;
 	dist: string;
 	auditLog: string;
@@ -104,6 +105,8 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
 		auth,
 		origins: parseOrigins(env, auth, port),
 		claudeBin: env.CLAUDE_BIN || "/opt/homebrew/bin/claude",
+		cmuxBin:
+			env.CMUX_BIN || "/Applications/cmux.app/Contents/Resources/bin/cmux",
 		claudeHome: env.CLAUDE_HOME || join(homedir(), ".claude"),
 		dist: env.KANBAN_DIST || join(repoRoot, "dist"),
 		auditLog:

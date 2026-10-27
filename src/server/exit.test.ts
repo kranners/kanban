@@ -25,6 +25,7 @@ const background: Session = {
 	startedAt: 0,
 	updatedAt: 0,
 	attachable: true,
+	cmux: false,
 };
 
 const interactive: Session = {

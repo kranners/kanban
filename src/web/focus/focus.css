@@ -322,6 +322,98 @@
 	color: var(--muted);
 }
 
+.focus-mirror {
+	position: relative;
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	background: var(--page);
+}
+
+.focus-mirror-scroll {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+}
+
+.focus-mirror-screen {
+	margin: 0;
+	padding: 14px 18px;
+	font-family: var(--mono);
+	font-size: 12.5px;
+	line-height: 1.4;
+	color: var(--ink);
+	white-space: pre;
+	tab-size: 8;
+}
+
+.focus-mirror-problem {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 18px;
+	border-top: 1px solid var(--hairline);
+	background: color-mix(in srgb, var(--red) 9%, var(--surface));
+	font-size: 13px;
+}
+
+.focus-mirror-problem svg {
+	flex: none;
+	color: var(--red);
+}
+
+.focus-mirror-compose {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 10px 14px 12px;
+	border-top: 1px solid var(--hairline);
+	background: var(--surface);
+}
+
+.focus-mirror-keys {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.focus-mirror-key {
+	height: 28px;
+	min-width: 32px;
+	justify-content: center;
+	padding: 0 8px;
+	font-family: var(--mono);
+	font-size: 12px;
+}
+
+.focus-mirror-prompt {
+	display: flex;
+	align-items: flex-end;
+	gap: 8px;
+}
+
+.focus-mirror-prompt textarea {
+	flex: 1;
+	min-width: 0;
+	min-height: 40px;
+	max-height: 40vh;
+	padding: 8px 10px;
+	border: 1px solid var(--hairline);
+	border-radius: var(--radius-sm);
+	background: var(--page);
+	color: var(--ink);
+	font-family: var(--mono);
+	font-size: 13px;
+	line-height: 1.45;
+	resize: vertical;
+}
+
+.focus-mirror-prompt textarea:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: -1px;
+}
+
 .focus-dialog {
 	width: min(520px, calc(100vw - 32px));
 	padding: 0;

@@ -35,6 +35,7 @@ export type BoardHandle = {
 	board(): Board;
 	transcript(sessionId: string, limit: number): Promise<TranscriptEntry[]>;
 	recentCwds(): string[];
+	refresh(): void;
 	stop(): void;
 };
 
@@ -57,8 +58,14 @@ export function startBoard(opts: {
 	claudeHome: string;
 	onChange: (board: Board) => void;
 	ignore?: (sessionId: string) => boolean;
+	inCmux?: (pid: number) => boolean;
 }): BoardHandle {
-	const { claudeHome, onChange, ignore = () => false } = opts;
+	const {
+		claudeHome,
+		onChange,
+		ignore = () => false,
+		inCmux = () => false,
+	} = opts;
 	const tails = new Map<string, Tail>();
 	const agentTails = new Map<string, Tail>();
 	const locateAttempts = new Map<string, number>();
@@ -114,7 +121,7 @@ export function startBoard(opts: {
 		}
 
 		const sessions = [...tracked.values()]
-			.map(toSession)
+			.map((item) => toSession(item, inCmux))
 			.sort((a, b) => b.updatedAt - a.updatedAt);
 		const found = collectSubagents(tracked, now);
 		const subagents = found.map(({ subagent }) => subagent);
@@ -248,6 +255,7 @@ export function startBoard(opts: {
 			return (await readFacts(path, resolve)).entries.slice(-count);
 		},
 		recentCwds: () => cwds,
+		refresh: schedule,
 		stop() {
 			clearInterval(poll);
 			if (timer) clearTimeout(timer);
@@ -288,7 +296,7 @@ function collectTracked(
 	return tracked;
 }
 
-function toSession(item: Tracked): Session {
+function toSession(item: Tracked, inCmux: (pid: number) => boolean): Session {
 	const { entry, job, tail } = item;
 	const cwd = entry?.cwd ?? job?.cwd ?? "";
 	const project = basename(cwd);
@@ -316,6 +324,7 @@ function toSession(item: Tracked): Session {
 			tail?.facts.lastAt ?? 0,
 		),
 		attachable: kind === "background" && job !== null,
+		cmux: kind === "interactive" && entry !== null && inCmux(entry.pid),
 	};
 }
 

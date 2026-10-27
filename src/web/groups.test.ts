@@ -25,6 +25,7 @@ function session(
 		startedAt: 1,
 		updatedAt,
 		attachable: true,
+		cmux: false,
 	};
 }
 

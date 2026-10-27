@@ -81,6 +81,12 @@ describe("matchRoute", () => {
 		});
 		assert.equal(upgrade("/api/attach/ABCD1234"), null);
 		assert.equal(upgrade("/api/attach/abcd1234/x"), null);
+		assert.deepEqual(upgrade("/api/mirror/abc-1"), {
+			kind: "mirror",
+			sessionId: "abc-1",
+		});
+		assert.equal(upgrade("/api/mirror/abc/x"), null);
+		assert.equal(upgrade("/api/mirror/a%2Fb"), null);
 		assert.equal(upgrade("/api/other"), null);
 	});
 
@@ -112,6 +118,23 @@ const board: Board = {
 			startedAt: 0,
 			updatedAt: 0,
 			attachable: true,
+			cmux: false,
+		},
+		{
+			id: "66666666-7777-8888-9999-000000000000",
+			short: null,
+			pid: 43,
+			name: "acme-web",
+			cwd: "/Users/me/dev/acme-web",
+			project: "acme-web",
+			kind: "interactive",
+			activity: "idle",
+			doing: null,
+			needs: null,
+			startedAt: 0,
+			updatedAt: 0,
+			attachable: false,
+			cmux: true,
 		},
 	],
 	subagents: [],
@@ -137,6 +160,7 @@ describe("createKanbanServer", () => {
 	let layoutFile = "";
 	let layoutSaved = () => Promise.resolve();
 	const attached: string[] = [];
+	const mirrored: string[] = [];
 	const events: AuditEvent[] = [];
 	const origins: string[] = [];
 	let base = "";
@@ -203,6 +227,12 @@ describe("createKanbanServer", () => {
 				},
 			},
 			attach,
+			mirror: {
+				open: (socket, session, identity) => {
+					mirrored.push(`${session.id} ${identity}`);
+					socket.close(1000, "fake");
+				},
+			},
 			feed,
 			audit: (event) => events.push(event),
 		});
@@ -495,6 +525,33 @@ describe("createKanbanServer", () => {
 			"open",
 		);
 		assert.deepEqual(attached, ["abcd1234 /Users/me/dev/acme-api"]);
+	});
+
+	it("mirrors only interactive sessions running in cmux", async () => {
+		const [background, inCmux] = board.sessions;
+		assert.equal(
+			await upgradeStatus(`/api/mirror/${background?.id}`, {
+				...authed,
+				origin,
+			}),
+			404,
+		);
+		assert.equal(
+			await upgradeStatus(`/api/mirror/${inCmux?.id}`, {
+				...authed,
+				origin: "https://evil.example",
+			}),
+			403,
+		);
+		assert.equal(
+			await upgradeStatus(`/api/mirror/${inCmux?.id}`, { origin }),
+			401,
+		);
+		assert.equal(
+			await upgradeStatus(`/api/mirror/${inCmux?.id}`, { ...authed, origin }),
+			"open",
+		);
+		assert.deepEqual(mirrored, [`${inCmux?.id} me@example.com`]);
 	});
 
 	it("sends the board and cached previews when a feed client connects", async () => {

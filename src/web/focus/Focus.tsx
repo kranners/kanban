@@ -5,6 +5,7 @@ import { useEffect, useLayoutEffect, useRef } from "preact/hooks";
 import type { Session } from "../../shared/types.ts";
 import { ActivityBadge } from "../activity.tsx";
 import { AttachedTerminal } from "./AttachedTerminal.tsx";
+import { MirroredTerminal } from "./MirroredTerminal.tsx";
 import { commandKey } from "./platform.ts";
 import { TranscriptView } from "./TranscriptView.tsx";
 
@@ -125,6 +126,8 @@ export function Focus(props: {
 				<div class="focus-body">
 					{session.attachable && session.short ? (
 						<AttachedTerminal short={session.short} />
+					) : session.cmux ? (
+						<MirroredTerminal id={session.id} />
 					) : (
 						<TranscriptView id={session.id} />
 					)}

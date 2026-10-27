@@ -1,6 +1,6 @@
 # kanban
 
-A board of the Claude Code sessions running on one Mac. Each card is a live session with what it is doing and a preview of its terminal; cards are linked when one session spawned, forked or delegated to another, and messages between sessions animate across the board. Click a background session to drive its real TUI in the browser, or start a new one. Everything is read from `~/.claude`; there is no database.
+A board of the Claude Code sessions running on one Mac. Each card is a live session with what it is doing and a preview of its terminal; cards are linked when one session spawned, forked or delegated to another, and messages between sessions animate across the board. Click a background session to drive its real TUI in the browser, click one running in a cmux pane to mirror and type into it, or start a new one. Everything is read from `~/.claude`; there is no database.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/board-dark.png">
@@ -33,6 +33,7 @@ Then open <http://127.0.0.1:7420>. `npm run dev` rebuilds and restarts on change
 | `KANBAN_HOST`        | `127.0.0.1`                | Bind address                                                             |
 | `KANBAN_PORT`        | `7420`                     | Port                                                                     |
 | `CLAUDE_BIN`         | `/opt/homebrew/bin/claude` | The `claude` binary sessions are started and attached with               |
+| `CMUX_BIN`           | cmux.app's bundled `cmux`  | The `cmux` CLI that mirrors and drives sessions in cmux panes            |
 | `CLAUDE_HOME`        | `~/.claude`                | Claude Code's state directory                                            |
 | `KANBAN_DIST`        | `dist`                     | Built page                                                               |
 
@@ -45,7 +46,7 @@ The board is reached through a Cloudflare Tunnel and gated by Cloudflare Access.
 
 ## Security
 
-kanban is a remote terminal into every background Claude Code session on the machine, so it is layered:
+kanban is a remote terminal into every background Claude Code session and every session in a cmux pane on the machine, so it is layered:
 - Cloudflare Access admits one identity; cloudflared itself rejects requests without a valid Access token.
 - The server verifies `Cf-Access-Jwt-Assertion` against the team's signing keys and the application audience.
 - WebSocket upgrades must come from the board's own origin.

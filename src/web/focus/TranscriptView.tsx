@@ -90,8 +90,9 @@ export function TranscriptView(props: { id: string }): JSX.Element {
 			<div class="focus-callout">
 				<BookOpen size={14} />
 				<span>
-					Started in a terminal, so it can only be read here. Sessions you start
-					from the board can be driven from here.
+					Started in a terminal outside cmux, so it can only be read here.
+					Sessions in cmux panes and sessions you start from the board can be
+					driven from here.
 				</span>
 			</div>
 			<div

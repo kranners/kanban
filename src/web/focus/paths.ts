@@ -11,6 +11,11 @@ export function attachUrl(
 	return `${scheme}://${location.host}/api/attach/${encodeURIComponent(short)}?${query}`;
 }
 
+export function mirrorUrl(location: PageLocation, sessionId: string): string {
+	const scheme = location.protocol === "https:" ? "wss" : "ws";
+	return `${scheme}://${location.host}/api/mirror/${encodeURIComponent(sessionId)}`;
+}
+
 export function transcriptUrl(id: string, limit: number): string {
 	return `/api/sessions/${encodeURIComponent(id)}/transcript?limit=${limit}`;
 }

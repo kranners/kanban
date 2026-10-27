@@ -57,6 +57,7 @@ function session(
 		startedAt: start - 90 * minute,
 		updatedAt: start - 2 * minute,
 		attachable: true,
+		cmux: false,
 		...partial,
 	};
 }

@@ -4,6 +4,7 @@ import {
 	attachUrl,
 	directoryName,
 	isAbsoluteDirectory,
+	mirrorUrl,
 	needsTrust,
 	transcriptUrl,
 } from "./paths.ts";
@@ -16,6 +17,17 @@ test("attachUrl uses ws on http and wss on https", () => {
 	assert.equal(
 		attachUrl({ protocol: "https:", host: "board.example" }, "a1b2", 80, 24),
 		"wss://board.example/api/attach/a1b2?cols=80&rows=24",
+	);
+});
+
+test("mirrorUrl follows the page's scheme", () => {
+	assert.equal(
+		mirrorUrl({ protocol: "https:", host: "board.example" }, "abc-1"),
+		"wss://board.example/api/mirror/abc-1",
+	);
+	assert.equal(
+		mirrorUrl({ protocol: "http:", host: "127.0.0.1:7420" }, "a/b"),
+		"ws://127.0.0.1:7420/api/mirror/a%2Fb",
 	);
 });
 

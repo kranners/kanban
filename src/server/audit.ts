@@ -1,5 +1,6 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
+import type { MirrorKey } from "../shared/types.ts";
 
 export type AuditEvent =
 	| { action: "attach-open"; short: string; identity: string | null }
@@ -22,6 +23,17 @@ export type AuditEvent =
 			short: string | null;
 			kind: "interactive" | "background";
 			force: boolean;
+			identity: string | null;
+			result: string;
+	  }
+	| { action: "mirror-open"; sessionId: string; identity: string | null }
+	| {
+			action: "mirror-send";
+			sessionId: string;
+			surface: string | null;
+			key: MirrorKey | null;
+			chars: number | null;
+			submit: boolean;
 			identity: string | null;
 			result: string;
 	  };

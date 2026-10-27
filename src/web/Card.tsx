@@ -39,11 +39,11 @@ function TerminalPreview(props: { html: string }) {
 	);
 }
 
-function ReadOnlyChip() {
+function TerminalChip(props: { cmux: boolean }) {
 	return (
 		<span class="chip">
 			<Terminal size={12} aria-hidden="true" />
-			In a terminal · read-only
+			{props.cmux ? "In cmux" : "In a terminal · read-only"}
 		</span>
 	);
 }
@@ -57,7 +57,7 @@ function InteractiveBody(props: {
 			<>
 				<TerminalPreview html={props.preview.html} />
 				<div class="chip-overlay">
-					<ReadOnlyChip />
+					<TerminalChip cmux={props.session.cmux} />
 				</div>
 			</>
 		);
@@ -73,7 +73,7 @@ function InteractiveBody(props: {
 					</div>
 				)}
 			</div>
-			<ReadOnlyChip />
+			<TerminalChip cmux={props.session.cmux} />
 		</div>
 	);
 }

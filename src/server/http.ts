@@ -10,7 +10,12 @@ import {
 import { extname, join, normalize, sep } from "node:path";
 import { type Duplex, pipeline } from "node:stream";
 import { WebSocketServer } from "ws";
-import type { Board, ExitResult, TranscriptEntry } from "../shared/types.ts";
+import type {
+	Board,
+	ExitResult,
+	Session,
+	TranscriptEntry,
+} from "../shared/types.ts";
 import {
 	type AttachHub,
 	type AttachTarget,
@@ -23,6 +28,7 @@ import { type Authenticate, originAllowed } from "./auth.ts";
 import type { SessionExiter } from "./exit.ts";
 import type { Feed } from "./feed.ts";
 import { boardKeys, type LayoutStore, parseLayoutUpdate } from "./layout.ts";
+import type { MirrorHub } from "./mirror.ts";
 import { type SessionLauncher, validateNewSession } from "./sessions.ts";
 
 export type BoardSource = {
@@ -39,6 +45,7 @@ export type ServerDeps = {
 	exit: SessionExiter;
 	layout: LayoutStore;
 	attach: AttachHub;
+	mirror: MirrorHub;
 	feed: Feed;
 	audit: Audit;
 };
@@ -55,7 +62,8 @@ export type Route =
 
 export type UpgradeRoute =
 	| { kind: "feed" }
-	| { kind: "attach"; short: string; size: TerminalSize };
+	| { kind: "attach"; short: string; size: TerminalSize }
+	| { kind: "mirror"; sessionId: string };
 
 const maxBodyBytes = 64 * 1024;
 const defaultTranscriptLimit = 200;
@@ -140,6 +148,8 @@ export const matchUpgrade = (url: URL): UpgradeRoute | null => {
 			),
 		};
 	}
+	const mirror = url.pathname.match(/^\/api\/mirror\/([\w-]{1,64})$/);
+	if (mirror?.[1]) return { kind: "mirror", sessionId: mirror[1] };
 	return null;
 };
 
@@ -241,6 +251,14 @@ const attachTarget = (board: Board, short: string): AttachTarget | null => {
 	);
 	return session ? { short, cwd: session.cwd } : null;
 };
+
+const mirrorTarget = (board: Board, sessionId: string): Session | null =>
+	board.sessions.find(
+		(session) =>
+			session.id === sessionId &&
+			session.kind === "interactive" &&
+			session.cmux,
+	) ?? null;
 
 export const createKanbanServer = (deps: ServerDeps): Server => {
 	const sockets = new WebSocketServer({
@@ -412,13 +430,20 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if (route.kind === "attach" && target === null) {
 			return rejectUpgrade(socket, 404);
 		}
+		const mirrored =
+			route.kind === "mirror"
+				? mirrorTarget(deps.source.board(), route.sessionId)
+				: null;
+		if (route.kind === "mirror" && mirrored === null) {
+			return rejectUpgrade(socket, 404);
+		}
 		sockets.handleUpgrade(req, socket, head, (ws) => {
 			ws.on("error", () => ws.terminate());
 			try {
 				if (route.kind === "feed") deps.feed.add(ws);
 				else if (target && route.kind === "attach") {
 					deps.attach.open(ws, target, route.size, auth.identity);
-				}
+				} else if (mirrored) deps.mirror.open(ws, mirrored, auth.identity);
 			} catch (error) {
 				console.error(`${route.kind} socket failed`, error);
 				ws.close(1011, "server error");
