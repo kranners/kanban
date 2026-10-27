@@ -4,16 +4,7 @@ import "./regions.css";
 import { CircleAlert, Folder, LoaderCircle, X } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
-import type { Annotation, Placement, Point } from "../shared/types.ts";
-import { preview, save, current as shownAnnotations } from "./annotations.ts";
-import {
-	arrangement,
-	cancelPlacement,
-	commitPlacement,
-	previewPlacement,
-	savedPlacement,
-} from "./arrangement.ts";
-import { view } from "./Canvas.tsx";
+import { groups } from "./arrangement.ts";
 import { colourOf } from "./colours.ts";
 import { isAbsoluteDirectory } from "./focus/paths.ts";
 import {
@@ -22,26 +13,19 @@ import {
 	openRegionMenuAtPointer,
 } from "./Groups.tsx";
 import type { Group } from "./groups.ts";
-import type { NodeKey } from "./layout.ts";
 import { NeedsYouCount, needsYouClass } from "./NeedsYou.tsx";
-import { moved } from "./notes.ts";
-import type { Rect } from "./placement.ts";
+import { justDragged, projectGestures } from "./projectDrag.ts";
 import {
-	cancelRegion,
-	commitRegion,
 	createRegion,
-	previewRegion,
 	regionDialog,
 	regionMenu,
 	renameRegion,
 } from "./regionState.ts";
 import type { RegionHandle } from "./regions.ts";
 import {
-	arrangedRegion,
-	centredIn,
+	clearOfProjects,
 	isRegionKey,
 	newRegionAt,
-	rectOf,
 	regionEdges,
 	storableRegion,
 } from "./regions.ts";
@@ -50,132 +34,9 @@ import { blocked, isTyping, pointerTarget } from "./Spawning.tsx";
 import { OutstandingSubagentsCount } from "./SubagentPill.tsx";
 import { knownCwds } from "./state.ts";
 
-const dragThreshold = 4;
-
-type Member = { key: NodeKey; at: Point; size: Partial<Placement> };
-
-type Drag = {
-	pointerId: number;
-	region: string;
-	handle: RegionHandle;
-	origin: Rect;
-	start: Point;
-	rect: Rect;
-	members: Member[];
-	notes: Annotation[];
-	moved: boolean;
-};
-
-let drag: Drag | null = null;
-let dragged = false;
-
-function membersOf(group: Group): Member[] {
-	const nodes = arrangement.peek()?.nodes;
-	return group.members.flatMap((key) => {
-		const node = nodes?.get(key);
-		if (!node) return [];
-		const saved = savedPlacement(key);
-		const size =
-			saved?.w !== undefined && saved.h !== undefined
-				? { w: saved.w, h: saved.h }
-				: {};
-		return [{ key, at: { x: node.x, y: node.y }, size }];
-	});
-}
-
-function carried(notes: Annotation[], origin: Rect, rect: Rect): Annotation[] {
-	return notes.map((note) => moved(note, rect.x - origin.x, rect.y - origin.y));
-}
-
-function memberPlacement(member: Member, origin: Rect, rect: Rect): Placement {
-	return {
-		x: member.at.x + rect.x - origin.x,
-		y: member.at.y + rect.y - origin.y,
-		...member.size,
-		pinned: true,
-	};
-}
-
-function setArranging(on: boolean): void {
-	document.querySelector(".viewport")?.classList.toggle("arranging", on);
-}
-
-function beginDrag(
-	event: PointerEvent,
-	group: Group,
-	handle: RegionHandle,
-): void {
-	if (event.button !== 0 || !group.region) return;
-	(event.currentTarget as Element).setPointerCapture(event.pointerId);
-	const origin = rectOf(group.region);
-	const moving = handle === "move";
-	drag = {
-		pointerId: event.pointerId,
-		region: group.region.id,
-		handle,
-		origin,
-		start: { x: event.clientX, y: event.clientY },
-		rect: origin,
-		members: moving ? membersOf(group) : [],
-		notes: moving
-			? centredIn(group.frame, Object.values(shownAnnotations.peek()))
-			: [],
-		moved: false,
-	};
-}
-
-function continueDrag(event: PointerEvent): void {
-	if (!drag || event.pointerId !== drag.pointerId) return;
-	const dx = event.clientX - drag.start.x;
-	const dy = event.clientY - drag.start.y;
-	if (!drag.moved && Math.hypot(dx, dy) < dragThreshold) return;
-	drag.moved = true;
-	setArranging(true);
-	const { k } = view.peek();
-	drag.rect = arrangedRegion(drag.origin, drag.handle, dx / k, dy / k);
-	previewRegion(drag.region, drag.rect);
-	for (const member of drag.members)
-		previewPlacement(
-			member.key,
-			memberPlacement(member, drag.origin, drag.rect),
-		);
-	if (drag.notes.length > 0)
-		preview(carried(drag.notes, drag.origin, drag.rect));
-}
-
-function endDrag(event: PointerEvent): void {
-	if (!drag || event.pointerId !== drag.pointerId) return;
-	const ended = drag;
-	drag = null;
-	if (!ended.moved) return;
-	setArranging(false);
-	dragged = true;
-	setTimeout(() => {
-		dragged = false;
-	}, 0);
-	if (event.type === "pointercancel") {
-		cancelRegion(ended.region);
-		for (const member of ended.members) cancelPlacement(member.key);
-		if (ended.notes.length > 0) save(ended.notes);
-		return;
-	}
-	void commitRegion(ended.region, storableRegion(ended.rect));
-	for (const member of ended.members)
-		void commitPlacement(
-			member.key,
-			memberPlacement(member, ended.origin, ended.rect),
-		);
-	if (ended.notes.length > 0)
-		save(carried(ended.notes, ended.origin, ended.rect));
-}
-
 function gestures(group: Group, handle: RegionHandle) {
 	return {
-		"data-no-pan": true,
-		onPointerDown: (event: PointerEvent) => beginDrag(event, group, handle),
-		onPointerMove: continueDrag,
-		onPointerUp: endDrag,
-		onPointerCancel: endDrag,
+		...projectGestures(group, handle),
 		onContextMenu: (event: MouseEvent) => openRegionMenuAtPointer(group, event),
 	};
 }
@@ -202,7 +63,8 @@ function RegionFrame(props: { group: Group }): JSX.Element | null {
 				aria-expanded={regionMenu.value?.key === group.key}
 				{...gestures(group, "move")}
 				onClick={(event) => {
-					if (!dragged) openRegionMenu(group, belowLabel(event.currentTarget));
+					if (!justDragged())
+						openRegionMenu(group, belowLabel(event.currentTarget));
 				}}
 			>
 				<Folder size={12} aria-hidden="true" />
@@ -276,7 +138,10 @@ function RegionDialogView(props: {
 				? await createRegion({
 						cwd: cwd.trim(),
 						...(name.trim() ? { name: name.trim() } : {}),
-						...storableRegion(newRegionAt(open.at)),
+						...clearOfProjects(
+							storableRegion(newRegionAt(open.at)),
+							groups.peek().map((group) => group.frame),
+						),
 					})
 				: null;
 		setBusy(false);

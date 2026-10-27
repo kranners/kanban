@@ -7,7 +7,13 @@ import { groupLabelSpace, groupPadding } from "./groups.ts";
 import type { NodeKey, PlacedNode } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import type { Rect } from "./placement.ts";
-import { boundsOf, near, nearestFree, sessionSize } from "./placement.ts";
+import {
+	boundsOf,
+	clearSpot,
+	near,
+	nearestFree,
+	sessionSize,
+} from "./placement.ts";
 
 export type RegionHandle =
 	| "move"
@@ -92,6 +98,93 @@ export function arrangedRegion(
 			Math.max(snap(bottom + dy), top + minRegionSize.h),
 		);
 	return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
+function floorToGrid(value: number): number {
+	return Math.floor(value / gridSize) * gridSize;
+}
+
+function ceilToGrid(value: number): number {
+	return Math.ceil(value / gridSize) * gridSize;
+}
+
+function edgesOf(rect: Rect) {
+	return {
+		left: rect.x,
+		top: rect.y,
+		right: rect.x + rect.w,
+		bottom: rect.y + rect.h,
+	};
+}
+
+function fromEdges(edges: ReturnType<typeof edgesOf>): Rect {
+	const { left, top, right, bottom } = edges;
+	return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
+function stoppedShort(
+	origin: Rect,
+	rect: Rect,
+	handle: RegionHandle,
+	other: Rect,
+): Rect[] {
+	const from = edgesOf(origin);
+	const to = edgesOf(rect);
+	const beside = edgesOf(other);
+	const stops: Rect[] = [];
+	if (handle.includes("e") && beside.left >= from.right)
+		stops.push(
+			fromEdges({
+				...to,
+				right: Math.max(from.right, floorToGrid(beside.left - gridSize)),
+			}),
+		);
+	if (handle.includes("w") && beside.right <= from.left)
+		stops.push(
+			fromEdges({
+				...to,
+				left: Math.min(from.left, ceilToGrid(beside.right + gridSize)),
+			}),
+		);
+	if (handle.includes("s") && beside.top >= from.bottom)
+		stops.push(
+			fromEdges({
+				...to,
+				bottom: Math.max(from.bottom, floorToGrid(beside.top - gridSize)),
+			}),
+		);
+	if (handle.includes("n") && beside.bottom <= from.top)
+		stops.push(
+			fromEdges({
+				...to,
+				top: Math.min(from.top, ceilToGrid(beside.bottom + gridSize)),
+			}),
+		);
+	return stops;
+}
+
+export function resizedClear(
+	origin: Rect,
+	rect: Rect,
+	handle: RegionHandle,
+	others: readonly Rect[],
+): Rect {
+	return others
+		.filter((other) => !near(origin, other, gridSize))
+		.reduce((resized, other) => {
+			if (!near(resized, other, gridSize)) return resized;
+			return stoppedShort(origin, resized, handle, other).reduce<Rect>(
+				(best, stop) => (area(stop) > area(best) ? stop : best),
+				origin,
+			);
+		}, rect);
+}
+
+export function clearOfProjects<T extends Rect>(
+	rect: T,
+	frames: readonly Rect[],
+): T {
+	return { ...rect, ...clearSpot(rect, frames) };
 }
 
 export function storableRegion(rect: Rect): Rect {

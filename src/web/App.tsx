@@ -9,7 +9,7 @@ import {
 } from "./Annotations.tsx";
 import { withoutSessions } from "./actions.ts";
 import { ordered } from "./annotations.ts";
-import { arrangement, arrangeNode, groups } from "./arrangement.ts";
+import { arrangement, groups } from "./arrangement.ts";
 import { arrived, beckoned } from "./attentionState.ts";
 import { Canvas } from "./Canvas.tsx";
 import { SessionCard, SubagentCard } from "./Card.tsx";
@@ -18,6 +18,7 @@ import {
 	CommentOverlays,
 	useCommentGestures,
 } from "./Comments.tsx";
+import { arrangeCard } from "./carrying.ts";
 import { colourOf } from "./colours.ts";
 import { Arcs, Links, messagePairs, Tethers } from "./Edges.tsx";
 import {
@@ -267,7 +268,7 @@ function Stage() {
 			anchor={anchor ? { x: anchor.x, w: anchor.w } : undefined}
 			fitKey="board"
 			rectOf={(key) => arrangement.peek()?.nodes.get(key)}
-			onArrange={arrangeNode}
+			onArrange={arrangeCard}
 			tools={<BoardTools />}
 		>
 			<World board={withoutSessions(current, departed.value)} layout={placed} />

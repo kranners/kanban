@@ -9,6 +9,7 @@ import { view } from "./Canvas.tsx";
 import { colourOf, setRegionColour } from "./colours.ts";
 import type { Group } from "./groups.ts";
 import { NeedsYouCount, needsYouClass } from "./NeedsYou.tsx";
+import { justDragged, projectGestures } from "./projectDrag.ts";
 import { deleteRegion, regionDialog, regionMenu } from "./regionState.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 import { OutstandingSubagentsCount } from "./SubagentPill.tsx";
@@ -55,13 +56,14 @@ export function GroupFrames(props: { groups: readonly Group[] }) {
 					<button
 						type="button"
 						class="group-label"
-						data-no-pan
-						title={`${group.cwd} · click for colours`}
+						title={`${group.cwd} · drag to move, click for colours`}
 						aria-haspopup="menu"
 						aria-expanded={open === group.key}
-						onClick={(event) =>
-							openRegionMenu(group, belowLabel(event.currentTarget))
-						}
+						{...projectGestures(group, "move")}
+						onClick={(event) => {
+							if (!justDragged())
+								openRegionMenu(group, belowLabel(event.currentTarget));
+						}}
 						onContextMenu={(event) => openRegionMenuAtPointer(group, event)}
 					>
 						<Folder size={12} aria-hidden="true" />

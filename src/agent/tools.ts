@@ -263,7 +263,7 @@ export const toolDefinitions: ToolDefinition[] = [
 	{
 		name: "create_region",
 		description:
-			"Draw a project region: a named frame for one directory. Sessions under that directory whose card centre lies inside belong to it. colour applies to every frame of that directory.",
+			"Draw a project region: a named frame for one directory. Sessions under that directory whose card centre lies inside belong to it. x and y place its top-left corner, moved to the nearest spot clear of other project frames. colour applies to every frame of that directory.",
 		inputSchema: object(
 			{
 				cwd: { type: "string", description: "Absolute directory" },

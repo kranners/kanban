@@ -21,7 +21,7 @@ import {
 	sessionSize,
 	subagentSize,
 } from "../web/placement.ts";
-import { regionGroups } from "../web/regions.ts";
+import { clearOfProjects, regionGroups } from "../web/regions.ts";
 import { stickerManifest } from "../web/stickers/manifest.ts";
 import { type AnnotationStore, parseAnnotation } from "./annotations.ts";
 import type { Audit } from "./audit.ts";
@@ -114,6 +114,18 @@ const occupied = (
 	...Object.values(deps.annotations.current()),
 ];
 
+const projectsOf = (
+	board: Board,
+	deps: Pick<BoardToolDeps, "layout" | "annotations" | "regions">,
+	placed = arranged(board, deps),
+) =>
+	regionGroups(
+		deps.regions.current(),
+		groupsOf(board.sessions, placed.nodes),
+		board.sessions,
+		placed.nodes,
+	);
+
 export const snapshot = (
 	board: Board,
 	deps: Pick<BoardToolDeps, "layout" | "annotations" | "colours" | "regions">,
@@ -121,13 +133,7 @@ export const snapshot = (
 ) => {
 	const saved = deps.layout.current();
 	const placed = arranged(board, deps);
-	const regions = deps.regions.current();
-	const groups = regionGroups(
-		regions,
-		groupsOf(board.sessions, placed.nodes),
-		board.sessions,
-		placed.nodes,
-	);
+	const groups = projectsOf(board, deps, placed);
 	const regionOf = new Map<string, string>();
 	for (const group of groups) {
 		if (!group.region) continue;
@@ -471,10 +477,15 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				h: snap(fields.h),
 			});
 			if ("error" in draft) return refused(draft.error);
-			const region = deps.regions.create(draft);
+			const frames = projectsOf(deps.source.board(), deps).map(
+				(project) => project.frame,
+			);
+			const region = deps.regions.create(clearOfProjects(draft, frames));
 			if (!region) return refused("The board is full of regions");
 			if (colour) deps.colours.set({ cwd: region.cwd, colour });
-			return done(`Created region '${regionLabel(region)}' (id ${region.id})`);
+			return done(
+				`Created region '${regionLabel(region)}' (id ${region.id}) at ${region.x},${region.y}`,
+			);
 		},
 		update_region: ({ id, colour, ...fields }) => {
 			const region = deps.regions.current().find((r) => r.id === id);

@@ -4,14 +4,16 @@ import type { Region, Session } from "../shared/types.ts";
 import { gridSize } from "./grid.ts";
 import { groupAt, groupsOf } from "./groups.ts";
 import type { PlacedNode } from "./layout.ts";
-import { sessionSize } from "./placement.ts";
+import { near, sessionSize } from "./placement.ts";
 import {
 	arrangedRegion,
 	belongsTo,
 	centredIn,
+	clearOfProjects,
 	isRegionKey,
 	minRegionSize,
 	regionGroups,
+	resizedClear,
 	spotInRegion,
 	storableRegion,
 } from "./regions.ts";
@@ -248,4 +250,44 @@ test("R starts a region unless typing or modified", () => {
 	assert.ok(!isRegionKey(press, true));
 	assert.ok(!isRegionKey({ ...press, metaKey: true }, false));
 	assert.ok(!isRegionKey({ ...press, key: "a" }, false));
+});
+
+test("a resized edge stops a grid step short of a neighbouring project", () => {
+	const origin = { x: 0, y: 0, w: 480, h: 336 };
+	const east = { x: 720, y: 0, w: 240, h: 240 };
+	const west = { x: -480, y: 0, w: 240, h: 240 };
+	assert.deepEqual(resizedClear(origin, { ...origin, w: 1080 }, "e", [east]), {
+		...origin,
+		w: 696,
+	});
+	assert.deepEqual(
+		resizedClear(origin, { ...origin, x: -600, w: 1080 }, "w", [west]),
+		{ ...origin, x: -216, w: 696 },
+	);
+});
+
+test("a corner keeps the larger of the sizes that clear a diagonal neighbour", () => {
+	const origin = { x: 0, y: 0, w: 480, h: 336 };
+	const below = { x: 720, y: 480, w: 240, h: 240 };
+	assert.deepEqual(
+		resizedClear(origin, { ...origin, w: 1080, h: 1080 }, "se", [below]),
+		{ ...origin, w: 696, h: 1080 },
+	);
+});
+
+test("a resize ignores a project it already overlapped", () => {
+	const origin = { x: 0, y: 0, w: 480, h: 336 };
+	const tangled = { x: 400, y: 0, w: 240, h: 240 };
+	const grown = { ...origin, w: 1080 };
+	assert.deepEqual(resizedClear(origin, grown, "e", [tangled]), grown);
+});
+
+test("a new region lands clear of other project frames", () => {
+	const frame = { x: 0, y: -32, w: 480, h: 368 };
+	const draft = { cwd: "/dev/acme-api", x: 0, y: 0, w: 480, h: 336 };
+	const placed = clearOfProjects(draft, [frame]);
+	assert.equal(placed.cwd, draft.cwd);
+	assert.equal(placed.w, draft.w);
+	assert.ok(!near(placed, frame, gridSize));
+	assert.deepEqual(clearOfProjects(draft, []), draft);
 });

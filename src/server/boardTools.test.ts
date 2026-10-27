@@ -273,6 +273,24 @@ describe("board tools", () => {
 		assert.equal(events.at(-1)?.action, "board-agent");
 	});
 
+	it("draws a new region clear of the projects already on the board", async () => {
+		const { tools, regions } = await setup();
+		const draft = { tool: "create_region", cwd: "/tmp", x: 0, y: 0 } as const;
+		await tools("t", { ...draft, w: 480, h: 336 });
+		const second = await tools("t", { ...draft, w: 240, h: 240 });
+		const [first, placed] = regions.current();
+		assert.ok(first && placed);
+		assert.deepEqual(second, {
+			ok: true,
+			text: `Created region '${placed.cwd}' (id r-1) at ${placed.x},${placed.y}`,
+		});
+		const snapshot = await tools("t", { tool: "board_snapshot" });
+		assert.ok(snapshot.ok);
+		const view = JSON.parse(snapshot.text.split("\n")[1] ?? "{}");
+		const frame = view.regions[0].frame;
+		assert.ok(!near(placed, frame, 24));
+	});
+
 	it("records what the agent typed, asked or started in the audit log", async () => {
 		const { tools, events } = await setup();
 		await tools("t", {
