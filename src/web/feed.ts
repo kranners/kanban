@@ -1,4 +1,5 @@
 import type { BoardFeed } from "../shared/types.ts";
+import { receiveColours } from "./colours.ts";
 import { receiveExit } from "./exits.ts";
 import {
 	awaitingShort,
@@ -31,6 +32,10 @@ function receive(frame: BoardFeed): void {
 	}
 	if (frame.type === "layout") {
 		layout.value = frame.layout;
+		return;
+	}
+	if (frame.type === "colours") {
+		receiveColours(frame.colours);
 		return;
 	}
 	if (frame.type === "exit") {

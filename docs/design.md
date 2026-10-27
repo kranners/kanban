@@ -18,7 +18,7 @@ kanban builds on Claude Code's own primitives instead: the session registry, bac
 
 ## Sources of truth
 
-Everything about sessions is read from `~/.claude`; kanban keeps no database. The one thing it stores is where people put cards: `layout.json` in `KANBAN_STATE` (default `~/.local/state/kanban`, or `~/.local/state/kanban-<port>` off the default port so dev servers never share the board's file), written atomically, with placements pruned a day after their node leaves the board.
+Everything about sessions is read from `~/.claude`; kanban keeps no database. The one thing it stores is where people put cards: `layout.json` in `KANBAN_STATE` (default `~/.local/state/kanban`, or `~/.local/state/kanban-<port>` off the default port so dev servers never share the board's file), written atomically, with placements pruned a day after their node leaves the board. Beside it, `colours.json` holds the colours people chose for project regions, keyed by cwd and validated against the palette.
 
 | Need                                    | Source                                                                                       |
 | --------------------------------------- | -------------------------------------------------------------------------------------------- |
@@ -57,11 +57,12 @@ One Node 24 process on `127.0.0.1:7420` serves the built page and these endpoint
 | Endpoint                           | Purpose                                                                                                                                |
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /`                            | the page                                                                                                                               |
-| `WS /api/feed`                     | `BoardFeed` frames: `layout` then a full `board` on connect, each again on change, `preview` thumbnails, `exit` outcomes               |
+| `WS /api/feed`                     | `BoardFeed` frames: `layout`, `colours`, then a full `board` on connect, each again on change, `preview` thumbnails, `exit` outcomes   |
 | `GET /api/sessions/:id/transcript` | recent `TranscriptEntry`s for read-only cards                                                                                          |
 | `POST /api/sessions`               | `NewSessionRequest` → `claude --bg`; without `name` Claude Code names it, with `at` the card spawns there                              |
 | `POST /api/sessions/:id/exit`      | `ExitRequest` → 202 at once; the `ExitResult` arrives later as an `exit` feed frame, since asking can outlast the tunnel's ~100s limit |
 | `PUT /api/layout`                  | `LayoutUpdate` → 204: stores one node's placement and broadcasts the layout                                                            |
+| `PUT /api/colours`                 | `RegionColourUpdate` → 204: sets one cwd's region colour, or `null` to return it to its default, and broadcasts the colours            |
 | `WS /api/attach/:short`            | a `claude attach` pty: binary output down, `AttachClientFrame`s up                                                                     |
 | `GET /healthz`                     | liveness                                                                                                                               |
 
@@ -79,7 +80,8 @@ Exiting asks the agent itself without touching the real session: `claude -p --re
 4. **Read.** Click an interactive card (started in a terminal). It opens a live transcript, read-only, with a note that sessions started from the board are the ones you can drive.
 5. **Start.** New session: pick a directory (recent ones suggested), optionally name it, give a first prompt. It appears on the board and opens focused.
 6. **Start in place.** Right-click the board (or press A) and type just the prompt. It starts in the group's project under the pointer, or the most recently active one (Tab cycles); a ghost card holds the spot until the session lands there.
-7. **Exit.** Hover a card and click its corner ×, then confirm. The agent is asked whether it is safe to exit: if so the card leaves, otherwise it shakes and shows why. Hold Shift for a red × that force-exits without asking.
+7. **Colour a project.** Click a project region's label and pick one of eight colours; arrow keys move between swatches, Escape or a click elsewhere closes. The colour applies at once and sticks to the project's directory, so every region for that cwd shares it.
+8. **Exit.** Hover a card and click its corner ×, then confirm. The agent is asked whether it is safe to exit: if so the card leaves, otherwise it shakes and shows why. Hold Shift for a red × that force-exits without asking.
 
 ## Infrastructure
 
@@ -96,3 +98,5 @@ A web app instead of a desktop wrapper: the server must run as a long-lived loca
 ## Visual design
 
 Flat and quiet: a warm off-white canvas, white cards with hairline borders, no shadows except on the focused card, one accent colour. Inter for the interface, JetBrains Mono for terminals and previews, Lucide icons. Light and dark follow the system, with a toggle. State is always colour plus shape.
+
+Project regions are tinted from an eight-colour palette (`src/web/regions.css`, `src/shared/colours.ts`): a faint fill, a stronger border and a label chip whose text keeps at least 4.5:1 contrast in both themes. Each cwd hashes to a default colour so regions differ out of the box; a chosen colour overrides it.

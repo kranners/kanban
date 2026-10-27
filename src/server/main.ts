@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { claudeAttachPty, createAttachHub } from "./attach.ts";
 import { fileAudit } from "./audit.ts";
 import { authenticatorFor } from "./auth.ts";
+import { createColourStore, loadColours } from "./colours.ts";
 import { type Config, loadConfig } from "./config.ts";
 import { claudeExitDeps, exitSession } from "./exit.ts";
 import { createFeed, type Feed } from "./feed.ts";
@@ -30,6 +31,12 @@ const layout = createLayoutStore({
 	initial: await loadLayout(layoutFile),
 	onChange: (next) => feed?.layout(next),
 });
+const coloursFile = join(config.stateDir, "colours.json");
+const colours = createColourStore({
+	file: coloursFile,
+	initial: await loadColours(coloursFile),
+	onChange: (next) => feed?.colours(next),
+});
 const probes = new Set<string>();
 const previewer = createPreviewer({
 	transcript: (sessionId, limit) => source.transcript(sessionId, limit),
@@ -50,6 +57,7 @@ feed = createFeed({
 	board: source.board,
 	previews: previewer.latest,
 	layout: layout.current,
+	colours: colours.current,
 });
 
 const exitDeps = claudeExitDeps({
@@ -66,6 +74,7 @@ const server = createKanbanServer({
 	launch: claudeLauncher(config.claudeBin),
 	exit: (session, force) => exitSession(exitDeps, session, force),
 	layout,
+	colours,
 	attach: createAttachHub(claudeAttachPty(config.claudeBin), audit),
 	feed,
 	audit,

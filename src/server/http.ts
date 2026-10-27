@@ -20,6 +20,7 @@ import {
 } from "./attach.ts";
 import type { Audit } from "./audit.ts";
 import { type Authenticate, originAllowed } from "./auth.ts";
+import { type ColourStore, parseColourUpdate } from "./colours.ts";
 import type { SessionExiter } from "./exit.ts";
 import type { Feed } from "./feed.ts";
 import { boardKeys, type LayoutStore, parseLayoutUpdate } from "./layout.ts";
@@ -38,6 +39,7 @@ export type ServerDeps = {
 	launch: SessionLauncher;
 	exit: SessionExiter;
 	layout: LayoutStore;
+	colours: ColourStore;
 	attach: AttachHub;
 	feed: Feed;
 	audit: Audit;
@@ -49,6 +51,7 @@ export type Route =
 	| { kind: "create-session" }
 	| { kind: "exit-session"; sessionId: string }
 	| { kind: "update-layout" }
+	| { kind: "update-colour" }
 	| { kind: "static"; path: string }
 	| { kind: "not-found" }
 	| { kind: "method-not-allowed" };
@@ -119,6 +122,11 @@ export const matchRoute = (method: string, url: URL): Route => {
 	if (path === "/api/layout") {
 		return method === "PUT"
 			? { kind: "update-layout" }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/colours") {
+		return method === "PUT"
+			? { kind: "update-colour" }
 			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api" || path.startsWith("/api/")) return { kind: "not-found" };
@@ -363,6 +371,18 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res.end();
 	};
 
+	const updateColour = async (req: IncomingMessage, res: ServerResponse) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const update = parseColourUpdate(read.body);
+		if ("error" in update) {
+			return sendJson(res, 400, { ok: false, error: update.error });
+		}
+		deps.colours.set(update);
+		res.writeHead(204, { "cache-control": "no-store" });
+		res.end();
+	};
+
 	const handle = async (req: IncomingMessage, res: ServerResponse) => {
 		const route = matchRoute(req.method ?? "GET", requestUrl(req));
 		if (route.kind === "healthz") return sendJson(res, 200, { ok: true });
@@ -390,6 +410,8 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return exitSession(req, res, route.sessionId, auth.identity);
 			case "update-layout":
 				return updateLayout(req, res);
+			case "update-colour":
+				return updateColour(req, res);
 			case "static":
 				return serveStatic(res, deps.dist, route.path, req.method === "HEAD");
 		}

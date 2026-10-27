@@ -97,7 +97,7 @@ export const loadLayout = async (file: string): Promise<Layout> => {
 	}
 };
 
-const writeAtomically = async (file: string, text: string) => {
+export const writeAtomically = async (file: string, text: string) => {
 	await mkdir(dirname(file), { recursive: true });
 	const temporary = `${file}.${process.pid}.tmp`;
 	await writeFile(temporary, text);

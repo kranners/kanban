@@ -1,0 +1,202 @@
+:root {
+	--region-stone: #8a8378;
+	--region-stone-ink: #575049;
+	--region-red: #d0574f;
+	--region-red-ink: #9a2f28;
+	--region-amber: #c2861c;
+	--region-amber-ink: #7d5310;
+	--region-green: #4f9a5c;
+	--region-green-ink: #2a6636;
+	--region-teal: #2f9a94;
+	--region-teal-ink: #1b625e;
+	--region-blue: #4a7fd0;
+	--region-blue-ink: #2a559a;
+	--region-violet: #8a63d2;
+	--region-violet-ink: #5d3ca3;
+	--region-pink: #c95a9a;
+	--region-pink-ink: #8c3166;
+	--region-fill-mix: 8%;
+	--region-chip-mix: 18%;
+	--region-border-mix: 42%;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--region-stone: #a39d92;
+		--region-stone-ink: #d4cfc6;
+		--region-red: #e0736b;
+		--region-red-ink: #f4aba5;
+		--region-amber: #d9a14a;
+		--region-amber-ink: #eccb8a;
+		--region-green: #6bb57a;
+		--region-green-ink: #a7dbb1;
+		--region-teal: #4fb8b1;
+		--region-teal-ink: #98ddd7;
+		--region-blue: #6f9ee6;
+		--region-blue-ink: #adc9f3;
+		--region-violet: #a587e6;
+		--region-violet-ink: #cebcf4;
+		--region-pink: #db7fb3;
+		--region-pink-ink: #f0b8d8;
+		--region-border-mix: 36%;
+	}
+}
+
+:root[data-theme="dark"] {
+	--region-stone: #a39d92;
+	--region-stone-ink: #d4cfc6;
+	--region-red: #e0736b;
+	--region-red-ink: #f4aba5;
+	--region-amber: #d9a14a;
+	--region-amber-ink: #eccb8a;
+	--region-green: #6bb57a;
+	--region-green-ink: #a7dbb1;
+	--region-teal: #4fb8b1;
+	--region-teal-ink: #98ddd7;
+	--region-blue: #6f9ee6;
+	--region-blue-ink: #adc9f3;
+	--region-violet: #a587e6;
+	--region-violet-ink: #cebcf4;
+	--region-pink: #db7fb3;
+	--region-pink-ink: #f0b8d8;
+	--region-border-mix: 36%;
+}
+
+.region-stone {
+	--region: var(--region-stone);
+	--region-ink: var(--region-stone-ink);
+}
+
+.region-red {
+	--region: var(--region-red);
+	--region-ink: var(--region-red-ink);
+}
+
+.region-amber {
+	--region: var(--region-amber);
+	--region-ink: var(--region-amber-ink);
+}
+
+.region-green {
+	--region: var(--region-green);
+	--region-ink: var(--region-green-ink);
+}
+
+.region-teal {
+	--region: var(--region-teal);
+	--region-ink: var(--region-teal-ink);
+}
+
+.region-blue {
+	--region: var(--region-blue);
+	--region-ink: var(--region-blue-ink);
+}
+
+.region-violet {
+	--region: var(--region-violet);
+	--region-ink: var(--region-violet-ink);
+}
+
+.region-pink {
+	--region: var(--region-pink);
+	--region-ink: var(--region-pink-ink);
+}
+
+.region {
+	--region-fill: color-mix(
+		in srgb,
+		var(--region) var(--region-fill-mix),
+		var(--page)
+	);
+	--region-chip: color-mix(
+		in srgb,
+		var(--region) var(--region-chip-mix),
+		var(--page)
+	);
+	--region-border: color-mix(
+		in srgb,
+		var(--region) var(--region-border-mix),
+		var(--page)
+	);
+}
+
+.group-frame.region {
+	border-color: var(--region-border);
+	background: var(--region-fill);
+}
+
+.node.grouped.region {
+	--group-fill: var(--region-fill);
+}
+
+.group-frame .group-label {
+	top: 5px;
+	left: 10px;
+	max-width: calc(100% - 20px);
+	height: 22px;
+	padding: 0 8px;
+	border: 1px solid transparent;
+	border-radius: 999px;
+	background: var(--region-chip);
+	color: var(--region-ink);
+	font-family: inherit;
+	line-height: 20px;
+	pointer-events: auto;
+	cursor: pointer;
+	transition: border-color calc(120ms * var(--motion));
+}
+
+.group-frame .group-label:hover,
+.group-frame .group-label[aria-expanded="true"] {
+	border-color: var(--region-border);
+}
+
+.group-label-text {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.viewport.panning .group-label,
+.viewport.arranging .group-label {
+	pointer-events: none;
+}
+
+.colour-menu {
+	position: fixed;
+	z-index: 40;
+	display: grid;
+	grid-template-columns: repeat(4, 28px);
+	gap: 6px;
+	padding: 8px;
+	border: 1px solid var(--hairline);
+	border-radius: var(--radius-sm);
+	background: var(--surface);
+	box-shadow: var(--shadow-pop);
+	animation: menu-in calc(120ms * var(--motion)) ease-out;
+}
+
+.colour-swatch {
+	display: grid;
+	place-items: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: 1px solid var(--region-border);
+	border-radius: 50%;
+	background: var(--region);
+	color: var(--surface);
+	cursor: pointer;
+	transition: scale calc(120ms * var(--motion)) ease-out;
+}
+
+.colour-swatch:hover {
+	scale: 1.08;
+}
+
+.colour-swatch:focus-visible {
+	outline: none;
+	box-shadow:
+		0 0 0 2px var(--surface),
+		0 0 0 4px var(--region);
+}

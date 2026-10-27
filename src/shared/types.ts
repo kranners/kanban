@@ -1,3 +1,5 @@
+import type { RegionColours } from "./colours.ts";
+
 export type SessionKind = "interactive" | "background";
 
 export type Activity =
@@ -87,6 +89,7 @@ export type BoardFeed =
 	| { type: "board"; board: Board }
 	| { type: "preview"; preview: Preview }
 	| { type: "layout"; layout: Layout }
+	| { type: "colours"; colours: RegionColours }
 	| { type: "exit"; sessionId: string; result: ExitResult };
 
 export type NewSessionRequest = {
