@@ -22,7 +22,11 @@ import { sessionSize } from "./placement.ts";
 import { regionDialog, regionMenu } from "./regionState.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 import type { QuickPrompt } from "./spawns.ts";
-import { focusedSessionId, newSessionOpen } from "./state.ts";
+import {
+	focusedSessionId,
+	focusedSubagentId,
+	newSessionOpen,
+} from "./state.ts";
 
 let pointer: { x: number; y: number } | null = null;
 
@@ -38,6 +42,7 @@ export function isTyping(target: EventTarget | null): boolean {
 export function blocked(): boolean {
 	return (
 		focusedSessionId.peek() !== null ||
+		focusedSubagentId.peek() !== null ||
 		newSessionOpen.peek() ||
 		exitAsk.peek() !== null ||
 		quickPrompt.peek() !== null ||

@@ -11,7 +11,12 @@ import { extname, join, normalize, sep } from "node:path";
 import { type Duplex, pipeline } from "node:stream";
 import { WebSocketServer } from "ws";
 import { parseToolCall } from "../agent/tools.ts";
-import type { Board, Session, TranscriptEntry } from "../shared/types.ts";
+import type {
+	Board,
+	NodeRef,
+	Session,
+	TranscriptEntry,
+} from "../shared/types.ts";
 import type { AgentTokens } from "./agentAuth.ts";
 import { type AnnotationStore, parseAnnotation } from "./annotations.ts";
 import {
@@ -26,6 +31,7 @@ import { type Authenticate, originAllowed } from "./auth.ts";
 import type { BoardAgent } from "./boardAgent.ts";
 import type { BoardTools } from "./boardTools.ts";
 import { type ColourStore, maxColours, parseColourUpdate } from "./colours.ts";
+import type { SlashCommand } from "./commands.ts";
 import {
 	type CommentStore,
 	isThreadId,
@@ -34,8 +40,15 @@ import {
 	parseCommentPatch,
 	parseMessage,
 } from "./comments.ts";
+import {
+	type ConversationHub,
+	type ConversationTarget,
+	parseSince,
+	type Since,
+} from "./conversationHub.ts";
 import type { ExitRunner } from "./exit.ts";
 import type { Feed } from "./feed.ts";
+import type { FileListing } from "./files.ts";
 import { boardKeys, type LayoutStore, parseLayoutUpdate } from "./layout.ts";
 import type { MirrorHub } from "./mirror.ts";
 import {
@@ -50,6 +63,7 @@ import { type SessionLauncher, validateNewSession } from "./sessions.ts";
 export type BoardSource = {
 	board(): Board;
 	transcript(sessionId: string, limit: number): Promise<TranscriptEntry[]>;
+	transcriptPath(node: NodeRef): string | null;
 };
 
 export type ServerDeps = {
@@ -69,6 +83,9 @@ export type ServerDeps = {
 	tools: BoardTools;
 	attach: AttachHub;
 	mirror: MirrorHub;
+	conversation: ConversationHub;
+	files(cwd: string, query: string): Promise<FileListing>;
+	commands(cwd: string): Promise<SlashCommand[]>;
 	feed: Feed;
 	audit: Audit;
 };
@@ -76,6 +93,8 @@ export type ServerDeps = {
 export type Route =
 	| { kind: "healthz" }
 	| { kind: "transcript"; sessionId: string; limit: number }
+	| { kind: "files"; sessionId: string; query: string }
+	| { kind: "commands"; sessionId: string }
 	| { kind: "create-session" }
 	| { kind: "exit-session"; sessionId: string }
 	| { kind: "update-layout" }
@@ -98,7 +117,8 @@ export type Route =
 export type UpgradeRoute =
 	| { kind: "feed" }
 	| { kind: "attach"; short: string; size: TerminalSize }
-	| { kind: "mirror"; sessionId: string };
+	| { kind: "mirror"; sessionId: string }
+	| { kind: "conversation"; node: NodeRef; since: Since };
 
 const maxBodyBytes = 128 * 1024;
 const defaultTranscriptLimit = 200;
@@ -147,6 +167,19 @@ export const matchRoute = (method: string, url: URL): Route => {
 			sessionId: transcript[1],
 			limit: parseLimit(url.searchParams.get("limit")),
 		};
+	}
+	const sessionList = path.match(
+		/^\/api\/sessions\/([^/]+)\/(files|commands)$/,
+	);
+	if (sessionList?.[1]) {
+		if (method !== "GET") return { kind: "method-not-allowed" };
+		return sessionList[2] === "files"
+			? {
+					kind: "files",
+					sessionId: sessionList[1],
+					query: (url.searchParams.get("q") ?? "").slice(0, 200),
+				}
+			: { kind: "commands", sessionId: sessionList[1] };
 	}
 	if (path === "/api/sessions") {
 		return method === "POST"
@@ -239,6 +272,19 @@ export const matchUpgrade = (url: URL): UpgradeRoute | null => {
 	}
 	const mirror = url.pathname.match(/^\/api\/mirror\/([\w-]{1,64})$/);
 	if (mirror?.[1]) return { kind: "mirror", sessionId: mirror[1] };
+	const conversation = url.pathname.match(
+		/^\/api\/(sessions|subagents)\/([\w-]{1,64})\/conversation$/,
+	);
+	if (conversation?.[2]) {
+		return {
+			kind: "conversation",
+			node: {
+				kind: conversation[1] === "sessions" ? "session" : "subagent",
+				id: conversation[2],
+			},
+			since: parseSince(url.searchParams.get("since")),
+		};
+	}
 	return null;
 };
 
@@ -348,6 +394,22 @@ const mirrorTarget = (board: Board, sessionId: string): Session | null =>
 			session.kind === "interactive" &&
 			session.cmux,
 	) ?? null;
+
+const conversationTarget = (
+	source: BoardSource,
+	node: NodeRef,
+): ConversationTarget | null => {
+	const board = source.board();
+	const path = source.transcriptPath(node);
+	if (!path) return null;
+	if (node.kind === "subagent") {
+		return board.subagents.some(({ id }) => id === node.id)
+			? { kind: "subagent", id: node.id, path }
+			: null;
+	}
+	const session = board.sessions.find(({ id }) => id === node.id);
+	return session ? { kind: "session", session, path } : null;
+};
 
 export const createKanbanServer = (deps: ServerDeps): Server => {
 	const sockets = new WebSocketServer({
@@ -666,6 +728,18 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 					await deps.source.transcript(route.sessionId, route.limit),
 				);
 			}
+			case "files":
+			case "commands": {
+				const session = deps.source
+					.board()
+					.sessions.find(({ id }) => id === route.sessionId);
+				if (!session) return sendError(res, 404);
+				if (route.kind === "commands") {
+					return sendJson(res, 200, await deps.commands(session.cwd));
+				}
+				const listing = await deps.files(session.cwd, route.query);
+				return sendJson(res, listing.ok ? 200 : 422, listing);
+			}
 			case "create-session":
 				return createSession(req, res, auth.identity);
 			case "exit-session":
@@ -723,6 +797,13 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if (route.kind === "mirror" && mirrored === null) {
 			return rejectUpgrade(socket, 404);
 		}
+		const conversation =
+			route.kind === "conversation"
+				? conversationTarget(deps.source, route.node)
+				: null;
+		if (route.kind === "conversation" && conversation === null) {
+			return rejectUpgrade(socket, 404);
+		}
 		sockets.handleUpgrade(req, socket, head, (ws) => {
 			ws.on("error", () => ws.terminate());
 			try {
@@ -730,6 +811,9 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				else if (target && route.kind === "attach") {
 					deps.attach.open(ws, target, route.size, auth.identity);
 				} else if (mirrored) deps.mirror.open(ws, mirrored, auth.identity);
+				else if (conversation && route.kind === "conversation") {
+					deps.conversation.open(ws, conversation, route.since, auth.identity);
+				}
 			} catch (error) {
 				console.error(`${route.kind} socket failed`, error);
 				ws.close(1011, "server error");

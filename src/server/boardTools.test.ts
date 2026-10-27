@@ -83,6 +83,7 @@ const setup = async () => {
 			transcript: async () => [
 				{ at: 0, role: "assistant", text: "Fixed the bug" },
 			],
+			transcriptPath: () => null,
 		},
 		layout,
 		annotations,

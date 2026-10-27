@@ -1,17 +1,36 @@
 import "./focus.css";
-import { X } from "lucide-preact";
+import "./agent.css";
+import { Bot, MessagesSquare, SquareTerminal, X } from "lucide-preact";
 import type { JSX } from "preact";
-import { useEffect, useLayoutEffect, useRef } from "preact/hooks";
-import type { Session } from "../../shared/types.ts";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "preact/hooks";
+import { subagentState } from "../../shared/subagents.ts";
+import type { Activity, Session, Subagent } from "../../shared/types.ts";
 import { ActivityBadge } from "../activity.tsx";
+import { openSubagent, subagentsById } from "../state.ts";
+import { AgentView } from "./AgentView.tsx";
 import { AttachedTerminal } from "./AttachedTerminal.tsx";
 import { MirroredTerminal } from "./MirroredTerminal.tsx";
 import { commandKey } from "./platform.ts";
-import { TranscriptView } from "./TranscriptView.tsx";
+
+export type FocusTarget =
+	| { kind: "session"; session: Session }
+	| { kind: "subagent"; subagent: Subagent };
 
 const kindLabels = { background: "Background", interactive: "Terminal" };
 
 const closeShortcut = `${commandKey}.`;
+
+const subagentActivity: Record<ReturnType<typeof subagentState>, Activity> = {
+	working: "working",
+	idle: "idle",
+	done: "done",
+};
 
 function growFrom(panel: HTMLElement, origin: DOMRect): void {
 	if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -33,17 +52,31 @@ function growFrom(panel: HTMLElement, origin: DOMRect): void {
 	);
 }
 
+function hasTerminal(session: Session): boolean {
+	return (session.attachable && session.short !== null) || session.cmux;
+}
+
+function RawTerminal(props: { session: Session }) {
+	const { session } = props;
+	return session.attachable && session.short ? (
+		<AttachedTerminal short={session.short} />
+	) : (
+		<MirroredTerminal id={session.id} />
+	);
+}
+
 export function Focus(props: {
-	session: Session;
+	target: FocusTarget;
 	onClose: () => void;
 	origin?: DOMRect;
 }): JSX.Element {
-	const { session, onClose } = props;
+	const { target, onClose } = props;
 	const backdrop = useRef<HTMLDivElement>(null);
 	const panel = useRef<HTMLDivElement>(null);
 	const closeButton = useRef<HTMLButtonElement>(null);
 	const close = useRef(onClose);
 	close.current = onClose;
+	const [raw, setRaw] = useState(false);
 
 	useLayoutEffect(() => {
 		if (panel.current && props.origin) growFrom(panel.current, props.origin);
@@ -57,7 +90,7 @@ export function Focus(props: {
 				element !== own && element instanceof HTMLElement,
 		);
 		for (const element of behind) element.inert = true;
-		closeButton.current?.focus();
+		if (target.kind === "subagent") closeButton.current?.focus();
 		return () => {
 			for (const element of behind) element.inert = false;
 			if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
@@ -76,7 +109,22 @@ export function Focus(props: {
 		return () => window.removeEventListener("keydown", onKey, true);
 	}, []);
 
-	const doing = session.needs ?? session.doing;
+	const subagentLink = useCallback(
+		(agentId: string) =>
+			subagentsById.value.has(agentId) ? () => openSubagent(agentId) : null,
+		[],
+	);
+
+	const session = target.kind === "session" ? target.session : null;
+	const subagent = target.kind === "subagent" ? target.subagent : null;
+	const activity: Activity = session
+		? session.activity
+		: subagentActivity[subagentState(subagent as Subagent)];
+	const name = session?.name ?? subagent?.description ?? subagent?.type ?? "";
+	const doing = session
+		? (session.needs ?? session.doing)
+		: (subagent?.type ?? null);
+	const terminal = session && hasTerminal(session);
 
 	return (
 		<div
@@ -84,7 +132,7 @@ export function Focus(props: {
 			class="focus-backdrop"
 			role="dialog"
 			aria-modal="true"
-			aria-label={session.name}
+			aria-label={name}
 		>
 			<button
 				type="button"
@@ -95,22 +143,54 @@ export function Focus(props: {
 			/>
 			<div class="focus-panel" ref={panel}>
 				<header class="focus-header">
-					<ActivityBadge activity={session.activity} />
+					<ActivityBadge activity={activity} />
 					<div class="focus-titles">
 						<div class="focus-title-row">
-							<h2 class="focus-name">{session.name}</h2>
+							<h2 class="focus-name">{name}</h2>
 							{doing && <span class="focus-doing">{doing}</span>}
 						</div>
 						<div class="focus-meta">
-							<span
-								class="focus-cwd"
-								title={`${session.project} · ${session.cwd}`}
-							>
-								<bdi>{session.cwd}</bdi>
-							</span>
-							<span class="focus-kind">{kindLabels[session.kind]}</span>
+							{session ? (
+								<>
+									<span
+										class="focus-cwd"
+										title={`${session.project} · ${session.cwd}`}
+									>
+										<bdi>{session.cwd}</bdi>
+									</span>
+									<span class="focus-kind">{kindLabels[session.kind]}</span>
+								</>
+							) : (
+								<span class="focus-kind">
+									<Bot size={11} aria-hidden="true" /> Subagent
+								</span>
+							)}
 						</div>
 					</div>
+					{terminal && (
+						<div class="av-toggle">
+							<button
+								type="button"
+								class="focus-button"
+								aria-pressed={!raw}
+								onClick={() => setRaw(false)}
+								title="Conversation"
+							>
+								<MessagesSquare size={15} aria-hidden="true" />
+								<span class="av-toggle-label">Conversation</span>
+							</button>
+							<button
+								type="button"
+								class="focus-button"
+								aria-pressed={raw}
+								onClick={() => setRaw(true)}
+								title="The session's own terminal"
+							>
+								<SquareTerminal size={15} aria-hidden="true" />
+								<span class="av-toggle-label">Terminal</span>
+							</button>
+						</div>
+					)}
 					<button
 						ref={closeButton}
 						type="button"
@@ -124,12 +204,20 @@ export function Focus(props: {
 					</button>
 				</header>
 				<div class="focus-body">
-					{session.attachable && session.short ? (
-						<AttachedTerminal short={session.short} />
-					) : session.cmux ? (
-						<MirroredTerminal id={session.id} />
+					{session && raw ? (
+						<RawTerminal session={session} />
 					) : (
-						<TranscriptView id={session.id} />
+						<AgentView
+							node={
+								session
+									? { kind: "session", id: session.id }
+									: { kind: "subagent", id: subagent?.id ?? "" }
+							}
+							session={session}
+							activity={activity}
+							onTerminal={terminal ? () => setRaw(true) : null}
+							subagent={subagentLink}
+						/>
 					)}
 				</div>
 			</div>

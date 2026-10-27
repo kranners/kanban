@@ -23,6 +23,7 @@ export const litMessage = computed(
 	() => hoveredMessage.value ?? selectedMessage.value,
 );
 export const focusedSessionId = signal<string | null>(null);
+export const focusedSubagentId = signal<string | null>(null);
 export const newSessionOpen = signal(false);
 export const awaitingShort = signal<string | null>(null);
 export const railOpen = signal(innerWidth > 720);
@@ -102,7 +103,25 @@ export function toggleActivity(activity: Activity): void {
 
 export const focusOrigin = signal<DOMRect | undefined>(undefined);
 
+export const focusedSubagent = computed(() =>
+	focusedSubagentId.value
+		? (subagentsById.value.get(focusedSubagentId.value) ?? null)
+		: null,
+);
+
 export function openSession(id: string, origin?: DOMRect): void {
 	focusOrigin.value = origin;
+	focusedSubagentId.value = null;
 	focusedSessionId.value = id;
+}
+
+export function openSubagent(id: string, origin?: DOMRect): void {
+	focusOrigin.value = origin;
+	focusedSessionId.value = null;
+	focusedSubagentId.value = id;
+}
+
+export function closeFocus(): void {
+	focusedSessionId.value = null;
+	focusedSubagentId.value = null;
 }

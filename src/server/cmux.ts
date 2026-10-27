@@ -15,6 +15,7 @@ export type Cmux = {
 		target: CmuxSurface,
 		text: string,
 		submit: boolean,
+		force?: boolean,
 	): Promise<CmuxResult<null>>;
 	sendKey(target: CmuxSurface, key: MirrorKey): Promise<CmuxResult<null>>;
 };
@@ -155,12 +156,13 @@ export const cmuxCli = (cmuxBin: string): Cmux => {
 				: result;
 		},
 		readScreen: (target) => run(["read-screen", ...at(target)]),
-		paste: async (target, text, submit) =>
+		paste: async (target, text, submit, force = false) =>
 			done(
 				await run([
 					"paste",
 					...at(target),
 					...(submit ? ["--submit"] : []),
+					...(force ? ["--force"] : []),
 					"--",
 					text,
 				]),

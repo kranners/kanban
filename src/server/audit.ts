@@ -27,6 +27,16 @@ export type AuditEvent =
 			result: string;
 	  }
 	| { action: "mirror-open"; sessionId: string; identity: string | null }
+	| { action: "view-open"; sessionId: string; identity: string | null }
+	| {
+			action: "view-send";
+			sessionId: string;
+			kind: "prompt" | "key" | "permission" | "answer";
+			key: string | null;
+			chars: number | null;
+			identity: string | null;
+			result: string;
+	  }
 	| {
 			action: "board-agent";
 			thread: string;
