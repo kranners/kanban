@@ -371,7 +371,12 @@ export function createBackend(scenario: Scenario): Backend {
 		node: NodeRef,
 		text: string,
 		extra: Partial<ToolResult> = {},
-	) => resolve(node, () => true, toolResult(text, Date.now(), extra));
+	) =>
+		resolve(
+			node,
+			(item) => item.name !== "Task",
+			toolResult(text, Date.now(), extra),
+		);
 
 	const update = (id: string, patch: Partial<Session>, narrate = true) => {
 		const index = world.sessions.findIndex((item) => item.id === id);
@@ -864,6 +869,7 @@ export function createBackend(scenario: Scenario): Backend {
 		update(session.id, { activity: "working", doing: "Thinking" }, false);
 		append(node, [{ user: text }]);
 		later(1600, () => {
+			settle(node, "Interrupted", { interrupted: true });
 			append(node, [{ assistant: demoReply }]);
 			update(
 				session.id,
