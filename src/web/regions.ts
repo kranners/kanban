@@ -121,6 +121,13 @@ function inside(rect: Rect, point: Point): boolean {
 	);
 }
 
+export function centredIn<T extends Rect>(
+	frame: Rect,
+	items: Iterable<T>,
+): T[] {
+	return [...items].filter((item) => inside(frame, centreOf(item)));
+}
+
 function area(rect: Rect): number {
 	return rect.w * rect.h;
 }
@@ -207,6 +214,11 @@ export function regionGroups(
 	];
 }
 
+function lastStart(start: number, span: number, card: number): number {
+	const room = span - gridSize;
+	return start + room - (card <= room ? card : card / 2);
+}
+
 export function spotInRegion(
 	point: Point,
 	region: Rect,
@@ -216,11 +228,11 @@ export function spotInRegion(
 	const start = snapPoint({
 		x: Math.min(
 			Math.max(point.x, region.x),
-			region.x + region.w - sessionSize.w / 2 - gridSize,
+			lastStart(region.x, region.w, sessionSize.w),
 		),
 		y: Math.min(
 			Math.max(point.y, region.y),
-			region.y + region.h - sessionSize.h / 2 - gridSize,
+			lastStart(region.y, region.h, sessionSize.h),
 		),
 	});
 	return nearestFree(

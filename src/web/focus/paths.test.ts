@@ -44,8 +44,9 @@ test("directoryName takes the last path segment", () => {
 	assert.equal(directoryName(""), "");
 });
 
-test("isAbsoluteDirectory requires a leading slash", () => {
+test("isAbsoluteDirectory requires a leading slash, ignoring pasted spaces", () => {
 	assert.equal(isAbsoluteDirectory("/Users/me/dev/acme-api"), true);
+	assert.equal(isAbsoluteDirectory("  /Users/me/dev/acme-api  "), true);
 	assert.equal(isAbsoluteDirectory("dev/acme-api"), false);
 	assert.equal(isAbsoluteDirectory("~/dev"), false);
 });

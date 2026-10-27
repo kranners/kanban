@@ -25,7 +25,7 @@ export function directoryName(cwd: string): string {
 }
 
 export function isAbsoluteDirectory(cwd: string): boolean {
-	return cwd.startsWith("/");
+	return cwd.trim().startsWith("/");
 }
 
 export function needsTrust(error: string): boolean {

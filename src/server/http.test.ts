@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { realpathSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -171,6 +172,7 @@ const board: Board = {
 		},
 	],
 	subagents: [],
+	subagentCounts: {},
 	links: [],
 	messages: [],
 	generatedAt: 1,
@@ -656,7 +658,7 @@ describe("createKanbanServer", () => {
 			if (frame.type === "regions") frames.push(frame);
 		});
 		await new Promise((resolve) => socket.on("open", resolve));
-		const draft = { cwd: tmpdir(), x: 0, y: 24, w: 480, h: 336 };
+		const draft = { cwd: realpathSync(tmpdir()), x: 0, y: 24, w: 480, h: 336 };
 		const created = await send("POST", "/api/regions", draft);
 		assert.equal(created.status, 201);
 		const region = { id: "region-1", name: null, ...draft };

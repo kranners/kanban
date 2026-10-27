@@ -8,6 +8,7 @@ import { sessionSize } from "./placement.ts";
 import {
 	arrangedRegion,
 	belongsTo,
+	centredIn,
 	isRegionKey,
 	minRegionSize,
 	regionGroups,
@@ -155,7 +156,7 @@ test("belongsTo matches the directory and its subdirectories only", () => {
 	assert.ok(belongsTo({ cwd: "/" }, "/anything"));
 });
 
-test("a spot in a region keeps the new card's centre inside and clear", () => {
+test("a spot in a region keeps the new card inside when it fits, and clear", () => {
 	const r = { ...region("r", 0, 0), w: 960, h: 672 };
 	const centreInside = (at: { x: number; y: number }) => {
 		const cx = at.x + sessionSize.w / 2;
@@ -173,8 +174,21 @@ test("a spot in a region keeps the new card's centre inside and clear", () => {
 			beside.x + 312 + gridSize <= 0 ||
 			beside.y + 240 + gridSize <= 0,
 	);
+	const roomy = { ...region("r", 0, -1200), w: 480, h: 336 };
+	const nudged = spotInRegion({ x: 336, y: -1100 }, roomy, []);
+	assert.ok(nudged);
+	assert.ok(nudged.x + sessionSize.w <= roomy.x + roomy.w, `x ${nudged.x}`);
+	assert.ok(nudged.y + sessionSize.h <= roomy.y + roomy.h, `y ${nudged.y}`);
 	const full = [{ x: -2000, y: -2000, w: 5000, h: 5000 }];
 	assert.equal(spotInRegion({ x: 0, y: 0 }, r, full), null);
+});
+
+test("a region carries the notes centred inside its frame", () => {
+	const frame = { x: 720, y: -1200, w: 480, h: 336 };
+	const inside = { id: "in", x: 744, y: -1128, w: 192, h: 192 };
+	const straddling = { id: "edge", x: 1150, y: -1128, w: 192, h: 192 };
+	const outside = { id: "out", x: 0, y: 0, w: 96, h: 96 };
+	assert.deepEqual(centredIn(frame, [inside, straddling, outside]), [inside]);
 });
 
 test("moving snaps the origin, resizing moves only the grabbed edges", () => {

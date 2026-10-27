@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { realpath } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import type { Region, RegionDraft, RegionPatch } from "../shared/types.ts";
 import { isCoordinate } from "./layout.ts";
@@ -58,13 +59,15 @@ export const parseRegionDraft = async (
 		return { error: "Expected a JSON object with cwd, x, y, w and h" };
 	}
 	const fields = body as Record<string, unknown>;
-	const { cwd, x, y, w, h } = fields;
-	if (typeof cwd !== "string" || !isAbsolute(cwd)) {
+	const { x, y, w, h } = fields;
+	const typed = fields.cwd;
+	if (typeof typed !== "string" || !isAbsolute(typed)) {
 		return { error: "cwd must be an absolute path" };
 	}
-	if (!(await isDirectory(cwd))) {
-		return { error: `${cwd} is not an existing directory` };
+	if (!(await isDirectory(typed))) {
+		return { error: `${typed} is not an existing directory` };
 	}
+	const cwd = await realpath(typed);
 	const name = parseName(fields.name);
 	if (name === false) return { error: nameError };
 	if (!validBounds(fields)) return { error: boundsError };

@@ -1,4 +1,11 @@
 import assert from "node:assert/strict";
+import {
+	mkdirSync,
+	mkdtempSync,
+	realpathSync,
+	rmSync,
+	symlinkSync,
+} from "node:fs";
 import { mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,7 +24,7 @@ const bounds = { x: 0, y: 24, w: 480, h: 336 };
 
 describe("parseRegionDraft", () => {
 	it("accepts an existing absolute directory with bounds and a name", async () => {
-		const cwd = tmpdir();
+		const cwd = realpathSync(tmpdir());
 		assert.deepEqual(await parseRegionDraft({ cwd, ...bounds, extra: 1 }), {
 			cwd,
 			...bounds,
@@ -26,6 +33,23 @@ describe("parseRegionDraft", () => {
 			await parseRegionDraft({ cwd, ...bounds, name: "  Acme  " }),
 			{ cwd, ...bounds, name: "Acme" },
 		);
+	});
+
+	it("stores the resolved directory so it matches session cwds", async () => {
+		const real = realpathSync(mkdtempSync(join(tmpdir(), "kanban-region-")));
+		mkdirSync(join(real, "a"));
+		mkdirSync(join(real, "b"));
+		const linked = `${real}-link`;
+		symlinkSync(real, linked);
+		try {
+			for (const typed of [join(linked, "a"), `${real}/b/../a`]) {
+				const draft = await parseRegionDraft({ cwd: typed, ...bounds });
+				assert.deepEqual(draft, { cwd: join(real, "a"), ...bounds }, typed);
+			}
+		} finally {
+			rmSync(linked);
+			rmSync(real, { recursive: true });
+		}
 	});
 
 	it("rejects bad directories, names and bounds", async () => {

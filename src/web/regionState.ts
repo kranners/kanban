@@ -107,6 +107,15 @@ effect(() => {
 	}
 });
 
+effect(() => {
+	const stored = new Set(regions.value.map((region) => region.id));
+	const dialog = regionDialog.peek();
+	if (dialog?.mode === "rename" && !stored.has(dialog.region.id))
+		regionDialog.value = null;
+	const menu = regionMenu.peek();
+	if (menu?.region && !stored.has(menu.region.id)) regionMenu.value = null;
+});
+
 export function previewRegion(id: string, rect: Rect): void {
 	regionOverrides.value = new Map(regionOverrides.peek()).set(id, rect);
 }

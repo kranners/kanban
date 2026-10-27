@@ -4,7 +4,8 @@ import "./regions.css";
 import { CircleAlert, Folder, LoaderCircle, X } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
-import type { Placement, Point } from "../shared/types.ts";
+import type { Annotation, Placement, Point } from "../shared/types.ts";
+import { preview, save, current as shownAnnotations } from "./annotations.ts";
 import {
 	arrangement,
 	cancelPlacement,
@@ -22,6 +23,7 @@ import {
 } from "./Groups.tsx";
 import type { Group } from "./groups.ts";
 import type { NodeKey } from "./layout.ts";
+import { moved } from "./notes.ts";
 import type { Rect } from "./placement.ts";
 import {
 	cancelRegion,
@@ -35,8 +37,10 @@ import {
 import type { RegionHandle } from "./regions.ts";
 import {
 	arrangedRegion,
+	centredIn,
 	isRegionKey,
 	newRegionAt,
+	rectOf,
 	regionEdges,
 	storableRegion,
 } from "./regions.ts";
@@ -56,6 +60,7 @@ type Drag = {
 	start: Point;
 	rect: Rect;
 	members: Member[];
+	notes: Annotation[];
 	moved: boolean;
 };
 
@@ -74,6 +79,10 @@ function membersOf(group: Group): Member[] {
 				: {};
 		return [{ key, at: { x: node.x, y: node.y }, size }];
 	});
+}
+
+function carried(notes: Annotation[], origin: Rect, rect: Rect): Annotation[] {
+	return notes.map((note) => moved(note, rect.x - origin.x, rect.y - origin.y));
 }
 
 function memberPlacement(member: Member, origin: Rect, rect: Rect): Placement {
@@ -96,7 +105,8 @@ function beginDrag(
 ): void {
 	if (event.button !== 0 || !group.region) return;
 	(event.currentTarget as Element).setPointerCapture(event.pointerId);
-	const origin = storableRegion(group.frame);
+	const origin = rectOf(group.region);
+	const moving = handle === "move";
 	drag = {
 		pointerId: event.pointerId,
 		region: group.region.id,
@@ -104,7 +114,10 @@ function beginDrag(
 		origin,
 		start: { x: event.clientX, y: event.clientY },
 		rect: origin,
-		members: handle === "move" ? membersOf(group) : [],
+		members: moving ? membersOf(group) : [],
+		notes: moving
+			? centredIn(group.frame, Object.values(shownAnnotations.peek()))
+			: [],
 		moved: false,
 	};
 }
@@ -124,6 +137,8 @@ function continueDrag(event: PointerEvent): void {
 			member.key,
 			memberPlacement(member, drag.origin, drag.rect),
 		);
+	if (drag.notes.length > 0)
+		preview(carried(drag.notes, drag.origin, drag.rect));
 }
 
 function endDrag(event: PointerEvent): void {
@@ -139,6 +154,7 @@ function endDrag(event: PointerEvent): void {
 	if (event.type === "pointercancel") {
 		cancelRegion(ended.region);
 		for (const member of ended.members) cancelPlacement(member.key);
+		if (ended.notes.length > 0) save(ended.notes);
 		return;
 	}
 	void commitRegion(ended.region, storableRegion(ended.rect));
@@ -147,6 +163,8 @@ function endDrag(event: PointerEvent): void {
 			member.key,
 			memberPlacement(member, ended.origin, ended.rect),
 		);
+	if (ended.notes.length > 0)
+		save(carried(ended.notes, ended.origin, ended.rect));
 }
 
 function gestures(group: Group, handle: RegionHandle) {
