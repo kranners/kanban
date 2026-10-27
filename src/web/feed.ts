@@ -16,6 +16,7 @@ import {
 	layout,
 	openSession,
 } from "./state.ts";
+import { usage } from "./usage.ts";
 
 const attemptsBeforeLost = 4;
 
@@ -67,6 +68,10 @@ function receive(frame: BoardFeed): void {
 	}
 	if (frame.type === "comments") {
 		receiveComments(frame.comments);
+		return;
+	}
+	if (frame.type === "usage") {
+		usage.value = frame.usage;
 		return;
 	}
 	receiveComment(frame.comment);

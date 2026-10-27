@@ -312,6 +312,13 @@ describe("createKanbanServer", () => {
 			colours: colours.current,
 			regions: regions.current,
 			board: () => board,
+			usage: () => ({
+				session: null,
+				week: null,
+				samples: [],
+				checkedAt: null,
+				error: null,
+			}),
 		});
 		const server = createKanbanServer({
 			origins,
@@ -1107,7 +1114,7 @@ describe("createKanbanServer", () => {
 			});
 			socket.on("message", (data) => {
 				received.push(JSON.parse(String(data)));
-				if (received.length === 6) {
+				if (received.length === 7) {
 					socket.close();
 					resolve(received);
 				}
@@ -1115,7 +1122,15 @@ describe("createKanbanServer", () => {
 		});
 		assert.deepEqual(
 			frames.map((frame) => frame.type),
-			["layout", "annotations", "colours", "regions", "comments", "board"],
+			[
+				"layout",
+				"annotations",
+				"colours",
+				"regions",
+				"comments",
+				"usage",
+				"board",
+			],
 		);
 	});
 

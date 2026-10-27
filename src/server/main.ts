@@ -42,6 +42,12 @@ import {
 } from "./reports.ts";
 import { claudeLauncher } from "./sessions.ts";
 import { attachTty, cmuxTty, sharedAttachTty } from "./terminals.ts";
+import {
+	claudeCodeToken,
+	createUsageMonitor,
+	loadUsageSamples,
+	usageIntervalMs,
+} from "./usage.ts";
 
 const configOrExit = (): Config => {
 	try {
@@ -89,6 +95,17 @@ const comments = createCommentStore({
 	onChange: (thread) => feed?.comment(thread),
 	onRemove: (threads) => feed?.comments(threads),
 });
+const usageFile = join(config.stateDir, "usage.json");
+const usage = createUsageMonitor({
+	file: usageFile,
+	initial: await loadUsageSamples(usageFile),
+	token: claudeCodeToken(config.claudeHome),
+	fetch,
+	now: Date.now,
+	onChange: (next) => feed?.usage(next),
+});
+void usage.check();
+const usagePoll = setInterval(usage.check, usageIntervalMs);
 const probes = new Set<string>();
 const cmux = cmuxCli(config.cmuxBin);
 const cmuxTargets = createCmuxTargets({
@@ -132,6 +149,7 @@ feed = createFeed({
 	colours: colours.current,
 	regions: regions.current,
 	comments: comments.current,
+	usage: usage.current,
 });
 
 const exitDeps = claudeExitDeps({
@@ -261,6 +279,7 @@ const shutdown = () => {
 	agent.stopAll();
 	source.stop();
 	clearInterval(cmuxPoll);
+	clearInterval(usagePoll);
 	server.close();
 	server.closeAllConnections();
 	setTimeout(() => process.exit(0), 500).unref();
