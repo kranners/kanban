@@ -7,6 +7,7 @@ import type { RegionColours } from "../shared/colours.ts";
 import {
 	createColourStore,
 	loadColours,
+	maxColours,
 	parseColours,
 	parseColourUpdate,
 } from "./colours.ts";
@@ -81,6 +82,22 @@ describe("createColourStore", () => {
 		await store.saved();
 		assert.deepEqual(store.current(), {});
 		assert.deepEqual(await loadColours(file), {});
+	});
+
+	it("refuses new cwds once full but still recolours and clears", async () => {
+		const full = Object.fromEntries(
+			Array.from({ length: maxColours }, (_, i) => [`/dev/p${i}`, "red"]),
+		) as RegionColours;
+		const { store } = await setup(full);
+		assert.equal(store.set({ cwd: "/dev/new", colour: "red" }), false);
+		assert.equal(store.set({ cwd: "/dev/p0", colour: "teal" }), true);
+		assert.equal(store.set({ cwd: "/dev/p1", colour: null }), true);
+		assert.equal(store.set({ cwd: "/dev/new", colour: "red" }), true);
+		assert.equal(Object.keys(store.current()).length, maxColours);
+		assert.equal(
+			Object.keys(parseColours({ ...full, "/dev/more": "red" })).length,
+			maxColours,
+		);
 	});
 
 	it("treats a missing or corrupt file as no colours", async () => {

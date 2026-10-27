@@ -26,7 +26,7 @@ import {
 } from "./attach.ts";
 import type { Audit } from "./audit.ts";
 import { type Authenticate, originAllowed } from "./auth.ts";
-import { type ColourStore, parseColourUpdate } from "./colours.ts";
+import { type ColourStore, maxColours, parseColourUpdate } from "./colours.ts";
 import type { SessionExiter } from "./exit.ts";
 import type { Feed } from "./feed.ts";
 import { boardKeys, type LayoutStore, parseLayoutUpdate } from "./layout.ts";
@@ -462,7 +462,12 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if ("error" in update) {
 			return sendJson(res, 400, { ok: false, error: update.error });
 		}
-		deps.colours.set(update);
+		if (!deps.colours.set(update)) {
+			return sendJson(res, 409, {
+				ok: false,
+				error: `The board holds at most ${maxColours} project colours`,
+			});
+		}
 		res.writeHead(204, { "cache-control": "no-store" });
 		res.end();
 	};

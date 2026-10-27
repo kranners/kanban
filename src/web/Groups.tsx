@@ -182,13 +182,15 @@ export function RegionMenu(): JSX.Element | null {
 			aria-label={`Options for ${menu.project}`}
 			ref={list}
 			style={{
-				left: `${Math.min(menu.at.x, innerWidth - menuWidth)}px`,
-				top: `${Math.min(menu.at.y, innerHeight - height)}px`,
+				left: `${Math.max(0, Math.min(menu.at.x, innerWidth - menuWidth))}px`,
+				top: `${Math.max(0, Math.min(menu.at.y, innerHeight - height))}px`,
 			}}
 			onKeyDown={onKeyDown}
 			onFocusOut={(event) => {
-				const next = event.relatedTarget as Node | null;
-				if (next && !list.current?.contains(next)) close();
+				const next = event.relatedTarget as Element | null;
+				if (!next || list.current?.contains(next)) return;
+				if (next.closest?.('.group-label[aria-expanded="true"]')) return;
+				close();
 			}}
 			onContextMenu={(event) => event.preventDefault()}
 		>

@@ -7,7 +7,7 @@ import { createStateFile, readState } from "./stateFile.ts";
 
 export type ColourStore = {
 	current(): RegionColours;
-	set(update: RegionColourUpdate): void;
+	set(update: RegionColourUpdate): boolean;
 	saved(): Promise<void>;
 };
 
@@ -17,6 +17,7 @@ export type ColourStoreOptions = {
 	onChange: (colours: RegionColours) => void;
 };
 
+export const maxColours = 200;
 const maxCwdLength = 4096;
 
 const isCwd = (value: unknown): value is string =>
@@ -42,9 +43,9 @@ export const parseColourUpdate = (
 export const parseColours = (value: unknown): RegionColours => {
 	if (typeof value !== "object" || value === null) return {};
 	return Object.fromEntries(
-		Object.entries(value).filter(
-			([cwd, colour]) => isCwd(cwd) && isRegionColour(colour),
-		),
+		Object.entries(value)
+			.filter(([cwd, colour]) => isCwd(cwd) && isRegionColour(colour))
+			.slice(0, maxColours),
 	);
 };
 
@@ -62,10 +63,13 @@ export const createColourStore = ({
 	return {
 		current: () => colours,
 		set({ cwd, colour }) {
+			const full = Object.keys(colours).length >= maxColours;
+			if (colour !== null && full && !(cwd in colours)) return false;
 			const { [cwd]: _, ...rest } = colours;
 			colours = colour === null ? rest : { ...rest, [cwd]: colour };
 			stored.write(colours);
 			onChange(colours);
+			return true;
 		},
 		saved: stored.saved,
 	};
