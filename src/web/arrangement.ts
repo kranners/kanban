@@ -34,10 +34,14 @@ export const arrangement = computed(() => {
 	const current = board.value;
 	const seeded = seeds.value;
 	if (!current || !seeded) return null;
-	return arrange(current, withOverrides(layout.value), seeded, remembered, [
-		...reserved.value,
-		...Object.values(annotations.value),
-	]);
+	return arrange(
+		current,
+		withOverrides(layout.value),
+		seeded,
+		remembered,
+		[...reserved.value, ...Object.values(annotations.value)],
+		shownRegions.value,
+	);
 });
 
 export const groups = computed(() => {

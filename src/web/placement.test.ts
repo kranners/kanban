@@ -15,7 +15,7 @@ import {
 	arrange,
 	clearMove,
 	clearSpot,
-	framedArea,
+	growsApart,
 	near,
 	nearestFree,
 	seedsOf,
@@ -370,25 +370,72 @@ test("a pinned session's subagents step aside together, off notes too", () => {
 	);
 });
 
-test("an auto placed session keeps its frame clear of another project's frame", () => {
-	const api = (id: string, at: number) => ({
-		...session(id, at),
-		cwd: "/dev/api",
-		project: "api",
-	});
+function inProject(id: string, at: number, project: string): Session {
+	return { ...session(id, at), cwd: `/dev/${project}`, project };
+}
+
+function framesOverlap(b: Board, nodes: Map<NodeKey, PlacedNode>): boolean {
+	const frames = groupsOf(b.sessions, nodes).map((group) => group.frame);
+	return frames.some((a, i) => frames.slice(i + 1).some((c) => near(a, c, 0)));
+}
+
+test("an auto placed session never grows its project's frame into another's", () => {
 	const b = board({
-		sessions: [api("a1", 1), api("a2", 2), session("web", 3)],
+		sessions: [
+			inProject("a1", 1, "api"),
+			inProject("a2", 2, "api"),
+			inProject("w1", 3, "web"),
+			inProject("w2", 4, "web"),
+		],
 	});
 	const saved: Layout = {
 		"session:a1": { x: 0, y: 0, pinned: true },
 		"session:a2": { x: 408, y: 312, pinned: true },
-		"session:web": { x: 0, y: 336 },
+		"session:w2": { x: 0, y: 672, pinned: true },
+		"session:w1": { x: 0, y: 336 },
 	};
-	const { nodes } = place(b, saved);
-	const [frame] = groupsOf(b.sessions, nodes).map((group) => group.frame);
-	const web = nodes.get("session:web");
-	assert.ok(frame && web);
-	assert.ok(!near(framedArea(web), frame, 0), "web's frame overlaps api's");
+	const pinnedThere: Layout = {
+		...saved,
+		"session:w1": { x: 0, y: 336, pinned: true },
+	};
+	assert.ok(framesOverlap(b, place(b, pinnedThere).nodes));
+	assert.ok(!framesOverlap(b, place(b, saved).nodes));
+});
+
+test("a lone card keeps only a card's clearance from another project", () => {
+	const b = board({
+		sessions: [
+			inProject("a1", 1, "api"),
+			inProject("a2", 2, "api"),
+			inProject("w", 3, "web"),
+		],
+	});
+	const saved: Layout = {
+		"session:a1": { x: 0, y: 0, pinned: true },
+		"session:a2": { x: 336, y: 0, pinned: true },
+		"session:w": { x: 0, y: 288 },
+	};
+	assert.deepEqual(place(b, saved).nodes.get("session:w")?.y, 288);
+});
+
+test("an auto placed card keeps out of another directory's region", () => {
+	const b = board({ sessions: [inProject("w", 1, "web")] });
+	const region = {
+		id: "r",
+		cwd: "/dev/api",
+		name: null,
+		x: 0,
+		y: 0,
+		w: 960,
+		h: 720,
+	};
+	const saved: Layout = { "session:w": { x: 240, y: 240 } };
+	const placed = arrange(b, saved, seedsOf(b), new Map(), [], [region]).nodes;
+	const card = placed.get("session:w");
+	assert.ok(card && !near(card, region, gridSize));
+	const own = { ...region, cwd: "/dev/web" };
+	const home = arrange(b, saved, seedsOf(b), new Map(), [], [own]).nodes;
+	assert.deepEqual(home.get("session:w")?.x, 240);
 });
 
 test("a load moves where asked, or to the nearest spot where none of it lands on something", () => {
@@ -416,4 +463,13 @@ test("a load can always go back where it started, and stays put when nothing is 
 	assert.deepEqual(clearMove(load, everywhere, still, { x: 9, y: 9 }), still);
 	const last = { x: 24, y: 0 };
 	assert.deepEqual(clearMove(load, everywhere, { x: 4800, y: 0 }, last), last);
+});
+
+test("a card joining its project's group may not grow the frame into another project", () => {
+	const group = { x: 0, y: 0, w: 312, h: 816 };
+	const other = { x: 408, y: 832, w: 720, h: 296 };
+	const card = { w: 312, h: 240 };
+	assert.ok(!growsApart({ x: 408, y: 288, ...card }, [group], [other]));
+	assert.ok(growsApart({ x: 408, y: 0, ...card }, [group], []));
+	assert.ok(growsApart({ x: 2000, y: 288, ...card }, [group], [other]));
 });

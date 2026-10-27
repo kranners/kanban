@@ -7,6 +7,7 @@ import type { NodeKey, PlacedNode } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import type { Rect } from "./placement.ts";
 import {
+	belongsTo,
 	boundsOf,
 	framedArea,
 	near,
@@ -209,11 +210,6 @@ export function storableRegion(rect: Rect): Rect {
 		w: Math.min(maxRegionSize.w, Math.max(minRegionSize.w, snap(rect.w))),
 		h: Math.min(maxRegionSize.h, Math.max(minRegionSize.h, snap(rect.h))),
 	};
-}
-
-export function belongsTo(region: Pick<Region, "cwd">, cwd: string): boolean {
-	const root = region.cwd.replace(/\/+$/, "");
-	return cwd === region.cwd || cwd.startsWith(`${root}/`);
 }
 
 function centreOf(rect: Rect): Point {

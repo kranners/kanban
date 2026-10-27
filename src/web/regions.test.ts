@@ -4,10 +4,9 @@ import type { Region, Session } from "../shared/types.ts";
 import { gridSize } from "./grid.ts";
 import { groupAt, groupsOf } from "./groups.ts";
 import type { PlacedNode } from "./layout.ts";
-import { near, sessionSize } from "./placement.ts";
+import { belongsTo, near, sessionSize } from "./placement.ts";
 import {
 	arrangedRegion,
-	belongsTo,
 	centredIn,
 	clearOfProjects,
 	framesBesideNew,

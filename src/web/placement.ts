@@ -3,6 +3,7 @@ import type {
 	Layout,
 	NodeRef,
 	Point,
+	Region,
 	Session,
 } from "../shared/types.ts";
 import { gridSize, snap, snapPoint } from "./grid.ts";
@@ -73,9 +74,18 @@ export function near(a: Rect, b: Rect, gap: number): boolean {
 	);
 }
 
-type Project = { name: string; area: Rect };
+type Project = { name: string; areas: Rect[] };
 
-function areaOf(rects: Iterable<Rect>): Rect {
+function frameOf(project: Project): Rect | null {
+	return project.areas.length > 1 ? framedArea(areaOf(project.areas)) : null;
+}
+
+export function belongsTo(region: { cwd: string }, cwd: string): boolean {
+	const root = region.cwd.replace(/\/+$/, "");
+	return cwd === region.cwd || cwd.startsWith(`${root}/`);
+}
+
+export function areaOf(rects: Iterable<Rect>): Rect {
 	const { x, y, width, height } = boundsOf(rects);
 	return { x, y, w: width, h: height };
 }
@@ -167,14 +177,40 @@ export function clearMove(
 	taken: readonly Rect[],
 	wanted: Point,
 	fallback: Point,
+	allowed: (by: Point) => boolean = () => true,
 ): Point {
 	const fits = (by: Point) =>
 		(by.x === 0 && by.y === 0) ||
-		rects.every((rect) => {
+		(rects.every((rect) => {
 			const moved = { ...rect, x: rect.x + by.x, y: rect.y + by.y };
 			return taken.every((other) => !near(moved, other, clearance));
-		});
+		}) &&
+			allowed(by));
 	return nearestFree(wanted, fits) ?? fallback;
+}
+
+export function unframed(frame: Rect): Rect {
+	return {
+		x: frame.x + groupPadding,
+		y: frame.y + groupLabelSpace,
+		w: frame.w - groupPadding * 2,
+		h: frame.h - groupPadding - groupLabelSpace,
+	};
+}
+
+export function growsApart(
+	area: Rect,
+	own: readonly Rect[],
+	others: readonly Rect[],
+): boolean {
+	const joined = own.filter((group) => within(group, area, groupReach));
+	if (joined.length === 0) return true;
+	const grown = framedArea(areaOf([area, ...joined]));
+	return others.every(
+		(other) =>
+			joined.some((group) => near(framedArea(group), other, clearance)) ||
+			!near(grown, other, clearance),
+	);
 }
 
 function sessionParents(board: Board): Map<NodeKey, NodeKey> {
@@ -199,35 +235,55 @@ export function arrange(
 	seeds: Seeds,
 	remembered: ReadonlyMap<NodeKey, Point>,
 	reserved: readonly Rect[] = [],
+	regions: readonly Region[] = [],
 ): Arrangement {
 	const nodes = new Map<NodeKey, PlacedNode>();
 	const occupied: Rect[] = [];
 	const projects: Project[] = [];
 	const auto = new Map<NodeKey, Point>();
-	const sessionProject = new Map(board.sessions.map((s) => [s.id, s.project]));
 	const joining = (name: string, area: Rect) =>
 		projects.filter(
 			(project) =>
-				project.name === name && within(project.area, area, groupReach),
+				project.name === name &&
+				project.areas.some((own) => within(own, area, groupReach)),
 		);
-	const claim = (name: string | undefined, rects: Rect[]) => {
-		occupied.push(...rects);
+	const register = (name: string | undefined, rects: Rect[]) => {
 		if (name === undefined || rects.length === 0) return;
 		const area = areaOf(rects);
 		const joined = joining(name, area);
 		for (const project of joined) projects.splice(projects.indexOf(project), 1);
-		projects.push({ name, area: areaOf([area, ...joined.map((p) => p.area)]) });
+		projects.push({
+			name,
+			areas: [area, ...joined.flatMap((project) => project.areas)],
+		});
 	};
-	const apart = (name: string, rects: Rect[]) => {
+	const claim = (name: string | undefined, rects: Rect[]) => {
+		occupied.push(...rects);
+		register(name, rects);
+	};
+	const peers = new Map<string, number>();
+	for (const s of board.sessions)
+		peers.set(s.project, (peers.get(s.project) ?? 0) + 1);
+	const apart = (session: Session, rects: Rect[]) => {
 		const area = areaOf(rects);
-		const joined = joining(name, area).map((project) => project.area);
-		const before = joined.length > 0 ? framedArea(areaOf(joined)) : null;
-		const after = framedArea(areaOf([area, ...joined]));
+		const joined = joining(session.project, area);
+		const grown =
+			joined.length > 0 || (peers.get(session.project) ?? 0) > 1
+				? framedArea(areaOf([area, ...joined.flatMap((p) => p.areas)]))
+				: null;
+		const ownRegions = regions.every(
+			(region) =>
+				belongsTo(region, session.cwd) ||
+				!near(grown ?? area, region, clearance),
+		);
+		if (!ownRegions || !grown) return ownRegions;
+		const framedBefore = joined.flatMap((project) => frameOf(project) ?? []);
 		return projects.every((other) => {
-			if (other.name === name) return true;
-			const theirs = framedArea(other.area);
-			if (before && near(before, theirs, clearance)) return true;
-			return !near(after, theirs, clearance);
+			const theirs = joined.includes(other) ? null : frameOf(other);
+			if (!theirs) return true;
+			if (framedBefore.some((frame) => near(frame, theirs, clearance)))
+				return true;
+			return !near(grown, theirs, clearance);
 		});
 	};
 
@@ -254,9 +310,16 @@ export function arrange(
 			return offset ? [followerRect(rect, offset)] : [];
 		}),
 	];
-	const free = (rects: Rect[], project: string) =>
-		rects.every((r) => occupied.every((o) => !near(r, o, clearance))) &&
-		apart(project, rects);
+	const free = (rects: Rect[], session: Session) => {
+		const area = areaOf(rects);
+		return (
+			occupied.every(
+				(o) =>
+					!near(area, o, clearance) ||
+					rects.every((r) => !near(r, o, clearance)),
+			) && apart(session, rects)
+		);
+	};
 	const put = (key: NodeKey, ref: NodeRef, rect: Rect, follows?: NodeKey) => {
 		nodes.set(key, {
 			key,
@@ -293,7 +356,7 @@ export function arrange(
 		const key = nodeKey(ref);
 		const rect = sessionRect(key, savedSpot(key));
 		put(key, ref, rect);
-		claim(s.project, [rect]);
+		occupied.push(rect);
 	}
 	for (const a of board.subagents) {
 		const ref: NodeRef = { kind: "subagent", id: a.id };
@@ -302,7 +365,7 @@ export function arrange(
 		if (!placement) continue;
 		const rect = { x: placement.x, y: placement.y, ...subagentSize };
 		put(key, ref, rect);
-		claim(sessionProject.get(a.sessionId), [rect]);
+		occupied.push(rect);
 	}
 	const nudged = new Map<NodeKey, Rect>();
 	for (const s of savedSessions.filter(pinned)) {
@@ -324,10 +387,18 @@ export function arrange(
 				x: rect.x + shift.x,
 				y: rect.y + shift.y,
 			});
-		claim(
-			s.project,
-			natural.flatMap(([follower]) => nudged.get(follower) ?? []),
+		occupied.push(
+			...natural.flatMap(([follower]) => nudged.get(follower) ?? []),
 		);
+	}
+	for (const s of savedSessions.filter(pinned)) {
+		const key = nodeKey({ kind: "session", id: s.id });
+		const session = nodes.get(key);
+		if (!session) continue;
+		const followers = (followersOf.get(key) ?? []).flatMap(
+			(follower) => nudged.get(follower) ?? [],
+		);
+		register(s.project, [session, ...followers]);
 	}
 
 	const parents = sessionParents(board);
@@ -356,7 +427,7 @@ export function arrange(
 		const ref: NodeRef = { kind: "session", id: s.id };
 		const key = nodeKey(ref);
 		const fits = (point: Point) =>
-			free(footprint(key, sessionRect(key, point)), s.project);
+			free(footprint(key, sessionRect(key, point)), s);
 		const spot = nearestFree(savedSpot(key), fits) ?? below(savedSpot(key));
 		put(key, ref, sessionRect(key, spot));
 		claim(s.project, footprint(key, sessionRect(key, spot)));
@@ -371,7 +442,7 @@ export function arrange(
 		const ref: NodeRef = { kind: "session", id: s.id };
 		const key = nodeKey(ref);
 		const at = (point: Point): Rect => ({ ...point, ...sessionSize });
-		const fits = (point: Point) => free(footprint(key, at(point)), s.project);
+		const fits = (point: Point) => free(footprint(key, at(point)), s);
 		const previous = remembered.get(key);
 		const start = seedFor(key);
 		const spot =

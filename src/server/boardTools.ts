@@ -100,7 +100,7 @@ const rect = (item: { x: number; y: number; w: number; h: number }) => ({
 
 const arranged = (
 	board: Board,
-	deps: Pick<BoardToolDeps, "layout" | "annotations">,
+	deps: Pick<BoardToolDeps, "layout" | "annotations" | "regions">,
 ) =>
 	arrange(
 		board,
@@ -108,11 +108,12 @@ const arranged = (
 		seedsOf(board),
 		new Map(),
 		Object.values(deps.annotations.current()),
+		deps.regions.current(),
 	);
 
 const occupied = (
 	board: Board,
-	deps: Pick<BoardToolDeps, "layout" | "annotations">,
+	deps: Pick<BoardToolDeps, "layout" | "annotations" | "regions">,
 ): Rect[] => [
 	...arranged(board, deps).nodes.values(),
 	...Object.values(deps.annotations.current()),

@@ -11,11 +11,18 @@ import {
 	savedPlacement,
 } from "./arrangement.ts";
 import { carriedWith } from "./carry.ts";
+import type { Group } from "./groups.ts";
 import type { NodeKey } from "./layout.ts";
 import { moved } from "./notes.ts";
 import type { Rect } from "./placement.ts";
-import { clearMove, framedArea } from "./placement.ts";
-import { belongsTo } from "./regions.ts";
+import {
+	areaOf,
+	belongsTo,
+	clearMove,
+	framedArea,
+	growsApart,
+	unframed,
+} from "./placement.ts";
 import { board } from "./state.ts";
 
 type Passenger = {
@@ -100,22 +107,27 @@ export function cancelLoad(load: Load): void {
 	if (load.notes.length > 0) save(load.notes);
 }
 
-function otherProjectsThan(key: NodeKey): Rect[] {
+type Around = { own: Rect[]; others: Rect[] };
+
+function projectsAround(key: NodeKey): Around {
 	const current = board.peek();
 	const id = key.slice(key.indexOf(":") + 1);
 	const sessionId = key.startsWith("subagent:")
 		? current?.subagents.find((agent) => agent.id === id)?.sessionId
 		: id;
 	const session = current?.sessions.find((s) => s.id === sessionId);
-	if (!session) return [];
-	return groups
-		.peek()
-		.filter((group) =>
-			group.region
-				? !belongsTo(group.region, session.cwd)
-				: group.project !== session.project,
-		)
-		.map((group) => group.frame);
+	if (!session) return { own: [], others: [] };
+	const mine = (group: Group) =>
+		group.region
+			? belongsTo(group.region, session.cwd)
+			: group.project === session.project;
+	const all = groups.peek();
+	return {
+		own: all
+			.filter((group) => mine(group) && !group.region)
+			.map((group) => unframed(group.frame)),
+		others: all.filter((group) => !mine(group)).map((group) => group.frame),
+	};
 }
 
 type Carrying = {
@@ -123,7 +135,8 @@ type Carrying = {
 	origin: Point;
 	load: Load;
 	framed: Rect[];
-	others: Rect[];
+	area: Rect;
+	around: Around;
 	by: Point;
 };
 
@@ -138,7 +151,8 @@ function startCarrying(key: NodeKey): Carrying | null {
 		origin: { x: root.rect.x, y: root.rect.y },
 		load,
 		framed: footprintOf(load).map(framedArea),
-		others: otherProjectsThan(key),
+		area: areaOf(footprintOf(load)),
+		around: projectsAround(key),
 		by: { x: 0, y: 0 },
 	};
 }
@@ -157,14 +171,21 @@ export function arrangeCard(gesture: Arranging): void {
 		cancelLoad(carried.load);
 		return;
 	}
+	const { area, around } = carried;
 	carried.by = clearMove(
 		carried.framed,
-		carried.others,
+		around.others,
 		{
 			x: gesture.rect.x - carried.origin.x,
 			y: gesture.rect.y - carried.origin.y,
 		},
 		carried.by,
+		(by) =>
+			growsApart(
+				{ ...area, x: area.x + by.x, y: area.y + by.y },
+				around.own,
+				around.others,
+			),
 	);
 	if (gesture.phase === "move") {
 		previewLoad(carried.load, carried.by);
