@@ -506,6 +506,8 @@ button.reconnecting {
 	top: calc(var(--label-height) - 10px);
 	right: -10px;
 	z-index: 1;
+	display: flex;
+	gap: 6px;
 }
 
 .group-frame {
@@ -946,6 +948,24 @@ button.reconnecting {
 
 .edge-badge svg {
 	color: var(--muted);
+}
+
+.tether line {
+	stroke: var(--muted);
+	stroke-width: 1.5;
+	stroke-dasharray: 4 4;
+}
+
+.tether circle {
+	fill: var(--muted);
+}
+
+.tether {
+	transition: opacity calc(160ms * var(--motion));
+}
+
+.tether.dimmed {
+	opacity: 0.2;
 }
 
 .arc > path {

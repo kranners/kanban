@@ -106,7 +106,12 @@ type Annotated = {
 	z: number;
 };
 
-export type Note = Annotated & { kind: "note"; text: string; color: NoteColor };
+export type Note = Annotated & {
+	kind: "note";
+	text: string;
+	color: NoteColor;
+	session?: string;
+};
 
 export type Sticker = Annotated & {
 	kind: "sticker";
@@ -168,6 +173,7 @@ export type BoardFeed =
 	| { type: "colours"; colours: RegionColours }
 	| { type: "regions"; regions: Region[] }
 	| { type: "exit"; sessionId: string; result: ExitResult }
+	| { type: "report"; sessionId: string; result: ReportResult }
 	| { type: "comments"; comments: CommentThread[] }
 	| { type: "comment"; comment: CommentThread };
 
@@ -184,6 +190,8 @@ export type ExitResult =
 	| { ok: true; exited: true }
 	| { ok: true; exited: false; reason: string }
 	| { ok: false; error: string };
+
+export type ReportResult = { ok: true } | { ok: false; error: string };
 
 export type NewSessionResult =
 	| { ok: true; short: string }

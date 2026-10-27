@@ -58,6 +58,7 @@ import {
 	parseRegionPatch,
 	type RegionStore,
 } from "./regions.ts";
+import type { ReportRunner } from "./reports.ts";
 import { type SessionLauncher, validateNewSession } from "./sessions.ts";
 
 export type BoardSource = {
@@ -73,6 +74,7 @@ export type ServerDeps = {
 	source: BoardSource;
 	launch: SessionLauncher;
 	exit: ExitRunner;
+	report: ReportRunner;
 	layout: LayoutStore;
 	annotations: AnnotationStore;
 	colours: ColourStore;
@@ -97,6 +99,7 @@ export type Route =
 	| { kind: "commands"; sessionId: string }
 	| { kind: "create-session" }
 	| { kind: "exit-session"; sessionId: string }
+	| { kind: "report-session"; sessionId: string }
 	| { kind: "update-layout" }
 	| { kind: "put-annotation"; id: string }
 	| { kind: "delete-annotation"; id: string }
@@ -190,6 +193,12 @@ export const matchRoute = (method: string, url: URL): Route => {
 	if (exit?.[1]) {
 		return method === "POST"
 			? { kind: "exit-session", sessionId: exit[1] }
+			: { kind: "method-not-allowed" };
+	}
+	const report = path.match(/^\/api\/sessions\/([^/]+)\/report$/);
+	if (report?.[1]) {
+		return method === "POST"
+			? { kind: "report-session", sessionId: report[1] }
 			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api/layout") {
@@ -491,6 +500,26 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		sendJson(res, 202, { ok: true });
 	};
 
+	const reportSession = (
+		req: IncomingMessage,
+		res: ServerResponse,
+		sessionId: string,
+		identity: string | null,
+	) => {
+		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		const session = deps.source
+			.board()
+			.sessions.find((session) => session.id === sessionId);
+		if (!session) return sendError(res, 404);
+		if (!deps.report(session, identity)) {
+			return sendJson(res, 409, {
+				ok: false,
+				error: "This session is already writing a status report",
+			});
+		}
+		sendJson(res, 202, { ok: true });
+	};
+
 	const updateLayout = async (req: IncomingMessage, res: ServerResponse) => {
 		const read = await readBody(req, res);
 		if (!read) return;
@@ -744,6 +773,8 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return createSession(req, res, auth.identity);
 			case "exit-session":
 				return exitSession(req, res, route.sessionId, auth.identity);
+			case "report-session":
+				return reportSession(req, res, route.sessionId, auth.identity);
 			case "update-layout":
 				return updateLayout(req, res);
 			case "put-annotation":
