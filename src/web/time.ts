@@ -13,3 +13,8 @@ export function relativeTime(at: number, now: number): string {
 	}
 	return "now";
 }
+
+export function ago(at: number, now: number): string {
+	const elapsed = relativeTime(at, now);
+	return elapsed === "now" ? "just now" : `${elapsed} ago`;
+}

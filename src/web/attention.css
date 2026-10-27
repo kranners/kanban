@@ -1,0 +1,429 @@
+:root {
+	--needs-edge: var(--amber);
+	--needs-glow: rgb(210 153 34 / 0.42);
+	--needs-ribbon: #e2a428;
+	--needs-ribbon-ink: #2a1d04;
+	--done-edge: var(--green);
+	--done-soft: rgb(63 154 91 / 0.12);
+	--done-ink: #2f7a46;
+	--failed-edge: var(--red);
+	--failed-soft: rgb(207 61 61 / 0.1);
+	--failed-ink: #b13232;
+	--busy-edge: var(--accent);
+	--busy-rest: color-mix(in srgb, var(--accent) 30%, var(--hairline));
+	--idle-edge: var(--hairline-strong);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--needs-glow: rgb(226 164 40 / 0.5);
+		--done-soft: rgb(79 186 112 / 0.16);
+		--done-ink: #6fcf8d;
+		--done-edge: #4fae6c;
+		--failed-soft: rgb(232 98 98 / 0.16);
+		--failed-ink: #f08a8a;
+		--failed-edge: #e06262;
+		--idle-edge: #4a4742;
+	}
+}
+
+:root[data-theme="dark"] {
+	--needs-glow: rgb(226 164 40 / 0.5);
+	--done-soft: rgb(79 186 112 / 0.16);
+	--done-ink: #6fcf8d;
+	--done-edge: #4fae6c;
+	--failed-soft: rgb(232 98 98 / 0.16);
+	--failed-ink: #f08a8a;
+	--failed-edge: #e06262;
+	--idle-edge: #4a4742;
+}
+
+.world.gliding {
+	transition: transform calc(360ms * var(--motion))
+		cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.node.session::before,
+.node.session::after,
+.node.subagent::before {
+	content: "";
+	position: absolute;
+	inset: var(--label-height) 0 0;
+	border-radius: var(--radius);
+	pointer-events: none;
+}
+
+.node.subagent::before {
+	inset: -1px;
+}
+
+.node.session .frame {
+	transition:
+		border-color calc(140ms * var(--motion)),
+		box-shadow calc(140ms * var(--motion)),
+		translate calc(180ms * var(--motion)) cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.node.session.act-working .frame {
+	border-color: var(--busy-rest);
+}
+
+.busy-edge {
+	position: absolute;
+	top: var(--label-height);
+	left: var(--radius);
+	right: var(--radius);
+	height: calc(2px * var(--unzoom));
+	overflow: hidden;
+	pointer-events: none;
+}
+
+.node.subagent .busy-edge {
+	top: auto;
+	bottom: -1px;
+}
+
+.busy-edge::after {
+	content: "";
+	position: absolute;
+	inset: 0 auto 0 0;
+	width: 45%;
+	background: linear-gradient(
+		90deg,
+		transparent,
+		var(--busy-edge) 50%,
+		transparent
+	);
+	translate: -100% 0;
+	animation: busy-sweep 1.9s cubic-bezier(0.45, 0, 0.35, 1) infinite;
+}
+
+@keyframes busy-sweep {
+	to {
+		translate: 230% 0;
+	}
+}
+
+.node.session.act-needs-you .frame {
+	border-color: var(--needs-edge);
+}
+
+.node.session.act-needs-you::before {
+	box-shadow: 0 0 0 calc(1.5px * var(--unzoom) - 1px) var(--needs-edge);
+}
+
+.node.session.act-needs-you::after {
+	box-shadow: 0 0 calc(18px * var(--unzoom)) calc(3px * var(--unzoom))
+		var(--needs-glow);
+	animation: needs-breathe 2.4s ease-in-out infinite alternate;
+	transition: box-shadow calc(160ms * var(--motion));
+}
+
+.node.session.act-needs-you:hover::after,
+.node.session.act-needs-you:focus-within::after {
+	opacity: 1;
+	animation: none;
+	box-shadow: 0 0 calc(26px * var(--unzoom)) calc(6px * var(--unzoom))
+		var(--needs-glow);
+}
+
+@keyframes needs-breathe {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 0.3;
+	}
+}
+
+.node.session.act-done .frame {
+	border-color: var(--done-edge);
+}
+
+.node.session.act-done::before {
+	box-shadow: 0 0 0 calc(1px * var(--unzoom) - 1px) var(--done-edge);
+}
+
+.node.session.act-failed .frame {
+	border-color: var(--failed-edge);
+}
+
+.node.session.act-failed::before {
+	box-shadow: 0 0 0 calc(1px * var(--unzoom) - 1px) var(--failed-edge);
+}
+
+.node.session.act-idle .frame,
+.node.session.act-stopped .frame {
+	border-style: dashed;
+	border-color: var(--idle-edge);
+}
+
+.node.session.act-idle .body {
+	opacity: 0.78;
+}
+
+.node.session.act-idle .frame:hover,
+.node.session.act-done .frame:hover {
+	translate: 0 -3px;
+	box-shadow: var(--shadow-pop);
+}
+
+.ribbon {
+	position: absolute;
+	top: calc(var(--label-height) - 11px);
+	right: 22px;
+	z-index: 1;
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	height: 22px;
+	padding: 0 8px 0 6px;
+	border: 1px solid var(--ribbon-edge);
+	border-radius: 999px;
+	background: var(--ribbon-fill);
+	color: var(--ribbon-ink);
+	font-size: 11.5px;
+	font-weight: 600;
+	white-space: nowrap;
+	pointer-events: none;
+	transform-origin: 100% 50%;
+	scale: min(var(--unzoom), 3);
+	transition: translate calc(180ms * var(--motion))
+		cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.ribbon.act-needs-you {
+	--ribbon-edge: var(--needs-ribbon);
+	--ribbon-fill: var(--needs-ribbon);
+	--ribbon-ink: var(--needs-ribbon-ink);
+}
+
+.ribbon.act-done {
+	--ribbon-edge: var(--done-edge);
+	--ribbon-fill: color-mix(in srgb, var(--done-edge) 14%, var(--surface));
+	--ribbon-ink: var(--done-ink);
+	padding: 0 4px;
+}
+
+.ribbon.act-failed {
+	--ribbon-edge: var(--failed-edge);
+	--ribbon-fill: color-mix(in srgb, var(--failed-edge) 12%, var(--surface));
+	--ribbon-ink: var(--failed-ink);
+}
+
+.ribbon.act-done .ribbon-text {
+	display: none;
+}
+
+.world[data-far] .ribbon {
+	padding: 0 4px;
+	scale: var(--unzoom);
+}
+
+.world[data-far] .ribbon .ribbon-text {
+	display: none;
+}
+
+.world:not([data-far]) .node:hover .ribbon.act-done,
+.world:not([data-far]) .node:focus-within .ribbon.act-done {
+	padding: 0 8px 0 6px;
+}
+
+.world:not([data-far]) .node:hover .ribbon.act-done .ribbon-text,
+.world:not([data-far]) .node:focus-within .ribbon.act-done .ribbon-text {
+	display: inline;
+}
+
+.node.session.act-idle:hover .ribbon,
+.node.session.act-done:hover .ribbon {
+	translate: 0 -3px;
+}
+
+.node.session.beckoned .frame {
+	animation: beckon calc(1100ms * var(--motion)) ease-in-out;
+}
+
+@keyframes beckon {
+	20%,
+	60% {
+		scale: 1.03;
+	}
+	40%,
+	80% {
+		scale: 1;
+	}
+}
+
+.node.session.act-done.arrived .frame {
+	animation: done-settle calc(700ms * var(--motion))
+		cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+
+.node.session.act-done.arrived::after {
+	box-shadow: 0 0 0 calc(2px * var(--unzoom)) var(--done-edge);
+	animation: done-ripple calc(900ms * var(--motion)) ease-out forwards;
+}
+
+.node.session.act-done.arrived .ribbon {
+	animation: ribbon-pop calc(500ms * var(--motion))
+		cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+
+@keyframes done-settle {
+	0% {
+		scale: 1;
+	}
+	35% {
+		scale: 1.025;
+	}
+	70% {
+		scale: 0.995;
+	}
+}
+
+@keyframes done-ripple {
+	from {
+		opacity: 0.9;
+		scale: 1;
+	}
+	to {
+		opacity: 0;
+		scale: 1.06;
+	}
+}
+
+@keyframes ribbon-pop {
+	from {
+		opacity: 0;
+		translate: 0 6px;
+	}
+}
+
+.node.session.act-failed.arrived .frame {
+	animation: exit-shake calc(420ms * var(--motion))
+		cubic-bezier(0.36, 0, 0.3, 1);
+}
+
+.node.subagent.act-working {
+	border-color: var(--busy-rest);
+}
+
+.node.subagent.act-idle {
+	border-style: dashed;
+	border-color: var(--idle-edge);
+}
+
+.node.subagent.act-done {
+	border-color: color-mix(in srgb, var(--done-edge) 60%, var(--hairline));
+}
+
+.node.subagent.act-done .sub-icon {
+	background: var(--done-soft);
+	color: var(--done-ink);
+}
+
+.node.subagent.act-done::before {
+	box-shadow: 0 0 0 calc(1px * var(--unzoom) - 1px)
+		color-mix(in srgb, var(--done-edge) 60%, var(--hairline));
+}
+
+.node.subagent.act-done.arrived {
+	animation-name: node-enter, done-settle;
+	animation-duration: calc(320ms * var(--motion)), calc(700ms * var(--motion));
+	animation-timing-function:
+		cubic-bezier(0.2, 0.7, 0.2, 1), cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+
+.group-frame.wants-you {
+	border-color: var(--needs-edge);
+	box-shadow: 0 0 0 calc(1px * var(--unzoom) - 1px) var(--needs-edge);
+}
+
+.group-frame.wants-you .group-label {
+	border-color: var(--needs-edge);
+}
+
+.group-needs {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	height: 16px;
+	margin-left: 2px;
+	padding: 0 5px;
+	border-radius: 999px;
+	background: var(--needs-ribbon);
+	color: var(--needs-ribbon-ink);
+	font-size: 10.5px;
+	font-weight: 650;
+	line-height: 16px;
+}
+
+.next-needing-you {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	height: 30px;
+	padding: 0 8px 0 10px;
+	border: 1px solid color-mix(in srgb, var(--amber) 55%, transparent);
+	border-radius: 999px;
+	background: var(--amber-soft);
+	color: var(--amber-ink);
+	font-size: 12.5px;
+	font-weight: 600;
+	white-space: nowrap;
+	transition:
+		background-color calc(120ms * var(--motion)),
+		border-color calc(120ms * var(--motion));
+}
+
+.next-needing-you svg:first-child {
+	color: var(--amber);
+}
+
+.next-needing-you:hover {
+	border-color: var(--amber);
+	background: color-mix(in srgb, var(--amber) 24%, transparent);
+}
+
+.next-needing-you kbd {
+	display: grid;
+	place-items: center;
+	min-width: 18px;
+	height: 18px;
+	padding: 0 4px;
+	border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
+	border-radius: 5px;
+	font-family: inherit;
+	font-size: 11px;
+}
+
+@media (max-width: 900px) {
+	.next-needing-you-label,
+	.next-needing-you kbd {
+		display: none;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.busy-edge::after {
+		width: 100%;
+		translate: 0 0;
+		opacity: 0.55;
+		animation: none;
+	}
+	.node.session.act-needs-you::after {
+		opacity: 0.85;
+		animation: none;
+	}
+	.node.session.act-done.arrived::after {
+		animation: none;
+		opacity: 0;
+	}
+	.node.session.beckoned .frame,
+	.node.session.arrived .frame,
+	.node.session.arrived .ribbon,
+	.node.subagent.arrived {
+		animation: none;
+	}
+}

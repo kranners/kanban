@@ -8,6 +8,7 @@ import { cycle } from "./actions.ts";
 import { view } from "./Canvas.tsx";
 import { colourOf, setRegionColour } from "./colours.ts";
 import type { Group } from "./groups.ts";
+import { NeedsYouCount, needsYouClass } from "./NeedsYou.tsx";
 import { deleteRegion, regionDialog, regionMenu } from "./regionState.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 
@@ -43,7 +44,7 @@ export function GroupFrames(props: { groups: readonly Group[] }) {
 			{props.groups.map((group) => (
 				<div
 					key={group.key}
-					class={`group-frame region region-${colourOf(group.cwd)}`}
+					class={`group-frame region region-${colourOf(group.cwd)}${needsYouClass(group.members)}`}
 					style={{
 						transform: `translate(${group.frame.x}px, ${group.frame.y}px)`,
 						width: `${group.frame.w}px`,
@@ -64,6 +65,7 @@ export function GroupFrames(props: { groups: readonly Group[] }) {
 					>
 						<Folder size={12} aria-hidden="true" />
 						<span class="group-label-text">{group.project}</span>
+						<NeedsYouCount members={group.members} />
 					</button>
 				</div>
 			))}

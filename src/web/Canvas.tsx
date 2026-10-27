@@ -10,6 +10,7 @@ import type { Bounds, Rect } from "./placement.ts";
 import { maxSessionSize, minSessionSize } from "./placement.ts";
 import type { Span, View } from "./viewport.ts";
 import {
+	centredOn,
 	fitPadding,
 	fitView,
 	fromOrigin,
@@ -30,6 +31,21 @@ export function boardPointAt(clientX: number, clientY: number): Point | null {
 	if (!stage) return null;
 	const box = stage.getBoundingClientRect();
 	return toBoard(view.value, { x: clientX - box.left, y: clientY - box.top });
+}
+
+export const glideMs = 360;
+const farZoom = 0.45;
+
+export function centreOn(rect: Rect): void {
+	const world = stage?.querySelector<HTMLElement>(".world");
+	if (!stage || !world) return;
+	world.classList.add("gliding");
+	setTimeout(() => world.classList.remove("gliding"), glideMs);
+	view.value = centredOn(
+		rect,
+		{ width: stage.clientWidth, height: stage.clientHeight },
+		view.value.k,
+	);
 }
 
 export function clientPointOf(point: Point): Point | null {
@@ -386,7 +402,11 @@ export function Canvas(props: {
 		>
 			<div
 				class="world"
-				style={{ transform: `translate(${v.x}px, ${v.y}px) scale(${v.k})` }}
+				data-far={v.k < farZoom ? "" : undefined}
+				style={{
+					transform: `translate(${v.x}px, ${v.y}px) scale(${v.k})`,
+					"--unzoom": Math.max(1, 1 / v.k),
+				}}
 			>
 				{props.children}
 			</div>

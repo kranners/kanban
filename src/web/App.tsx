@@ -9,6 +9,7 @@ import {
 } from "./Annotations.tsx";
 import { withoutSessions } from "./actions.ts";
 import { arrangement, arrangeNode, groups } from "./arrangement.ts";
+import { arrived, beckoned } from "./attentionState.ts";
 import { Canvas } from "./Canvas.tsx";
 import { SessionCard, SubagentCard } from "./Card.tsx";
 import { colourOf } from "./colours.ts";
@@ -26,6 +27,7 @@ import { NewSession } from "./focus/NewSession.tsx";
 import { GroupFrames, RegionMenu } from "./Groups.tsx";
 import type { NodeKey, PlacedNode } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
+import { useNeedsYouShortcut } from "./NeedsYou.tsx";
 import type { Arrangement } from "./placement.ts";
 import { Rail } from "./Rail.tsx";
 import { RegionFrames, RegionLayer } from "./Regions.tsx";
@@ -115,6 +117,8 @@ function World(props: { board: Board; layout: Arrangement }) {
 		frames.flatMap((g) => g.members.map((key) => [key, colourOf(g.cwd)])),
 	);
 	const exiting = exits.value;
+	const landed = arrived.value;
+	const sought = beckoned.value;
 	const card = (
 		session: Session,
 		node: PlacedNode,
@@ -130,6 +134,8 @@ function World(props: { board: Board; layout: Arrangement }) {
 				dimmed: !visible(node.key),
 				lit: lit.nodes.has(node.key),
 				region: regions.get(node.key),
+				arrived: landed.has(node.key),
+				beckoned: sought === node.key,
 			}}
 			onOpen={openSession}
 			state={exitStateClass(state)}
@@ -160,6 +166,7 @@ function World(props: { board: Board; layout: Arrangement }) {
 						emphasis={{
 							dimmed: !visible(node.key),
 							lit: lit.nodes.has(node.key),
+							arrived: landed.has(node.key),
 						}}
 					/>
 				);
@@ -256,6 +263,7 @@ function created(short: string): void {
 export function App() {
 	useBoardGestures();
 	useAnnotationGestures();
+	useNeedsYouShortcut();
 	const session = focusedSession.value;
 	return (
 		<div class="app">

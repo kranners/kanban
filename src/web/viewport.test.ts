@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	centredOn,
 	fitPadding,
 	fitView,
 	fromOrigin,
@@ -87,4 +88,22 @@ test("screen and board points convert both ways", () => {
 test("a view fitted to content at the origin can be moved to content elsewhere", () => {
 	const view = fromOrigin({ x: 10, y: 20, k: 2 }, { x: 100, y: -50 });
 	assert.deepEqual(toScreen(view, { x: 100, y: -50 }), { x: 10, y: 20 });
+});
+
+test("centring on a card puts its middle in the middle of the box", () => {
+	const view = centredOn(
+		{ x: 100, y: 200, w: 400, h: 300 },
+		{ width: 1000, height: 800 },
+		1,
+	);
+	assert.deepEqual(toScreen(view, { x: 300, y: 350 }), { x: 500, y: 400 });
+});
+
+test("centring on a card zooms in to a legible size but never out", () => {
+	const card = { x: 0, y: 0, w: 400, h: 300 };
+	assert.equal(
+		centredOn(card, { width: 1000, height: 800 }, 0.2).k,
+		legibleZoom,
+	);
+	assert.equal(centredOn(card, { width: 1000, height: 800 }, 1.5).k, 1.5);
 });
