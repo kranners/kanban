@@ -1,5 +1,3 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import type {
 	Board,
 	Layout,
@@ -7,6 +5,7 @@ import type {
 	Placement,
 	Point,
 } from "../shared/types.ts";
+import { createStateFile, readState } from "./stateFile.ts";
 
 export type LayoutStore = {
 	current(): Layout;
@@ -89,20 +88,8 @@ export const boardKeys = (board: Board): Set<string> =>
 		...board.subagents.map((subagent) => `subagent:${subagent.id}`),
 	]);
 
-export const loadLayout = async (file: string): Promise<Layout> => {
-	try {
-		return parseLayout(JSON.parse(await readFile(file, "utf8")));
-	} catch {
-		return {};
-	}
-};
-
-const writeAtomically = async (file: string, text: string) => {
-	await mkdir(dirname(file), { recursive: true });
-	const temporary = `${file}.${process.pid}.tmp`;
-	await writeFile(temporary, text);
-	await rename(temporary, file);
-};
+export const loadLayout = (file: string): Promise<Layout> =>
+	readState(file, parseLayout);
 
 export const createLayoutStore = ({
 	file,
@@ -113,23 +100,11 @@ export const createLayoutStore = ({
 	let layout: Layout = { ...initial };
 	const pending = new Map<string, { at: Point; since: number }>();
 	const missingSince = new Map<string, number>();
-	let writing: Promise<void> = Promise.resolve();
-	let dirty = false;
-
-	const persist = () => {
-		if (dirty) return;
-		dirty = true;
-		writing = writing
-			.then(() => {
-				dirty = false;
-				return writeAtomically(file, `${JSON.stringify(layout)}\n`);
-			})
-			.catch((error: unknown) => console.error("layout write failed", error));
-	};
+	const stored = createStateFile<Layout>(file);
 
 	const commit = (next: Layout) => {
 		layout = next;
-		persist();
+		stored.write(layout);
 		onChange(layout);
 	};
 
@@ -173,6 +148,6 @@ export const createLayoutStore = ({
 			}
 			if (changed) commit(next);
 		},
-		saved: () => writing,
+		saved: stored.saved,
 	};
 };

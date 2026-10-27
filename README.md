@@ -52,6 +52,10 @@ kanban is a remote terminal into every background Claude Code session on the mac
 - The server binds to localhost; `KANBAN_AUTH=off` is refused on any other address.
 - Session keys, the daemon control key and other secrets under `~/.claude` are never read or served.
 
+## Credits
+
+Sticker graphics are from [Twemoji](https://github.com/jdecked/twemoji), Copyright 2019 Twitter, Inc and other contributors, licensed under [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/). They are vendored unmodified in `src/web/stickers/`, renamed from their codepoints.
+
 ## Further reading
 
 - [Design](docs/design.md)

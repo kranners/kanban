@@ -1,5 +1,12 @@
 import { Plus } from "lucide-preact";
 import type { Board, Session } from "../shared/types.ts";
+import {
+	AnnotationLayer,
+	AnnotationMenu,
+	AnnotationTools,
+	StickerPicker,
+	useAnnotationGestures,
+} from "./Annotations.tsx";
 import { withoutSessions } from "./actions.ts";
 import { arrangement, arrangeNode, groups } from "./arrangement.ts";
 import { Canvas } from "./Canvas.tsx";
@@ -119,6 +126,7 @@ function World(props: { board: Board; layout: Arrangement }) {
 	return (
 		<>
 			<GroupFrames groups={frames} />
+			<AnnotationLayer />
 			<Links board={props.board} layout={props.layout} visible={visible} />
 			{sessionCards(props.board, props.layout).map(({ session, node }) =>
 				card(session, node, exiting.get(session.id)),
@@ -215,6 +223,7 @@ function Stage() {
 			fitKey="board"
 			rectOf={(key) => arrangement.peek()?.nodes.get(key)}
 			onArrange={arrangeNode}
+			tools={<AnnotationTools />}
 		>
 			<World board={withoutSessions(current, departed.value)} layout={placed} />
 			<SpawnLayer />
@@ -231,6 +240,7 @@ function created(short: string): void {
 
 export function App() {
 	useBoardGestures();
+	useAnnotationGestures();
 	const session = focusedSession.value;
 	return (
 		<div class="app">
@@ -259,6 +269,8 @@ export function App() {
 			)}
 			<ExitDialog />
 			<BoardMenu />
+			<AnnotationMenu />
+			<StickerPicker />
 		</div>
 	);
 }

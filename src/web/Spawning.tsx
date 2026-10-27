@@ -1,11 +1,21 @@
 import "./actions.css";
-import { CircleAlert, Folder, LoaderCircle, Plus } from "lucide-preact";
+import {
+	CircleAlert,
+	Folder,
+	LoaderCircle,
+	Plus,
+	Sticker,
+	StickyNote,
+} from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import type { Point } from "../shared/types.ts";
 import { cycle, isQuickPromptKey } from "./actions.ts";
-import { boardPointAt, view } from "./Canvas.tsx";
+import { addNote, annotationMenu, stickerPicker } from "./annotations.ts";
+import { boardPointAt, clientPointOf, view } from "./Canvas.tsx";
 import { exitAsk } from "./exits.ts";
 import { directoryName } from "./focus/paths.ts";
+import { moveMenuFocus } from "./menuFocus.ts";
 import { sessionSize } from "./placement.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 import type { QuickPrompt } from "./spawns.ts";
@@ -13,19 +23,21 @@ import { focusedSessionId, newSessionOpen } from "./state.ts";
 
 let pointer: { x: number; y: number } | null = null;
 
-function isTyping(target: EventTarget | null): boolean {
+export function isTyping(target: EventTarget | null): boolean {
 	return (
 		target instanceof Element &&
 		target.closest("input, textarea, select, [contenteditable]") !== null
 	);
 }
 
-function blocked(): boolean {
+export function blocked(): boolean {
 	return (
 		focusedSessionId.peek() !== null ||
 		newSessionOpen.peek() ||
 		exitAsk.peek() !== null ||
 		quickPrompt.peek() !== null ||
+		annotationMenu.peek() !== null ||
+		stickerPicker.peek() !== null ||
 		document.querySelector("dialog[open]") !== null
 	);
 }
@@ -45,10 +57,20 @@ function promptPoint(stage: Element) {
 	return boardPointAt(client.x, client.y);
 }
 
-function startFromKeyboard(): void {
+export function pointerTarget(): { board: Point; client: Point } | null {
 	const menu = boardMenu.peek();
+	if (menu) {
+		boardMenu.value = null;
+		return { board: menu.board, client: menu.client };
+	}
 	const stage = document.querySelector(".viewport");
-	const point = menu?.board ?? (stage ? promptPoint(stage) : null);
+	const board = stage ? promptPoint(stage) : null;
+	const client = board ? clientPointOf(board) : null;
+	return board && client ? { board, client } : null;
+}
+
+function startFromKeyboard(): void {
+	const point = pointerTarget()?.board;
 	if (!point || !openQuickPrompt(point)) newSessionOpen.value = true;
 }
 
@@ -108,6 +130,7 @@ export function BoardMenu(): JSX.Element | null {
 		};
 		const closeOnEscape = (event: KeyboardEvent) => {
 			if (event.key === "Escape") close();
+			else if (list.current) moveMenuFocus(list.current, event);
 		};
 		const startView = view.peek();
 		const stopWatchingView = view.subscribe((v) => {
@@ -128,7 +151,7 @@ export function BoardMenu(): JSX.Element | null {
 
 	if (!menu) return null;
 	const left = Math.min(menu.client.x, innerWidth - 240);
-	const top = Math.min(menu.client.y, innerHeight - 56);
+	const top = Math.min(menu.client.y, innerHeight - 128);
 	return (
 		<div
 			class="board-menu"
@@ -148,6 +171,32 @@ export function BoardMenu(): JSX.Element | null {
 					{menu.group ? `New session in ${menu.group.project}` : "New session"}
 				</span>
 				<kbd>A</kbd>
+			</button>
+			<button
+				type="button"
+				role="menuitem"
+				class="board-menu-item"
+				onClick={() => {
+					boardMenu.value = null;
+					addNote(menu.board);
+				}}
+			>
+				<StickyNote size={14} aria-hidden="true" />
+				<span class="board-menu-label">Add note here</span>
+				<kbd>N</kbd>
+			</button>
+			<button
+				type="button"
+				role="menuitem"
+				class="board-menu-item"
+				onClick={() => {
+					boardMenu.value = null;
+					stickerPicker.value = { client: menu.client, board: menu.board };
+				}}
+			>
+				<Sticker size={14} aria-hidden="true" />
+				<span class="board-menu-label">Add sticker here</span>
+				<kbd>S</kbd>
 			</button>
 		</div>
 	);

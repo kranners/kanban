@@ -1,4 +1,5 @@
 import type {
+	Annotations,
 	Board,
 	BoardFeed,
 	ExitResult,
@@ -17,6 +18,7 @@ export type Feed = {
 	board(board: Board): void;
 	preview(preview: Preview): void;
 	layout(layout: Layout): void;
+	annotations(annotations: Annotations): void;
 	exit(sessionId: string, result: ExitResult): void;
 	size(): number;
 };
@@ -25,11 +27,17 @@ export type FeedOptions = {
 	board: () => Board;
 	previews: () => Preview[];
 	layout: () => Layout;
+	annotations: () => Annotations;
 };
 
 const socketOpen = 1;
 
-export const createFeed = ({ board, previews, layout }: FeedOptions): Feed => {
+export const createFeed = ({
+	board,
+	previews,
+	layout,
+	annotations,
+}: FeedOptions): Feed => {
 	const clients = new Set<FeedSocket>();
 
 	const send = (socket: FeedSocket, frame: BoardFeed) => {
@@ -47,6 +55,7 @@ export const createFeed = ({ board, previews, layout }: FeedOptions): Feed => {
 			clients.add(socket);
 			socket.on("close", () => clients.delete(socket));
 			send(socket, { type: "layout", layout: layout() });
+			send(socket, { type: "annotations", annotations: annotations() });
 			send(socket, { type: "board", board: board() });
 			for (const preview of previews())
 				send(socket, { type: "preview", preview });
@@ -54,6 +63,8 @@ export const createFeed = ({ board, previews, layout }: FeedOptions): Feed => {
 		board: (next) => broadcast({ type: "board", board: next }),
 		preview: (preview) => broadcast({ type: "preview", preview }),
 		layout: (next) => broadcast({ type: "layout", layout: next }),
+		annotations: (next) =>
+			broadcast({ type: "annotations", annotations: next }),
 		exit: (sessionId, result) => broadcast({ type: "exit", sessionId, result }),
 		size: () => clients.size,
 	};

@@ -20,8 +20,8 @@ export async function build(): Promise<void> {
 		target: "es2022",
 		jsx: "automatic",
 		jsxImportSource: "preact",
-		loader: { ".woff2": "file", ".woff": "file" },
-		assetNames: "fonts/[name]-[hash]",
+		loader: { ".woff2": "file", ".woff": "file", ".svg": "file" },
+		assetNames: "assets/[name]-[hash]",
 		legalComments: "none",
 		logLevel: "warning",
 	});

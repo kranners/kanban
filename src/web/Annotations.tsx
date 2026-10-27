@@ -1,0 +1,638 @@
+import "./annotations.css";
+import {
+	BringToFront,
+	Copy,
+	Pencil,
+	SendToBack,
+	Sticker as StickerIcon,
+	StickyNote,
+	Trash2,
+} from "lucide-preact";
+import type { JSX } from "preact";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import type { Annotation, Note, Point, Sticker } from "../shared/types.ts";
+import { noteColors } from "../shared/types.ts";
+import {
+	addNote,
+	addSticker,
+	annotationMenu,
+	bringSelectionToFront,
+	deleteSelection,
+	duplicateSelection,
+	editing,
+	nudgeSelection,
+	ordered,
+	preview,
+	recolourSelection,
+	save,
+	saveSoon,
+	select,
+	selected,
+	selection,
+	sendSelectionToBack,
+	stickerPicker,
+	toggleSelected,
+} from "./annotations.ts";
+import { boardPointAt, view } from "./Canvas.tsx";
+import { commandKey } from "./focus/platform.ts";
+import { moveMenuFocus } from "./menuFocus.ts";
+import {
+	type AnnotationCommand,
+	annotationCommand,
+	gridStep,
+	matchingStickers,
+	moved,
+	noteFontSize,
+	noteTextLimit,
+	resized,
+} from "./notes.ts";
+import { useRestoreFocus } from "./restoreFocus.ts";
+import { blocked, isTyping, pointerTarget } from "./Spawning.tsx";
+import { stickerFiles } from "./stickers/files.ts";
+import { stickerManifest } from "./stickers/manifest.ts";
+
+const dragThreshold = 4;
+const pickerColumns = 8;
+const stickerNames = new Map(stickerManifest.map((s) => [s.id, s.name]));
+let justDragged = false;
+
+function position(annotation: Annotation) {
+	return {
+		transform: `translate(${annotation.x}px, ${annotation.y}px)`,
+		width: `${annotation.w}px`,
+		height: `${annotation.h}px`,
+	};
+}
+
+function grab(event: PointerEvent, annotation: Annotation): void {
+	if (event.button !== 0 || editing.peek() === annotation.id) return;
+	const element = event.currentTarget as HTMLElement;
+	const resizing = (event.target as Element).closest("[data-resize]") !== null;
+	if (event.shiftKey && !resizing) {
+		toggleSelected(annotation.id);
+		return;
+	}
+	const wasSelected = selection.peek().has(annotation.id);
+	if (!wasSelected) select([annotation.id]);
+	const origins = resizing ? [annotation] : selected.peek();
+	const start = { x: event.clientX, y: event.clientY };
+	let latest: Annotation[] = origins;
+	let dragging = false;
+	element.setPointerCapture(event.pointerId);
+
+	const move = (next: PointerEvent) => {
+		if (next.pointerId !== event.pointerId) return;
+		const sx = next.clientX - start.x;
+		const sy = next.clientY - start.y;
+		if (!dragging && Math.hypot(sx, sy) < dragThreshold) return;
+		dragging = true;
+		const { k } = view.peek();
+		latest = origins.map((a) =>
+			resizing ? resized(a, sx / k, sy / k) : moved(a, sx / k, sy / k),
+		);
+		preview(latest);
+	};
+	const finish = (next: PointerEvent) => {
+		if (next.pointerId !== event.pointerId) return;
+		element.removeEventListener("pointermove", move);
+		element.removeEventListener("pointerup", finish);
+		element.removeEventListener("pointercancel", finish);
+		if (dragging) {
+			save(next.type === "pointercancel" ? origins : latest);
+			justDragged = true;
+			setTimeout(() => {
+				justDragged = false;
+			}, 0);
+		} else if (wasSelected && !resizing) {
+			select([annotation.id]);
+		}
+	};
+	element.addEventListener("pointermove", move);
+	element.addEventListener("pointerup", finish);
+	element.addEventListener("pointercancel", finish);
+}
+
+function openMenu(event: MouseEvent, annotation: Annotation): void {
+	event.preventDefault();
+	event.stopPropagation();
+	if (!selection.peek().has(annotation.id)) select([annotation.id]);
+	annotationMenu.value = { client: { x: event.clientX, y: event.clientY } };
+}
+
+function NoteEditor(props: { note: Note }): JSX.Element {
+	const { note } = props;
+	const field = useRef<HTMLTextAreaElement>(null);
+	const [text, setText] = useState(note.text);
+
+	useEffect(() => {
+		const element = field.current;
+		if (!element) return;
+		element.focus({ preventScroll: true });
+		element.setSelectionRange(element.value.length, element.value.length);
+	}, []);
+
+	const finish = () => {
+		if (editing.peek() === note.id) editing.value = null;
+		if (text !== note.text) save([{ ...note, text }]);
+	};
+
+	return (
+		<textarea
+			ref={field}
+			class="note-text note-editor"
+			value={text}
+			maxLength={noteTextLimit}
+			spellcheck={false}
+			aria-label="Note text"
+			style={{ fontSize: `${noteFontSize(text, note.w, note.h)}px` }}
+			onInput={(event) => {
+				const next = event.currentTarget.value;
+				setText(next);
+				saveSoon([{ ...note, text: next }]);
+			}}
+			onBlur={finish}
+			onKeyDown={(event) => {
+				if (event.key === "Escape") {
+					event.preventDefault();
+					event.stopPropagation();
+					event.currentTarget.blur();
+				}
+			}}
+		/>
+	);
+}
+
+function NoteBody(props: { note: Note; editing: boolean }): JSX.Element {
+	const { note } = props;
+	if (props.editing) return <NoteEditor note={note} />;
+	if (!note.text) {
+		return <div class="note-text empty">Double-click to write</div>;
+	}
+	return (
+		<div
+			class="note-text"
+			style={{ fontSize: `${noteFontSize(note.text, note.w, note.h)}px` }}
+		>
+			{note.text}
+		</div>
+	);
+}
+
+function StickerBody(props: { sticker: Sticker }): JSX.Element {
+	const { sticker } = props;
+	return (
+		<img
+			class="sticker-image"
+			src={stickerFiles[sticker.sticker]}
+			alt={stickerNames.get(sticker.sticker) ?? sticker.sticker}
+			draggable={false}
+			style={
+				sticker.rotation ? { rotate: `${sticker.rotation}deg` } : undefined
+			}
+		/>
+	);
+}
+
+function AnnotationView(props: {
+	annotation: Annotation;
+	selected: boolean;
+	editing: boolean;
+}): JSX.Element {
+	const { annotation } = props;
+	const kindClass =
+		annotation.kind === "note" ? `note note-${annotation.color}` : "sticker";
+	return (
+		<div
+			class={`annotation ${kindClass}${props.selected ? " selected" : ""}${props.editing ? " editing" : ""}`}
+			style={position(annotation)}
+			data-annotation={annotation.id}
+			data-no-pan
+			role="note"
+			aria-roledescription={annotation.kind}
+			aria-label={
+				annotation.kind === "note"
+					? annotation.text || "Empty note"
+					: (stickerNames.get(annotation.sticker) ?? annotation.sticker)
+			}
+			onPointerDown={(event) => grab(event, annotation)}
+			onDblClick={() => {
+				if (annotation.kind !== "note") return;
+				select([annotation.id]);
+				editing.value = annotation.id;
+			}}
+			onContextMenu={(event) => openMenu(event, annotation)}
+		>
+			{annotation.kind === "note" ? (
+				<NoteBody note={annotation} editing={props.editing} />
+			) : (
+				<StickerBody sticker={annotation} />
+			)}
+			{!props.editing && (
+				<span class="resize-handle" data-resize aria-hidden="true" />
+			)}
+		</div>
+	);
+}
+
+export function AnnotationLayer(): JSX.Element {
+	const chosen = selection.value;
+	const open = editing.value;
+	return (
+		<>
+			{ordered.value.map((annotation) => (
+				<AnnotationView
+					key={annotation.id}
+					annotation={annotation}
+					selected={chosen.has(annotation.id)}
+					editing={open === annotation.id}
+				/>
+			))}
+		</>
+	);
+}
+
+function useDismiss(
+	active: boolean,
+	panel: { current: HTMLElement | null },
+	close: () => void,
+): void {
+	useEffect(() => {
+		if (!active) return;
+		const closeOutside = (event: PointerEvent) => {
+			if (!panel.current?.contains(event.target as Node)) close();
+		};
+		const startView = view.peek();
+		const stopWatchingView = view.subscribe((v) => {
+			if (v !== startView) close();
+		});
+		addEventListener("pointerdown", closeOutside, true);
+		addEventListener("resize", close);
+		addEventListener("blur", close);
+		return () => {
+			stopWatchingView();
+			removeEventListener("pointerdown", closeOutside, true);
+			removeEventListener("resize", close);
+			removeEventListener("blur", close);
+		};
+	}, [active]);
+}
+
+function MenuItem(props: {
+	icon: JSX.Element;
+	label: string;
+	shortcut: string;
+	onSelect: () => void;
+	danger?: boolean;
+}): JSX.Element {
+	return (
+		<button
+			type="button"
+			role="menuitem"
+			class={`board-menu-item${props.danger ? " danger" : ""}`}
+			onClick={() => {
+				annotationMenu.value = null;
+				props.onSelect();
+			}}
+		>
+			{props.icon}
+			<span class="board-menu-label">{props.label}</span>
+			<kbd>{props.shortcut}</kbd>
+		</button>
+	);
+}
+
+const colourNames = {
+	yellow: "Yellow",
+	pink: "Pink",
+	green: "Green",
+	blue: "Blue",
+	purple: "Purple",
+	orange: "Orange",
+};
+
+export function AnnotationMenu(): JSX.Element | null {
+	const menu = annotationMenu.value;
+	const list = useRef<HTMLDivElement>(null);
+	useRestoreFocus(menu !== null);
+	useDismiss(menu !== null, list, () => {
+		annotationMenu.value = null;
+	});
+
+	useEffect(() => {
+		if (menu) list.current?.querySelector("button")?.focus();
+	}, [menu]);
+
+	if (!menu) return null;
+	const chosen = selected.value;
+	const notes = chosen.filter((a): a is Note => a.kind === "note");
+	const single = chosen.length === 1 ? notes[0] : undefined;
+	const left = Math.min(menu.client.x, innerWidth - 232);
+	const top = Math.min(menu.client.y, innerHeight - (notes.length ? 252 : 156));
+	return (
+		<div
+			class="board-menu annotation-menu"
+			role="menu"
+			ref={list}
+			style={{ left: `${left}px`, top: `${top}px` }}
+			onContextMenu={(event) => event.preventDefault()}
+			onKeyDown={(event) => {
+				if (event.key === "Escape") {
+					event.preventDefault();
+					annotationMenu.value = null;
+				} else if (list.current) moveMenuFocus(list.current, event);
+			}}
+		>
+			{single && (
+				<MenuItem
+					icon={<Pencil size={14} aria-hidden="true" />}
+					label="Edit text"
+					shortcut="Enter"
+					onSelect={() => {
+						editing.value = single.id;
+					}}
+				/>
+			)}
+			{notes.length > 0 && (
+				<fieldset class="swatches" aria-label="Colour">
+					{noteColors.map((color) => (
+						<button
+							key={color}
+							type="button"
+							role="menuitemradio"
+							aria-checked={notes.every((n) => n.color === color)}
+							class={`swatch note-${color}`}
+							title={colourNames[color]}
+							aria-label={colourNames[color]}
+							onClick={() => {
+								annotationMenu.value = null;
+								recolourSelection(color);
+							}}
+						/>
+					))}
+				</fieldset>
+			)}
+			<MenuItem
+				icon={<Copy size={14} aria-hidden="true" />}
+				label="Duplicate"
+				shortcut={`${commandKey}D`}
+				onSelect={duplicateSelection}
+			/>
+			<MenuItem
+				icon={<BringToFront size={14} aria-hidden="true" />}
+				label="Bring to front"
+				shortcut={`${commandKey}]`}
+				onSelect={bringSelectionToFront}
+			/>
+			<MenuItem
+				icon={<SendToBack size={14} aria-hidden="true" />}
+				label="Send to back"
+				shortcut={`${commandKey}[`}
+				onSelect={sendSelectionToBack}
+			/>
+			<span class="board-menu-sep" />
+			<MenuItem
+				icon={<Trash2 size={14} aria-hidden="true" />}
+				label="Delete"
+				shortcut="⌫"
+				onSelect={deleteSelection}
+				danger
+			/>
+		</div>
+	);
+}
+
+export function StickerPicker(): JSX.Element | null {
+	const picker = stickerPicker.value;
+	const panel = useRef<HTMLDivElement>(null);
+	const search = useRef<HTMLInputElement>(null);
+	const [query, setQuery] = useState("");
+	const [active, setActive] = useState(0);
+	const matches = useMemo(
+		() => matchingStickers(stickerManifest, query),
+		[query],
+	);
+	useRestoreFocus(picker !== null);
+	const close = () => {
+		stickerPicker.value = null;
+	};
+	useDismiss(picker !== null, panel, close);
+
+	useEffect(() => {
+		setQuery("");
+		setActive(0);
+		search.current?.focus({ preventScroll: true });
+	}, [picker]);
+
+	useEffect(() => {
+		panel.current
+			?.querySelector(`[data-index="${active}"]`)
+			?.scrollIntoView({ block: "nearest" });
+	}, [active]);
+
+	if (!picker) return null;
+	const pick = (id: string | undefined) => {
+		if (!id) return;
+		close();
+		addSticker(id, picker.board);
+	};
+	const left = Math.max(8, Math.min(picker.client.x, innerWidth - 344));
+	const top = Math.max(8, Math.min(picker.client.y, innerHeight - 312));
+	return (
+		<div
+			class="sticker-picker"
+			role="dialog"
+			aria-label="Add a sticker"
+			ref={panel}
+			style={{ left: `${left}px`, top: `${top}px` }}
+			onContextMenu={(event) => event.preventDefault()}
+		>
+			<input
+				type="search"
+				class="sticker-search"
+				placeholder="Search stickers"
+				aria-label="Search stickers"
+				aria-controls="sticker-grid"
+				aria-activedescendant={
+					matches[active] ? `sticker-${matches[active].id}` : undefined
+				}
+				value={query}
+				ref={search}
+				spellcheck={false}
+				autocomplete="off"
+				onInput={(event) => {
+					setQuery(event.currentTarget.value);
+					setActive(0);
+				}}
+				onKeyDown={(event) => {
+					if (event.isComposing) return;
+					if (event.key === "Escape") {
+						event.preventDefault();
+						close();
+					} else if (event.key === "Enter") {
+						event.preventDefault();
+						pick(matches[active]?.id);
+					} else if (event.key.startsWith("Arrow")) {
+						const next = gridStep(
+							active,
+							event.key,
+							pickerColumns,
+							matches.length,
+						);
+						if (
+							next !== active ||
+							event.key === "ArrowUp" ||
+							event.key === "ArrowDown"
+						) {
+							event.preventDefault();
+							setActive(next);
+						}
+					}
+				}}
+			/>
+			<div
+				id="sticker-grid"
+				class="sticker-grid"
+				role="listbox"
+				aria-label="Stickers"
+				data-scrollable
+			>
+				{matches.map((sticker, index) => (
+					<button
+						key={sticker.id}
+						id={`sticker-${sticker.id}`}
+						type="button"
+						role="option"
+						tabIndex={-1}
+						aria-selected={index === active}
+						data-index={index}
+						class="sticker-option"
+						title={sticker.name}
+						onPointerEnter={() => setActive(index)}
+						onClick={() => pick(sticker.id)}
+					>
+						<img src={stickerFiles[sticker.id]} alt={sticker.name} />
+					</button>
+				))}
+				{matches.length === 0 && (
+					<p class="sticker-empty">No stickers match “{query}”</p>
+				)}
+			</div>
+		</div>
+	);
+}
+
+function centre(): { board: Point; client: Point } | null {
+	const stage = document.querySelector(".viewport");
+	if (!stage) return null;
+	const box = stage.getBoundingClientRect();
+	const client = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+	const board = boardPointAt(client.x, client.y);
+	return board ? { board, client } : null;
+}
+
+export function AnnotationTools(): JSX.Element {
+	return (
+		<>
+			<button
+				type="button"
+				class="icon-button"
+				onClick={() => {
+					const at = centre();
+					if (at) addNote(at.board);
+				}}
+				aria-label="Add note"
+				title="Add note (N)"
+			>
+				<StickyNote size={15} />
+			</button>
+			<button
+				type="button"
+				class="icon-button"
+				onClick={(event) => {
+					const at = centre();
+					const button = event.currentTarget.getBoundingClientRect();
+					if (at) {
+						stickerPicker.value = {
+							board: at.board,
+							client: { x: button.left, y: button.top - 312 },
+						};
+					}
+				}}
+				aria-label="Add sticker"
+				title="Add sticker (S)"
+			>
+				<StickerIcon size={15} />
+			</button>
+		</>
+	);
+}
+
+const commands: {
+	[K in AnnotationCommand["kind"]]: (
+		command: Extract<AnnotationCommand, { kind: K }>,
+	) => void;
+} = {
+	note: () => {
+		const at = pointerTarget();
+		if (at) addNote(at.board);
+	},
+	sticker: () => {
+		const at = pointerTarget();
+		if (at) stickerPicker.value = at;
+	},
+	delete: deleteSelection,
+	duplicate: duplicateSelection,
+	front: bringSelectionToFront,
+	back: sendSelectionToBack,
+	edit: () => {
+		const [only] = selection.peek();
+		if (only) editing.value = only;
+	},
+	deselect: () => select([]),
+	nudge: ({ dx, dy }) => nudgeSelection(dx, dy),
+};
+
+function run<K extends AnnotationCommand["kind"]>(
+	command: Extract<AnnotationCommand, { kind: K }>,
+): void {
+	(commands[command.kind as K] as (c: typeof command) => void)(command);
+}
+
+function onActivatable(target: EventTarget | null): boolean {
+	return (
+		target instanceof Element &&
+		target.closest("button, a, [role=button], [role=menuitem]") !== null
+	);
+}
+
+export function useAnnotationGestures(): void {
+	useEffect(() => {
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.isComposing || isTyping(event.target) || blocked()) return;
+			const chosen = selected.peek();
+			const command = annotationCommand(event, {
+				count: chosen.length,
+				notes: chosen.filter((a) => a.kind === "note").length,
+			});
+			if (!command) return;
+			if (command.kind === "edit" && onActivatable(event.target)) return;
+			if (command.kind === "deselect" && document.querySelector(".board-menu"))
+				return;
+			event.preventDefault();
+			run(command);
+		};
+		const onClick = (event: MouseEvent) => {
+			const target = event.target as Element;
+			if (justDragged || event.shiftKey) return;
+			if (!target.closest(".viewport") || target.closest("[data-no-pan]"))
+				return;
+			if (selection.peek().size > 0) select([]);
+		};
+		addEventListener("keydown", onKeyDown);
+		addEventListener("click", onClick);
+		return () => {
+			removeEventListener("keydown", onKeyDown);
+			removeEventListener("click", onClick);
+		};
+	}, []);
+}

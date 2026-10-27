@@ -83,10 +83,43 @@ export type Layout = Record<string, Placement>;
 
 export type LayoutUpdate = { key: string; placement: Placement };
 
+export const noteColors = [
+	"yellow",
+	"pink",
+	"green",
+	"blue",
+	"purple",
+	"orange",
+] as const;
+
+export type NoteColor = (typeof noteColors)[number];
+
+type Annotated = {
+	id: string;
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+	z: number;
+};
+
+export type Note = Annotated & { kind: "note"; text: string; color: NoteColor };
+
+export type Sticker = Annotated & {
+	kind: "sticker";
+	sticker: string;
+	rotation?: number;
+};
+
+export type Annotation = Note | Sticker;
+
+export type Annotations = Record<string, Annotation>;
+
 export type BoardFeed =
 	| { type: "board"; board: Board }
 	| { type: "preview"; preview: Preview }
 	| { type: "layout"; layout: Layout }
+	| { type: "annotations"; annotations: Annotations }
 	| { type: "exit"; sessionId: string; result: ExitResult };
 
 export type NewSessionRequest = {

@@ -1,0 +1,6 @@
+Sticker graphics are from Twemoji (https://github.com/jdecked/twemoji),
+Copyright 2019 Twitter, Inc and other contributors, licensed under
+CC-BY 4.0 (https://creativecommons.org/licenses/by/4.0/).
+
+The files are unmodified and renamed from their codepoints; manifest.ts
+lists each sticker's codepoint.

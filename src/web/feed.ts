@@ -1,6 +1,7 @@
 import type { BoardFeed } from "../shared/types.ts";
 import { receiveExit } from "./exits.ts";
 import {
+	annotations,
 	awaitingShort,
 	board,
 	connection,
@@ -31,6 +32,10 @@ function receive(frame: BoardFeed): void {
 	}
 	if (frame.type === "layout") {
 		layout.value = frame.layout;
+		return;
+	}
+	if (frame.type === "annotations") {
+		annotations.value = frame.annotations;
 		return;
 	}
 	if (frame.type === "exit") {
