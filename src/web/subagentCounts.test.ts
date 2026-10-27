@@ -7,7 +7,6 @@ import {
 } from "../shared/subagents.ts";
 import type { Subagent } from "../shared/types.ts";
 import {
-	memberSubagentCounts,
 	sessionsWithWorkingSubagents,
 	subagentHeadline,
 	subagentSummary,
@@ -100,20 +99,4 @@ test("leads with running and waiting on, keeping done and stalled in the summary
 test("outstanding subagents are the running and stalled ones, not the done", () => {
 	assert.equal(outstandingSubagents({ working: 3, idle: 2, done: 4 }), 5);
 	assert.equal(outstandingSubagents({ working: 0, idle: 0, done: 4 }), 0);
-});
-
-test("totals the subagents of a region's member sessions only", () => {
-	const bySession = subagentCountsBySession(agents);
-	assert.deepEqual(
-		memberSubagentCounts(
-			["session:acme-api", "session:acme-docs", "subagent:a", "session:gone"],
-			bySession,
-		),
-		{ working: 1, idle: 1, done: 1 },
-	);
-	assert.deepEqual(memberSubagentCounts([], bySession), {
-		working: 0,
-		idle: 0,
-		done: 0,
-	});
 });

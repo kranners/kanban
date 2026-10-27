@@ -5,7 +5,6 @@ import {
 	type SubagentState,
 } from "../shared/subagents.ts";
 import type { Subagent } from "../shared/types.ts";
-import { type NodeKey, nodeKey } from "./layout.ts";
 
 export const subagentStateOrder: SubagentState[] = ["working", "idle", "done"];
 
@@ -16,20 +15,6 @@ export function totalSubagentCounts(
 	for (const counts of Object.values(bySession))
 		for (const state of subagentStateOrder) total[state] += counts[state];
 	return total;
-}
-
-export function memberSubagentCounts(
-	members: readonly NodeKey[],
-	bySession: Readonly<Record<string, SubagentCounts>>,
-): SubagentCounts {
-	const keys = new Set(members);
-	return totalSubagentCounts(
-		Object.fromEntries(
-			Object.entries(bySession).filter(([id]) =>
-				keys.has(nodeKey({ kind: "session", id })),
-			),
-		),
-	);
 }
 
 export function sessionsWithWorkingSubagents(

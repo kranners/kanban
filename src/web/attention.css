@@ -221,50 +221,54 @@
 	padding: 0 4px;
 }
 
-.ribbon.subagent-ribbon {
-	--ribbon-edge: var(--idle-edge);
-	--ribbon-fill: color-mix(in srgb, var(--idle-edge) 14%, var(--surface));
-	--ribbon-ink: var(--idle-ink);
-	top: calc(var(--label-height) + 8px);
-	right: auto;
-	left: 12px;
+.workflows {
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 10px 14px 0;
+}
+
+.workflow {
+	display: grid;
+	grid-template-columns: minmax(0, max-content) minmax(48px, 1fr) auto;
+	align-items: center;
+	gap: 8px;
+	font-size: 11.5px;
+	color: var(--muted);
+}
+
+.workflow-name {
 	overflow: hidden;
-	border-style: dashed;
-	transform-origin: 0 0;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: 600;
+	color: var(--busy-edge);
 }
 
-.node:has(> .subagent-ribbon) .goal {
-	padding-top: calc(18px + 22px * min(var(--unzoom), 3));
+.workflow-track {
+	height: 6px;
+	overflow: hidden;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--busy-edge) 16%, var(--surface));
 }
 
-.ribbon.subagent-ribbon.running {
-	--ribbon-edge: var(--busy-edge);
-	--ribbon-fill: color-mix(in srgb, var(--busy-edge) 12%, var(--surface));
-	--ribbon-ink: var(--busy-edge);
-	border-style: solid;
+.workflow-fill {
+	display: block;
+	height: 100%;
+	border-radius: inherit;
+	background: var(--busy-edge);
+	transition: width calc(300ms * var(--motion)) ease-out;
 }
 
-.subagent-ribbon.running::after {
-	content: "";
-	position: absolute;
-	inset: 0 auto 0 0;
-	width: 45%;
-	background: linear-gradient(
-		90deg,
-		transparent,
-		color-mix(in srgb, var(--busy-edge) 28%, transparent) 50%,
-		transparent
-	);
-	translate: -100% 0;
-	animation: busy-sweep 1.9s cubic-bezier(0.45, 0, 0.35, 1) infinite;
+.workflow-count {
+	white-space: nowrap;
 }
 
-.subagent-ribbon .ribbon-count {
-	display: none;
-}
-
-.world[data-far] .subagent-ribbon .ribbon-count {
-	display: inline;
+.body:has(.workflows) .goal {
+	padding-top: 8px;
+	-webkit-line-clamp: 3;
+	line-clamp: 3;
 }
 
 .ribbon:is(.act-done, .act-idle) .ribbon-text {
@@ -408,9 +412,7 @@
 	border-color: var(--needs-edge);
 }
 
-.world[data-far]
-	.group-frame:is(.wants-you, :has(.group-subagents))
-	.group-label {
+.world[data-far] .group-frame.wants-you .group-label {
 	max-width: calc((100% - 20px) / var(--unzoom));
 	transform-origin: 0 0;
 	scale: var(--unzoom);
@@ -430,29 +432,6 @@
 	font-size: 10.5px;
 	font-weight: 650;
 	line-height: 16px;
-}
-
-.group-subagents {
-	flex: none;
-	display: inline-flex;
-	align-items: center;
-	gap: 3px;
-	height: 16px;
-	margin-left: 2px;
-	padding: 0 5px;
-	border: 1px dashed var(--idle-edge);
-	border-radius: 999px;
-	background: color-mix(in srgb, var(--idle-edge) 14%, var(--surface));
-	color: var(--idle-ink);
-	font-size: 10.5px;
-	font-weight: 650;
-	line-height: 14px;
-}
-
-.group-subagents.running {
-	border: 1px solid var(--busy-edge);
-	background: color-mix(in srgb, var(--busy-edge) 12%, var(--surface));
-	color: var(--busy-edge);
 }
 
 .next-needing-you {
@@ -502,8 +481,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.busy-edge::after,
-	.subagent-ribbon.running::after {
+	.busy-edge::after {
 		width: 100%;
 		translate: 0 0;
 		opacity: 0.55;

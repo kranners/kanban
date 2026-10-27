@@ -87,6 +87,7 @@ test("removing sessions drops their subagents, links and messages", () => {
 		subagentCounts: {},
 		subagentStates: {},
 		workflowRuns: {},
+		workflows: [],
 		subagents: [
 			{
 				id: "x",

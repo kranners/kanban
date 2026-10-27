@@ -34,6 +34,7 @@ import {
 	type FoundSubagent,
 	type MetaCache,
 	newestPerSession,
+	runningWorkflows,
 	scanSubagents,
 	settleSubagents,
 	workflowRunsOf,
@@ -174,6 +175,10 @@ export function startBoard(opts: {
 				settled.map(({ subagent }) => subagent),
 			),
 			workflowRuns: workflowRunsOf(settled),
+			workflows: runningWorkflows(settled, (id) => {
+				const item = tracked.get(id);
+				return item?.entry ? (item.tail?.facts ?? null) : null;
+			}),
 			links: collectLinks(
 				owners,
 				shortsToSessions(jobs, registry),
@@ -544,6 +549,7 @@ function emptyBoard(): Board {
 		subagentCounts: {},
 		subagentStates: {},
 		workflowRuns: {},
+		workflows: [],
 		links: [],
 		messages: [],
 		generatedAt: Date.now(),

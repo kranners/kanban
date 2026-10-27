@@ -37,6 +37,7 @@ const boardOf = (...sessions: Session[]): Board => ({
 	subagentCounts: {},
 	subagentStates: {},
 	workflowRuns: {},
+	workflows: [],
 	links: [],
 	messages: [],
 	generatedAt: 0,

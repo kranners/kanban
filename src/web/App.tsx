@@ -137,7 +137,9 @@ function World(props: { board: Board; layout: Arrangement }) {
 			key={node.key}
 			node={node}
 			session={session}
-			subagents={props.board.subagentCounts[session.id]}
+			workflows={props.board.workflows.filter(
+				(workflow) => workflow.sessionId === session.id,
+			)}
 			now={t}
 			emphasis={{
 				dimmed: !visible(node.key),

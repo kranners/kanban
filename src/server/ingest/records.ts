@@ -42,6 +42,7 @@ export type TranscriptFacts = {
 	forkedChildren: Set<string>;
 	finishedTasks: Set<string>;
 	workflowRuns: Map<string, string>;
+	workflowNames: Map<string, string>;
 	artifacts: Map<string, Artifact>;
 	entries: TranscriptEntry[];
 };
@@ -67,6 +68,7 @@ export function createFacts(): TranscriptFacts {
 		forkedChildren: new Set(),
 		finishedTasks: new Set(),
 		workflowRuns: new Map(),
+		workflowNames: new Map(),
 		artifacts: new Map(),
 		entries: [],
 	};
@@ -229,6 +231,8 @@ function applyToolResults(
 			const taskId = asString(result.taskId);
 			const runId = asString(result.runId);
 			if (taskId && runId) facts.workflowRuns.set(taskId, runId);
+			const name = asString(result.workflowName);
+			if (runId && name) facts.workflowNames.set(runId, name);
 		} else if (tool.name === "Artifact") {
 			const artifact = publishedArtifact(tool.input, result, at);
 			if (artifact) {

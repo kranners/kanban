@@ -1,17 +1,12 @@
 import { AppWindow, Bot, Server, Terminal } from "lucide-preact";
 import type { ComponentChildren } from "preact";
 import type { RegionColour } from "../shared/colours.ts";
-import type { Artifact, Session, Subagent } from "../shared/types.ts";
+import type { Artifact, Session, Subagent, Workflow } from "../shared/types.ts";
 import "./attention.css";
-import {
-	outstandingSubagents,
-	type SubagentCounts,
-	subagentState,
-} from "../shared/subagents.ts";
+import { subagentState } from "../shared/subagents.ts";
 import { ActivityBadge, ActivityIcon, activityLabel } from "./activity.tsx";
 import type { PlacedNode } from "./layout.ts";
 import { plainText } from "./markdown.ts";
-import { subagentHeadline } from "./subagentCounts.ts";
 import { ago, relativeTime } from "./time.ts";
 
 type Emphasis = {
@@ -69,20 +64,29 @@ function Ribbon(props: { session: Session; now: number }) {
 	);
 }
 
-function SubagentRibbon(props: { counts: SubagentCounts | undefined }) {
-	const { counts } = props;
-	if (!counts) return null;
-	const outstanding = outstandingSubagents(counts);
-	if (outstanding === 0) return null;
+function workflowProgress(workflow: Workflow): string {
+	return `${workflow.done}/${workflow.total} agents`;
+}
+
+function WorkflowBars(props: { workflows: readonly Workflow[] }) {
+	if (props.workflows.length === 0) return null;
 	return (
-		<span
-			class={`ribbon subagent-ribbon${counts.working > 0 ? " running" : ""}`}
-			aria-hidden="true"
-		>
-			<Bot size={13} aria-hidden="true" />
-			<span class="ribbon-text">{subagentHeadline(counts, "waiting")}</span>
-			<span class="ribbon-count num">{outstanding}</span>
-		</span>
+		<div class="workflows" aria-hidden="true">
+			{props.workflows.map((workflow) => (
+				<div key={workflow.runId} class="workflow" title={workflow.name}>
+					<span class="workflow-name">{workflow.name}</span>
+					<span class="workflow-track">
+						<span
+							class="workflow-fill"
+							style={{
+								width: `${(100 * workflow.done) / Math.max(workflow.total, 1)}%`,
+							}}
+						/>
+					</span>
+					<span class="workflow-count num">{workflowProgress(workflow)}</span>
+				</div>
+			))}
+		</div>
 	);
 }
 
@@ -131,17 +135,14 @@ function CardArtifacts(props: {
 	);
 }
 
-function cardStatus(
-	session: Session,
-	subagents: SubagentCounts | undefined,
-): string {
+function cardStatus(session: Session, workflows: readonly Workflow[]): string {
 	const detail =
 		session.activity === "needs-you" ? session.needs : session.doing;
 	const label = activityLabel[session.activity];
 	const status = detail ? `${label}: ${detail}` : label;
 	const waiting =
-		subagents && outstandingSubagents(subagents) > 0
-			? `; subagents ${subagentHeadline(subagents)}`
+		workflows.length > 0
+			? `; ${workflows.map((w) => `${w.name} ${workflowProgress(w)}`).join(", ")}`
 			: "";
 	return `${status}${waiting}`;
 }
@@ -150,15 +151,15 @@ function repeatsGoal(session: Session): boolean {
 	return session.name.toLowerCase() === session.goal?.toLowerCase();
 }
 
-function cardLabel(session: Session, subagents?: SubagentCounts): string {
+function cardLabel(session: Session, workflows: readonly Workflow[]): string {
 	const goal = session.goal ? `, goal: ${session.goal}` : "";
-	return `Open ${session.name}${goal}, ${cardStatus(session, subagents)}`;
+	return `Open ${session.name}${goal}, ${cardStatus(session, workflows)}`;
 }
 
 export function SessionCard(props: {
 	node: PlacedNode;
 	session: Session;
-	subagents?: SubagentCounts;
+	workflows: readonly Workflow[];
 	now: number;
 	emphasis: Emphasis;
 	onOpen: (id: string, origin: DOMRect) => void;
@@ -199,10 +200,11 @@ export function SessionCard(props: {
 			<button
 				type="button"
 				class="frame"
-				aria-label={cardLabel(session, props.subagents)}
+				aria-label={cardLabel(session, props.workflows)}
 				onClick={open}
 			>
 				<div class="body">
+					<WorkflowBars workflows={props.workflows} />
 					<GoalBody goal={session.goal} />
 					{session.activity === "needs-you" && session.needs && (
 						<div class="needs" title={session.needs}>
@@ -237,7 +239,6 @@ export function SessionCard(props: {
 			<CardArtifacts artifacts={session.artifacts} onMore={open} />
 			{session.activity === "working" && <BusyEdge />}
 			<Ribbon session={session} now={props.now} />
-			<SubagentRibbon counts={props.subagents} />
 			{props.notice}
 			<span class="resize-handle" data-resize aria-hidden="true" />
 			{props.corner && <div class="node-corner">{props.corner}</div>}

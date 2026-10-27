@@ -44,6 +44,14 @@ export type Subagent = {
 	updatedAt: number;
 };
 
+export type Workflow = {
+	runId: string;
+	sessionId: string;
+	name: string;
+	done: number;
+	total: number;
+};
+
 export type NodeRef =
 	| { kind: "session"; id: string }
 	| { kind: "subagent"; id: string };
@@ -70,6 +78,7 @@ export type Board = {
 	subagentCounts: Record<string, SubagentCounts>;
 	subagentStates: Record<string, SubagentState>;
 	workflowRuns: Record<string, string[]>;
+	workflows: Workflow[];
 	links: Link[];
 	messages: Message[];
 	generatedAt: number;
