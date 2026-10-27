@@ -26,6 +26,7 @@ import {
 	staticFile,
 } from "./http.ts";
 import { createLayoutStore } from "./layout.ts";
+import { createRegionStore } from "./regions.ts";
 
 const route = (method: string, path: string) =>
 	matchRoute(method, new URL(path, "http://x"));
@@ -79,6 +80,21 @@ describe("matchRoute", () => {
 		assert.deepEqual(route("PUT", "/api/colours"), { kind: "update-colour" });
 		assert.deepEqual(route("GET", "/api/colours"), {
 			kind: "method-not-allowed",
+		});
+		assert.deepEqual(route("POST", "/api/regions"), { kind: "create-region" });
+		assert.deepEqual(route("PATCH", "/api/regions/region-1"), {
+			kind: "update-region",
+			regionId: "region-1",
+		});
+		assert.deepEqual(route("DELETE", "/api/regions/region-1"), {
+			kind: "delete-region",
+			regionId: "region-1",
+		});
+		assert.deepEqual(route("GET", "/api/regions/region-1"), {
+			kind: "method-not-allowed",
+		});
+		assert.deepEqual(route("DELETE", "/api/regions/..%2Fx"), {
+			kind: "not-found",
 		});
 		assert.deepEqual(route("GET", "/api/nope"), { kind: "not-found" });
 		assert.deepEqual(route("GET", "/assets/app.js"), {
@@ -224,10 +240,17 @@ describe("createKanbanServer", () => {
 			onChange: (next) => feed?.colours(next),
 		});
 		coloursSaved = colours.saved;
+		const regions = createRegionStore({
+			file: join(dist, "state", "regions.json"),
+			initial: [],
+			onChange: (next) => feed?.regions(next),
+			newId: () => "region-1",
+		});
 		feed = createFeed({
 			layout: store.current,
 			annotations: annotations.current,
 			colours: colours.current,
+			regions: regions.current,
 			board: () => board,
 			previews: () => [
 				{
@@ -265,6 +288,7 @@ describe("createKanbanServer", () => {
 			},
 			annotations,
 			colours,
+			regions,
 			attach,
 			mirror: {
 				open: (socket, session, identity) => {
@@ -622,6 +646,56 @@ describe("createKanbanServer", () => {
 		});
 	});
 
+	it("creates, updates and deletes project regions and broadcasts them", async () => {
+		const socket = new WebSocket(`${base.replace("http", "ws")}/api/feed`, {
+			headers: { ...authed, origin },
+		});
+		const frames: BoardFeed[] = [];
+		socket.on("message", (data) => {
+			const frame = JSON.parse(String(data)) as BoardFeed;
+			if (frame.type === "regions") frames.push(frame);
+		});
+		await new Promise((resolve) => socket.on("open", resolve));
+		const draft = { cwd: tmpdir(), x: 0, y: 24, w: 480, h: 336 };
+		const created = await send("POST", "/api/regions", draft);
+		assert.equal(created.status, 201);
+		const region = { id: "region-1", name: null, ...draft };
+		assert.deepEqual(await created.json(), region);
+		assert.equal(
+			(await send("POST", "/api/regions", { ...draft, cwd: "/nope/missing" }))
+				.status,
+			400,
+		);
+		const renamed = await send("PATCH", "/api/regions/region-1", {
+			name: "Acme",
+		});
+		assert.deepEqual(await renamed.json(), { ...region, name: "Acme" });
+		assert.equal(
+			(await send("PATCH", "/api/regions/region-1", { x: 1 })).status,
+			400,
+		);
+		assert.equal(
+			(await send("PATCH", "/api/regions/other", { name: "x" })).status,
+			404,
+		);
+		const foreign = await fetch(`${base}/api/regions/region-1`, {
+			method: "DELETE",
+			headers: { ...authed, origin: "https://evil.example" },
+		});
+		assert.equal(foreign.status, 403);
+		const deleted = await fetch(`${base}/api/regions/region-1`, {
+			method: "DELETE",
+			headers: { ...authed, origin },
+		});
+		assert.equal(deleted.status, 204);
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		socket.close();
+		assert.deepEqual(
+			frames.map((frame) => frame.type === "regions" && frame.regions),
+			[[], [region], [{ ...region, name: "Acme" }], []],
+		);
+	});
+
 	const upgradeStatus = (path: string, headers: Record<string, string>) =>
 		new Promise<number | "open">((resolve) => {
 			const socket = new WebSocket(`${base.replace("http", "ws")}${path}`, {
@@ -705,7 +779,7 @@ describe("createKanbanServer", () => {
 		});
 		assert.deepEqual(
 			frames.map((frame) => frame.type),
-			["layout", "annotations", "colours", "board", "preview"],
+			["layout", "annotations", "colours", "regions", "board", "preview"],
 		);
 	});
 

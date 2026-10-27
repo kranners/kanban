@@ -1,6 +1,7 @@
 import type { BoardFeed } from "../shared/types.ts";
 import { receiveColours } from "./colours.ts";
 import { receiveExit } from "./exits.ts";
+import { regions } from "./regionState.ts";
 import {
 	annotations,
 	awaitingShort,
@@ -41,6 +42,10 @@ function receive(frame: BoardFeed): void {
 	}
 	if (frame.type === "colours") {
 		receiveColours(frame.colours);
+		return;
+	}
+	if (frame.type === "regions") {
+		regions.value = frame.regions;
 		return;
 	}
 	if (frame.type === "exit") {

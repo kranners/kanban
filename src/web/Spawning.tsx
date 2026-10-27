@@ -4,6 +4,7 @@ import {
 	Folder,
 	LoaderCircle,
 	Plus,
+	SquareDashed,
 	Sticker,
 	StickyNote,
 } from "lucide-preact";
@@ -17,6 +18,7 @@ import { exitAsk } from "./exits.ts";
 import { directoryName } from "./focus/paths.ts";
 import { moveMenuFocus } from "./menuFocus.ts";
 import { sessionSize } from "./placement.ts";
+import { regionDialog, regionMenu } from "./regionState.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 import type { QuickPrompt } from "./spawns.ts";
 import { focusedSessionId, newSessionOpen } from "./state.ts";
@@ -38,6 +40,8 @@ export function blocked(): boolean {
 		quickPrompt.peek() !== null ||
 		annotationMenu.peek() !== null ||
 		stickerPicker.peek() !== null ||
+		regionMenu.peek() !== null ||
+		regionDialog.peek() !== null ||
 		document.querySelector("dialog[open]") !== null
 	);
 }
@@ -151,7 +155,7 @@ export function BoardMenu(): JSX.Element | null {
 
 	if (!menu) return null;
 	const left = Math.min(menu.client.x, innerWidth - 240);
-	const top = Math.min(menu.client.y, innerHeight - 128);
+	const top = Math.min(menu.client.y, innerHeight - 160);
 	return (
 		<div
 			class="board-menu"
@@ -197,6 +201,19 @@ export function BoardMenu(): JSX.Element | null {
 				<Sticker size={14} aria-hidden="true" />
 				<span class="board-menu-label">Add sticker here</span>
 				<kbd>S</kbd>
+			</button>
+			<button
+				type="button"
+				role="menuitem"
+				class="board-menu-item"
+				onClick={() => {
+					boardMenu.value = null;
+					regionDialog.value = { mode: "create", at: menu.board };
+				}}
+			>
+				<SquareDashed size={14} aria-hidden="true" />
+				<span class="board-menu-label">New project region here</span>
+				<kbd>R</kbd>
 			</button>
 		</div>
 	);

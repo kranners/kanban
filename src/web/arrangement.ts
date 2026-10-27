@@ -10,6 +10,8 @@ import { groupsOf } from "./groups.ts";
 import type { NodeKey } from "./layout.ts";
 import type { Rect } from "./placement.ts";
 import { arrange, seedsOf } from "./placement.ts";
+import { shownRegions } from "./regionState.ts";
+import { regionGroups } from "./regions.ts";
 import { board, layout } from "./state.ts";
 
 const settleMs = 1500;
@@ -46,8 +48,11 @@ export const groups = computed(() => {
 	const placed = arrangement.value;
 	if (!current || !placed) return [];
 	const leaving = departing.value;
-	return groupsOf(
-		current.sessions.filter((s) => !leaving.has(s.id)),
+	const sessions = current.sessions.filter((s) => !leaving.has(s.id));
+	return regionGroups(
+		shownRegions.value,
+		groupsOf(sessions, placed.nodes),
+		sessions,
 		placed.nodes,
 	);
 });

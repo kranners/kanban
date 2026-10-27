@@ -1,4 +1,4 @@
-import type { Point, Session } from "../shared/types.ts";
+import type { Point, Region, Session } from "../shared/types.ts";
 import { gridSize } from "./grid.ts";
 import type { NodeKey, PlacedNode } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
@@ -11,6 +11,7 @@ export type Group = {
 	cwd: string;
 	members: NodeKey[];
 	frame: Rect;
+	region?: Region;
 };
 
 export const groupReach = 4 * gridSize;

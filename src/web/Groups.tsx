@@ -1,34 +1,43 @@
 import "./regions.css";
-import { signal } from "@preact/signals";
-import { Check, Folder } from "lucide-preact";
+import { Check, Folder, Pencil, Trash2 } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import { type RegionColour, regionColours } from "../shared/colours.ts";
+import type { Point } from "../shared/types.ts";
 import { cycle } from "./actions.ts";
 import { view } from "./Canvas.tsx";
 import { colourOf, setRegionColour } from "./colours.ts";
 import type { Group } from "./groups.ts";
+import { deleteRegion, regionDialog, regionMenu } from "./regionState.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 
-type ColourMenu = { cwd: string; project: string; left: number; top: number };
-
-const colourMenu = signal<ColourMenu | null>(null);
-
-function openColourMenu(group: Group, chip: HTMLElement): void {
-	const box = chip.getBoundingClientRect();
-	colourMenu.value =
-		colourMenu.peek()?.cwd === group.cwd
+export function openRegionMenu(group: Group, at: Point): void {
+	regionMenu.value =
+		regionMenu.peek()?.key === group.key
 			? null
 			: {
+					key: group.key,
 					cwd: group.cwd,
 					project: group.project,
-					left: box.left,
-					top: box.bottom + 6,
+					at,
+					...(group.region ? { region: group.region } : {}),
 				};
 }
 
+export function belowLabel(label: Element): Point {
+	const box = label.getBoundingClientRect();
+	return { x: box.left, y: box.bottom + 6 };
+}
+
+export function openRegionMenuAtPointer(group: Group, event: MouseEvent): void {
+	event.preventDefault();
+	event.stopPropagation();
+	regionMenu.value = null;
+	openRegionMenu(group, { x: event.clientX, y: event.clientY });
+}
+
 export function GroupFrames(props: { groups: readonly Group[] }) {
-	const open = colourMenu.value?.cwd;
+	const open = regionMenu.value?.key;
 	return (
 		<>
 			{props.groups.map((group) => (
@@ -45,10 +54,13 @@ export function GroupFrames(props: { groups: readonly Group[] }) {
 						type="button"
 						class="group-label"
 						data-no-pan
-						title={`${group.cwd} · change colour`}
+						title={`${group.cwd} · click for colours`}
 						aria-haspopup="menu"
-						aria-expanded={open === group.cwd}
-						onClick={(event) => openColourMenu(group, event.currentTarget)}
+						aria-expanded={open === group.key}
+						onClick={(event) =>
+							openRegionMenu(group, belowLabel(event.currentTarget))
+						}
+						onContextMenu={(event) => openRegionMenuAtPointer(group, event)}
 					>
 						<Folder size={12} aria-hidden="true" />
 						<span class="group-label-text">{group.project}</span>
@@ -60,16 +72,44 @@ export function GroupFrames(props: { groups: readonly Group[] }) {
 }
 
 const menuWidth = 160;
-const menuHeight = 90;
-const stepKeys: Record<string, number> = {
+const swatchesHeight = 90;
+const actionsHeight = 80;
+const swatchColumns = 4;
+const swatchSteps: Record<string, number> = {
 	ArrowRight: 1,
-	ArrowDown: 4,
 	ArrowLeft: -1,
-	ArrowUp: -4,
 };
 
-export function RegionColourMenu(): JSX.Element | null {
-	const menu = colourMenu.value;
+function nextItem(
+	swatches: HTMLElement[],
+	actions: HTMLElement[],
+	focused: HTMLElement | null,
+	key: string,
+): HTMLElement | undefined {
+	const items = [...swatches, ...actions];
+	if (key === "Home") return items[0];
+	if (key === "End") return items.at(-1);
+	const swatch = focused ? swatches.indexOf(focused) : -1;
+	const action = focused ? actions.indexOf(focused) : -1;
+	const down = key === "ArrowDown";
+	if (key !== "ArrowDown" && key !== "ArrowUp") {
+		const step = swatchSteps[key];
+		if (step === undefined || action >= 0) return undefined;
+		return cycle(swatches, swatches[swatch] ?? swatches[0], step);
+	}
+	if (action >= 0) {
+		const index = items.indexOf(actions[action] as HTMLElement);
+		return items[(index + (down ? 1 : -1) + items.length) % items.length];
+	}
+	const from = Math.max(swatch, 0);
+	const row = from + (down ? swatchColumns : -swatchColumns);
+	if (row >= 0 && row < swatches.length) return swatches[row];
+	if (actions.length > 0) return down ? actions[0] : actions.at(-1);
+	return swatches[(row + swatches.length) % swatches.length];
+}
+
+export function RegionMenu(): JSX.Element | null {
+	const menu = regionMenu.value;
 	const list = useRef<HTMLDivElement>(null);
 	useRestoreFocus(menu !== null);
 	const current = menu ? colourOf(menu.cwd) : null;
@@ -80,12 +120,12 @@ export function RegionColourMenu(): JSX.Element | null {
 			?.querySelector<HTMLElement>('[aria-checked="true"]')
 			?.focus({ preventScroll: true });
 		const close = () => {
-			colourMenu.value = null;
+			regionMenu.value = null;
 		};
 		const closeOutside = (event: PointerEvent) => {
 			const target = event.target as Element;
 			if (list.current?.contains(target)) return;
-			if (target.closest?.(".group-label")) return;
+			if (event.button === 0 && target.closest?.(".group-label")) return;
 			close();
 		};
 		const closeOnEscape = (event: KeyboardEvent) => {
@@ -109,66 +149,99 @@ export function RegionColourMenu(): JSX.Element | null {
 	}, [menu]);
 
 	if (!menu || !current) return null;
+	const { region } = menu;
 
+	const close = () => {
+		regionMenu.value = null;
+	};
 	const choose = (colour: RegionColour) => {
-		colourMenu.value = null;
+		close();
 		void setRegionColour(menu.cwd, colour);
 	};
 
 	const onKeyDown = (event: KeyboardEvent) => {
-		const swatches = [
-			...(list.current?.querySelectorAll<HTMLElement>("[role=menuitemradio]") ??
-				[]),
+		const within = (selector: string) => [
+			...(list.current?.querySelectorAll<HTMLElement>(selector) ?? []),
 		];
-		const focused = swatches.indexOf(document.activeElement as HTMLElement);
-		const step = stepKeys[event.key];
-		const target =
-			event.key === "Home"
-				? swatches[0]
-				: event.key === "End"
-					? swatches.at(-1)
-					: step !== undefined
-						? cycle(swatches, swatches[focused] ?? swatches[0], step)
-						: undefined;
+		const target = nextItem(
+			within("[role=menuitemradio]"),
+			within("[role=menuitem]"),
+			document.activeElement as HTMLElement | null,
+			event.key,
+		);
 		if (!target) return;
 		event.preventDefault();
 		target.focus();
 	};
 
+	const height = swatchesHeight + (region ? actionsHeight : 0);
 	return (
 		<div
 			class="colour-menu"
 			role="menu"
-			aria-label={`Colour for ${menu.project}`}
+			aria-label={`Options for ${menu.project}`}
 			ref={list}
 			style={{
-				left: `${Math.min(menu.left, innerWidth - menuWidth)}px`,
-				top: `${Math.min(menu.top, innerHeight - menuHeight)}px`,
+				left: `${Math.min(menu.at.x, innerWidth - menuWidth)}px`,
+				top: `${Math.min(menu.at.y, innerHeight - height)}px`,
 			}}
 			onKeyDown={onKeyDown}
 			onFocusOut={(event) => {
 				const next = event.relatedTarget as Node | null;
-				if (next && !list.current?.contains(next)) colourMenu.value = null;
+				if (next && !list.current?.contains(next)) close();
 			}}
 			onContextMenu={(event) => event.preventDefault()}
 		>
-			{regionColours.map((colour) => (
-				<button
-					key={colour}
-					type="button"
-					role="menuitemradio"
-					aria-checked={colour === current}
-					aria-label={colour}
-					title={colour}
-					tabIndex={colour === current ? 0 : -1}
-					class={`colour-swatch region region-${colour}`}
-					onClick={() => choose(colour)}
-				>
-					{colour === current && (
-						<Check size={14} strokeWidth={3} aria-hidden="true" />
-					)}
-				</button>
-			))}
+			<div class="colour-swatches">
+				{regionColours.map((colour) => (
+					<button
+						key={colour}
+						type="button"
+						role="menuitemradio"
+						aria-checked={colour === current}
+						aria-label={colour}
+						title={colour}
+						tabIndex={colour === current ? 0 : -1}
+						class={`colour-swatch region region-${colour}`}
+						onClick={() => choose(colour)}
+					>
+						{colour === current && (
+							<Check size={14} strokeWidth={3} aria-hidden="true" />
+						)}
+					</button>
+				))}
+			</div>
+			{region && (
+				<>
+					<span class="board-menu-sep" aria-hidden="true" />
+					<button
+						type="button"
+						role="menuitem"
+						tabIndex={-1}
+						class="board-menu-item"
+						onClick={() => {
+							close();
+							regionDialog.value = { mode: "rename", region };
+						}}
+					>
+						<Pencil size={14} aria-hidden="true" />
+						<span class="board-menu-label">Rename</span>
+					</button>
+					<button
+						type="button"
+						role="menuitem"
+						tabIndex={-1}
+						class="board-menu-item danger"
+						onClick={() => {
+							close();
+							void deleteRegion(region.id);
+						}}
+					>
+						<Trash2 size={14} aria-hidden="true" />
+						<span class="board-menu-label">Delete region</span>
+					</button>
+				</>
+			)}
 		</div>
 	);
 }

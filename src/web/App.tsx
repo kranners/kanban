@@ -3,7 +3,7 @@ import type { Board, Session } from "../shared/types.ts";
 import {
 	AnnotationLayer,
 	AnnotationMenu,
-	AnnotationTools,
+	BoardTools,
 	StickerPicker,
 	useAnnotationGestures,
 } from "./Annotations.tsx";
@@ -23,11 +23,12 @@ import type { ExitState } from "./exitState.ts";
 import { departed, exits } from "./exitState.ts";
 import { Focus } from "./focus/Focus.tsx";
 import { NewSession } from "./focus/NewSession.tsx";
-import { GroupFrames, RegionColourMenu } from "./Groups.tsx";
+import { GroupFrames, RegionMenu } from "./Groups.tsx";
 import type { NodeKey, PlacedNode } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import type { Arrangement } from "./placement.ts";
 import { Rail } from "./Rail.tsx";
+import { RegionFrames, RegionLayer } from "./Regions.tsx";
 import { BoardMenu, SpawnLayer, useBoardGestures } from "./Spawning.tsx";
 import {
 	awaitingShort,
@@ -138,7 +139,8 @@ function World(props: { board: Board; layout: Arrangement }) {
 	);
 	return (
 		<>
-			<GroupFrames groups={frames} />
+			<GroupFrames groups={frames.filter((g) => !g.region)} />
+			<RegionFrames groups={frames} />
 			<AnnotationLayer />
 			<Links board={props.board} layout={props.layout} visible={visible} />
 			{sessionCards(props.board, props.layout).map(({ session, node }) =>
@@ -236,7 +238,7 @@ function Stage() {
 			fitKey="board"
 			rectOf={(key) => arrangement.peek()?.nodes.get(key)}
 			onArrange={arrangeNode}
-			tools={<AnnotationTools />}
+			tools={<BoardTools />}
 		>
 			<World board={withoutSessions(current, departed.value)} layout={placed} />
 			<SpawnLayer />
@@ -284,7 +286,8 @@ export function App() {
 			<BoardMenu />
 			<AnnotationMenu />
 			<StickerPicker />
-			<RegionColourMenu />
+			<RegionMenu />
+			<RegionLayer />
 		</div>
 	);
 }

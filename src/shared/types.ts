@@ -119,12 +119,27 @@ export type Annotation = Note | Sticker;
 
 export type Annotations = Record<string, Annotation>;
 
+export type Region = {
+	id: string;
+	cwd: string;
+	name: string | null;
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+};
+
+export type RegionDraft = Omit<Region, "id" | "name"> & { name?: string };
+
+export type RegionPatch = Partial<Omit<Region, "id" | "cwd">>;
+
 export type BoardFeed =
 	| { type: "board"; board: Board }
 	| { type: "preview"; preview: Preview }
 	| { type: "layout"; layout: Layout }
 	| { type: "annotations"; annotations: Annotations }
 	| { type: "colours"; colours: RegionColours }
+	| { type: "regions"; regions: Region[] }
 	| { type: "exit"; sessionId: string; result: ExitResult };
 
 export type NewSessionRequest = {

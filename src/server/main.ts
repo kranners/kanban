@@ -14,6 +14,7 @@ import { startBoard } from "./ingest/index.ts";
 import { createLayoutStore, loadLayout } from "./layout.ts";
 import { createMirrorHub } from "./mirror.ts";
 import { createPreviewer } from "./preview.ts";
+import { createRegionStore, loadRegions } from "./regions.ts";
 import { claudeLauncher } from "./sessions.ts";
 
 const configOrExit = (): Config => {
@@ -47,6 +48,12 @@ const colours = createColourStore({
 	file: coloursFile,
 	initial: await loadColours(coloursFile),
 	onChange: (next) => feed?.colours(next),
+});
+const regionsFile = join(config.stateDir, "regions.json");
+const regions = createRegionStore({
+	file: regionsFile,
+	initial: await loadRegions(regionsFile),
+	onChange: (next) => feed?.regions(next),
 });
 const probes = new Set<string>();
 const cmux = cmuxCli(config.cmuxBin);
@@ -95,6 +102,7 @@ feed = createFeed({
 	layout: layout.current,
 	annotations: annotations.current,
 	colours: colours.current,
+	regions: regions.current,
 });
 
 const exitDeps = claudeExitDeps({
@@ -113,6 +121,7 @@ const server = createKanbanServer({
 	layout,
 	annotations,
 	colours,
+	regions,
 	attach: createAttachHub(claudeAttachPty(config.claudeBin), audit),
 	mirror: createMirrorHub({ cmux, resolve: cmuxTargets.resolve, audit }),
 	feed,

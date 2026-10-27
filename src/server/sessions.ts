@@ -12,7 +12,7 @@ export type SessionLauncher = (
 const maxNameLength = 60;
 const controlCharacters = /\p{Cc}/u;
 
-const isDirectory = async (path: string): Promise<boolean> => {
+export const isDirectory = async (path: string): Promise<boolean> => {
 	try {
 		return (await stat(path)).isDirectory();
 	} catch {

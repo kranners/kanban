@@ -4,6 +4,7 @@ import {
 	Copy,
 	Pencil,
 	SendToBack,
+	SquareDashed,
 	Sticker as StickerIcon,
 	StickyNote,
 	Trash2,
@@ -47,6 +48,7 @@ import {
 	noteTextLimit,
 	resized,
 } from "./notes.ts";
+import { regionDialog } from "./regionState.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 import { blocked, isTyping, pointerTarget } from "./Spawning.tsx";
 import { boardMenu } from "./spawns.ts";
@@ -551,7 +553,7 @@ function centre(): { board: Point; client: Point } | null {
 	return board ? { board, client } : null;
 }
 
-export function AnnotationTools(): JSX.Element {
+export function BoardTools(): JSX.Element {
 	return (
 		<>
 			<button
@@ -583,6 +585,18 @@ export function AnnotationTools(): JSX.Element {
 				title="Add sticker (S)"
 			>
 				<StickerIcon size={15} />
+			</button>
+			<button
+				type="button"
+				class="icon-button"
+				onClick={() => {
+					const at = centre();
+					if (at) regionDialog.value = { mode: "create", at: at.board };
+				}}
+				aria-label="New project region"
+				title="New project region (R)"
+			>
+				<SquareDashed size={15} />
 			</button>
 		</>
 	);

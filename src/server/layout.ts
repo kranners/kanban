@@ -28,7 +28,7 @@ const maxSize = 100_000;
 const pendingSpawnMs = 10 * 60_000;
 export const pruneAfterMs = 24 * 60 * 60_000;
 
-const isCoordinate = (value: unknown): value is number =>
+export const isCoordinate = (value: unknown): value is number =>
 	typeof value === "number" &&
 	Number.isFinite(value) &&
 	Math.abs(value) <= maxCoordinate;
