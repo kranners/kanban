@@ -906,7 +906,7 @@ button.reconnecting {
 	flex: 1;
 }
 
-.sub-type {
+.sub-title {
 	display: flex;
 	align-items: center;
 	gap: 6px;
@@ -915,12 +915,19 @@ button.reconnecting {
 	line-height: 18px;
 }
 
+.sub-name {
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
 .sub-pulse {
 	width: 8px;
 	height: 8px;
 }
 
-.sub-desc {
+.sub-kind {
 	font-size: 12px;
 	line-height: 16px;
 	color: var(--muted);

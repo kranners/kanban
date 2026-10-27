@@ -144,10 +144,98 @@ test("children sit below their parent and are centred under it", () => {
 	assert.ok(root && one && two);
 	assert.equal(one.y, root.y + root.h + defaultLayoutOptions.levelGap);
 	assert.equal(one.y, two.y);
-	assert.ok(one.x + one.w <= two.x);
-	const childrenCentre = (one.x + two.x + two.w) / 2;
+	assert.ok(two.x + two.w <= one.x);
+	const childrenCentre = (two.x + one.x + one.w) / 2;
 	assert.equal(root.x + root.w / 2, childrenCentre);
 	assert.equal(one.w, defaultLayoutOptions.subagent.w);
+});
+
+function crowd(count: number): Subagent[] {
+	return Array.from({ length: count }, (_, i) =>
+		subagent(`sa${i}`, "root", i + 1),
+	);
+}
+
+function overlapping(
+	placed: { key: string; x: number; y: number; w: number; h: number }[],
+): string[] {
+	return placed.flatMap((p) =>
+		placed
+			.filter(
+				(q) =>
+					p !== q &&
+					p.x < q.x + q.w &&
+					q.x < p.x + p.w &&
+					p.y < q.y + q.h &&
+					q.y < p.y + p.h,
+			)
+			.map((q) => `${p.key} overlaps ${q.key}`),
+	);
+}
+
+test("many subagents wrap into a compact grid under their session", () => {
+	const {
+		subagent: size,
+		subagentColumns,
+		siblingGap,
+		levelGap,
+	} = defaultLayoutOptions;
+	const b = board({ sessions: [session("root", 0)], subagents: crowd(40) });
+	const { nodes, width } = layoutBoard(b);
+	const root = nodes.get(nodeKey(s("root")));
+	const grid = crowd(40).map((c) => nodes.get(nodeKey(a(c.id))));
+	assert.ok(root);
+	const gridWidth = subagentColumns * (size.w + siblingGap) - siblingGap;
+	assert.equal(width, gridWidth);
+	assert.equal(new Set(grid.map((n) => n?.x)).size, subagentColumns);
+	assert.equal(
+		Math.min(...grid.map((n) => n?.y ?? 0)),
+		root.y + root.h + levelGap,
+	);
+	assert.equal(root.x + root.w / 2, width / 2);
+	assert.deepEqual(overlapping([...nodes.values()]), []);
+});
+
+test("the grid reads newest first, left to right then down", () => {
+	const b = board({ sessions: [session("root", 0)], subagents: crowd(5) });
+	const { nodes } = layoutBoard(b);
+	const at = (id: string) => nodes.get(nodeKey(a(id)));
+	const [newest, second, third, fourth] = ["sa4", "sa3", "sa2", "sa1"].map(at);
+	assert.ok(newest && second && third && fourth);
+	assert.equal(newest.y, third.y);
+	assert.ok(newest.x < second.x && second.x < third.x);
+	assert.equal(fourth.x, newest.x);
+	assert.ok(fourth.y > newest.y);
+});
+
+test("spawned sessions stay a tree beside the subagent grid", () => {
+	const b = board({
+		sessions: [session("root", 0), session("child", 50)],
+		subagents: crowd(7),
+		links: [{ from: s("root"), to: s("child"), kind: "spawned" }],
+	});
+	const { nodes } = layoutBoard(b);
+	const root = nodes.get(nodeKey(s("root")));
+	const child = nodes.get(nodeKey(s("child")));
+	const grid = crowd(7).map((c) => nodes.get(nodeKey(a(c.id))));
+	assert.ok(root && child);
+	assert.equal(child.y, root.y + root.h + defaultLayoutOptions.levelGap);
+	assert.ok(grid.every((n) => n && n.x + n.w <= child.x));
+	assert.deepEqual(overlapping([...nodes.values()]), []);
+});
+
+test("a subagent with its own subagents keeps them in a tree below it", () => {
+	const nested = { ...subagent("inner", "root", 9), parentAgentId: "outer" };
+	const b = board({
+		sessions: [session("root", 0)],
+		subagents: [subagent("outer", "root", 1), nested, ...crowd(4)],
+	});
+	const { nodes } = layoutBoard(b);
+	const outer = nodes.get(nodeKey(a("outer")));
+	const inner = nodes.get(nodeKey(a("inner")));
+	assert.ok(outer && inner);
+	assert.equal(inner.y, outer.y + outer.h + defaultLayoutOptions.levelGap);
+	assert.deepEqual(overlapping([...nodes.values()]), []);
 });
 
 test("families wrap into rows by max width without overlapping", () => {

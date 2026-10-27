@@ -219,3 +219,20 @@ test("an unsaved session keeps clear of spots reserved for spawning cards", () =
 	assert.ok(a);
 	assert.ok(!near(a, ghost, 0));
 });
+
+test("a session's many subagents follow it as a compact grid that others keep clear of", () => {
+	const crowd = Array.from({ length: 40 }, (_, i) =>
+		subagent(`sa${i}`, "busy", i + 1),
+	);
+	const b = board({
+		sessions: [session("busy", 1), session("next", 2)],
+		subagents: crowd,
+	});
+	const { nodes } = place(b, { "session:busy": { x: 0, y: 0 } });
+	const followers = crowd.map((c) => nodes.get(`subagent:${c.id}`));
+	assert.ok(followers.every((f) => f?.follows === "session:busy"));
+	const xs = followers.map((f) => f?.x ?? 0);
+	assert.ok(Math.max(...xs) - Math.min(...xs) < 4 * subagentSize.w);
+	assert.ok(followers.every((f) => f && onGrid(f)));
+	assertApart(nodes.values());
+});

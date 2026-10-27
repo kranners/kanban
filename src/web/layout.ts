@@ -24,6 +24,7 @@ export type LayoutOptions = {
 	maxWidth: number;
 	session: { w: number; h: number };
 	subagent: { w: number; h: number };
+	subagentColumns: number;
 	siblingGap: number;
 	levelGap: number;
 	familyGap: number;
@@ -36,6 +37,7 @@ export const defaultLayoutOptions: LayoutOptions = {
 	maxWidth: 2400,
 	session: { w: 312, h: 240 },
 	subagent: { w: 216, h: 72 },
+	subagentColumns: 3,
 	siblingGap: 24,
 	levelGap: 48,
 	familyGap: 144,
@@ -127,7 +129,12 @@ export function familiesOf(board: Board): NodeKey[][] {
 	);
 }
 
-type Tree = { key: NodeKey; children: Tree[]; width: number };
+type Tree = {
+	key: NodeKey;
+	grid: NodeKey[];
+	branches: Tree[];
+	width: number;
+};
 
 export function layoutBoard(
 	board: Board,
@@ -156,6 +163,28 @@ export function layoutBoard(
 			a.localeCompare(b)
 		);
 	};
+	const newestFirst = (a: NodeKey, b: NodeKey) =>
+		(nodes.get(b)?.startedAt ?? 0) - (nodes.get(a)?.startedAt ?? 0) ||
+		a.localeCompare(b);
+	const isLeafSubagent = (tree: Tree) =>
+		nodes.get(tree.key)?.ref.kind === "subagent" &&
+		tree.grid.length === 0 &&
+		tree.branches.length === 0;
+
+	const gridColumns = (count: number) =>
+		Math.min(count, options.subagentColumns);
+	const gridWidth = (count: number) =>
+		count === 0
+			? 0
+			: gridColumns(count) * (options.subagent.w + options.siblingGap) -
+				options.siblingGap;
+	const blockWidths = (tree: Tree) => [
+		...(tree.grid.length > 0 ? [gridWidth(tree.grid.length)] : []),
+		...tree.branches.map((b) => b.width),
+	];
+	const rowWidth = (widths: number[]) =>
+		widths.reduce((sum, w) => sum + w, 0) +
+		Math.max(0, widths.length - 1) * options.siblingGap;
 
 	const visited = new Set<NodeKey>();
 	const build = (key: NodeKey): Tree => {
@@ -164,13 +193,46 @@ export function layoutBoard(
 			.filter((c) => !visited.has(c))
 			.sort(childOrder)
 			.map(build);
-		const childrenWidth =
-			children.reduce((sum, c) => sum + c.width, 0) +
-			Math.max(0, children.length - 1) * options.siblingGap;
-		return { key, children, width: Math.max(size(key).w, childrenWidth) };
+		const tree: Tree = {
+			key,
+			grid: children
+				.filter(isLeafSubagent)
+				.map((c) => c.key)
+				.sort(newestFirst),
+			branches: children.filter((c) => !isLeafSubagent(c)),
+			width: 0,
+		};
+		tree.width = Math.max(size(key).w, rowWidth(blockWidths(tree)));
+		return tree;
 	};
 
 	const placed = new Map<NodeKey, PlacedNode>();
+	const put = (key: NodeKey, x: number, y: number, family: number) => {
+		const node = nodes.get(key);
+		if (node)
+			placed.set(key, { key, ref: node.ref, family, x, y, ...size(key) });
+	};
+	const placeGrid = (
+		keys: NodeKey[],
+		left: number,
+		top: number,
+		family: number,
+	): number => {
+		const { w, h } = options.subagent;
+		const columns = gridColumns(keys.length);
+		keys.forEach((key, index) => {
+			const column = index % columns;
+			const row = Math.floor(index / columns);
+			put(
+				key,
+				left + column * (w + options.siblingGap),
+				top + row * (h + options.siblingGap),
+				family,
+			);
+		});
+		const rows = Math.ceil(keys.length / columns);
+		return top + rows * h + (rows - 1) * options.siblingGap;
+	};
 	const place = (
 		tree: Tree,
 		left: number,
@@ -178,28 +240,18 @@ export function layoutBoard(
 		family: number,
 	): number => {
 		const { w, h } = size(tree.key);
-		const node = nodes.get(tree.key);
-		if (!node) return top;
-		placed.set(tree.key, {
-			key: tree.key,
-			ref: node.ref,
-			family,
-			x: left + (tree.width - w) / 2,
-			y: top,
-			w,
-			h,
-		});
-		const childrenWidth =
-			tree.children.reduce((sum, c) => sum + c.width, 0) +
-			Math.max(0, tree.children.length - 1) * options.siblingGap;
-		let cursor = left + (tree.width - childrenWidth) / 2;
+		if (!nodes.has(tree.key)) return top;
+		put(tree.key, left + (tree.width - w) / 2, top, family);
+		const childTop = top + h + options.levelGap;
+		let cursor = left + (tree.width - rowWidth(blockWidths(tree))) / 2;
 		let bottom = top + h;
-		for (const child of tree.children) {
-			bottom = Math.max(
-				bottom,
-				place(child, cursor, top + h + options.levelGap, family),
-			);
-			cursor += child.width + options.siblingGap;
+		if (tree.grid.length > 0) {
+			bottom = Math.max(bottom, placeGrid(tree.grid, cursor, childTop, family));
+			cursor += gridWidth(tree.grid.length) + options.siblingGap;
+		}
+		for (const branch of tree.branches) {
+			bottom = Math.max(bottom, place(branch, cursor, childTop, family));
+			cursor += branch.width + options.siblingGap;
 		}
 		return bottom;
 	};
