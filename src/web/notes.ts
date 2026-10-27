@@ -215,11 +215,10 @@ export function duplicated(
 	const top = topZ(annotations);
 	const sources = selected(annotations, ids);
 	const offset = clearShift(sources, taken, { x: gridSize, y: gridSize });
-	return sources.map((a, index) => ({
-		...moved(a, offset.x, offset.y),
-		id: newId(),
-		z: top + index + 1,
-	}));
+	return sources.map((a, index) => {
+		const { session: _, ...copy } = moved(a, offset.x, offset.y) as Note;
+		return { ...(copy as Annotation), id: newId(), z: top + index + 1 };
+	});
 }
 
 export function recoloured(

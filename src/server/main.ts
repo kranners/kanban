@@ -34,6 +34,7 @@ import { createLayoutStore, loadLayout } from "./layout.ts";
 import { createMirrorHub } from "./mirror.ts";
 import { createPromptSender } from "./prompts.ts";
 import { createRegionStore, loadRegions } from "./regions.ts";
+import { cardsOf, createReportRunner } from "./reports.ts";
 import { claudeLauncher } from "./sessions.ts";
 import { attachTty, cmuxTty, sharedAttachTty } from "./terminals.ts";
 
@@ -138,6 +139,14 @@ const runExit = createExitRunner({
 	audit,
 	announce: (sessionId, result) => feed?.exit(sessionId, result),
 });
+const ask = claudeAsker({ claudeBin: config.claudeBin, probes });
+const runReport = createReportRunner({
+	ask,
+	annotations,
+	cards: () => cardsOf(source.board(), layout.current()),
+	audit,
+	announce: (sessionId, result) => feed?.report(sessionId, result),
+});
 const launch = claudeLauncher(config.claudeBin);
 const attachPty = claudeAttachPty(config.claudeBin);
 const attach = createAttachHub(attachPty, audit, (short) =>
@@ -187,7 +196,7 @@ const tools = createBoardTools({
 	comments,
 	launch,
 	exit: runExit,
-	ask: claudeAsker({ claudeBin: config.claudeBin, probes }),
+	ask,
 	prompt: createPromptSender({
 		spawnPty: attachPty,
 		attached: attachedAnywhere,
@@ -204,6 +213,7 @@ const server = createKanbanServer({
 	source,
 	launch,
 	exit: runExit,
+	report: runReport,
 	layout,
 	annotations,
 	colours,

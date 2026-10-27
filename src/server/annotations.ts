@@ -67,14 +67,18 @@ export const parseAnnotation = (
 	if (!isDepth(z)) return { error: "z must be a finite number" };
 	const placed = { id, ...point, w, h, z };
 	if (fields.kind === "note") {
-		const { text, color } = fields;
+		const { text, color, session } = fields;
 		if (typeof text !== "string" || text.length > maxNoteText) {
 			return { error: `text must be a string of at most ${maxNoteText}` };
 		}
 		if (!isNoteColor(color)) {
 			return { error: `color must be one of ${noteColors.join(", ")}` };
 		}
-		return { ...placed, kind: "note", text, color };
+		if (session === undefined) return { ...placed, kind: "note", text, color };
+		if (typeof session !== "string" || !annotationIdPattern.test(session)) {
+			return { error: "session must be a session id" };
+		}
+		return { ...placed, kind: "note", text, color, session };
 	}
 	if (fields.kind === "sticker") {
 		const { sticker, rotation } = fields;

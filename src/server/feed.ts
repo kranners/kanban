@@ -7,6 +7,7 @@ import type {
 	ExitResult,
 	Layout,
 	Region,
+	ReportResult,
 } from "../shared/types.ts";
 
 export type FeedSocket = {
@@ -23,6 +24,7 @@ export type Feed = {
 	colours(colours: RegionColours): void;
 	regions(regions: Region[]): void;
 	exit(sessionId: string, result: ExitResult): void;
+	report(sessionId: string, result: ReportResult): void;
 	comments(comments: CommentThread[]): void;
 	comment(comment: CommentThread): void;
 	size(): number;
@@ -77,6 +79,8 @@ export const createFeed = ({
 		colours: (next) => broadcast({ type: "colours", colours: next }),
 		regions: (next) => broadcast({ type: "regions", regions: next }),
 		exit: (sessionId, result) => broadcast({ type: "exit", sessionId, result }),
+		report: (sessionId, result) =>
+			broadcast({ type: "report", sessionId, result }),
 		comments: (next) => broadcast({ type: "comments", comments: next }),
 		comment: (comment) => broadcast({ type: "comment", comment }),
 		size: () => clients.size,

@@ -196,6 +196,7 @@ export const snapshot = (
 							id: a.id,
 							...rect(a),
 							color: a.color,
+							session: a.session,
 							text: truncate(a.text, noteTextShown),
 						},
 					]

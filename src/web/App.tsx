@@ -8,6 +8,7 @@ import {
 	useAnnotationGestures,
 } from "./Annotations.tsx";
 import { withoutSessions } from "./actions.ts";
+import { ordered } from "./annotations.ts";
 import { arrangement, arrangeNode, groups } from "./arrangement.ts";
 import { arrived, beckoned } from "./attentionState.ts";
 import { Canvas } from "./Canvas.tsx";
@@ -18,7 +19,7 @@ import {
 	useCommentGestures,
 } from "./Comments.tsx";
 import { colourOf } from "./colours.ts";
-import { Arcs, Links, messagePairs } from "./Edges.tsx";
+import { Arcs, Links, messagePairs, Tethers } from "./Edges.tsx";
 import {
 	CloseButton,
 	ExitDialog,
@@ -36,6 +37,8 @@ import { useNeedsYouShortcut } from "./NeedsYou.tsx";
 import type { Arrangement } from "./placement.ts";
 import { Rail } from "./Rail.tsx";
 import { RegionFrames, RegionLayer } from "./Regions.tsx";
+import { ReportButton, ReportNotice } from "./ReportControls.tsx";
+import { reports } from "./reports.ts";
 import { BoardMenu, SpawnLayer, useBoardGestures } from "./Spawning.tsx";
 import {
 	awaitingShort,
@@ -122,6 +125,7 @@ function World(props: { board: Board; layout: Arrangement }) {
 		frames.flatMap((g) => g.members.map((key) => [key, colourOf(g.cwd)])),
 	);
 	const exiting = exits.value;
+	const reporting = reports.value;
 	const landed = arrived.value;
 	const sought = beckoned.value;
 	const card = (
@@ -144,8 +148,19 @@ function World(props: { board: Board; layout: Arrangement }) {
 			}}
 			onOpen={openSession}
 			state={exitStateClass(state)}
-			corner={<CloseButton session={session} state={state} />}
-			notice={<ExitNotice session={session} state={state} />}
+			corner={
+				<>
+					<ReportButton session={session} state={reporting.get(session.id)} />
+					<CloseButton session={session} state={state} />
+				</>
+			}
+			notice={
+				state?.phase === "checking" || state?.phase === "refused" ? (
+					<ExitNotice session={session} state={state} />
+				) : (
+					<ReportNotice session={session} state={reporting.get(session.id)} />
+				)
+			}
 		/>
 	);
 	return (
@@ -153,6 +168,7 @@ function World(props: { board: Board; layout: Arrangement }) {
 			<GroupFrames groups={frames.filter((g) => !g.region)} />
 			<RegionFrames groups={frames} />
 			<AnnotationLayer />
+			<Tethers layout={props.layout} visible={visible} notes={ordered.value} />
 			<Links board={props.board} layout={props.layout} visible={visible} />
 			{sessionCards(props.board, props.layout).map(({ session, node }) =>
 				card(session, node, exiting.get(session.id)),
