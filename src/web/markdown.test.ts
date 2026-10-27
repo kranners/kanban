@@ -6,7 +6,6 @@ import {
 	parseMarkdown,
 	renderMarkdown,
 	safeHref,
-	safeImageSrc,
 	toggledTask,
 } from "./markdown.ts";
 
@@ -28,6 +27,13 @@ function text(tree: ComponentChildren): string {
 	if (typeof tree === "string" || typeof tree === "number") return `${tree}`;
 	if (tree === null || typeof tree !== "object") return "";
 	return text((tree as VNode<{ children?: ComponentChildren }>).props.children);
+}
+
+function depthOf(tree: ComponentChildren): number {
+	if (Array.isArray(tree)) return Math.max(0, ...tree.map(depthOf));
+	if (tree === null || typeof tree !== "object") return 0;
+	const node = tree as VNode<{ children?: ComponentChildren }>;
+	return 1 + depthOf(node.props.children);
 }
 
 function rendered(source: string, onToggle?: (marker: number) => void) {
@@ -97,7 +103,6 @@ describe("markdown rendering", () => {
 			"pre",
 			"hr",
 			"a",
-			"img",
 		]) {
 			assert.ok(types.has(tag), tag);
 		}
@@ -107,6 +112,7 @@ describe("markdown rendering", () => {
 			[
 				["https://example.com/", "_blank", "noopener noreferrer"],
 				["http://www.example.org/", "_blank", "noopener noreferrer"],
+				["https://example.com/chart.png", "_blank", "noopener noreferrer"],
 			],
 		);
 		const cells = found.filter((e) => e.type === "th");
@@ -154,7 +160,6 @@ describe("markdown rendering", () => {
 			"[x](vbscript:msgbox(1))",
 			"[x](data:text/html,<script>alert(1)</script>)",
 			"![x](data:image/svg+xml,<svg onload=alert(1)>)",
-			"![x](http://example.com/a.png)",
 			"![x](javascript:alert(1))",
 			"[x][r]\n\n[r]: javascript:alert(1)",
 			'<a href="javascript:alert(1)">x</a>',
@@ -173,11 +178,30 @@ describe("markdown rendering", () => {
 	it("accepts only web and mail URLs", () => {
 		assert.equal(safeHref("mailto:a@example.com"), "mailto:a@example.com");
 		assert.equal(safeHref("ftp://example.com"), undefined);
-		assert.equal(
-			safeImageSrc("https://example.com/a.png"),
-			"https://example.com/a.png",
+	});
+
+	it("shows images as links so nothing loads until clicked", () => {
+		const { elements: found, text: shown } = rendered(
+			"![chart](https://example.com/c.png?leak=1)\n\n![](https://example.com/x.svg)",
 		);
-		assert.equal(safeImageSrc("data:image/png;base64,AAAA"), undefined);
+		assert.equal(found.filter((e) => e.type === "img").length, 0);
+		assert.deepEqual(
+			found.filter((e) => e.type === "a").map((a) => a.props.href),
+			["https://example.com/c.png?leak=1", "https://example.com/x.svg"],
+		);
+		assert.ok(shown.includes("chart"));
+	});
+
+	it("flattens nesting past a fixed depth instead of overflowing the stack", () => {
+		for (const source of [
+			`${"> ".repeat(5000)}boom`,
+			`${"- ".repeat(800)}x`,
+			`${"- ".repeat(3000)}x`,
+		]) {
+			const { tree, text: shown } = rendered(source);
+			assert.ok(depthOf(tree) < 120, source.slice(0, 4));
+			assert.ok(shown.includes(source.endsWith("boom") ? "boom" : "x"));
+		}
 	});
 
 	it("centres only plain paragraphs", () => {

@@ -10,16 +10,32 @@ type Context = {
 	source: string;
 	definitions: Map<string, Definition>;
 	onToggle: TaskToggle | undefined;
+	depth: number;
 };
+
+const maxDepth = 32;
 
 const linkProtocols = new Set(["http:", "https:", "mailto:"]);
 const taskPrefix = /(?:[-+*]|\d{1,9}[.)])\s+(?=\[[ xX]\])/y;
 
+function plainRoot(source: string): Root {
+	return {
+		type: "root",
+		children: [
+			{ type: "paragraph", children: [{ type: "text", value: source }] },
+		],
+	};
+}
+
 export function parseMarkdown(source: string): Root {
-	return fromMarkdown(source, {
-		extensions: [gfm()],
-		mdastExtensions: [gfmFromMarkdown()],
-	});
+	try {
+		return fromMarkdown(source, {
+			extensions: [gfm()],
+			mdastExtensions: [gfmFromMarkdown()],
+		});
+	} catch {
+		return plainRoot(source);
+	}
 }
 
 export function isPlain(root: Root): boolean {
@@ -29,11 +45,6 @@ export function isPlain(root: Root): boolean {
 export function safeHref(url: string): string | undefined {
 	const parsed = URL.parse(url);
 	return parsed && linkProtocols.has(parsed.protocol) ? parsed.href : undefined;
-}
-
-export function safeImageSrc(url: string): string | undefined {
-	const parsed = URL.parse(url);
-	return parsed?.protocol === "https:" ? parsed.href : undefined;
 }
 
 export function taskMarker(source: string, item: ListItem): number | undefined {
@@ -53,18 +64,30 @@ export function toggledTask(source: string, marker: number): string {
 
 function definitionsIn(root: Root): Map<string, Definition> {
 	const found = new Map<string, Definition>();
-	const visit = (node: Nodes) => {
+	const pending: Nodes[] = [root];
+	for (let node = pending.pop(); node; node = pending.pop()) {
 		if (node.type === "definition" && !found.has(node.identifier)) {
 			found.set(node.identifier, node);
 		}
-		if ("children" in node) node.children.forEach(visit);
-	};
-	visit(root);
+		if ("children" in node) pending.push(...node.children.toReversed());
+	}
 	return found;
 }
 
+function sourceOf(node: Nodes, context: Context): string {
+	const { start, end } = node.position ?? {};
+	return start?.offset === undefined || end?.offset === undefined
+		? ""
+		: context.source.slice(start.offset, end.offset);
+}
+
+function deeper(context: Context): Context {
+	return { ...context, depth: context.depth + 1 };
+}
+
 function children(parent: Parents, context: Context): ComponentChildren[] {
-	return parent.children.map((child) => render(child, context));
+	const inner = deeper(context);
+	return parent.children.map((child) => render(child, inner));
 }
 
 function link(
@@ -91,16 +114,7 @@ function image(
 	alt: string | null | undefined,
 	title: string | null | undefined,
 ): ComponentChildren {
-	const src = safeImageSrc(url);
-	if (!src) return alt ?? "";
-	return h("img", {
-		src,
-		alt: alt ?? "",
-		title: title ?? undefined,
-		loading: "lazy",
-		referrerpolicy: "no-referrer",
-		draggable: false,
-	});
+	return link(url, title, alt || url);
 }
 
 function listItem(
@@ -111,7 +125,7 @@ function listItem(
 	const content = item.children.map((child) =>
 		tight && child.type === "paragraph"
 			? children(child, context)
-			: render(child, context),
+			: render(child, deeper(context)),
 	);
 	if (item.checked == null) return h("li", null, content);
 	const marker = taskMarker(context.source, item);
@@ -133,6 +147,7 @@ function listItem(
 }
 
 function render(node: Nodes, context: Context): ComponentChildren {
+	if (context.depth > maxDepth) return sourceOf(node, context);
 	switch (node.type) {
 		case "root":
 			return children(node, context);
@@ -237,5 +252,6 @@ export function renderMarkdown(
 		source,
 		definitions: definitionsIn(root),
 		onToggle,
+		depth: 0,
 	});
 }

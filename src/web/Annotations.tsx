@@ -157,7 +157,7 @@ function NoteEditor(props: { note: Note }): JSX.Element {
 	const { note } = props;
 	const field = useRef<HTMLTextAreaElement>(null);
 	const [text, setText] = useState(note.text);
-	const plain = useMemo(() => isPlain(parseMarkdown(text)), [text]);
+	const [plain] = useState(() => isPlain(parseMarkdown(note.text)));
 
 	useEffect(() => {
 		const element = field.current;

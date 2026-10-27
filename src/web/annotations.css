@@ -258,11 +258,9 @@
 }
 
 .markdown table {
-	display: block;
-	max-width: 100%;
-	overflow-x: auto;
 	border-collapse: collapse;
 	white-space: normal;
+	overflow-wrap: normal;
 }
 
 .markdown :is(th, td) {
@@ -283,13 +281,6 @@
 
 .markdown del {
 	opacity: 0.7;
-}
-
-.markdown img {
-	max-width: 100%;
-	height: auto;
-	border-radius: 3px;
-	vertical-align: middle;
 }
 
 .markdown .footnote {
