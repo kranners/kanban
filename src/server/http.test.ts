@@ -193,6 +193,8 @@ const board: Board = {
 	],
 	subagents: [],
 	subagentCounts: {},
+	subagentStates: {},
+	workflowRuns: {},
 	links: [],
 	messages: [],
 	generatedAt: 1,

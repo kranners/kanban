@@ -7,6 +7,7 @@ import type {
 import {
 	activeToken,
 	applyItems,
+	backgroundTools,
 	complete,
 	diffLines,
 	diffStats,
@@ -37,6 +38,7 @@ const result = (changes: Partial<ToolResult> = {}): ToolResult => ({
 	answers: null,
 	interrupted: false,
 	artifact: null,
+	task: null,
 	at: 0,
 	...changes,
 });
@@ -122,6 +124,38 @@ describe("tool blocks", () => {
 		assert.equal(
 			toolState(tool("Bash", {}, result({ interrupted: true }))),
 			"interrupted",
+		);
+		assert.equal(
+			toolState(
+				tool(
+					"Edit",
+					{},
+					result({
+						isError: true,
+						text: "The user doesn't want to proceed with this tool use. The tool use was rejected.",
+					}),
+				),
+			),
+			"rejected",
+		);
+		const launched = (status: string | null) =>
+			tool(
+				"Workflow",
+				{
+					script:
+						"export const meta = {\n  name: 'tidy',\n  description: 'Tidy the \\'docs\\'',\n}\n",
+				},
+				result({
+					task: { id: "w1", runId: "wf_1", summary: null, status },
+				}),
+			);
+		assert.equal(toolState(launched(null)), "background");
+		assert.equal(toolState(launched("completed")), "done");
+		assert.equal(toolState(launched("failed")), "error");
+		assert.equal(toolDetail(launched(null)), "Tidy the 'docs'");
+		assert.deepEqual(
+			backgroundTools([launched(null), launched("completed")]).length,
+			1,
 		);
 		assert.equal(
 			exitCode(

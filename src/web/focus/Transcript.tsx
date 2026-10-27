@@ -19,15 +19,17 @@ import {
 	Search,
 	SquareTerminal,
 	TriangleAlert,
+	Workflow,
 	Wrench,
 } from "lucide-preact";
 import type { ComponentChildren, JSX } from "preact";
 import { memo } from "preact/compat";
 import { useState } from "preact/hooks";
 import type { ConversationItem } from "../../shared/conversation.ts";
-import type { SubagentState } from "../../shared/subagents.ts";
+import { noSubagents, type SubagentState } from "../../shared/subagents.ts";
 import { ActivityBadge } from "../activity.tsx";
 import { renderMarkdown } from "../markdown.ts";
+import { subagentHeadline } from "../subagentCounts.ts";
 import {
 	type DiffLine,
 	diffLines,
@@ -37,15 +39,25 @@ import {
 	matchCount,
 	mcpParts,
 	type ToolItem,
+	type ToolState,
 	todos,
 	toolDetail,
 	toolState,
 	toolTitle,
+	workflowDescription,
 } from "./conversation.ts";
 
-export type LinkedSubagent = { open: () => void; state: SubagentState };
+export type LinkedSubagent = {
+	id: string;
+	label: string;
+	open: (() => void) | null;
+	state: SubagentState;
+};
 
-export type SubagentLink = (agentId: string) => LinkedSubagent | null;
+export type Links = {
+	subagent(agentId: string): LinkedSubagent | null;
+	run(runId: string): LinkedSubagent[];
+};
 
 const toolIcons: Record<string, typeof Wrench> = {
 	Bash: SquareTerminal,
@@ -62,6 +74,7 @@ const toolIcons: Record<string, typeof Wrench> = {
 	WebFetch: Globe,
 	WebSearch: Globe,
 	AskUserQuestion: MessageCircleQuestion,
+	Workflow: Workflow,
 	Artifact: AppWindow,
 };
 
@@ -160,7 +173,31 @@ function Asked(props: { item: ToolItem }) {
 	);
 }
 
-function ToolBody(props: { item: ToolItem; linked: LinkedSubagent | null }) {
+function RunAgents(props: { agents: LinkedSubagent[] }) {
+	if (props.agents.length === 0) return null;
+	return (
+		<ul class="av-run">
+			{props.agents.map((agent) => (
+				<li key={agent.id}>
+					<ActivityBadge activity={agent.state} />
+					{agent.open ? (
+						<button type="button" class="av-link" onClick={agent.open}>
+							{agent.label}
+						</button>
+					) : (
+						<span>{agent.label}</span>
+					)}
+				</li>
+			))}
+		</ul>
+	);
+}
+
+function ToolBody(props: {
+	item: ToolItem;
+	linked: LinkedSubagent | null;
+	run: LinkedSubagent[];
+}) {
 	const { item } = props;
 	const { input, result } = item;
 	const resultText = result?.text ?? "";
@@ -196,7 +233,7 @@ function ToolBody(props: { item: ToolItem; linked: LinkedSubagent | null }) {
 		case "Task": {
 			return (
 				<>
-					{props.linked && (
+					{props.linked?.open && (
 						<button type="button" class="av-link" onClick={props.linked.open}>
 							<Bot size={13} aria-hidden="true" />
 							Open the subagent
@@ -227,6 +264,19 @@ function ToolBody(props: { item: ToolItem; linked: LinkedSubagent | null }) {
 					<Output label="Result" text={resultText} error={error} />
 				</>
 			);
+		case "Workflow":
+			return (
+				<>
+					<p class="av-run-summary">
+						{result?.task?.summary ?? workflowDescription(input)}
+						{result?.task && (
+							<span class="av-chip num">task {result.task.id}</span>
+						)}
+					</p>
+					<RunAgents agents={props.run} />
+					{error && <Output text={resultText} error />}
+				</>
+			);
 		case "Read":
 		case "Grep":
 		case "Glob":
@@ -241,6 +291,23 @@ function ToolBody(props: { item: ToolItem; linked: LinkedSubagent | null }) {
 				</>
 			);
 	}
+}
+
+function Rejected(props: { item: ToolItem }) {
+	return (
+		<div class="av-quiet av-rejected">
+			<CircleSlash size={13} aria-hidden="true" />
+			{`Rejected ${toolTitle(props.item.name)}`}
+			<span class="av-tool-detail">{toolDetail(props.item)}</span>
+		</div>
+	);
+}
+
+function RunCounts(props: { agents: LinkedSubagent[] }) {
+	const counts = noSubagents();
+	for (const agent of props.agents) counts[agent.state] += 1;
+	const headline = subagentHeadline(counts, "waiting");
+	return headline ? <span class="av-chip num">{headline}</span> : null;
 }
 
 function ToolSummaryExtras(props: { item: ToolItem }) {
@@ -270,18 +337,23 @@ function ToolSummaryExtras(props: { item: ToolItem }) {
 	);
 }
 
-const stateLabels = {
+const stateLabels: Record<ToolState, string> = {
 	running: "Running",
+	background: "Running in the background",
 	done: "Done",
 	error: "Error",
 	interrupted: "Interrupted",
+	rejected: "Rejected",
 };
 
-function StateMark(props: { state: keyof typeof stateLabels }) {
+function StateMark(props: { state: ToolState }) {
 	const label = stateLabels[props.state];
 	switch (props.state) {
 		case "running":
-			return <span class="av-running" role="img" aria-label={label} />;
+		case "background":
+			return (
+				<span class="av-running" role="img" aria-label={label} title={label} />
+			);
 		case "error":
 			return (
 				<CircleAlert size={14} class="av-state-error" aria-label={label} />
@@ -295,13 +367,16 @@ function StateMark(props: { state: keyof typeof stateLabels }) {
 	}
 }
 
-function Tool(props: { item: ToolItem; subagent: SubagentLink }) {
+function Tool(props: { item: ToolItem; links: Links }) {
 	const { item } = props;
 	const [open, setOpen] = useState(item.name === "TodoWrite");
 	const Icon = iconFor(item.name);
 	const state = toolState(item);
 	const agentId = item.result?.agentId;
-	const linked = agentId ? props.subagent(agentId) : null;
+	const linked = agentId ? props.links.subagent(agentId) : null;
+	const runId = item.result?.task?.runId;
+	const run = runId ? props.links.run(runId) : [];
+	if (state === "rejected") return <Rejected item={item} />;
 	return (
 		<details
 			class={`av-tool av-tool-${state}`}
@@ -313,6 +388,7 @@ function Tool(props: { item: ToolItem; subagent: SubagentLink }) {
 				<span class="av-tool-name">{toolTitle(item.name)}</span>
 				<span class="av-tool-detail">{toolDetail(item)}</span>
 				<ToolSummaryExtras item={item} />
+				<RunCounts agents={run} />
 				{linked ? (
 					<ActivityBadge activity={linked.state} />
 				) : (
@@ -321,7 +397,7 @@ function Tool(props: { item: ToolItem; subagent: SubagentLink }) {
 			</summary>
 			{open && (
 				<div class="av-tool-body">
-					<ToolBody item={item} linked={linked} />
+					<ToolBody item={item} linked={linked} run={run} />
 				</div>
 			)}
 		</details>
@@ -402,8 +478,8 @@ function Compaction(props: Extract<ConversationItem, { kind: "compaction" }>) {
 
 function Item(props: {
 	item: ConversationItem;
-	subagent: SubagentLink;
-}): JSX.Element {
+	links: Links;
+}): JSX.Element | null {
 	const { item } = props;
 	switch (item.kind) {
 		case "user":
@@ -436,7 +512,7 @@ function Item(props: {
 		case "thinking":
 			return <Thinking text={item.text} durationMs={item.durationMs} />;
 		case "tool":
-			return <Tool item={item} subagent={props.subagent} />;
+			return <Tool item={item} links={props.links} />;
 		case "notice":
 			return <Notice level={item.level}>{item.text}</Notice>;
 		case "compaction":
@@ -465,11 +541,12 @@ function Item(props: {
 					{item.summary}
 				</Notice>
 			);
+		case "rewound":
+			return null;
 	}
 }
 
 export const TranscriptItem = memo(
 	Item,
-	(before, after) =>
-		before.item === after.item && before.subagent === after.subagent,
+	(before, after) => before.item === after.item && before.links === after.links,
 );

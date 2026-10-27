@@ -10,6 +10,7 @@ import {
 } from "../shared/subagents.ts";
 import { ActivityBadge, ActivityIcon, activityLabel } from "./activity.tsx";
 import type { PlacedNode } from "./layout.ts";
+import { plainText } from "./markdown.ts";
 import { subagentHeadline } from "./subagentCounts.ts";
 import { ago, relativeTime } from "./time.ts";
 
@@ -191,7 +192,9 @@ export function SessionCard(props: {
 		>
 			<div class="label">
 				{!repeatsGoal(session) && <div class="label-name">{session.name}</div>}
-				<div class="label-doing">{session.doing ?? activityHint(session)}</div>
+				<div class="label-doing">
+					{session.doing ? plainText(session.doing) : activityHint(session)}
+				</div>
 			</div>
 			<button
 				type="button"
