@@ -28,6 +28,13 @@ export type AuditEvent =
 	  }
 	| { action: "mirror-open"; sessionId: string; identity: string | null }
 	| {
+			action: "board-agent";
+			thread: string;
+			tool: string;
+			target: string | null;
+			result: string;
+	  }
+	| {
 			action: "mirror-send";
 			sessionId: string;
 			surface: string | null;

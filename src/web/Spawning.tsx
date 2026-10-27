@@ -14,6 +14,7 @@ import type { Point } from "../shared/types.ts";
 import { cycle, isQuickPromptKey } from "./actions.ts";
 import { addNote, annotationMenu, stickerPicker } from "./annotations.ts";
 import { boardPointAt, clientPointOf, view } from "./Canvas.tsx";
+import { composer, threadMenu } from "./comments.ts";
 import { exitAsk } from "./exits.ts";
 import { directoryName } from "./focus/paths.ts";
 import { moveMenuFocus } from "./menuFocus.ts";
@@ -42,6 +43,8 @@ export function blocked(): boolean {
 		stickerPicker.peek() !== null ||
 		regionMenu.peek() !== null ||
 		regionDialog.peek() !== null ||
+		composer.peek() !== null ||
+		threadMenu.peek() !== null ||
 		document.querySelector("dialog[open]") !== null
 	);
 }

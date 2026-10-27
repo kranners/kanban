@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { ExitResult, Session } from "../shared/types.ts";
 import { lastLine } from "./ansi.ts";
+import type { Audit } from "./audit.ts";
 import {
 	isAlive,
 	type RegistryEntry,
@@ -44,7 +45,7 @@ export const readinessPrompt =
 	"or anything that would be lost if the session exited now, such as uncommitted or unpushed changes, a running task, or a question waiting on an answer? " +
 	"Set ready to true only if it is safe to exit now. Give the reason in one short sentence.";
 
-export const readinessArgs = (sessionId: string, forkId: string): string[] => [
+const forkArgs = (sessionId: string, forkId: string): string[] => [
 	"-p",
 	"--resume",
 	sessionId,
@@ -61,11 +62,21 @@ export const readinessArgs = (sessionId: string, forkId: string): string[] => [
 	JSON.stringify({ disableAllHooks: true }),
 	"--output-format",
 	"json",
+];
+
+export const readinessArgs = (sessionId: string, forkId: string): string[] => [
+	...forkArgs(sessionId, forkId),
 	"--json-schema",
 	JSON.stringify(readinessSchema),
 	"--",
 	readinessPrompt,
 ];
+
+export const askArgs = (
+	sessionId: string,
+	forkId: string,
+	question: string,
+): string[] => [...forkArgs(sessionId, forkId), "--", question];
 
 export const parseReadiness = (stdout: string, stderr = ""): Readiness => {
 	let result: unknown;
@@ -141,6 +152,80 @@ export const exitSession = async (
 			};
 };
 
+export type ExitRunner = (
+	session: Session,
+	force: boolean,
+	identity: string | null,
+) => Promise<ExitResult> | null;
+
+export const createExitRunner = (deps: {
+	exit: SessionExiter;
+	audit: Audit;
+	announce: (sessionId: string, result: ExitResult) => void;
+}): ExitRunner => {
+	const exiting = new Set<string>();
+	return (session, force, identity) => {
+		if (exiting.has(session.id)) return null;
+		exiting.add(session.id);
+		return deps
+			.exit(session, force)
+			.catch(
+				(error: unknown): ExitResult => ({
+					ok: false,
+					error: `Exit failed: ${(error as Error).message}`,
+				}),
+			)
+			.finally(() => exiting.delete(session.id))
+			.then((result) => {
+				deps.audit({
+					action: "session-exit",
+					sessionId: session.id,
+					short: session.short,
+					kind: session.kind,
+					force,
+					identity,
+					result: !result.ok
+						? `error: ${result.error}`
+						: result.exited
+							? "exited"
+							: `not ready: ${result.reason}`,
+				});
+				deps.announce(session.id, result);
+				return result;
+			});
+	};
+};
+
+export type Answer =
+	| { ok: true; answer: string }
+	| { ok: false; error: string };
+
+export const parseAnswer = (stdout: string, stderr = ""): Answer => {
+	let result: unknown;
+	try {
+		result = JSON.parse(stdout);
+	} catch {
+		const detail = lastLine(`${stdout}\n${stderr}`);
+		return {
+			ok: false,
+			error: detail
+				? `Could not ask the session: ${detail}`
+				: "Could not ask the session",
+		};
+	}
+	const record = (result ?? {}) as Record<string, unknown>;
+	const answer = typeof record.result === "string" ? record.result.trim() : "";
+	if (record.is_error === true || !answer) {
+		return {
+			ok: false,
+			error: answer
+				? `The session did not answer: ${lastLine(answer)}`
+				: "The session did not answer",
+		};
+	}
+	return { ok: true, answer };
+};
+
 const run = (
 	claudeBin: string,
 	args: string[],
@@ -206,11 +291,44 @@ const askTimeoutMs = 5 * 60_000;
 const commandTimeoutMs = 2 * 60_000;
 const probeForgetMs = 60_000;
 
-export const claudeExitDeps = (opts: {
-	claudeBin: string;
-	claudeHome: string;
-	probes: Set<string>;
-}): ExitDeps => {
+type ForkOptions = { claudeBin: string; probes: Set<string> };
+
+const inFork = async (
+	opts: ForkOptions,
+	session: Session,
+	args: (forkId: string) => string[],
+) => {
+	const forkId = randomUUID();
+	opts.probes.add(forkId);
+	try {
+		return await run(
+			opts.claudeBin,
+			args(forkId),
+			session.cwd || undefined,
+			askTimeoutMs,
+		);
+	} finally {
+		setTimeout(() => opts.probes.delete(forkId), probeForgetMs).unref();
+	}
+};
+
+export type SessionAsker = (
+	session: Session,
+	question: string,
+) => Promise<Answer>;
+
+export const claudeAsker =
+	(opts: ForkOptions): SessionAsker =>
+	async (session, question) => {
+		const result = await inFork(opts, session, (forkId) =>
+			askArgs(session.id, forkId, question),
+		);
+		return parseAnswer(result.stdout, result.stderr);
+	};
+
+export const claudeExitDeps = (
+	opts: ForkOptions & { claudeHome: string },
+): ExitDeps => {
 	const command = async (args: string[]): Promise<CommandResult> => {
 		const result = await run(opts.claudeBin, args, undefined, commandTimeoutMs);
 		return {
@@ -220,19 +338,10 @@ export const claudeExitDeps = (opts: {
 	};
 	return {
 		async ask(session) {
-			const forkId = randomUUID();
-			opts.probes.add(forkId);
-			try {
-				const result = await run(
-					opts.claudeBin,
-					readinessArgs(session.id, forkId),
-					session.cwd || undefined,
-					askTimeoutMs,
-				);
-				return parseReadiness(result.stdout, result.stderr);
-			} finally {
-				setTimeout(() => opts.probes.delete(forkId), probeForgetMs).unref();
-			}
+			const result = await inFork(opts, session, (forkId) =>
+				readinessArgs(session.id, forkId),
+			);
+			return parseReadiness(result.stdout, result.stderr);
 		},
 		stop: (short) => command(["stop", short]),
 		remove: (short) => command(["rm", short]),

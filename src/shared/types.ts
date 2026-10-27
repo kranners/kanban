@@ -135,6 +135,35 @@ export type RegionDraft = Omit<Region, "id" | "name"> & { name?: string };
 
 export type RegionPatch = Partial<Omit<Region, "id" | "cwd">>;
 
+export type CommentEvent =
+	| { kind: "user"; at: number; text: string }
+	| {
+			kind: "action";
+			at: number;
+			id: string;
+			text: string;
+			state: "running" | "done" | "failed";
+	  }
+	| { kind: "reply"; at: number; text: string }
+	| { kind: "error"; at: number; text: string };
+
+export type CommentThread = {
+	id: string;
+	x: number;
+	y: number;
+	createdAt: number;
+	updatedAt: number;
+	resolved: boolean;
+	running: boolean;
+	sessionId: string;
+	resumable: boolean;
+	events: CommentEvent[];
+};
+
+export type CommentDraft = { x: number; y: number; text: string };
+
+export type CommentPatch = { x?: number; y?: number; resolved?: boolean };
+
 export type BoardFeed =
 	| { type: "board"; board: Board }
 	| { type: "preview"; preview: Preview }
@@ -142,7 +171,9 @@ export type BoardFeed =
 	| { type: "annotations"; annotations: Annotations }
 	| { type: "colours"; colours: RegionColours }
 	| { type: "regions"; regions: Region[] }
-	| { type: "exit"; sessionId: string; result: ExitResult };
+	| { type: "exit"; sessionId: string; result: ExitResult }
+	| { type: "comments"; comments: CommentThread[] }
+	| { type: "comment"; comment: CommentThread };
 
 export type NewSessionRequest = {
 	cwd: string;
