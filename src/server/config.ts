@@ -1,5 +1,6 @@
+import { accessSync, constants, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 
 export type AuthConfig =
 	| { mode: "off" }
@@ -23,6 +24,24 @@ const loopbackHosts = new Set(["127.0.0.1", "::1", "localhost"]);
 
 export const isLoopback = (host: string): boolean =>
 	loopbackHosts.has(host) || /^127\.\d+\.\d+\.\d+$/.test(host);
+
+const terminalShimDir = /\/cmux-cli-shims(\/|$)/;
+
+const isExecutableFile = (file: string): boolean => {
+	try {
+		accessSync(file, constants.X_OK);
+		return statSync(file).isFile();
+	} catch {
+		return false;
+	}
+};
+
+export const findClaude = (path = ""): string =>
+	path
+		.split(delimiter)
+		.filter((dir) => dir !== "" && !terminalShimDir.test(dir))
+		.map((dir) => join(dir, "claude"))
+		.find(isExecutableFile) ?? "claude";
 
 const defaultPort = 7420;
 
@@ -104,7 +123,7 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
 		host,
 		auth,
 		origins: parseOrigins(env, auth, port),
-		claudeBin: env.CLAUDE_BIN || "/opt/homebrew/bin/claude",
+		claudeBin: env.CLAUDE_BIN || findClaude(env.PATH),
 		cmuxBin:
 			env.CMUX_BIN || "/Applications/cmux.app/Contents/Resources/bin/cmux",
 		claudeHome: env.CLAUDE_HOME || join(homedir(), ".claude"),

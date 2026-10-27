@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="color-scheme" content="light dark" />
+		<meta name="theme-color" content="#f7f6f3" media="(prefers-color-scheme: light)" />
+		<meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)" />
+		<title>kanban</title>
+		<meta name="description" content="A live board of every Claude Code session on your Mac." />
+		<meta property="og:type" content="website" />
+		<meta property="og:url" content="https://kranners.github.io/kanban/" />
+		<meta property="og:title" content="kanban" />
+		<meta property="og:description" content="A live board of every Claude Code session on your Mac." />
+		<meta property="og:image" content="https://kranners.github.io/kanban/media/board-light.png" />
+		<meta property="og:image:alt" content="A kanban board of Claude Code sessions linked by spawns and messages" />
+		<meta name="twitter:card" content="summary_large_image" />
+		<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+		<link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin />
+		<link rel="stylesheet" href="style.css" />
+	</head>
+	<body>
+		<header class="bar">
+			<a class="brand" href="./"><img src="favicon.svg" alt="" width="24" height="24" />kanban</a>
+			<nav>
+				<a href="#features">Features</a>
+				<a href="#install">Install</a>
+				<a href="https://github.com/kranners/kanban">GitHub</a>
+			</nav>
+		</header>
+
+		<main>
+			<section class="hero">
+				<h1>kanban</h1>
+				<p class="pitch">A live board of every Claude Code session on your Mac</p>
+				<p class="lede">
+					Each card is a running session with its goal and what it is doing right now. Cards link when one
+					session spawns, forks or runs another as a subagent, and messages between them animate across the
+					board.
+				</p>
+				<div class="actions">
+					<a class="button primary" href="demo/?scenario=headline&amp;play">Try the live demo</a>
+					<a class="button" href="https://github.com/kranners/kanban">View on GitHub</a>
+				</div>
+				<div class="stage">
+					<picture>
+						<source media="(prefers-color-scheme: dark)" srcset="media/board-dark.png" />
+						<img src="media/board-light.png" alt="The board with sessions, subagents and messages between them" width="1280" height="800" />
+					</picture>
+					<video autoplay muted loop playsinline aria-hidden="true">
+						<source media="(prefers-color-scheme: dark)" src="media/headline-dark.webm" type="video/webm" />
+						<source media="(prefers-color-scheme: dark)" src="media/headline-dark.mp4" type="video/mp4" />
+						<source src="media/headline-light.webm" type="video/webm" />
+						<source src="media/headline-light.mp4" type="video/mp4" />
+					</video>
+				</div>
+			</section>
+
+			<section class="demo" id="demo">
+				<div class="heading">
+					<h2>Try it in your browser</h2>
+					<p>
+						The demo runs the real board against a fake backend in this page. Drag cards, open sessions,
+						answer prompts. Nothing is sent anywhere.
+					</p>
+				</div>
+				<iframe src="demo/" title="Interactive kanban demo" loading="lazy"></iframe>
+				<div class="actions">
+					<a class="button primary" href="demo/">Open the demo board</a>
+					<a class="button" href="demo/?scenario=headline&amp;play">Watch the guided run</a>
+				</div>
+			</section>
+
+			<section id="features">
+				<div class="heading">
+					<h2>What it does</h2>
+				</div>
+				<ul class="features">
+					<li>
+						<img src="media/clip-agent-view.gif" alt="Opening a card that needs you, approving its permission prompt and watching it carry on" loading="lazy" width="1024" height="640" />
+						<h3>Answer in place</h3>
+						<p>Open a card for its conversation, drawn from the transcript. Approve a permission or answer a question and watch the session move on.</p>
+					</li>
+					<li>
+						<img src="media/clip-attach.gif" alt="Switching a session to its terminal and typing into it" loading="lazy" width="1024" height="640" />
+						<h3>The real terminal</h3>
+						<p>One toggle from the conversation to the session's live terminal. Type straight into it.</p>
+					</li>
+					<li>
+						<img src="media/clip-messages.gif" alt="Hovering a message in the rail lights up both sessions and the arc between them" loading="lazy" width="1024" height="640" />
+						<h3>See sessions talk</h3>
+						<p>Hover a message in the rail to light up the sender, the receiver and the arc between them.</p>
+					</li>
+					<li>
+						<img src="media/clip-subagents.gif" alt="A session's subagents shown as a grid, highlighted from its pill" loading="lazy" width="1024" height="640" />
+						<h3>Subagents at a glance</h3>
+						<p>Every subagent a session runs, laid out in a grid and highlighted from the session's pill.</p>
+					</li>
+					<li>
+						<img src="media/clip-focus-search.gif" alt="Searching the board, filtering by activity and jumping to the next session that needs you" loading="lazy" width="1024" height="640" />
+						<h3>Find what needs you</h3>
+						<p>Search, filter by activity, and press <kbd>J</kbd> to jump to the next session waiting on you.</p>
+					</li>
+					<li>
+						<img src="media/clip-new-session.gif" alt="Starting a new session from the dialog and from a quick prompt" loading="lazy" width="1024" height="640" />
+						<h3>Start new sessions</h3>
+						<p>Pick a project and a prompt in the new session dialog, or fire one off from a quick prompt.</p>
+					</li>
+					<li>
+						<img src="media/clip-annotate.gif" alt="Dropping a markdown sticky note and a sticker, then drawing a project region and recolouring it" loading="lazy" width="1024" height="640" />
+						<h3>Annotate the board</h3>
+						<p>Markdown sticky notes, stickers, and project regions you draw and recolour.</p>
+					</li>
+					<li>
+						<img src="media/clip-board-agent.gif" alt="Leaving a comment with slash that the board agent answers" loading="lazy" width="1024" height="640" />
+						<h3>Ask the board</h3>
+						<p>Press <kbd>/</kbd> to leave a comment and the board agent answers, using only the board's own tools.</p>
+					</li>
+				</ul>
+			</section>
+
+			<section class="how" id="how">
+				<div class="heading">
+					<h2>How it works</h2>
+				</div>
+				<div class="columns">
+					<div>
+						<h3>Reads <code>~/.claude</code></h3>
+						<p>
+							Sessions, transcripts, subagents and messages come straight from Claude Code's own state
+							directory. There is no database to set up or keep in sync.
+						</p>
+					</div>
+					<div>
+						<h3>Nothing leaves your Mac</h3>
+						<p>
+							A small Node server on <code>127.0.0.1</code> serves the board. No account, no telemetry,
+							no hosted backend.
+						</p>
+					</div>
+					<div>
+						<h3>Drives real sessions</h3>
+						<p>
+							Background sessions and sessions in cmux panes are attached through their real terminals,
+							so what you type is what Claude Code sees.
+						</p>
+					</div>
+				</div>
+			</section>
+
+			<section class="install" id="install">
+				<div class="heading">
+					<h2>Install</h2>
+				</div>
+				<div class="columns">
+					<div>
+						<h3>Requirements</h3>
+						<ul>
+							<li>macOS</li>
+							<li>Node 24 or newer</li>
+							<li>Claude Code on <code>PATH</code></li>
+							<li><a href="https://cmux.com">cmux</a>, optional</li>
+						</ul>
+					</div>
+					<div class="wide">
+						<h3>Run it</h3>
+						<pre><code>git clone https://github.com/kranners/kanban.git
+cd kanban
+npm install
+npm run build
+KANBAN_AUTH=off npm start</code></pre>
+						<p>Then open <a href="http://127.0.0.1:7420">http://127.0.0.1:7420</a>.</p>
+					</div>
+				</div>
+			</section>
+
+			<section class="security" id="security">
+				<div class="note">
+					<h2>A note on security</h2>
+					<p>
+						kanban is a remote terminal into every Claude Code session on the machine: whoever reaches it can
+						type into those sessions with your full reach. It binds to loopback by default and refuses
+						<code>KANBAN_AUTH=off</code> on any other address. Read
+						<a href="https://github.com/kranners/kanban/blob/main/SECURITY.md">SECURITY.md</a> before exposing
+						it anywhere else.
+					</p>
+				</div>
+			</section>
+		</main>
+
+		<footer>
+			<p>
+				kanban is licensed under the
+				<a href="https://github.com/kranners/kanban/blob/main/LICENSE">GNU AGPL-3.0</a>.
+				Sticker graphics are from <a href="https://github.com/jdecked/twemoji">Twemoji</a>, licensed under
+				<a href="https://creativecommons.org/licenses/by/4.0/">CC-BY 4.0</a>.
+			</p>
+			<p><a href="https://github.com/kranners/kanban">github.com/kranners/kanban</a></p>
+		</footer>
+	</body>
+</html>

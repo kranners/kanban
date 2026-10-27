@@ -1,6 +1,6 @@
 # Design
 
-kanban is a board of the Claude Code sessions running on one Mac. Each card is a live session; cards are linked when one spawned, forked or delegated to another, and messages between them are drawn on the board. Clicking a card opens its conversation in a native agent view, with the real TUI one toggle away.
+kanban is a board of the Claude Code sessions running on one Mac. Each card is a live session; cards are linked when one session spawned or forked another or ran it as a subagent, and messages between them are drawn on the board. Clicking a card opens its conversation in a native agent view, with the real TUI one toggle away.
 
 ## Why build it
 
@@ -65,7 +65,7 @@ One Node 24 process on `127.0.0.1:7420` serves the built page and these endpoint
 | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /`                                                                   | the page                                                                                                                                                                                                       |
 | `WS /api/feed`                                                            | `BoardFeed` frames: `layout`, `annotations`, `colours`, `regions`, `comments` then a full `board` on connect, each again on change, `exit` and `report` outcomes, and one `comment` thread whenever it changes |
-| `GET /api/sessions/:id/transcript`                                        | recent `TranscriptEntry`s for read-only cards                                                                                                                                                                  |
+| `GET /api/sessions/:id/transcript`                                        | recent `TranscriptEntry`s; nothing on the page calls it any more                                                                                                                                               |
 | `GET /api/sessions/:id/files?q=`                                          | `@` completions: up to 50 paths under the session's cwd matching `q`, see Agent view                                                                                                                           |
 | `GET /api/sessions/:id/commands`                                          | `/` completions: built-in commands plus user and project commands and skills, names and descriptions only                                                                                                      |
 | `POST /api/sessions`                                                      | `NewSessionRequest` → `claude --bg`; without `name` Claude Code names it, with `at` the card spawns there                                                                                                      |
@@ -93,7 +93,7 @@ One attach per session: a second attach takes over and the first gets `taken-ove
 
 Interactive sessions in cmux panes are driven through the `cmux` CLI (`CMUX_BIN`), never Remote Control. Every 5s, and whenever the board changes, `cmux top --all --processes --format tsv` maps each process to its surface by walking process rows up to a surface row; a session whose registry pid maps to a surface is marked `cmux` on the board. A failed listing, or one with no process rows, keeps the last good surfaces for up to a minute instead of marking every cmux session read-only, and a send's own re-resolve never replaces the board's map. No other process's environment is read. Opening a mirror, every 5s while it is open, and every send re-resolve the surface: the registry entry must still be that session's live process (the same check as exit) and `cmux top` must still place that pid in a surface. While a client is connected, `cmux read-screen` polls the pane every 500ms and sends the text only when it changes. Text goes through `cmux paste` (with `--submit` for Enter), capped at 16,000 characters, so cmux refuses to paste over a draft someone is typing; keys go through `cmux send-key --force` from an allowlist (Enter, Escape, Tab, Shift+Tab, arrows, Backspace, Ctrl+C), because each is a deliberate keystroke and cmux would otherwise refuse every key while a question, permission prompt or picker is open, leaving no way to answer it. cmux's draft and dialog refusals are shown in plain words rather than as the CLI's hint to pass `--force`. The allowlist keeps the mirror to keystrokes, not to one session: ← on an empty prompt opens Claude's agent view, which lists and drives every session on the machine, the same reach as attach. The mirror sits behind the same origin check and authentication as attach, and that is the boundary. Every call uses `execFile` with an argument array and always names the workspace and surface, and the child loses `CMUX_WORKSPACE_ID`/`CMUX_SURFACE_ID`/`CMUX_PANEL_ID`/`CMUX_TAB_ID` so a missing flag can never fall back to the server's own pane. cmux only admits processes started inside cmux unless its socket is in password mode (`CMUX_SOCKET_PASSWORD`), so a launchd server is refused: the refusal is logged and shown in the mirror, and those sessions stay read-only. Mirror opens and every send are audited, with the key or the text length, never the text.
 
-The server calls the real `claude` binary, not a terminal's shim, so `--bg` sessions resume as themselves.
+The server calls the first `claude` on `PATH` at startup (or `CLAUDE_BIN`), skipping cmux's shim, so `--bg` sessions resume as themselves.
 
 Exiting asks the agent itself without touching the real session: `claude -p --resume <id> --fork-session --session-id <fork> --no-session-persistence --tools "" --strict-mcp-config --permission-mode dontAsk --settings '{"disableAllHooks":true}' --output-format json --json-schema {ready, reason}` answers from a throwaway fork that loads no MCP servers or hooks, cannot run tools, and leaves no transcript. The fork registers in `~/.claude/sessions` while it runs, so ingest ignores its id. A ready (or forced) background session gets `claude stop` then `claude rm`, never with `--discard-unpushed` or `--force-remove-worktree`, so `rm` refusing leaves it stopped and says why. An interactive session gets SIGTERM, only while its pid is still that session's live registry entry and `ps` shows a claude process that started when the entry did, so a reused pid is never signalled. Every exit is audited.
 
@@ -158,13 +158,13 @@ Security. The agent acts with the user's reach on the board but no further: it c
 
 ## Infrastructure
 
-pilot runs two launchd user agents, declared in jimbo's pilot host module:
-- `kanban`: `node src/server/main.ts` from the checkout.
+The host runs two launchd user agents:
+- `kanban`: `node src/server/main.ts` from the checkout, with `~/.config/kanban/env` in its environment and a `PATH` that reaches `claude` (or `CLAUDE_BIN` set).
 - `kanban-tunnel`: `cloudflared tunnel run` for the `kanban` tunnel.
 
-`kanban.cute.engineer` routes through the tunnel and is gated by Cloudflare Access (team `frappuccino-pages`), allowing one identity. Defence in depth: cloudflared requires the Access token before proxying, the server verifies `Cf-Access-Jwt-Assertion` against the team's keys and audience, and WebSocket upgrades must come from the board's own origin. Local development runs with `KANBAN_AUTH=off`, which binds to localhost only.
+A hostname such as `kanban.example.com` routes through the tunnel and is gated by Cloudflare Access on your Access team, allowing one identity. Defence in depth: cloudflared requires the Access token before proxying, the server verifies `Cf-Access-Jwt-Assertion` against the team's keys and audience, and WebSocket upgrades must come from the board's own origin. Local development runs with `KANBAN_AUTH=off`, which binds to localhost only.
 
-`scripts/cloudflare-setup.ts` creates the tunnel, its DNS record and the Access application from an API token, idempotently, and writes the tunnel token and audience to `~/.config/kanban/`.
+`scripts/cloudflare-setup.ts` creates the tunnel, its DNS record and the Access application from an API token and the account, zone, hostname, Access team and allowed email it is given, idempotently, and writes the tunnel token and audience to `~/.config/kanban/`.
 
 A web app instead of a desktop wrapper: the server must run as a long-lived local service anyway, and a PWA manifest makes it installable.
 

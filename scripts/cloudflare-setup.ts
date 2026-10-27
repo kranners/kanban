@@ -338,20 +338,24 @@ export const parseConfig = (
 		},
 	});
 	const config = {
-		account:
-			values.account ??
-			env.KANBAN_CF_ACCOUNT ??
-			"fae652ecde66de622a287f1b29581741",
-		zone: values.zone ?? env.KANBAN_CF_ZONE ?? "cute.engineer",
-		hostname: values.hostname ?? env.KANBAN_HOSTNAME ?? "kanban.cute.engineer",
-		team: values.team ?? env.KANBAN_ACCESS_TEAM ?? "frappuccino-pages",
+		account: values.account ?? env.KANBAN_CF_ACCOUNT ?? "",
+		zone: values.zone ?? env.KANBAN_CF_ZONE ?? "",
+		hostname: values.hostname ?? env.KANBAN_HOSTNAME ?? "",
+		team: values.team ?? env.KANBAN_ACCESS_TEAM ?? "",
 		email: values.email ?? env.KANBAN_ALLOWED_EMAIL ?? "",
 		service: values.service ?? env.KANBAN_SERVICE ?? "http://127.0.0.1:7420",
 		tunnelName: values["tunnel-name"] ?? env.KANBAN_TUNNEL_NAME ?? "kanban",
 	};
-	const missing = config.email
-		? []
-		: ["an allowed email: set KANBAN_ALLOWED_EMAIL or pass --email"];
+	const required: [keyof SetupConfig, string, string][] = [
+		["account", "a Cloudflare account id", "KANBAN_CF_ACCOUNT"],
+		["zone", "a Cloudflare zone", "KANBAN_CF_ZONE"],
+		["hostname", "a hostname for the board", "KANBAN_HOSTNAME"],
+		["team", "an Access team name", "KANBAN_ACCESS_TEAM"],
+		["email", "an allowed email", "KANBAN_ALLOWED_EMAIL"],
+	];
+	const missing = required
+		.filter(([key]) => !config[key])
+		.map(([key, what, name]) => `${what}: set ${name} or pass --${key}`);
 	return { config, dryRun: values["dry-run"], missing };
 };
 

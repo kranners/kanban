@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import { isLoopback, loadConfig } from "./config.ts";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after, before, describe, it } from "node:test";
+import { findClaude, isLoopback, loadConfig } from "./config.ts";
 
 const access = {
 	KANBAN_ACCESS_TEAM: "acme-team",
@@ -19,7 +22,7 @@ describe("loadConfig", () => {
 			aud: "aud-123",
 		});
 		assert.deepEqual(config.origins, ["https://kanban.example.com"]);
-		assert.equal(config.claudeBin, "/opt/homebrew/bin/claude");
+		assert.equal(config.claudeBin, "claude");
 		assert.equal(
 			config.cmuxBin,
 			"/Applications/cmux.app/Contents/Resources/bin/cmux",
@@ -108,5 +111,45 @@ describe("isLoopback", () => {
 		for (const host of ["0.0.0.0", "192.168.1.2", "::", "example.com"]) {
 			assert.ok(!isLoopback(host), host);
 		}
+	});
+});
+
+describe("findClaude", () => {
+	let dir: string;
+	const bin = (name: string) => join(dir, name);
+
+	before(async () => {
+		dir = await mkdtemp(join(tmpdir(), "kanban-path-"));
+		for (const name of ["cmux-cli-shims/ABC", "real", "plain", "empty"]) {
+			await mkdir(bin(name), { recursive: true });
+		}
+		await mkdir(bin("folder/claude"), { recursive: true });
+		for (const name of ["cmux-cli-shims/ABC", "real"]) {
+			await writeFile(bin(`${name}/claude`), "#!/bin/sh\n");
+			await chmod(bin(`${name}/claude`), 0o755);
+		}
+		await writeFile(bin("plain/claude"), "");
+	});
+
+	after(() => rm(dir, { recursive: true, force: true }));
+
+	it("takes the first executable claude on PATH, past a terminal's shim", () => {
+		assert.equal(
+			findClaude(
+				[
+					bin("cmux-cli-shims/ABC"),
+					bin("empty"),
+					bin("folder"),
+					bin("plain"),
+					bin("real"),
+				].join(":"),
+			),
+			bin("real/claude"),
+		);
+	});
+
+	it("falls back to the bare name", () => {
+		assert.equal(findClaude(bin("empty")), "claude");
+		assert.equal(findClaude(undefined), "claude");
 	});
 });
