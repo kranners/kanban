@@ -33,6 +33,7 @@ function subagent(
 ): Subagent {
 	return {
 		id,
+		kind: "agent",
 		sessionId,
 		parentAgentId,
 		type: "general-purpose",

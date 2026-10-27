@@ -38,9 +38,13 @@ const job = (state: string, tempo: string | null = null): Job => ({
 describe("activityOf", () => {
 	test("maps interactive status", () => {
 		assert.equal(activityOf(entry("busy"), null), "working");
-		assert.equal(activityOf(entry("shell"), null), "working");
+		assert.equal(activityOf(entry("shell"), null), "idle");
 		assert.equal(activityOf(entry("waiting"), null), "needs-you");
 		assert.equal(activityOf(entry("idle"), null), "idle");
+	});
+
+	test("a turn that ended with only background shells left is idle", () => {
+		assert.equal(activityOf(entry("shell"), job("working")), "idle");
 	});
 
 	test("folds job state into an idle live session", () => {

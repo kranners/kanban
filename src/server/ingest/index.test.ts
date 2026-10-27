@@ -67,6 +67,23 @@ const result = (offset: number, id: string, toolUseResult: object) => ({
 	toolUseResult,
 });
 
+const backgroundShell = (
+	offset: number,
+	id: string,
+	taskId: string,
+	description: string,
+) => [
+	assistant(offset, [
+		{
+			type: "tool_use",
+			id,
+			name: "Bash",
+			input: { command: "npm start", description, run_in_background: true },
+		},
+	]),
+	result(offset + 1, id, { stdout: "", backgroundTaskId: taskId }),
+];
+
 function buildFixture() {
 	write(`sessions/${process.pid}.json`, {
 		pid: process.pid,
@@ -245,6 +262,16 @@ function buildFixture() {
 			message: "Successfully stopped task: wflowtask",
 			task_id: "wflowtask",
 		}),
+		...backgroundShell(-544_000, "t-serve", "bserve", "Serve the api"),
+		...backgroundShell(-543_000, "t-build", "bbuild", "Build once"),
+		{
+			type: "queue-operation",
+			operation: "enqueue",
+			timestamp: iso(-542_000),
+			sessionId: lead,
+			content:
+				"<task-notification>\n<task-id>bbuild</task-id>\n<status>completed</status>\n</task-notification>",
+		},
 		assistant(-540_000, [{ type: "text", text: "Now editing.\n" }]),
 		assistant(-530_000, [
 			{
@@ -296,6 +323,7 @@ function buildFixture() {
 				},
 			]),
 			result(-439_000, "s-send", { success: true, msg_id: "msg-3" }),
+			...backgroundShell(-438_000, "s-watch", "bwatch", "Watch the tests"),
 		],
 	);
 	agent(
@@ -311,6 +339,7 @@ function buildFixture() {
 		"agent-agentdone",
 		{ agentType: "general-purpose", description: "Done one" },
 		20_000,
+		backgroundShell(-430_000, "d-tail", "btail", "Tail the log"),
 	);
 	agent(
 		"workflows/wf_1/agent-agentflowdone",
@@ -538,7 +567,9 @@ describe("startBoard", () => {
 
 	test("lists recent subagents as working, idle or done, counting them per session", () => {
 		const states = Object.fromEntries(
-			board.subagents.map((item) => [item.id, [item.live, item.done]]),
+			board.subagents
+				.filter((item) => item.kind === "agent")
+				.map((item) => [item.id, [item.live, item.done]]),
 		);
 		assert.deepEqual(states, {
 			agentlive: [true, false],
@@ -570,6 +601,30 @@ describe("startBoard", () => {
 		assert.equal(nested?.type, "fork");
 	});
 
+	test("shows background shells as nodes that run until they end, outside the subagent counts", () => {
+		const shells = board.subagents.filter((item) => item.kind === "shell");
+		assert.deepEqual(
+			Object.fromEntries(
+				shells.map((item) => [
+					item.id,
+					[item.description, item.parentAgentId, item.live, item.done],
+				]),
+			),
+			{
+				bserve: ["Serve the api", null, true, false],
+				bbuild: ["Build once", null, false, true],
+				bwatch: ["Watch the tests", "agentlive", true, false],
+				btail: ["Tail the log", "agentdone", false, true],
+			},
+		);
+		assert.deepEqual(Object.keys(board.subagentStates).sort(), [
+			"agentblocked",
+			"agentidle",
+			"agentlive",
+			"agentnested",
+		]);
+	});
+
 	test("links spawned, forked and subagent nodes", () => {
 		const links = board.links
 			.map((link) => `${link.kind}:${link.from.id}>${link.to.id}`)
@@ -589,6 +644,10 @@ describe("startBoard", () => {
 				`subagent:${fork}>agentorphan`,
 				"subagent:agentlive>agentnested",
 				"subagent:agentidle>agentinner",
+				`subagent:${lead}>bserve`,
+				`subagent:${lead}>bbuild`,
+				"subagent:agentlive>bwatch",
+				"subagent:agentdone>btail",
 			].sort(),
 		);
 	});
@@ -622,7 +681,7 @@ describe("startBoard", () => {
 		assert.deepEqual(
 			entries.map((entry) => [entry.role, entry.text]),
 			[
-				["tool", "TaskStop"],
+				["tool", "Bash: Build once"],
 				["assistant", "Now editing."],
 				["tool", "Edit: /Users/me/dev/acme-api/src/a.ts"],
 			],

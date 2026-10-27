@@ -30,6 +30,7 @@ function subagent(id: string, at: number, parentAgentId: string | null) {
 	return {
 		id,
 		sessionId: "root",
+		kind: "agent",
 		parentAgentId,
 		type: "explore",
 		description: id,

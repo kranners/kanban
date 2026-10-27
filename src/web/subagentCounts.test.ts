@@ -22,6 +22,7 @@ function subagent(
 	return {
 		id,
 		sessionId,
+		kind: "agent",
 		parentAgentId: null,
 		type: "general-purpose",
 		description: id,

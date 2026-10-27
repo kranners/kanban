@@ -106,6 +106,7 @@ export function subagent(
 	partial: Partial<Subagent> & Pick<Subagent, "id" | "sessionId" | "type">,
 ): Subagent {
 	return {
+		kind: "agent",
 		parentAgentId: null,
 		description: "",
 		live: false,

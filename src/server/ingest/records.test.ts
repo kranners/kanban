@@ -270,6 +270,76 @@ describe("applyRecord", () => {
 		assert.equal(facts.workflowNames.get("wf_a"), "audit");
 	});
 
+	test("tracks background shells and monitors until they end", () => {
+		const at = (time: string) => ({ timestamp: `2026-10-24T${time}.000Z` });
+		const facts = apply(
+			toolUse("b1", "Bash", {
+				command: "npm run dev",
+				description: "Start the dev server",
+				run_in_background: true,
+			}),
+			{ ...toolResult("b1", { backgroundTaskId: "bdev" }), ...at("10:00:01") },
+			toolUse("b2", "Bash", { command: "tail -f log\nmore" }),
+			{ ...toolResult("b2", { backgroundTaskId: "btail" }), ...at("10:00:02") },
+			toolUse("b3", "Bash", { command: "ls" }),
+			toolResult("b3", { stdout: "a" }),
+			toolUse("m1", "Monitor", { description: "Watch the crawl" }),
+			{ ...toolResult("m1", { taskId: "bwatch" }), ...at("10:00:03") },
+			{
+				type: "queue-operation",
+				content:
+					"<task-notification><task-id>btail</task-id><status>completed</status></task-notification>",
+				...at("10:05:00"),
+			},
+			{
+				type: "queue-operation",
+				content:
+					"<task-notification><task-id>bwatch</task-id><summary>Monitor event</summary><event>50/2054</event></task-notification>",
+				...at("10:05:30"),
+			},
+			toolUse("b4", "Bash", { command: "npm test", run_in_background: true }),
+			{ ...toolResult("b4", { backgroundTaskId: "btest" }), ...at("10:05:40") },
+			{
+				type: "attachment",
+				attachment: {
+					type: "queued_command",
+					prompt:
+						"<task-notification>\n<task-id>btest</task-id>\n<status>completed</status>\n</task-notification>",
+				},
+				...at("10:05:50"),
+			},
+			toolUse("s1", "TaskStop", { task_id: "bwatch" }),
+			{ ...toolResult("s1", { task_id: "bwatch" }), ...at("10:06:00") },
+		);
+		const ms = (time: string) => Date.parse(`2026-10-24T${time}.000Z`);
+		assert.deepEqual(Object.fromEntries(facts.shells), {
+			bdev: {
+				tool: "Bash",
+				description: "Start the dev server",
+				startedAt: ms("10:00:01"),
+				endedAt: null,
+			},
+			btail: {
+				tool: "Bash",
+				description: "tail -f log",
+				startedAt: ms("10:00:02"),
+				endedAt: ms("10:05:00"),
+			},
+			bwatch: {
+				tool: "Monitor",
+				description: "Watch the crawl",
+				startedAt: ms("10:00:03"),
+				endedAt: ms("10:06:00"),
+			},
+			btest: {
+				tool: "Bash",
+				description: "npm test",
+				startedAt: ms("10:05:40"),
+				endedAt: ms("10:05:50"),
+			},
+		});
+	});
+
 	test("keeps typed user text and skips meta, tool results and notifications", () => {
 		const facts = apply(
 			{ type: "user", message: { content: "fix the build" } },

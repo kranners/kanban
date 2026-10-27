@@ -34,6 +34,7 @@ export type Session = {
 
 export type Subagent = {
 	id: string;
+	kind: "agent" | "shell";
 	sessionId: string;
 	parentAgentId: string | null;
 	type: string;

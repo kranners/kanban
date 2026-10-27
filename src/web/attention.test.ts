@@ -36,6 +36,7 @@ function subagent(id: string, live: boolean, done: boolean): Subagent {
 	return {
 		id,
 		sessionId: "acme-api",
+		kind: "agent",
 		parentAgentId: null,
 		type: "general-purpose",
 		description: id,

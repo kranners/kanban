@@ -20,7 +20,11 @@ export function totalSubagentCounts(
 export function sessionsWithWorkingSubagents(
 	subagents: readonly Subagent[],
 ): Set<string> {
-	return new Set(subagents.filter((a) => a.live).map((a) => a.sessionId));
+	return new Set(subagents.filter(isWorkingAgent).map((a) => a.sessionId));
+}
+
+export function isWorkingAgent(subagent: Subagent | undefined): boolean {
+	return subagent?.kind === "agent" && subagent.live;
 }
 
 export function subagentHeadline(

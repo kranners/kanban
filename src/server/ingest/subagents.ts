@@ -86,6 +86,7 @@ export function scanSubagents(opts: {
 			workflowRun: workflowRun.exec(file)?.[1] ?? null,
 			subagent: {
 				id,
+				kind: "agent",
 				sessionId,
 				parentAgentId: meta.parentAgentId,
 				type: meta.type,

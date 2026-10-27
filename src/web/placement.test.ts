@@ -50,6 +50,7 @@ function subagent(id: string, sessionId: string, at = 1): Subagent {
 	return {
 		id,
 		sessionId,
+		kind: "agent",
 		parentAgentId: null,
 		type: "explore",
 		description: id,

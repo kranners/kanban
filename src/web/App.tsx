@@ -61,7 +61,10 @@ import {
 	subagentsById,
 	workingSubagentsOnly,
 } from "./state.ts";
-import { sessionsWithWorkingSubagents } from "./subagentCounts.ts";
+import {
+	isWorkingAgent,
+	sessionsWithWorkingSubagents,
+} from "./subagentCounts.ts";
 import { TopBar } from "./TopBar.tsx";
 
 function visibility(): (key: NodeKey) => boolean {
@@ -77,7 +80,7 @@ function visibility(): (key: NodeKey) => boolean {
 		];
 		if (working) {
 			const highlighted =
-				kind === "subagent" ? agents.get(id)?.live : working.has(id);
+				kind === "subagent" ? isWorkingAgent(agents.get(id)) : working.has(id);
 			if (!highlighted) return false;
 		}
 		const sessionId = kind === "session" ? id : agents.get(id)?.sessionId;

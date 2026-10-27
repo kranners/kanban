@@ -1,4 +1,10 @@
-import { AppWindow, Bot, Server, Terminal } from "lucide-preact";
+import {
+	AppWindow,
+	Bot,
+	Server,
+	SquareTerminal,
+	Terminal,
+} from "lucide-preact";
 import type { ComponentChildren } from "preact";
 import type { RegionColour } from "../shared/colours.ts";
 import type { Artifact, Session, Subagent, Workflow } from "../shared/types.ts";
@@ -282,7 +288,11 @@ export function SubagentCard(props: {
 			title={subagent.description}
 		>
 			<span class="sub-icon">
-				<Bot size={14} aria-hidden="true" />
+				{subagent.kind === "shell" ? (
+					<SquareTerminal size={14} aria-hidden="true" />
+				) : (
+					<Bot size={14} aria-hidden="true" />
+				)}
 			</span>
 			<div class="sub-text">
 				<div class="sub-title">
@@ -297,19 +307,21 @@ export function SubagentCard(props: {
 				{relativeTime(subagent.updatedAt, props.now)}
 			</time>
 			{subagent.live && <BusyEdge />}
-			<button
-				type="button"
-				class="sub-open"
-				aria-label={`Open ${subagent.description || subagent.type}`}
-				onClick={(event) =>
-					props.onOpen(
-						subagent.id,
-						(
-							event.currentTarget.parentElement ?? event.currentTarget
-						).getBoundingClientRect(),
-					)
-				}
-			/>
+			{subagent.kind === "agent" && (
+				<button
+					type="button"
+					class="sub-open"
+					aria-label={`Open ${subagent.description || subagent.type}`}
+					onClick={(event) =>
+						props.onOpen(
+							subagent.id,
+							(
+								event.currentTarget.parentElement ?? event.currentTarget
+							).getBoundingClientRect(),
+						)
+					}
+				/>
+			)}
 		</div>
 	);
 }

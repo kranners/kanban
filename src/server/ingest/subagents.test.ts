@@ -36,6 +36,7 @@ function found(
 		subagent: {
 			id,
 			sessionId,
+			kind: "agent",
 			parentAgentId: null,
 			type: "general-purpose",
 			description: id,

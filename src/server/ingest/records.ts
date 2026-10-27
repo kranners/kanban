@@ -29,6 +29,13 @@ export type ReceivedMessage = {
 
 export type Handback = { agentId: string; at: number; summary: string };
 
+export type BackgroundShell = {
+	tool: "Bash" | "Monitor";
+	description: string;
+	startedAt: number;
+	endedAt: number | null;
+};
+
 export type TranscriptFacts = {
 	doing: string | null;
 	aiTitle: string | null;
@@ -41,6 +48,7 @@ export type TranscriptFacts = {
 	spawnedShorts: Set<string>;
 	forkedChildren: Set<string>;
 	finishedTasks: Set<string>;
+	shells: Map<string, BackgroundShell>;
 	workflowRuns: Map<string, string>;
 	workflowNames: Map<string, string>;
 	artifacts: Map<string, Artifact>;
@@ -67,6 +75,7 @@ export function createFacts(): TranscriptFacts {
 		spawnedShorts: new Set(),
 		forkedChildren: new Set(),
 		finishedTasks: new Set(),
+		shells: new Map(),
 		workflowRuns: new Map(),
 		workflowNames: new Map(),
 		artifacts: new Map(),
@@ -110,8 +119,15 @@ export function applyRecord(
 			applyUser(facts, record, at, resolve);
 			return;
 		case "queue-operation":
-			collectFinishedTasks(facts, asString(record.content) ?? "");
+			collectFinishedTasks(facts, asString(record.content) ?? "", at);
 			return;
+		case "attachment": {
+			const attachment = asObject(record.attachment);
+			if (attachment?.type === "queued_command") {
+				collectFinishedTasks(facts, asString(attachment.prompt) ?? "", at);
+			}
+			return;
+		}
 		case "ai-title":
 			facts.aiTitle = asString(record.aiTitle)?.trim() || facts.aiTitle;
 			return;
@@ -190,7 +206,7 @@ function applyUser(
 		return;
 	}
 	if (origin?.kind === "task-notification") {
-		collectFinishedTasks(facts, text);
+		collectFinishedTasks(facts, text, at);
 		return;
 	}
 	if (record.isMeta === true) return;
@@ -226,7 +242,9 @@ function applyToolResults(
 			});
 		} else if (tool.name === "TaskStop") {
 			const taskId = asString(result.task_id);
-			if (taskId) endTask(facts, taskId);
+			if (taskId) endTask(facts, taskId, at);
+		} else if (tool.name === "Monitor") {
+			startShell(facts, asString(result.taskId), tool, at);
 		} else if (tool.name === "Workflow") {
 			const taskId = asString(result.taskId);
 			const runId = asString(result.runId);
@@ -241,6 +259,7 @@ function applyToolResults(
 				facts.artifacts.set(artifact.url, artifact);
 			}
 		} else if (tool.name === "Bash") {
+			startShell(facts, asString(result.backgroundTaskId), tool, at);
 			const stdout = asString(result.stdout) ?? "";
 			for (const match of stdout.matchAll(backgroundedPattern)) {
 				if (match[1]) facts.spawnedShorts.add(match[1]);
@@ -305,15 +324,45 @@ function collectFinishedAgent(facts: TranscriptFacts, result: Json | null) {
 	}
 }
 
-function collectFinishedTasks(facts: TranscriptFacts, text: string) {
-	if (!text.includes("<task-notification>")) return;
-	for (const match of text.matchAll(taskIdPattern)) {
-		if (match[1]) endTask(facts, match[1]);
+function collectFinishedTasks(
+	facts: TranscriptFacts,
+	text: string,
+	at: number,
+) {
+	for (const notification of text.split("<task-notification>").slice(1)) {
+		if (isMonitorEvent(notification)) continue;
+		for (const match of notification.matchAll(taskIdPattern)) {
+			if (match[1]) endTask(facts, match[1], at);
+		}
 	}
 }
 
-function endTask(facts: TranscriptFacts, taskId: string) {
+function isMonitorEvent(notification: string): boolean {
+	return notification.includes("<event>") && !notification.includes("<status>");
+}
+
+function startShell(
+	facts: TranscriptFacts,
+	taskId: string | null,
+	tool: { name: string; input: Json },
+	at: number,
+) {
+	if (!taskId || facts.shells.has(taskId)) return;
+	const description =
+		asString(tool.input.description) ??
+		firstLine(asString(tool.input.command) ?? "");
+	facts.shells.set(taskId, {
+		tool: tool.name === "Monitor" ? "Monitor" : "Bash",
+		description: truncate(description, summaryLength),
+		startedAt: at,
+		endedAt: null,
+	});
+}
+
+function endTask(facts: TranscriptFacts, taskId: string, at: number) {
 	facts.finishedTasks.add(taskId);
+	const shell = facts.shells.get(taskId);
+	if (shell && shell.endedAt === null) shell.endedAt = at;
 	const runId = facts.workflowRuns.get(taskId);
 	if (runId) facts.finishedTasks.add(runId);
 }

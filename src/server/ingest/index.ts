@@ -29,6 +29,7 @@ import {
 	readJobs,
 	readRegistry,
 } from "./registry.ts";
+import { shellsOf } from "./shells.ts";
 import {
 	abandoned,
 	type FoundSubagent,
@@ -140,7 +141,10 @@ export function startBoard(opts: {
 		const agentFacts = advanceSubagentTails(found);
 		const settled = settleSubagents(found, agentFacts);
 		const shown = newestPerSession(settled);
-		const subagents = shown.map(({ subagent }) => subagent);
+		const subagents = [
+			...shown.map(({ subagent }) => subagent),
+			...collectShells(tracked, shown, agentFacts, now),
+		];
 		subagentPaths.clear();
 		for (const { subagent, transcriptPath } of shown) {
 			subagentPaths.set(subagent.id, transcriptPath);
@@ -310,6 +314,42 @@ export function startBoard(opts: {
 			for (const watcher of watchers) watcher.close();
 		},
 	};
+}
+
+function collectShells(
+	tracked: Map<string, Tracked>,
+	shown: FoundSubagent[],
+	agentFacts: Map<string, TranscriptFacts>,
+	now: number,
+): Subagent[] {
+	const ofSessions = [...tracked.values()].flatMap((item) =>
+		item.tail
+			? shellsOf(
+					{
+						sessionId: item.id,
+						parentAgentId: null,
+						facts: item.tail.facts,
+						endedAt: item.entry ? null : item.tail.facts.lastAt,
+					},
+					now,
+				)
+			: [],
+	);
+	const ofSubagents = shown.flatMap(({ subagent, transcriptPath }) => {
+		const facts = agentFacts.get(transcriptPath);
+		return facts
+			? shellsOf(
+					{
+						sessionId: subagent.sessionId,
+						parentAgentId: subagent.id,
+						facts,
+						endedAt: subagent.done ? subagent.updatedAt : null,
+					},
+					now,
+				)
+			: [];
+	});
+	return [...ofSessions, ...ofSubagents];
 }
 
 function collectTracked(

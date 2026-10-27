@@ -73,7 +73,7 @@ export function activityOf(
 		if (state === "done") return "done";
 		return "stopped";
 	}
-	if (entry.status === "busy" || entry.status === "shell") return "working";
+	if (entry.status === "busy") return "working";
 	if (entry.status === "waiting") return "needs-you";
 	switch (state) {
 		case null:
@@ -88,7 +88,7 @@ export function activityOf(
 		case "stopped":
 			return "idle";
 		default:
-			if (entry.status !== "idle") return "working";
+			if (entry.status !== "idle" && entry.status !== "shell") return "working";
 			return job?.tempo === "blocked" ? "needs-you" : "idle";
 	}
 }
