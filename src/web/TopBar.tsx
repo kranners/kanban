@@ -1,6 +1,7 @@
 import { Moon, Plus, RotateCw, Search, Sun, SunMoon } from "lucide-preact";
 import { ActivityIcon, activityLabel, activityOrder } from "./activity.tsx";
 import { Mark } from "./Mark.tsx";
+import { SubagentPill } from "./SubagentPill.tsx";
 import {
 	activityCounts,
 	activityFilter,
@@ -62,6 +63,7 @@ export function TopBar() {
 							<span class="num">{counts.get(a)}</span>
 						</button>
 					))}
+				<SubagentPill />
 			</fieldset>
 			<div class="actions">
 				<label class="search">

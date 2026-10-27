@@ -184,6 +184,16 @@ describe("applyRecord", () => {
 		assert.deepEqual([...facts.finishedTasks].sort(), ["agentA", "agentB"]);
 	});
 
+	test("records agents that finished in the foreground", () => {
+		const facts = apply(
+			toolUse("t1", "Agent", { description: "Survey", prompt: "go" }),
+			toolResult("t1", { status: "completed", agentId: "agentC" }),
+			toolUse("t2", "Agent", { description: "Later", prompt: "go" }),
+			toolResult("t2", { status: "async_launched", agentId: "agentD" }),
+		);
+		assert.deepEqual([...facts.finishedTasks], ["agentC"]);
+	});
+
 	test("keeps typed user text and skips meta, tool results and notifications", () => {
 		const facts = apply(
 			{ type: "user", message: { content: "fix the build" } },

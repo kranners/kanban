@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Subagent } from "../../shared/types.ts";
 import { asObject, asString, parseJson } from "./json.ts";
 
@@ -35,6 +35,7 @@ export function scanSubagents(opts: {
 		return [];
 	}
 	const found: FoundSubagent[] = [];
+	const journals = new Map<string, Set<string>>();
 	for (const file of files) {
 		const id = metaFile.exec(file)?.[1];
 		if (!id) continue;
@@ -44,6 +45,9 @@ export function scanSubagents(opts: {
 		if (!meta) continue;
 		const updatedAt = mtimeOf(transcriptPath) ?? meta.startedAt;
 		if (now - updatedAt > subagentWindowMs) continue;
+		const done =
+			finishedTasks.has(id) ||
+			journalFinished(journals, dirname(metaPath)).has(id);
 		found.push({
 			transcriptPath,
 			subagent: {
@@ -52,7 +56,8 @@ export function scanSubagents(opts: {
 				parentAgentId: meta.parentAgentId,
 				type: meta.type,
 				description: meta.description,
-				live: !finishedTasks.has(id) && now - updatedAt <= subagentLiveMs,
+				live: !done && now - updatedAt <= subagentLiveMs,
+				done,
 				startedAt: meta.startedAt,
 				updatedAt,
 			},
@@ -61,6 +66,30 @@ export function scanSubagents(opts: {
 	return found
 		.sort((a, b) => b.subagent.updatedAt - a.subagent.updatedAt)
 		.slice(0, subagentLimit);
+}
+
+function journalFinished(
+	journals: Map<string, Set<string>>,
+	dir: string,
+): Set<string> {
+	const known = journals.get(dir);
+	if (known) return known;
+	const finished = new Set<string>();
+	journals.set(dir, finished);
+	let text: string;
+	try {
+		text = readFileSync(join(dir, "journal.jsonl"), "utf8");
+	} catch {
+		return finished;
+	}
+	for (const line of text.split("\n")) {
+		const record = asObject(parseJson(line));
+		const agentId = asString(record?.agentId);
+		if (agentId && (record?.type === "result" || record?.type === "failed")) {
+			finished.add(agentId);
+		}
+	}
+	return finished;
 }
 
 function cachedMeta(cache: MetaCache, path: string) {

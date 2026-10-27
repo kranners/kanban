@@ -175,6 +175,7 @@ function applyToolResults(
 	resolve: ResolvePeer,
 ) {
 	const result = asObject(record.toolUseResult);
+	collectFinishedAgent(facts, result);
 	for (const item of content) {
 		const block = asObject(item);
 		if (block?.type !== "tool_result") continue;
@@ -247,6 +248,13 @@ function messageSummary(input: Json): string {
 	const message =
 		asString(input.message) ?? asString(input.content) ?? "message";
 	return truncate(firstLine(message), summaryLength);
+}
+
+function collectFinishedAgent(facts: TranscriptFacts, result: Json | null) {
+	const agentId = asString(result?.agentId);
+	if (agentId && result?.status === "completed") {
+		facts.finishedTasks.add(agentId);
+	}
 }
 
 function collectFinishedTasks(facts: TranscriptFacts, text: string) {

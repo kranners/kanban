@@ -36,17 +36,27 @@ import {
 	sessionMatches,
 	sessionsById,
 	subagentsById,
+	workingSubagentsOnly,
 } from "./state.ts";
+import { sessionsWithWorkingSubagents } from "./subagentCounts.ts";
 import { TopBar } from "./TopBar.tsx";
 
 function visibility(): (key: NodeKey) => boolean {
 	const sessions = sessionsById.value;
 	const agents = subagentsById.value;
+	const working = workingSubagentsOnly.value
+		? sessionsWithWorkingSubagents([...agents.values()])
+		: null;
 	return (key) => {
 		const [kind, id] = [
 			key.slice(0, key.indexOf(":")),
 			key.slice(key.indexOf(":") + 1),
 		];
+		if (working) {
+			const highlighted =
+				kind === "subagent" ? agents.get(id)?.live : working.has(id);
+			if (!highlighted) return false;
+		}
 		const sessionId = kind === "session" ? id : agents.get(id)?.sessionId;
 		const session = sessionId ? sessions.get(sessionId) : undefined;
 		return session ? sessionMatches(session) : true;

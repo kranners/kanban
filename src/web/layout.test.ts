@@ -44,6 +44,7 @@ function subagent(id: string, sessionId: string, at = 1): Subagent {
 		type: "explore",
 		description: id,
 		live: true,
+		done: false,
 		startedAt: at,
 		updatedAt: at,
 	};

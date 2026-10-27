@@ -89,6 +89,7 @@ test("removing sessions drops their subagents, links and messages", () => {
 				type: "Explore",
 				description: "",
 				live: true,
+				done: false,
 				startedAt: 1,
 				updatedAt: 1,
 			},

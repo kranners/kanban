@@ -270,6 +270,21 @@ function buildFixture() {
 		20_000,
 	);
 	agent(
+		"workflows/wf_1/agent-agentflowdone",
+		{ agentType: "workflow-subagent", description: "Flow step" },
+		5_000,
+	);
+	jsonl(`${subagents}/workflows/wf_1/journal.jsonl`, [
+		{ type: "started", agentId: "agentnested" },
+		{ type: "started", agentId: "agentflowdone" },
+		{ type: "result", agentId: "agentflowdone", result: "ok" },
+	]);
+	agent(
+		"agent-agentidle",
+		{ agentType: "general-purpose", description: "Quiet one" },
+		600_000,
+	);
+	agent(
 		"agent-agentold",
 		{ agentType: "general-purpose", description: "Old one" },
 		2 * 3_600_000,
@@ -429,14 +444,16 @@ describe("startBoard", () => {
 		assert.equal(item.attachable, true);
 	});
 
-	test("lists recent subagents with liveness", () => {
-		const live = Object.fromEntries(
-			board.subagents.map((item) => [item.id, item.live]),
+	test("lists recent subagents as working, idle or done", () => {
+		const states = Object.fromEntries(
+			board.subagents.map((item) => [item.id, [item.live, item.done]]),
 		);
-		assert.deepEqual(live, {
-			agentlive: true,
-			agentnested: true,
-			agentdone: false,
+		assert.deepEqual(states, {
+			agentlive: [true, false],
+			agentnested: [true, false],
+			agentdone: [false, true],
+			agentflowdone: [false, true],
+			agentidle: [false, false],
 		});
 		const nested = board.subagents.find((item) => item.id === "agentnested");
 		assert.equal(nested?.parentAgentId, "agentlive");
@@ -456,6 +473,8 @@ describe("startBoard", () => {
 				`forked:${lead}>${fork}`,
 				`subagent:${lead}>agentlive`,
 				`subagent:${lead}>agentdone`,
+				`subagent:${lead}>agentidle`,
+				`subagent:${lead}>agentflowdone`,
 				"subagent:agentlive>agentnested",
 			].sort(),
 		);
