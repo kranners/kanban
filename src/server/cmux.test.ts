@@ -183,6 +183,7 @@ const session: Session = {
 	updatedAt: 0,
 	attachable: false,
 	cmux: true,
+	artifacts: [],
 };
 
 const fakeCmux = (surfaces: Map<number, CmuxSurface> | string): Cmux => ({

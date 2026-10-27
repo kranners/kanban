@@ -1,7 +1,7 @@
-import { Bot, Server, Terminal } from "lucide-preact";
+import { AppWindow, Bot, Server, Terminal } from "lucide-preact";
 import type { ComponentChildren } from "preact";
 import type { RegionColour } from "../shared/colours.ts";
-import type { Session, Subagent } from "../shared/types.ts";
+import type { Artifact, Session, Subagent } from "../shared/types.ts";
 import "./attention.css";
 import {
 	outstandingSubagents,
@@ -85,6 +85,51 @@ function SubagentRibbon(props: { counts: SubagentCounts | undefined }) {
 	);
 }
 
+const shownArtifacts = 2;
+
+export function ArtifactLink(props: { artifact: Artifact }) {
+	const { artifact } = props;
+	return (
+		<a
+			class="artifact-link"
+			href={artifact.url}
+			target="_blank"
+			rel="noopener noreferrer"
+			draggable={false}
+			title={`Open ${artifact.title}`}
+		>
+			<AppWindow size={12} aria-hidden="true" />
+			<span class="artifact-title">{artifact.title}</span>
+		</a>
+	);
+}
+
+function CardArtifacts(props: {
+	artifacts: Artifact[];
+	onMore: (event: MouseEvent) => void;
+}) {
+	const { artifacts } = props;
+	if (artifacts.length === 0) return null;
+	const hidden = artifacts.length - shownArtifacts;
+	return (
+		<div class="card-artifacts">
+			{artifacts.slice(0, shownArtifacts).map((artifact) => (
+				<ArtifactLink key={artifact.url} artifact={artifact} />
+			))}
+			{hidden > 0 && (
+				<button
+					type="button"
+					class="artifact-more num"
+					aria-label={`${hidden} more ${hidden === 1 ? "artifact" : "artifacts"}`}
+					onClick={props.onMore}
+				>
+					+{hidden}
+				</button>
+			)}
+		</div>
+	);
+}
+
 function cardStatus(
 	session: Session,
 	subagents: SubagentCounts | undefined,
@@ -122,15 +167,23 @@ export function SessionCard(props: {
 }) {
 	const { session } = props;
 	const KindIcon = session.kind === "interactive" ? Terminal : Server;
-	const open = (event: MouseEvent) =>
-		props.onOpen(
-			session.id,
-			(event.currentTarget as HTMLElement).getBoundingClientRect(),
-		);
+	const open = (event: MouseEvent) => {
+		const control = event.currentTarget as HTMLElement;
+		const frame =
+			control.closest("[data-node]")?.querySelector(".frame") ?? control;
+		props.onOpen(session.id, frame.getBoundingClientRect());
+	};
 	return (
 		<div
 			class={nodeClass(
-				`node session act-${session.activity} ${props.state ?? ""}`.trim(),
+				[
+					"node session",
+					`act-${session.activity}`,
+					session.artifacts.length > 0 && "has-artifacts",
+					props.state,
+				]
+					.filter(Boolean)
+					.join(" "),
 				props.emphasis,
 			)}
 			style={position(props.node)}
@@ -178,6 +231,7 @@ export function SessionCard(props: {
 					</span>
 				</div>
 			</button>
+			<CardArtifacts artifacts={session.artifacts} onMore={open} />
 			{session.activity === "working" && <BusyEdge />}
 			<Ribbon session={session} now={props.now} />
 			<SubagentRibbon counts={props.subagents} />

@@ -174,6 +174,31 @@ describe("conversation records", () => {
 		});
 	});
 
+	it("links a published artifact from its tool call", () => {
+		const log = parse(
+			toolUse("p1", "Artifact", { file_path: "/tmp/plan.html" }),
+			{
+				...toolResult("p1", "Published /tmp/plan.html"),
+				toolUseResult: {
+					url: "https://claude.ai/artifact/4oVZH2uJs5GCsLdRFRZF4H",
+					title: "Plan",
+				},
+			},
+			toolUse("q1", "Artifact", { action: "quickstart" }),
+			{ ...toolResult("q1", "Quickstart."), toolUseResult: { quickstart: {} } },
+		);
+		const [publish, quickstart] = log.items;
+		assert.deepEqual(publish?.kind === "tool" && publish.result?.artifact, {
+			url: "https://claude.ai/artifact/4oVZH2uJs5GCsLdRFRZF4H",
+			title: "Plan",
+			at: Date.parse(at),
+		});
+		assert.equal(
+			quickstart?.kind === "tool" && quickstart.result?.artifact,
+			null,
+		);
+	});
+
 	it("records interruptions and ends the turn", () => {
 		const log = parse(
 			user("Go"),

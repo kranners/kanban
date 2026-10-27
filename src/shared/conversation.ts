@@ -1,3 +1,5 @@
+import type { Artifact } from "./types.ts";
+
 export type PatchHunk = {
 	oldStart: number;
 	newStart: number;
@@ -13,6 +15,7 @@ export type ToolResult = {
 	agentId: string | null;
 	answers: Record<string, string> | null;
 	interrupted: boolean;
+	artifact: Artifact | null;
 	at: number;
 };
 

@@ -77,6 +77,7 @@ function session(id: string): Session {
 		updatedAt: 1,
 		attachable: true,
 		cmux: false,
+		artifacts: [],
 	};
 }
 

@@ -12,6 +12,7 @@ import {
 import { subagentState } from "../../shared/subagents.ts";
 import type { Activity, Session, Subagent } from "../../shared/types.ts";
 import { ActivityBadge } from "../activity.tsx";
+import { ArtifactLink } from "../Card.tsx";
 import { openSubagent, subagentsById } from "../state.ts";
 import { AgentView } from "./AgentView.tsx";
 import { AttachedTerminal } from "./AttachedTerminal.tsx";
@@ -161,6 +162,13 @@ export function Focus(props: {
 								</span>
 							)}
 						</div>
+						{session && session.artifacts.length > 0 && (
+							<div class="focus-artifacts">
+								{session.artifacts.map((artifact) => (
+									<ArtifactLink key={artifact.url} artifact={artifact} />
+								))}
+							</div>
+						)}
 					</div>
 					{terminal && (
 						<div class="av-toggle">

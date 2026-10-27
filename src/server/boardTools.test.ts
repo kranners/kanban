@@ -35,6 +35,7 @@ const session = (id: string, extra: Partial<Session> = {}): Session => ({
 	updatedAt: 0,
 	attachable: true,
 	cmux: false,
+	artifacts: [],
 	...extra,
 });
 

@@ -28,6 +28,7 @@ const session = (id: string, short: string | null): Session => ({
 	updatedAt: 0,
 	attachable: true,
 	cmux: false,
+	artifacts: [],
 });
 
 const boardOf = (...sessions: Session[]): Board => ({

@@ -55,6 +55,7 @@ function session(
 		updatedAt: start - 2 * minute,
 		attachable: true,
 		cmux: false,
+		artifacts: [],
 		...partial,
 	};
 }
@@ -126,6 +127,13 @@ const sessions: Session[] = [
 	session({
 		id: "f6a5b7d8e0",
 		goal: "Plan the staging network changes",
+		artifacts: [
+			{
+				url: "https://claude.ai/artifact/demoStagingNetwork04",
+				title: "Staging network plan",
+				at: start - 3 * 60 * minute,
+			},
+		],
 		name: "acme-infra",
 		project: "acme-infra",
 		activity: "stopped",
@@ -139,6 +147,23 @@ const sessions: Session[] = [
 		activity: "idle",
 		doing: null,
 		updatedAt: start - 50 * minute,
+		artifacts: [
+			{
+				url: "https://claude.ai/artifact/demoCostDashboard01",
+				title: "Q3 cloud cost dashboard",
+				at: start - 52 * minute,
+			},
+			{
+				url: "https://claude.ai/artifact/demoCostBreakdown02",
+				title: "Cost by service",
+				at: start - 58 * minute,
+			},
+			{
+				url: "https://claude.ai/artifact/demoCostSavings03",
+				title: "Savings plan options",
+				at: start - 64 * minute,
+			},
+		],
 	}),
 	session({
 		id: "b8e7d9f0a2",

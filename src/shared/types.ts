@@ -11,6 +11,8 @@ export type Activity =
 	| "failed"
 	| "stopped";
 
+export type Artifact = { url: string; title: string; at: number };
+
 export type Session = {
 	id: string;
 	short: string | null;
@@ -27,6 +29,7 @@ export type Session = {
 	updatedAt: number;
 	attachable: boolean;
 	cmux: boolean;
+	artifacts: Artifact[];
 };
 
 export type Subagent = {
