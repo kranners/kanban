@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import type { Board, Session } from "../shared/types.ts";
 import { noteSizeFor } from "../web/notes.ts";
+import { arrange, near, seedsOf, sessionSize } from "../web/placement.ts";
 import { createAnnotationStore } from "./annotations.ts";
 import type { AuditEvent } from "./audit.ts";
 import { createBoardTools } from "./boardTools.ts";
@@ -34,6 +35,7 @@ const session = (id: string, extra: Partial<Session> = {}): Session => ({
 	updatedAt: 0,
 	attachable: true,
 	cmux: false,
+	artifacts: [],
 	...extra,
 });
 
@@ -41,6 +43,8 @@ const board: Board = {
 	sessions: [session("aaaaaaaa-1"), session("bbbbbbbb-2")],
 	subagents: [],
 	subagentCounts: {},
+	subagentStates: {},
+	workflowRuns: {},
 	links: [],
 	messages: [],
 	generatedAt: 0,
@@ -171,7 +175,7 @@ describe("board tools", () => {
 		});
 		assert.deepEqual(created, {
 			ok: true,
-			text: "Created note '## Report' (id n-1)",
+			text: `Created note '## Report' (id n-1) at ${annotations.current()["n-1"]?.x},${annotations.current()["n-1"]?.y}`,
 		});
 		assert.equal(annotations.current()["n-1"]?.w, 384);
 		await tools("t", { tool: "put_note", id: "n-1", color: "blue" });
@@ -198,6 +202,48 @@ describe("board tools", () => {
 			await tools("t", { tool: "put_note", id: "missing", text: "x" }),
 			{ ok: false, error: "No note missing" },
 		);
+	});
+
+	it("puts new notes and stickers clear of cards and each other, but moves edits as asked", async () => {
+		const { tools, annotations } = await setup();
+		await tools("t", { tool: "put_note", text: "one", x: 0, y: 0 });
+		await tools("t", { tool: "put_note", text: "two", x: 0, y: 0 });
+		await tools("t", { tool: "put_sticker", sticker: "rocket", x: 0, y: 0 });
+		const cards = [
+			...arrange(board, {}, seedsOf(board), new Map()).nodes.values(),
+		];
+		const added = Object.values(annotations.current());
+		assert.equal(added.length, 3);
+		for (const a of added) {
+			for (const other of [...cards, ...added]) {
+				if (other !== a)
+					assert.ok(!near(a, other, 0), `${a.id} covers something`);
+			}
+		}
+		await tools("t", { tool: "put_note", id: "n-1", x: 0, y: 0 });
+		const moved = annotations.current()["n-1"];
+		assert.deepEqual([moved?.x, moved?.y], [0, 0]);
+	});
+
+	it("starts an agent's session clear of a note at the spot it asked for", async () => {
+		const { tools, annotations, layout } = await setup();
+		await tools("t", { tool: "put_note", text: "here", x: 2400, y: 2400 });
+		const note = annotations.current()["n-1"];
+		assert.ok(note);
+		await tools("t", {
+			tool: "start_session",
+			cwd: "/tmp",
+			prompt: "go",
+			x: note.x,
+			y: note.y,
+		});
+		layout.observe({
+			...board,
+			sessions: [session("feedbeef-3", { short: "feedbeef" })],
+		});
+		const spot = layout.current()["session:feedbeef-3"];
+		assert.ok(spot);
+		assert.ok(!near({ ...spot, ...sessionSize }, note, 0));
 	});
 
 	it("draws regions with a colour and finishes sessions without forcing", async () => {

@@ -22,6 +22,7 @@ function session(id: string): Session {
 		updatedAt: 0,
 		attachable: true,
 		cmux: false,
+		artifacts: [],
 	};
 }
 
@@ -58,6 +59,8 @@ test("only the first row of a grid gets an edge, for nested subagents too", () =
 		sessions: [session("root")],
 		subagents,
 		subagentCounts: {},
+		subagentStates: {},
+		workflowRuns: {},
 		links,
 		messages: [],
 		generatedAt: 0,
@@ -80,6 +83,8 @@ test("a tether runs between the facing edges of a note and its card frame", () =
 		sessions: [session("root")],
 		subagents: [],
 		subagentCounts: {},
+		subagentStates: {},
+		workflowRuns: {},
 		links: [],
 		messages: [],
 		generatedAt: 0,

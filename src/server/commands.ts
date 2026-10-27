@@ -1,6 +1,6 @@
 import type { Dirent } from "node:fs";
-import { open, readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { open, readdir, realpath } from "node:fs/promises";
+import { isAbsolute, join, relative } from "node:path";
 
 export type SlashCommand = {
 	name: string;
@@ -83,6 +83,30 @@ const describe = (text: string): string => {
 		: description;
 };
 
+type Readable = (path: string) => Promise<boolean>;
+
+const within = (parent: string, child: string): boolean => {
+	const path = relative(parent, child);
+	return path === "" || (!path.startsWith("..") && !isAbsolute(path));
+};
+
+const anywhere: Readable = async () => true;
+
+const insideProject =
+	(cwd: string, claudeHome: string): Readable =>
+	async (path) => {
+		try {
+			const [file, project, home] = await Promise.all([
+				realpath(path),
+				realpath(cwd),
+				realpath(claudeHome).catch(() => claudeHome),
+			]);
+			return within(project, file) && !within(home, file);
+		} catch {
+			return false;
+		}
+	};
+
 const list = async (dir: string): Promise<Dirent[]> => {
 	try {
 		return await readdir(dir, { withFileTypes: true, recursive: true });
@@ -94,6 +118,7 @@ const list = async (dir: string): Promise<Dirent[]> => {
 const markdownCommands = async (
 	dir: string,
 	source: "user" | "project",
+	readable: Readable,
 ): Promise<SlashCommand[]> => {
 	const commands: SlashCommand[] = [];
 	for (const entry of await list(dir)) {
@@ -103,6 +128,7 @@ const markdownCommands = async (
 			.slice(dir.length + 1, -".md".length)
 			.split("/")
 			.join(":");
+		if (!(await readable(path))) continue;
 		try {
 			commands.push({ name, description: describe(await head(path)), source });
 		} catch {}
@@ -111,7 +137,10 @@ const markdownCommands = async (
 	return commands;
 };
 
-const skills = async (dir: string): Promise<SlashCommand[]> => {
+const skills = async (
+	dir: string,
+	readable: Readable,
+): Promise<SlashCommand[]> => {
 	let entries: Dirent[];
 	try {
 		entries = await readdir(dir, { withFileTypes: true });
@@ -121,8 +150,10 @@ const skills = async (dir: string): Promise<SlashCommand[]> => {
 	const found: SlashCommand[] = [];
 	for (const entry of entries.slice(0, commandLimit)) {
 		if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+		const path = join(dir, entry.name, "SKILL.md");
+		if (!(await readable(path))) continue;
 		try {
-			const text = await head(join(dir, entry.name, "SKILL.md"));
+			const text = await head(path);
 			found.push({
 				name: frontmatter(text).name || entry.name,
 				description: describe(text),
@@ -138,11 +169,12 @@ export const listCommands = async (opts: {
 	cwd: string;
 }): Promise<SlashCommand[]> => {
 	const project = join(opts.cwd, ".claude");
+	const projectOnly = insideProject(opts.cwd, opts.claudeHome);
 	const groups = await Promise.all([
-		markdownCommands(join(project, "commands"), "project"),
-		markdownCommands(join(opts.claudeHome, "commands"), "user"),
-		skills(join(project, "skills")),
-		skills(join(opts.claudeHome, "skills")),
+		markdownCommands(join(project, "commands"), "project", projectOnly),
+		markdownCommands(join(opts.claudeHome, "commands"), "user", anywhere),
+		skills(join(project, "skills"), projectOnly),
+		skills(join(opts.claudeHome, "skills"), anywhere),
 	]);
 	const seen = new Set<string>();
 	return [...builtInCommands, ...groups.flat()].filter((command) => {

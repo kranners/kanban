@@ -3,6 +3,7 @@ import type { MirrorKey } from "../shared/types.ts";
 import type { CmuxResult } from "./cmux.ts";
 import {
 	type AskScreen,
+	type ChoiceScreen,
 	cursorRow,
 	moves,
 	normalise,
@@ -247,11 +248,13 @@ export const choosePermission = (
 	tty: Tty,
 	choice: number,
 	label: string,
+	isPrompt: (dialog: ChoiceScreen) => boolean = () => true,
 	timing: AnswerTiming = defaultTiming,
 ): Promise<Outcome> => {
 	const drive = driver(tty, timing);
 	const showing = (dialog: ScreenDialog | null, cursor: number | null) =>
 		dialog?.kind === "choice" &&
+		isPrompt(dialog) &&
 		sameLabel(dialog.options[choice] ?? "", label) &&
 		(cursor === null || dialog.cursor === cursor);
 	return run(async () => {

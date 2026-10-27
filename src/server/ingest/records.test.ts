@@ -325,3 +325,66 @@ describe("applyRecord", () => {
 		assert.equal(facts.lastPrompt, null);
 	});
 });
+
+describe("artifacts", () => {
+	const published = (id: string, input: object, result: object) => [
+		toolUse(id, "Artifact", input),
+		toolResult(id, result),
+	];
+
+	test("collects each published artifact once, latest publish last", () => {
+		const facts = apply(
+			...published(
+				"p1",
+				{ file_path: "/tmp/plan.html", icon: "bell" },
+				{
+					url: "https://claude.ai/artifact/4oVZH2uJs5GCsLdRFRZF4H",
+					title: "Plan",
+				},
+			),
+			...published(
+				"p2",
+				{ type_url: "https://claude.ai/artifact/GZLZthZ2sQjn7T16skfdeF" },
+				{ url: "https://claude.ai/artifact/Qfn3ReKDiuFi45uako7bVQ" },
+			),
+			...published(
+				"p3",
+				{ file_path: "/tmp/plan.html" },
+				{
+					url: "https://claude.ai/artifact/4oVZH2uJs5GCsLdRFRZF4H",
+					title: "Plan v2",
+				},
+			),
+		);
+		assert.deepEqual(
+			[...facts.artifacts.values()].map(({ url, title }) => [url, title]),
+			[
+				["https://claude.ai/artifact/Qfn3ReKDiuFi45uako7bVQ", "Artifact"],
+				["https://claude.ai/artifact/4oVZH2uJs5GCsLdRFRZF4H", "Plan v2"],
+			],
+		);
+	});
+
+	test("ignores opens, asset uploads and links off claude.ai", () => {
+		const shortlist = "https://claude.ai/artifact/5qfwzY679vZHW1W3ZGiChd";
+		const facts = apply(
+			...published(
+				"o1",
+				{ action: "open", url: shortlist },
+				{ url: shortlist, title: "Shortlist" },
+			),
+			...published("a1", { asset: true, url: shortlist }, { url: shortlist }),
+			...published(
+				"x1",
+				{ file_path: "/tmp/x.html" },
+				{ url: "javascript:alert(1)//claude.ai/artifact/x", title: "Bad" },
+			),
+			...published(
+				"x2",
+				{ file_path: "/tmp/x.html" },
+				{ url: "https://claude.ai.example.com/artifact/abc", title: "Bad" },
+			),
+		);
+		assert.equal(facts.artifacts.size, 0);
+	});
+});

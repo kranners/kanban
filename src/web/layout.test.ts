@@ -35,6 +35,7 @@ function session(
 		updatedAt,
 		attachable: true,
 		cmux: false,
+		artifacts: [],
 	};
 }
 
@@ -60,6 +61,8 @@ function board(parts: Partial<Board>): Board {
 		sessions: [],
 		subagents: [],
 		subagentCounts: {},
+		subagentStates: {},
+		workflowRuns: {},
 		links: [],
 		messages: [],
 		generatedAt: 0,

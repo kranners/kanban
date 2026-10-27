@@ -26,6 +26,7 @@ const session: Session = {
 	updatedAt: 0,
 	attachable: true,
 	cmux: false,
+	artifacts: [],
 };
 
 const card = { x: 100, y: 205, w: 288, h: 168 };

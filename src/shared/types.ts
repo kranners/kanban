@@ -1,5 +1,5 @@
 import type { RegionColours } from "./colours.ts";
-import type { SubagentCounts } from "./subagents.ts";
+import type { SubagentCounts, SubagentState } from "./subagents.ts";
 
 export type SessionKind = "interactive" | "background";
 
@@ -10,6 +10,8 @@ export type Activity =
 	| "done"
 	| "failed"
 	| "stopped";
+
+export type Artifact = { url: string; title: string; at: number };
 
 export type Session = {
 	id: string;
@@ -27,6 +29,7 @@ export type Session = {
 	updatedAt: number;
 	attachable: boolean;
 	cmux: boolean;
+	artifacts: Artifact[];
 };
 
 export type Subagent = {
@@ -65,6 +68,8 @@ export type Board = {
 	sessions: Session[];
 	subagents: Subagent[];
 	subagentCounts: Record<string, SubagentCounts>;
+	subagentStates: Record<string, SubagentState>;
+	workflowRuns: Record<string, string[]>;
 	links: Link[];
 	messages: Message[];
 	generatedAt: number;

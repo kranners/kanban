@@ -1,4 +1,5 @@
-import type { TranscriptEntry } from "../../shared/types.ts";
+import type { Artifact, TranscriptEntry } from "../../shared/types.ts";
+import { publishedArtifact } from "../artifacts.ts";
 import {
 	asNumber,
 	asObject,
@@ -41,6 +42,7 @@ export type TranscriptFacts = {
 	forkedChildren: Set<string>;
 	finishedTasks: Set<string>;
 	workflowRuns: Map<string, string>;
+	artifacts: Map<string, Artifact>;
 	entries: TranscriptEntry[];
 };
 
@@ -65,6 +67,7 @@ export function createFacts(): TranscriptFacts {
 		forkedChildren: new Set(),
 		finishedTasks: new Set(),
 		workflowRuns: new Map(),
+		artifacts: new Map(),
 		entries: [],
 	};
 }
@@ -226,6 +229,12 @@ function applyToolResults(
 			const taskId = asString(result.taskId);
 			const runId = asString(result.runId);
 			if (taskId && runId) facts.workflowRuns.set(taskId, runId);
+		} else if (tool.name === "Artifact") {
+			const artifact = publishedArtifact(tool.input, result, at);
+			if (artifact) {
+				facts.artifacts.delete(artifact.url);
+				facts.artifacts.set(artifact.url, artifact);
+			}
 		} else if (tool.name === "Bash") {
 			const stdout = asString(result.stdout) ?? "";
 			for (const match of stdout.matchAll(backgroundedPattern)) {

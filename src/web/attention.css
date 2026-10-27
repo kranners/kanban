@@ -225,11 +225,16 @@
 	--ribbon-edge: var(--idle-edge);
 	--ribbon-fill: color-mix(in srgb, var(--idle-edge) 14%, var(--surface));
 	--ribbon-ink: var(--idle-ink);
+	top: calc(var(--label-height) + 8px);
 	right: auto;
-	left: 22px;
+	left: 12px;
 	overflow: hidden;
 	border-style: dashed;
-	transform-origin: 0 50%;
+	transform-origin: 0 0;
+}
+
+.node:has(> .subagent-ribbon) .goal {
+	padding-top: calc(18px + 22px * min(var(--unzoom), 3));
 }
 
 .ribbon.subagent-ribbon.running {

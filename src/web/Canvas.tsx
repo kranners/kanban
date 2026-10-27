@@ -264,7 +264,9 @@ export function Canvas(props: {
 				const released = releaseGrab();
 				if (released) panFrom(released.pointerId, released.last);
 			}
-			if ((event.target as Element).closest("input, a, [data-no-pan]")) return;
+			const target = event.target as Element;
+			if (target.closest("input, [data-no-pan]")) return;
+			if (target.closest("a") && !target.closest("[data-node]")) return;
 			if (pointers.size === 0) {
 				grab = grabCard(event);
 				if (grab) return;

@@ -12,7 +12,7 @@ import type { Rect } from "./placement.ts";
 import { arrange, seedsOf } from "./placement.ts";
 import { shownRegions } from "./regionState.ts";
 import { regionGroups } from "./regions.ts";
-import { board, layout } from "./state.ts";
+import { annotations, board, layout } from "./state.ts";
 
 const settleMs = 1500;
 const echoMs = 3000;
@@ -34,13 +34,10 @@ export const arrangement = computed(() => {
 	const current = board.value;
 	const seeded = seeds.value;
 	if (!current || !seeded) return null;
-	return arrange(
-		current,
-		withOverrides(layout.value),
-		seeded,
-		remembered,
-		reserved.value,
-	);
+	return arrange(current, withOverrides(layout.value), seeded, remembered, [
+		...reserved.value,
+		...Object.values(annotations.value),
+	]);
 });
 
 export const groups = computed(() => {

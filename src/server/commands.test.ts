@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
@@ -52,6 +58,33 @@ describe("slash commands", () => {
 			],
 		);
 		assert.equal(commands.length, builtInCommands.length + custom.length);
+	});
+
+	it("never reads a project command or skill that links out of the project", async () => {
+		const home = join(root, "linked-home");
+		const project = join(root, "linked-project");
+		write(join(home, "CLAUDE.md"), "Private instructions");
+		write(join(root, "elsewhere.md"), "Somewhere else");
+		write(join(project, "shared", "SKILL.md"), "# Shared in the repo");
+		mkdirSync(join(project, ".claude", "skills", "leak"), { recursive: true });
+		mkdirSync(join(project, ".claude", "commands"), { recursive: true });
+		symlinkSync(
+			join(home, "CLAUDE.md"),
+			join(project, ".claude", "skills", "leak", "SKILL.md"),
+		);
+		symlinkSync(
+			join(root, "elsewhere.md"),
+			join(project, ".claude", "commands", "out.md"),
+		);
+		symlinkSync(
+			join(project, "shared"),
+			join(project, ".claude", "skills", "shared"),
+		);
+		const commands = await listCommands({ claudeHome: home, cwd: project });
+		assert.deepEqual(
+			commands.filter((command) => command.source !== "built-in"),
+			[{ name: "shared", description: "Shared in the repo", source: "skill" }],
+		);
 	});
 
 	it("still lists the built-ins when no directories exist", async () => {

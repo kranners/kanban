@@ -33,6 +33,7 @@ function session(id: string, cwd = "/dev/acme-api"): Session {
 		updatedAt: 1,
 		attachable: true,
 		cmux: false,
+		artifacts: [],
 	};
 }
 

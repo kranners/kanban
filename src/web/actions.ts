@@ -1,7 +1,7 @@
 import type { Board, NodeRef, Point } from "../shared/types.ts";
-import { gridSize, snapPoint } from "./grid.ts";
+import { snapPoint } from "./grid.ts";
 import type { Rect } from "./placement.ts";
-import { near, nearestFree, sessionSize } from "./placement.ts";
+import { clearSpot, sessionSize } from "./placement.ts";
 
 export type KeyPress = {
 	key: string;
@@ -42,10 +42,7 @@ export function cycle<T>(
 }
 
 export function freeSpotNear(point: Point, taken: readonly Rect[]): Point {
-	const start = snapPoint(point);
-	const fits = (at: Point) =>
-		taken.every((r) => !near({ ...at, ...sessionSize }, r, gridSize));
-	return nearestFree(start, fits) ?? start;
+	return clearSpot({ ...snapPoint(point), ...sessionSize }, taken);
 }
 
 export function withoutSessions(

@@ -17,6 +17,17 @@ export function outstandingSubagents(counts: SubagentCounts): number {
 	return counts.working + counts.idle;
 }
 
+export function outstandingStates(
+	subagents: readonly Subagent[],
+): Record<string, SubagentState> {
+	const states: Record<string, SubagentState> = {};
+	for (const subagent of subagents) {
+		const state = subagentState(subagent);
+		if (state !== "done") states[subagent.id] = state;
+	}
+	return states;
+}
+
 export function subagentCountsBySession(
 	subagents: readonly Subagent[],
 ): Record<string, SubagentCounts> {

@@ -77,6 +77,7 @@ function session(id: string): Session {
 		updatedAt: 1,
 		attachable: true,
 		cmux: false,
+		artifacts: [],
 	};
 }
 
@@ -84,6 +85,8 @@ test("removing sessions drops their subagents, links and messages", () => {
 	const board: Board = {
 		sessions: [session("a"), session("b")],
 		subagentCounts: {},
+		subagentStates: {},
+		workflowRuns: {},
 		subagents: [
 			{
 				id: "x",

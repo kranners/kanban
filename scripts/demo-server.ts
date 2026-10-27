@@ -3,7 +3,10 @@ import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
-import { subagentCountsBySession } from "../src/shared/subagents.ts";
+import {
+	outstandingStates,
+	subagentCountsBySession,
+} from "../src/shared/subagents.ts";
 import type {
 	Board,
 	BoardFeed,
@@ -55,6 +58,7 @@ function session(
 		updatedAt: start - 2 * minute,
 		attachable: true,
 		cmux: false,
+		artifacts: [],
 		...partial,
 	};
 }
@@ -126,6 +130,13 @@ const sessions: Session[] = [
 	session({
 		id: "f6a5b7d8e0",
 		goal: "Plan the staging network changes",
+		artifacts: [
+			{
+				url: "https://claude.ai/artifact/demoStagingNetwork04",
+				title: "Staging network plan",
+				at: start - 3 * 60 * minute,
+			},
+		],
 		name: "acme-infra",
 		project: "acme-infra",
 		activity: "stopped",
@@ -139,6 +150,23 @@ const sessions: Session[] = [
 		activity: "idle",
 		doing: null,
 		updatedAt: start - 50 * minute,
+		artifacts: [
+			{
+				url: "https://claude.ai/artifact/demoCostDashboard01",
+				title: "Q3 cloud cost dashboard",
+				at: start - 52 * minute,
+			},
+			{
+				url: "https://claude.ai/artifact/demoCostBreakdown02",
+				title: "Cost by service",
+				at: start - 58 * minute,
+			},
+			{
+				url: "https://claude.ai/artifact/demoCostSavings03",
+				title: "Savings plan options",
+				at: start - 64 * minute,
+			},
+		],
 	}),
 	session({
 		id: "b8e7d9f0a2",
@@ -255,6 +283,8 @@ const board: Board = {
 	sessions,
 	subagents,
 	subagentCounts: subagentCountsBySession(subagents),
+	subagentStates: outstandingStates(subagents),
+	workflowRuns: {},
 	links,
 	messages,
 	generatedAt: start,
@@ -488,6 +518,8 @@ function snapshot(): Board {
 		sessions: [...sessions],
 		subagents: shown,
 		subagentCounts: subagentCountsBySession(shown),
+		subagentStates: outstandingStates(shown),
+		workflowRuns: {},
 		links: board.links.filter(connects),
 		messages: messages.filter(connects),
 		generatedAt: Date.now(),

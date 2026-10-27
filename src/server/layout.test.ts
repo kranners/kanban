@@ -28,12 +28,15 @@ const session = (id: string, short: string | null): Session => ({
 	updatedAt: 0,
 	attachable: true,
 	cmux: false,
+	artifacts: [],
 });
 
 const boardOf = (...sessions: Session[]): Board => ({
 	sessions,
 	subagents: [],
 	subagentCounts: {},
+	subagentStates: {},
+	workflowRuns: {},
 	links: [],
 	messages: [],
 	generatedAt: 0,

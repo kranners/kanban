@@ -36,7 +36,7 @@ import { createPromptSender } from "./prompts.ts";
 import { createRegionStore, loadRegions } from "./regions.ts";
 import { cardsOf, createReportRunner } from "./reports.ts";
 import { claudeLauncher } from "./sessions.ts";
-import { attachTty, cmuxTty } from "./terminals.ts";
+import { attachTty, cmuxTty, sharedAttachTty } from "./terminals.ts";
 
 const configOrExit = (): Config => {
 	try {
@@ -149,17 +149,19 @@ const runReport = createReportRunner({
 });
 const launch = claudeLauncher(config.claudeBin);
 const attachPty = claudeAttachPty(config.claudeBin);
-const attach = createAttachHub(attachPty, audit);
+const attach = createAttachHub(attachPty, audit, (short) =>
+	conversation.release(short),
+);
 const conversation = createConversationHub({
 	session: (id) =>
 		source.board().sessions.find((session) => session.id === id) ?? null,
+	transcriptPath: source.transcriptPath,
 	tty: (session) => {
-		if (session.kind === "background" && session.attachable && session.short) {
-			return attachTty({
-				spawnPty: attachPty,
-				short: session.short,
-				cwd: session.cwd,
-			});
+		const short = session.short;
+		if (session.kind === "background" && session.attachable && short) {
+			return attach.screen(short)
+				? sharedAttachTty({ live: () => attach.screen(short) })
+				: attachTty({ spawnPty: attachPty, short, cwd: session.cwd });
 		}
 		return session.cmux
 			? cmuxTty({ cmux, resolve: cmuxTargets.resolve, session })

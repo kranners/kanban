@@ -127,6 +127,40 @@ describe("createAttachHub", () => {
 		);
 	});
 
+	it("keeps a readable screen of each attach and announces opens and closes", async () => {
+		const changes: string[] = [];
+		const ptys: FakePty[] = [];
+		const hub = createAttachHub(
+			(_target, cols, rows) => {
+				const fake = new FakePty([cols, rows]);
+				ptys.push(fake);
+				return fake;
+			},
+			() => {},
+			(short) => changes.push(short),
+		);
+		const socket = new FakeSocket();
+		hub.open(socket, target("abcd1234"), size, null);
+		assert.deepEqual(changes, ["abcd1234"]);
+		ptys[0]?.emitData("❯ ready");
+		const screen = hub.screen("abcd1234");
+		assert.ok(screen);
+		await new Promise<void>((resolve) => screen.terminal.write("", resolve));
+		assert.equal(
+			screen.terminal.buffer.active.getLine(0)?.translateToString(true),
+			"❯ ready",
+		);
+		assert.equal(screen.terminal.cols, 100);
+		socket.emit(
+			"message",
+			Buffer.from(JSON.stringify({ t: "resize", cols: 80, rows: 24 })),
+		);
+		assert.equal(screen.terminal.cols, 80);
+		socket.close();
+		assert.equal(hub.screen("abcd1234"), null);
+		assert.deepEqual(changes, ["abcd1234", "abcd1234"]);
+	});
+
 	it("keeps attaches to different sessions apart", () => {
 		const { hub, ptys } = setup();
 		hub.open(new FakeSocket(), target("abcd1234"), size, null);

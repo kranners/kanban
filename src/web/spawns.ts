@@ -16,7 +16,7 @@ import { groupAt } from "./groups.ts";
 import { nodeKey } from "./layout.ts";
 import { sessionSize } from "./placement.ts";
 import { spotInRegion } from "./regions.ts";
-import { board, knownCwds } from "./state.ts";
+import { annotations, board, knownCwds } from "./state.ts";
 
 export type BoardMenu = { client: Point; board: Point; group: Group | null };
 export type QuickPrompt = { at: Point; cwd: string; cwds: string[] };
@@ -67,6 +67,7 @@ export function openQuickPrompt(point: Point): boolean {
 	const taken = [
 		...(arrangement.peek()?.nodes.values() ?? []),
 		...ghosts.peek().map((g) => ({ ...g.at, ...sessionSize })),
+		...Object.values(annotations.peek()),
 	];
 	const at =
 		(group?.region && spotInRegion(point, group.region, taken)) ||

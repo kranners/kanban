@@ -179,6 +179,7 @@ const board: Board = {
 			updatedAt: 0,
 			attachable: true,
 			cmux: false,
+			artifacts: [],
 		},
 		{
 			id: "66666666-7777-8888-9999-000000000000",
@@ -196,10 +197,13 @@ const board: Board = {
 			updatedAt: 0,
 			attachable: false,
 			cmux: true,
+			artifacts: [],
 		},
 	],
 	subagents: [],
 	subagentCounts: {},
+	subagentStates: {},
+	workflowRuns: {},
 	links: [],
 	messages: [],
 	generatedAt: 1,
@@ -255,6 +259,7 @@ describe("createKanbanServer", () => {
 				socket.close(1000, "fake");
 			},
 			attached: () => [],
+			screen: () => null,
 		};
 		layoutFile = join(dist, "state", "layout.json");
 		let feed: ReturnType<typeof createFeed> | null = null;
@@ -388,6 +393,7 @@ describe("createKanbanServer", () => {
 					socket.close(1000, "fake");
 				},
 				attached: () => [],
+				release() {},
 			},
 			files: async (cwd, query) => ({ ok: true, files: [`${cwd}:${query}`] }),
 			commands: async (cwd) => [

@@ -174,6 +174,31 @@ describe("conversation records", () => {
 		});
 	});
 
+	it("links a published artifact from its tool call", () => {
+		const log = parse(
+			toolUse("p1", "Artifact", { file_path: "/tmp/plan.html" }),
+			{
+				...toolResult("p1", "Published /tmp/plan.html"),
+				toolUseResult: {
+					url: "https://claude.ai/artifact/4oVZH2uJs5GCsLdRFRZF4H",
+					title: "Plan",
+				},
+			},
+			toolUse("q1", "Artifact", { action: "quickstart" }),
+			{ ...toolResult("q1", "Quickstart."), toolUseResult: { quickstart: {} } },
+		);
+		const [publish, quickstart] = log.items;
+		assert.deepEqual(publish?.kind === "tool" && publish.result?.artifact, {
+			url: "https://claude.ai/artifact/4oVZH2uJs5GCsLdRFRZF4H",
+			title: "Plan",
+			at: Date.parse(at),
+		});
+		assert.equal(
+			quickstart?.kind === "tool" && quickstart.result?.artifact,
+			null,
+		);
+	});
+
 	it("records interruptions and ends the turn", () => {
 		const log = parse(
 			user("Go"),
@@ -304,6 +329,95 @@ describe("conversation records", () => {
 				{ kind: "user", text: "also check the docs", images: 0, queued: true },
 			],
 		);
+	});
+
+	it("keeps a background launch running until its task notification or stop", () => {
+		const notification = (toolUseId: string, taskId: string, status: string) =>
+			user(
+				`<task-notification>\n<task-id>${taskId}</task-id>\n<tool-use-id>${toolUseId}</tool-use-id>\n<status>${status}</status>\n<summary>Run finished</summary>\n</task-notification>`,
+				{ origin: { kind: "task-notification" } },
+			);
+		const log = parse(
+			toolUse("w1", "Workflow", { script: "export const meta = {}" }),
+			toolResult("w1", "Workflow launched in background. Task ID: wtask", {}),
+			toolUse("b1", "Bash", { command: "sleep 60", run_in_background: true }),
+			toolUse("b2", "Bash", { command: "sleep 90", run_in_background: true }),
+			toolUse("s1", "TaskStop", { task_id: "btask2" }),
+		);
+		const launched = (id: string, extra: object) => {
+			const record = toolResult(id, "started", {});
+			applyConversationRecord(log, {
+				timestamp: at,
+				...record,
+				toolUseResult: extra,
+			});
+		};
+		launched("w1", {
+			status: "async_launched",
+			taskId: "wtask",
+			runId: "wf_run",
+			summary: "Build the thing",
+		});
+		launched("b1", { backgroundTaskId: "btask1" });
+		launched("b2", { backgroundTaskId: "btask2" });
+		const task = (id: string) => {
+			const item = log.items[log.tools.get(id) ?? -1];
+			return item?.kind === "tool" ? item.result?.task : undefined;
+		};
+		assert.deepEqual(task("w1"), {
+			id: "wtask",
+			runId: "wf_run",
+			summary: "Build the thing",
+			status: null,
+		});
+		launched("s1", { task_id: "btask2" });
+		applyConversationRecord(log, {
+			timestamp: later,
+			...notification("w1", "wtask", "completed"),
+		});
+		assert.equal(task("w1")?.status, "completed");
+		assert.equal(task("b1")?.status, null);
+		assert.equal(task("b2")?.status, "stopped");
+	});
+
+	it("hides a prompt rewound with Esc Esc and everything after it", () => {
+		const log = parse(
+			user("first", { uuid: "u1", parentUuid: null }),
+			assistant([{ type: "text", text: "done" }], {
+				uuid: "a1",
+				parentUuid: "u1",
+			}),
+			user("second ;et", { uuid: "u2", parentUuid: "a1" }),
+			toolUse("t1", "Bash", { command: "ls" }),
+			user("second, corrected", { uuid: "u3", parentUuid: "a1" }),
+			assistant([{ type: "text", text: "on it" }], {
+				uuid: "a3",
+				parentUuid: "u3",
+			}),
+		);
+		assert.deepEqual(kinds(log.items), [
+			"user",
+			"assistant",
+			"rewound",
+			"rewound",
+			"user",
+			"assistant",
+		]);
+		assert.deepEqual(log.status.pendingTools, []);
+		const steady = parse(
+			user("a", { uuid: "u1", parentUuid: null }),
+			assistant([{ type: "text", text: "b" }], {
+				uuid: "a1",
+				parentUuid: "u1",
+			}),
+			user("c", { uuid: "u2", parentUuid: "a1" }),
+			assistant([{ type: "text", text: "d" }], {
+				uuid: "a2",
+				parentUuid: "u2",
+			}),
+			user("e", { uuid: "u3", parentUuid: "a2" }),
+		);
+		assert.ok(!kinds(steady.items).includes("rewound"));
 	});
 
 	it("tracks the permission mode, context and output tokens once per message", () => {

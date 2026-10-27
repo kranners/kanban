@@ -27,6 +27,7 @@ function session(
 		updatedAt,
 		attachable: true,
 		cmux: false,
+		artifacts: [],
 	};
 }
 

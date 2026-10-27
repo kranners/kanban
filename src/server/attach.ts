@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
+import headless from "@xterm/headless";
 import * as pty from "node-pty";
 import type { AttachClientFrame, AttachServerNotice } from "../shared/types.ts";
 import { stripAnsi } from "./ansi.ts";
@@ -135,7 +136,13 @@ const notice = (frame: AttachServerNotice): string => JSON.stringify(frame);
 
 type CloseReason = "socket-closed" | "taken-over" | "exited";
 
-type LiveAttach = { end(reason: CloseReason): void };
+export type LiveScreen = {
+	pty: AttachPty;
+	terminal: headless.Terminal;
+	lastOutput(): number;
+};
+
+type LiveAttach = { end(reason: CloseReason): void; screen: LiveScreen };
 
 export type AttachHub = {
 	open(
@@ -145,11 +152,13 @@ export type AttachHub = {
 		identity: string | null,
 	): void;
 	attached(): string[];
+	screen(short: string): LiveScreen | null;
 };
 
 export const createAttachHub = (
 	spawnPty: PtyFactory,
 	audit: Audit,
+	onChange: (short: string) => void = () => {},
 ): AttachHub => {
 	const live = new Map<string, LiveAttach>();
 
@@ -158,13 +167,23 @@ export const createAttachHub = (
 		const terminal = spawnPty(target, size.cols, size.rows);
 		live.get(short)?.end("taken-over");
 		const guard = escapeGuard((key) => terminal.write(key));
+		const mirror = new headless.Terminal({
+			cols: size.cols,
+			rows: size.rows,
+			allowProposedApi: true,
+			scrollback: 0,
+		});
+		let lastOutput = Date.now();
 		let ended = false;
 
 		const entry: LiveAttach = {
+			screen: { pty: terminal, terminal: mirror, lastOutput: () => lastOutput },
 			end(reason) {
 				if (ended) return;
 				ended = true;
 				if (live.get(short) === entry) live.delete(short);
+				mirror.dispose();
+				onChange(short);
 				audit({ action: "attach-close", short, identity, reason });
 				if (reason !== "exited") terminal.kill("SIGHUP");
 				if (reason === "taken-over" && socket.readyState === socketOpen) {
@@ -175,9 +194,14 @@ export const createAttachHub = (
 		};
 		live.set(short, entry);
 		audit({ action: "attach-open", short, identity });
+		onChange(short);
 
 		terminal.onData((data) => {
 			guard(data);
+			if (!ended) {
+				lastOutput = Date.now();
+				mirror.write(data);
+			}
 			if (!ended && socket.readyState === socketOpen) {
 				socket.send(Buffer.from(data, "utf8"));
 			}
@@ -194,10 +218,17 @@ export const createAttachHub = (
 			if (ended) return;
 			const frame = parseClientFrame(raw);
 			if (frame?.t === "in") terminal.write(frame.d);
-			if (frame?.t === "resize") terminal.resize(frame.cols, frame.rows);
+			if (frame?.t === "resize") {
+				terminal.resize(frame.cols, frame.rows);
+				mirror.resize(frame.cols, frame.rows);
+			}
 		});
 		socket.on("close", () => entry.end("socket-closed"));
 	};
 
-	return { open, attached: () => [...live.keys()] };
+	return {
+		open,
+		attached: () => [...live.keys()],
+		screen: (short) => live.get(short)?.screen ?? null,
+	};
 };

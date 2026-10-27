@@ -11,6 +11,8 @@ import { fakeTui } from "./fakeTui.ts";
 
 const timing = { pollMs: 1, settleMs: 40 };
 
+const anyPrompt = () => true;
+
 const colour: AskQuestion = {
 	question: "Pick a colour",
 	header: "Colour",
@@ -42,21 +44,32 @@ const permissionOptions = [
 describe("answering a permission prompt", () => {
 	it("moves to the chosen option and confirms it", async () => {
 		const tui = fakeTui({ permission: permissionOptions });
-		const outcome = await choosePermission(tui, 2, "No", timing);
+		const outcome = await choosePermission(tui, 2, "No", anyPrompt, timing);
 		assert.deepEqual(outcome, { ok: true, value: null });
 		assert.equal(tui.chosen, "No");
 	});
 
 	it("keeps the default choice with a single Enter", async () => {
 		const tui = fakeTui({ permission: permissionOptions });
-		assert.equal((await choosePermission(tui, 0, "Yes", timing)).ok, true);
+		assert.equal(
+			(await choosePermission(tui, 0, "Yes", anyPrompt, timing)).ok,
+			true,
+		);
 		assert.equal(tui.chosen, "Yes");
 	});
 
 	it("waits out a slow redraw before confirming", async () => {
 		const tui = fakeTui({ permission: permissionOptions, lagReads: 3 });
 		assert.equal(
-			(await choosePermission(tui, 1, permissionOptions[1] ?? "", timing)).ok,
+			(
+				await choosePermission(
+					tui,
+					1,
+					permissionOptions[1] ?? "",
+					anyPrompt,
+					timing,
+				)
+			).ok,
 			true,
 		);
 		assert.equal(tui.chosen, permissionOptions[1]);
@@ -68,12 +81,22 @@ describe("answering a permission prompt", () => {
 			tui,
 			1,
 			"Yes, and don't ask again",
+			anyPrompt,
 			timing,
 		);
 		assert.deepEqual(outcome, { ok: false, error: notShowing });
 		assert.equal(tui.chosen, null);
+		const other = fakeTui({ permission: permissionOptions });
+		assert.deepEqual(
+			await choosePermission(other, 0, "Yes", () => false, timing),
+			{ ok: false, error: notShowing },
+		);
+		assert.equal(other.chosen, null);
 		const closed = fakeTui({});
-		assert.equal((await choosePermission(closed, 0, "Yes", timing)).ok, false);
+		assert.equal(
+			(await choosePermission(closed, 0, "Yes", anyPrompt, timing)).ok,
+			false,
+		);
 	});
 });
 
