@@ -32,6 +32,7 @@ const session = (id: string, short: string | null): Session => ({
 const boardOf = (...sessions: Session[]): Board => ({
 	sessions,
 	subagents: [],
+	subagentCounts: {},
 	links: [],
 	messages: [],
 	generatedAt: 0,

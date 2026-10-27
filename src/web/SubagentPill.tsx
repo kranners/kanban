@@ -1,16 +1,12 @@
 import { Bot } from "lucide-preact";
 import { ActivityIcon } from "./activity.tsx";
-import { board, workingSubagentsOnly } from "./state.ts";
-import {
-	subagentCounts,
-	subagentStateOrder,
-	subagentSummary,
-} from "./subagentCounts.ts";
+import { subagentTotals, workingSubagentsOnly } from "./state.ts";
+import { subagentStateOrder, subagentSummary } from "./subagentCounts.ts";
 
 export function SubagentPill() {
-	const counts = subagentCounts(board.value?.subagents ?? []);
+	const counts = subagentTotals.value;
 	const pressed = workingSubagentsOnly.value;
-	if (counts.working + counts.idle + counts.done === 0 && !pressed) return null;
+	if (counts.working + counts.idle + counts.done === 0) return null;
 	const action = pressed ? "show everything" : "highlight working subagents";
 	const summary = subagentSummary(counts);
 	return (

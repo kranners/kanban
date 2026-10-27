@@ -1,4 +1,5 @@
 import type { RegionColours } from "./colours.ts";
+import type { SubagentCounts } from "./subagents.ts";
 
 export type SessionKind = "interactive" | "background";
 
@@ -62,6 +63,7 @@ export type Message = {
 export type Board = {
 	sessions: Session[];
 	subagents: Subagent[];
+	subagentCounts: Record<string, SubagentCounts>;
 	links: Link[];
 	messages: Message[];
 	generatedAt: number;

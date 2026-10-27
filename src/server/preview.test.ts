@@ -33,6 +33,7 @@ const session = (overrides: Partial<Session>): Session => ({
 const boardOf = (sessions: Session[]): Board => ({
 	sessions,
 	subagents: [],
+	subagentCounts: {},
 	links: [],
 	messages: [],
 	generatedAt: 0,

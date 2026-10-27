@@ -82,6 +82,7 @@ function session(id: string): Session {
 test("removing sessions drops their subagents, links and messages", () => {
 	const board: Board = {
 		sessions: [session("a"), session("b")],
+		subagentCounts: {},
 		subagents: [
 			{
 				id: "x",

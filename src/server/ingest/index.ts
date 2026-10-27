@@ -1,5 +1,6 @@
 import { type FSWatcher, watch } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { subagentCountsBySession } from "../../shared/subagents.ts";
 import type {
 	Board,
 	Link,
@@ -27,7 +28,9 @@ import {
 import {
 	type FoundSubagent,
 	type MetaCache,
+	newestPerSession,
 	scanSubagents,
+	settleSubagents,
 } from "./subagents.ts";
 import { advanceTail, createTail, readFacts, type Tail } from "./tail.ts";
 
@@ -124,7 +127,10 @@ export function startBoard(opts: {
 			.map((item) => toSession(item, inCmux))
 			.sort((a, b) => b.updatedAt - a.updatedAt);
 		const found = collectSubagents(tracked, now);
-		const subagents = found.map(({ subagent }) => subagent);
+		const agentFacts = advanceSubagentTails(found);
+		const settled = settleSubagents(found, agentFacts);
+		const shown = newestPerSession(settled);
+		const subagents = shown.map(({ subagent }) => subagent);
 		const owners: Owner[] = [
 			...[...tracked.values()].sort(byStartedAt).flatMap((item) =>
 				item.tail
@@ -136,11 +142,21 @@ export function startBoard(opts: {
 						]
 					: [],
 			),
-			...trackSubagentTails(found),
+			...[...shown]
+				.sort((a, b) => a.subagent.startedAt - b.subagent.startedAt)
+				.flatMap(({ subagent, transcriptPath }) => {
+					const facts = agentFacts.get(transcriptPath);
+					return facts
+						? [{ node: { kind: "subagent", id: subagent.id } as const, facts }]
+						: [];
+				}),
 		];
 		return {
 			sessions,
 			subagents,
+			subagentCounts: subagentCountsBySession(
+				settled.map(({ subagent }) => subagent),
+			),
 			links: collectLinks(
 				owners,
 				shortsToSessions(jobs, registry),
@@ -156,25 +172,24 @@ export function startBoard(opts: {
 		};
 	}
 
-	function trackSubagentTails(found: FoundSubagent[]): Owner[] {
+	function advanceSubagentTails(
+		found: FoundSubagent[],
+	): Map<string, TranscriptFacts> {
 		const paths = new Set(found.map(({ transcriptPath }) => transcriptPath));
 		for (const path of agentTails.keys()) {
 			if (!paths.has(path)) agentTails.delete(path);
 		}
-		return [...found]
-			.sort((a, b) => a.subagent.startedAt - b.subagent.startedAt)
-			.map(({ subagent, transcriptPath }) => {
-				let tail = agentTails.get(transcriptPath);
-				if (!tail) {
-					tail = createTail(transcriptPath);
-					agentTails.set(transcriptPath, tail);
-				}
-				advanceTail(tail, resolve);
-				return {
-					node: { kind: "subagent", id: subagent.id } as const,
-					facts: tail.facts,
-				};
-			});
+		const facts = new Map<string, TranscriptFacts>();
+		for (const path of paths) {
+			let tail = agentTails.get(path);
+			if (!tail) {
+				tail = createTail(path);
+				agentTails.set(path, tail);
+			}
+			advanceTail(tail, resolve);
+			facts.set(path, tail.facts);
+		}
+		return facts;
 	}
 
 	function collectSubagents(
@@ -483,6 +498,7 @@ function emptyBoard(): Board {
 	return {
 		sessions: [],
 		subagents: [],
+		subagentCounts: {},
 		links: [],
 		messages: [],
 		generatedAt: Date.now(),

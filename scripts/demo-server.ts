@@ -7,6 +7,7 @@ import {
 	previewEntryCount,
 	renderTranscriptPreview,
 } from "../src/server/preview.ts";
+import { subagentCountsBySession } from "../src/shared/subagents.ts";
 import type {
 	Board,
 	BoardFeed,
@@ -250,6 +251,7 @@ if (process.env.DEMO_EMPTY) {
 const board: Board = {
 	sessions,
 	subagents,
+	subagentCounts: subagentCountsBySession(subagents),
 	links,
 	messages,
 	generatedAt: start,
@@ -490,6 +492,7 @@ function snapshot(): Board {
 	return {
 		sessions: [...sessions],
 		subagents: shown,
+		subagentCounts: subagentCountsBySession(shown),
 		links: board.links.filter(connects),
 		messages: messages.filter(connects),
 		generatedAt: Date.now(),

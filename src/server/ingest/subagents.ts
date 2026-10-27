@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Subagent } from "../../shared/types.ts";
 import { asObject, asString, parseJson } from "./json.ts";
+import type { TranscriptFacts } from "./records.ts";
 
 export type MetaCache = Map<
 	string,
@@ -63,9 +64,41 @@ export function scanSubagents(opts: {
 			},
 		});
 	}
-	return found
+	return found;
+}
+
+export function settleSubagents(
+	found: readonly FoundSubagent[],
+	factsOf: ReadonlyMap<string, TranscriptFacts>,
+): FoundSubagent[] {
+	const finished = new Set(
+		[...factsOf.values()].flatMap((facts) => [...facts.finishedTasks]),
+	);
+	return found.map(({ subagent, transcriptPath }) => {
+		const done = subagent.done || finished.has(subagent.id);
+		const waitingOnTool = (factsOf.get(transcriptPath)?.tools.size ?? 0) > 0;
+		return {
+			transcriptPath,
+			subagent: {
+				...subagent,
+				done,
+				live: !done && (subagent.live || waitingOnTool),
+			},
+		};
+	});
+}
+
+export function newestPerSession(
+	found: readonly FoundSubagent[],
+): FoundSubagent[] {
+	const kept = new Map<string, number>();
+	return [...found]
 		.sort((a, b) => b.subagent.updatedAt - a.subagent.updatedAt)
-		.slice(0, subagentLimit);
+		.filter(({ subagent }) => {
+			const count = kept.get(subagent.sessionId) ?? 0;
+			kept.set(subagent.sessionId, count + 1);
+			return count < subagentLimit;
+		});
 }
 
 function journalFinished(

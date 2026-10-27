@@ -63,6 +63,9 @@ export function withoutSessions(
 		...board,
 		sessions: board.sessions.filter((s) => !gone.has(s.id)),
 		subagents,
+		subagentCounts: Object.fromEntries(
+			Object.entries(board.subagentCounts).filter(([id]) => !gone.has(id)),
+		),
 		links: board.links.filter((l) => kept(l.from) && kept(l.to)),
 		messages: board.messages.filter((m) => kept(m.from) && kept(m.to)),
 	};

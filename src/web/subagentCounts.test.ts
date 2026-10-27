@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { subagentCountsBySession, subagentState } from "../shared/subagents.ts";
 import type { Subagent } from "../shared/types.ts";
 import {
 	sessionsWithWorkingSubagents,
-	subagentCounts,
-	subagentState,
 	subagentSummary,
+	totalSubagentCounts,
 } from "./subagentCounts.ts";
 
 function subagent(
@@ -45,9 +45,19 @@ test("a subagent is working while live, else done once finished, else idle", () 
 	]);
 });
 
-test("counts subagents by state", () => {
-	assert.deepEqual(subagentCounts(agents), { working: 2, idle: 1, done: 2 });
-	assert.deepEqual(subagentCounts([]), { working: 0, idle: 0, done: 0 });
+test("counts subagents by session and state, and totals them", () => {
+	const bySession = subagentCountsBySession(agents);
+	assert.deepEqual(bySession, {
+		"acme-api": { working: 1, idle: 1, done: 0 },
+		"acme-web": { working: 1, idle: 0, done: 1 },
+		"acme-docs": { working: 0, idle: 0, done: 1 },
+	});
+	assert.deepEqual(totalSubagentCounts(bySession), {
+		working: 2,
+		idle: 1,
+		done: 2,
+	});
+	assert.deepEqual(totalSubagentCounts({}), { working: 0, idle: 0, done: 0 });
 });
 
 test("finds the sessions that have a working subagent", () => {

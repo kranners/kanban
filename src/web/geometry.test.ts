@@ -55,6 +55,7 @@ test("only the first row of a grid gets an edge, for nested subagents too", () =
 	const board: Board = {
 		sessions: [session("root")],
 		subagents,
+		subagentCounts: {},
 		links,
 		messages: [],
 		generatedAt: 0,

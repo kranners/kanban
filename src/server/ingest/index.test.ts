@@ -283,6 +283,36 @@ function buildFixture() {
 		"agent-agentidle",
 		{ agentType: "general-purpose", description: "Quiet one" },
 		600_000,
+		[
+			result(-610_000, "i-agent", {
+				agentId: "agentinner",
+				status: "completed",
+			}),
+		],
+	);
+	agent(
+		"agent-agentinner",
+		{
+			agentType: "general-purpose",
+			description: "Inner",
+			parentAgentId: "agentidle",
+		},
+		620_000,
+	);
+	agent(
+		"agent-agentblocked",
+		{ agentType: "general-purpose", description: "Long build" },
+		300_000,
+		[
+			assistant(-300_000, [
+				{
+					type: "tool_use",
+					id: "b-bash",
+					name: "Bash",
+					input: { command: "npm run build" },
+				},
+			]),
+		],
 	);
 	agent(
 		"agent-agentold",
@@ -446,7 +476,7 @@ describe("startBoard", () => {
 		assert.equal(item.attachable, true);
 	});
 
-	test("lists recent subagents as working, idle or done", () => {
+	test("lists recent subagents as working, idle or done, counting them per session", () => {
 		const states = Object.fromEntries(
 			board.subagents.map((item) => [item.id, [item.live, item.done]]),
 		);
@@ -456,6 +486,11 @@ describe("startBoard", () => {
 			agentdone: [false, true],
 			agentflowdone: [false, true],
 			agentidle: [false, false],
+			agentinner: [false, true],
+			agentblocked: [true, false],
+		});
+		assert.deepEqual(board.subagentCounts, {
+			[lead]: { working: 3, idle: 1, done: 3 },
 		});
 		const nested = board.subagents.find((item) => item.id === "agentnested");
 		assert.equal(nested?.parentAgentId, "agentlive");
@@ -477,7 +512,9 @@ describe("startBoard", () => {
 				`subagent:${lead}>agentdone`,
 				`subagent:${lead}>agentidle`,
 				`subagent:${lead}>agentflowdone`,
+				`subagent:${lead}>agentblocked`,
 				"subagent:agentlive>agentnested",
+				"subagent:agentidle>agentinner",
 			].sort(),
 		);
 	});

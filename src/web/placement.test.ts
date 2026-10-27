@@ -60,6 +60,7 @@ function board(parts: Partial<Board>): Board {
 	return {
 		sessions: [],
 		subagents: [],
+		subagentCounts: {},
 		links: [],
 		messages: [],
 		generatedAt: 0,

@@ -1,4 +1,4 @@
-import { computed, signal } from "@preact/signals";
+import { computed, effect, signal } from "@preact/signals";
 import type {
 	Activity,
 	Annotations,
@@ -7,6 +7,7 @@ import type {
 	Preview,
 	Session,
 } from "../shared/types.ts";
+import { totalSubagentCounts } from "./subagentCounts.ts";
 
 export type Connection = "connecting" | "open" | "reconnecting" | "lost";
 
@@ -42,6 +43,15 @@ export const sessionsById = computed(
 export const subagentsById = computed(
 	() => new Map((board.value?.subagents ?? []).map((a) => [a.id, a])),
 );
+
+export const subagentTotals = computed(() =>
+	totalSubagentCounts(board.value?.subagentCounts ?? {}),
+);
+
+effect(() => {
+	const { working, idle, done } = subagentTotals.value;
+	if (working + idle + done === 0) workingSubagentsOnly.value = false;
+});
 
 export const focusedSession = computed(() =>
 	focusedSessionId.value
