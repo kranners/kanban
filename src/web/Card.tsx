@@ -210,13 +210,13 @@ export function SubagentCard(props: {
 				<Bot size={14} aria-hidden="true" />
 			</span>
 			<div class="sub-text">
-				<div class="sub-type">
-					{subagent.type}
+				<div class="sub-title">
+					<span class="sub-name">{subagent.description || subagent.type}</span>
 					{subagent.live && (
 						<span class="pulse sub-pulse" role="img" aria-label="running" />
 					)}
 				</div>
-				<div class="sub-desc">{subagent.description}</div>
+				<div class="sub-kind">{subagent.type}</div>
 			</div>
 			<time class="sub-time num">
 				{relativeTime(subagent.updatedAt, props.now)}
