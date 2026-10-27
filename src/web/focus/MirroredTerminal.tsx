@@ -15,8 +15,6 @@ const keyButtons: { key: MirrorKey; label: string }[] = [
 	{ key: "Shift+Tab", label: "⇧Tab" },
 	{ key: "Up", label: "↑" },
 	{ key: "Down", label: "↓" },
-	{ key: "Left", label: "←" },
-	{ key: "Right", label: "→" },
 	{ key: "Backspace", label: "⌫" },
 	{ key: "Ctrl+C", label: "Ctrl+C" },
 ];

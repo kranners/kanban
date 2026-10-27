@@ -21,8 +21,6 @@ const keyBytes: Record<MirrorKey, string> = {
 	"Shift+Tab": "\x1b[Z",
 	Up: "\x1b[A",
 	Down: "\x1b[B",
-	Right: "\x1b[C",
-	Left: "\x1b[D",
 	Backspace: "\x7f",
 	"Ctrl+C": "\x03",
 };

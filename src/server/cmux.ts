@@ -27,8 +27,6 @@ export const cmuxKeys: Record<MirrorKey, string> = {
 	"Shift+Tab": "shift+tab",
 	Up: "up",
 	Down: "down",
-	Left: "left",
-	Right: "right",
 	Backspace: "backspace",
 	"Ctrl+C": "ctrl+c",
 };

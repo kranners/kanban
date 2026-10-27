@@ -226,8 +226,6 @@ export const mirrorKeys = [
 	"Shift+Tab",
 	"Up",
 	"Down",
-	"Left",
-	"Right",
 	"Backspace",
 	"Ctrl+C",
 ] as const;
