@@ -31,6 +31,7 @@ function subagent(id: string, at: number, parentAgentId: string | null) {
 		type: "explore",
 		description: id,
 		live: true,
+		done: false,
 		startedAt: at,
 		updatedAt: at,
 	} satisfies Subagent;

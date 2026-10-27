@@ -32,6 +32,7 @@ export type Subagent = {
 	type: string;
 	description: string;
 	live: boolean;
+	done: boolean;
 	startedAt: number;
 	updatedAt: number;
 };

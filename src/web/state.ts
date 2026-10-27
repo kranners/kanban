@@ -14,6 +14,7 @@ export const board = signal<Board | null>(null);
 export const previews = signal<ReadonlyMap<string, Preview>>(new Map());
 export const connection = signal<Connection>("connecting");
 export const activityFilter = signal<ReadonlySet<Activity>>(new Set());
+export const workingSubagentsOnly = signal(false);
 export const search = signal("");
 export const hoveredMessage = signal<string | null>(null);
 export const selectedMessage = signal<string | null>(null);

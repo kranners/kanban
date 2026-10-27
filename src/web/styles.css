@@ -242,6 +242,25 @@ button.reconnecting {
 	color: var(--ink);
 }
 
+.pill-divider {
+	flex: none;
+	align-self: center;
+	width: 1px;
+	height: 16px;
+	margin: 0 6px;
+	background: var(--hairline);
+}
+
+.subagent-pill {
+	gap: 8px;
+}
+
+.subagent-count {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+
 .actions {
 	margin-left: auto;
 	display: flex;

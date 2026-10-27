@@ -69,6 +69,7 @@ function subagent(
 		parentAgentId: null,
 		description: "",
 		live: false,
+		done: false,
 		startedAt: start - 30 * minute,
 		updatedAt: start - 5 * minute,
 		...partial,
@@ -163,6 +164,7 @@ const subagents: Subagent[] = [
 		sessionId: "a1f0c2d4e5",
 		type: "general-purpose",
 		description: "Write session expiry tests",
+		done: true,
 	}),
 	subagent({
 		id: "sa-sql",
