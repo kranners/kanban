@@ -203,11 +203,10 @@ export function duplicated(
 	newId: () => string,
 ): Annotation[] {
 	const top = topZ(annotations);
-	return selected(annotations, ids).map((a, index) => ({
-		...moved(a, gridSize, gridSize),
-		id: newId(),
-		z: top + index + 1,
-	}));
+	return selected(annotations, ids).map((a, index) => {
+		const { session: _, ...copy } = moved(a, gridSize, gridSize) as Note;
+		return { ...(copy as Annotation), id: newId(), z: top + index + 1 };
+	});
 }
 
 export function recoloured(

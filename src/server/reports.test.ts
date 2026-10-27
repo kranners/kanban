@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { maxNoteText, type Note, type Session } from "../shared/types.ts";
+import {
+	type Annotations,
+	maxNoteText,
+	type Note,
+	type Session,
+} from "../shared/types.ts";
 import { near } from "../web/placement.ts";
-import { reportNote, reportText } from "./reports.ts";
+import { maxAnnotations } from "./annotations.ts";
+import { createReportRunner, reportNote, reportText } from "./reports.ts";
 
 const session: Session = {
 	id: "11111111-2222-3333-4444-555555555555",
@@ -106,5 +112,51 @@ describe("reportText", () => {
 		const long = reportText("x".repeat(maxNoteText), at);
 		assert.equal(long.length, maxNoteText);
 		assert.ok(long.endsWith("…"));
+	});
+});
+
+describe("createReportRunner", () => {
+	const runner = (
+		annotations: Annotations,
+		cardsNow: ReadonlyMap<string, typeof card>,
+		asked: string[],
+	) =>
+		createReportRunner({
+			ask: async (s) => {
+				asked.push(s.id);
+				return { ok: true, answer: "- done" };
+			},
+			annotations: {
+				current: () => annotations,
+				put: () => ({ ok: true }),
+				remove: () => false,
+				saved: async () => {},
+			},
+			cards: () => cardsNow,
+			audit: () => {},
+			announce: () => {},
+		});
+
+	it("refuses a full board before asking the session", async () => {
+		const asked: string[] = [];
+		const full = Object.fromEntries(
+			Array.from({ length: maxAnnotations }, (_, i) => [
+				`n${i}`,
+				{ ...other, id: `n${i}` },
+			]),
+		);
+		const result = await runner(full, cards, asked)(session, null);
+		assert.equal(result?.ok, false);
+		assert.deepEqual(asked, []);
+	});
+
+	it("drops the answer when the card left the board while it was asked", async () => {
+		const asked: string[] = [];
+		const result = await runner({}, new Map(), asked)(session, null);
+		assert.deepEqual(result, {
+			ok: false,
+			error: "The session left the board before its status report arrived",
+		});
+		assert.deepEqual(asked, [session.id]);
 	});
 });

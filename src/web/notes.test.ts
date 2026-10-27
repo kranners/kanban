@@ -130,6 +130,12 @@ describe("stacking", () => {
 		);
 	});
 
+	it("leaves a duplicated status report unlinked from its session", () => {
+		const report = { ...note("a", 1), session: "s-1" };
+		const [copy] = duplicated(board(report), ["a"], () => "copy");
+		assert.equal(copy?.kind === "note" && "session" in copy, false);
+	});
+
 	it("recolours only notes that change", () => {
 		const coloured = recoloured(
 			board(note("a", 1), { ...note("b", 2), color: "pink" }, sticker("c", 3)),

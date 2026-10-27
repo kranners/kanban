@@ -155,10 +155,11 @@ function World(props: { board: Board; layout: Arrangement }) {
 				</>
 			}
 			notice={
-				<>
+				state?.phase === "checking" || state?.phase === "refused" ? (
 					<ExitNotice session={session} state={state} />
+				) : (
 					<ReportNotice session={session} state={reporting.get(session.id)} />
-				</>
+				)
 			}
 		/>
 	);

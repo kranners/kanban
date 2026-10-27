@@ -41,6 +41,12 @@ export function receiveReport(id: string, result: ReportResult): void {
 	setReport(id, result.ok ? null : { phase: "failed", error: result.error });
 }
 
+export function forgetAskingReports(): void {
+	for (const [id, state] of reports.peek()) {
+		if (state.phase === "asking") setReport(id, null);
+	}
+}
+
 export function dismissReport(id: string): void {
 	if (reports.peek().get(id)?.phase === "failed") setReport(id, null);
 }

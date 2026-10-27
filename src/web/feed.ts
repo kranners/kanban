@@ -3,7 +3,7 @@ import { receiveColours } from "./colours.ts";
 import { receiveComment, receiveComments } from "./comments.ts";
 import { receiveExit } from "./exits.ts";
 import { regions } from "./regionState.ts";
-import { receiveReport } from "./reports.ts";
+import { forgetAskingReports, receiveReport } from "./reports.ts";
 import {
 	annotations,
 	awaitingShort,
@@ -71,6 +71,7 @@ export function connectFeed(): void {
 		socket.addEventListener("open", () => {
 			attempt = 0;
 			connection.value = "open";
+			forgetAskingReports();
 		});
 		socket.addEventListener("message", (event) => {
 			if (typeof event.data !== "string") return;

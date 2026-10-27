@@ -13,7 +13,7 @@ import { gridSize, snap } from "../web/grid.ts";
 import { type NodeKey, nodeKey } from "../web/layout.ts";
 import { noteSizeFor, topZ } from "../web/notes.ts";
 import { arrange, near, nearestFree, seedsOf } from "../web/placement.ts";
-import type { AnnotationStore } from "./annotations.ts";
+import { type AnnotationStore, maxAnnotations } from "./annotations.ts";
 import type { Audit } from "./audit.ts";
 import type { SessionAsker } from "./exit.ts";
 
@@ -37,6 +37,14 @@ export const reportText = (answer: string, at: Date): string => {
 		: text;
 };
 
+const previousReport = (
+	annotations: Annotations,
+	sessionId: string,
+): Note | undefined =>
+	Object.values(annotations).find(
+		(a): a is Note => a.kind === "note" && a.session === sessionId,
+	);
+
 const spotBeside = (
 	card: Rect,
 	size: { w: number; h: number },
@@ -56,9 +64,7 @@ export const reportNote = (
 	newId: () => string,
 ): Note => {
 	const size = noteSizeFor(text);
-	const previous = Object.values(annotations).find(
-		(a): a is Note => a.kind === "note" && a.session === session.id,
-	);
+	const previous = previousReport(annotations, session.id);
 	if (previous) return { ...previous, ...size, text };
 	const card = cards.get(nodeKey({ kind: "session", id: session.id }));
 	const spot = card
@@ -98,13 +104,31 @@ export const createReportRunner = (deps: {
 }): ReportRunner => {
 	const reporting = new Set<string>();
 	const report = async (session: Session): Promise<ReportResult> => {
+		const full = () => {
+			const annotations = deps.annotations.current();
+			return (
+				!previousReport(annotations, session.id) &&
+				Object.keys(annotations).length >= maxAnnotations
+			);
+		};
+		const fullError = `The board holds at most ${maxAnnotations} notes and stickers`;
+		if (full()) return { ok: false, error: fullError };
 		const answer = await deps.ask(session, reportPrompt);
 		if (!answer.ok) return answer;
+		const annotations = deps.annotations.current();
+		const cards = deps.cards();
+		const onBoard = cards.has(nodeKey({ kind: "session", id: session.id }));
+		if (!onBoard && !previousReport(annotations, session.id)) {
+			return {
+				ok: false,
+				error: "The session left the board before its status report arrived",
+			};
+		}
 		const note = reportNote(
 			session,
 			reportText(answer.answer, deps.now?.() ?? new Date()),
-			deps.annotations.current(),
-			deps.cards(),
+			annotations,
+			cards,
 			deps.newId ?? randomUUID,
 		);
 		const stored = deps.annotations.put(note);
