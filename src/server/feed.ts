@@ -8,6 +8,7 @@ import type {
 	Layout,
 	Region,
 	ReportResult,
+	Usage,
 } from "../shared/types.ts";
 
 export type FeedSocket = {
@@ -25,8 +26,10 @@ export type Feed = {
 	regions(regions: Region[]): void;
 	exit(sessionId: string, result: ExitResult): void;
 	report(sessionId: string, result: ReportResult): void;
+	regionReport(regionId: string, result: ReportResult): void;
 	comments(comments: CommentThread[]): void;
 	comment(comment: CommentThread): void;
+	usage(usage: Usage): void;
 	size(): number;
 };
 
@@ -37,6 +40,7 @@ export type FeedOptions = {
 	colours: () => RegionColours;
 	regions: () => Region[];
 	comments: () => CommentThread[];
+	usage: () => Usage;
 };
 
 const socketOpen = 1;
@@ -48,6 +52,7 @@ export const createFeed = ({
 	colours,
 	regions,
 	comments,
+	usage,
 }: FeedOptions): Feed => {
 	const clients = new Set<FeedSocket>();
 
@@ -70,6 +75,7 @@ export const createFeed = ({
 			send(socket, { type: "colours", colours: colours() });
 			send(socket, { type: "regions", regions: regions() });
 			send(socket, { type: "comments", comments: comments() });
+			send(socket, { type: "usage", usage: usage() });
 			send(socket, { type: "board", board: board() });
 		},
 		board: (next) => broadcast({ type: "board", board: next }),
@@ -81,8 +87,11 @@ export const createFeed = ({
 		exit: (sessionId, result) => broadcast({ type: "exit", sessionId, result }),
 		report: (sessionId, result) =>
 			broadcast({ type: "report", sessionId, result }),
+		regionReport: (regionId, result) =>
+			broadcast({ type: "region-report", regionId, result }),
 		comments: (next) => broadcast({ type: "comments", comments: next }),
 		comment: (comment) => broadcast({ type: "comment", comment }),
+		usage: (next) => broadcast({ type: "usage", usage: next }),
 		size: () => clients.size,
 	};
 };

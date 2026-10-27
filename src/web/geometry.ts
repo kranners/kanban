@@ -69,17 +69,22 @@ function overlapping(a: Frame, b: Frame): boolean {
 	);
 }
 
-export function tetherLine(
-	note: Rect,
-	node: PlacedNode,
-): { from: Point; to: Point } | null {
-	const source = rectFrame(note);
-	const target = frameOf(node);
+export type Tether = { from: Point; to: Point };
+
+function tether(source: Frame, target: Frame): Tether | null {
 	if (overlapping(source, target)) return null;
 	return {
 		from: frameEdgeToward(source, target.centre),
 		to: frameEdgeToward(target, source.centre),
 	};
+}
+
+export function tetherLine(note: Rect, node: PlacedNode): Tether | null {
+	return tether(rectFrame(note), frameOf(node));
+}
+
+export function regionTetherLine(note: Rect, region: Rect): Tether | null {
+	return tether(rectFrame(note), rectFrame(region));
 }
 
 export type Arc = { path: string; mid: Point };

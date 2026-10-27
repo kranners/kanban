@@ -119,7 +119,7 @@ const occupied = (
 	...Object.values(deps.annotations.current()),
 ];
 
-const projectsOf = (
+export const projectsOf = (
 	board: Board,
 	deps: Pick<BoardToolDeps, "layout" | "annotations" | "regions">,
 	placed = arranged(board, deps),

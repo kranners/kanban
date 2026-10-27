@@ -8,7 +8,16 @@ import {
 } from "../shared/types.ts";
 import { near } from "../web/placement.ts";
 import { maxAnnotations } from "./annotations.ts";
-import { createReportRunner, reportNote, reportText } from "./reports.ts";
+import type { Answer } from "./exit.ts";
+import {
+	createRegionReportRunner,
+	createReportRunner,
+	type RegionMembers,
+	regionReportNote,
+	regionReportText,
+	reportNote,
+	reportText,
+} from "./reports.ts";
 
 const session: Session = {
 	id: "11111111-2222-3333-4444-555555555555",
@@ -159,5 +168,169 @@ describe("createReportRunner", () => {
 			error: "The session left the board before its status report arrived",
 		});
 		assert.deepEqual(asked, [session.id]);
+	});
+});
+
+const region = {
+	id: "region-1",
+	cwd: "/Users/me/dev/acme-api",
+	name: null,
+	x: 0,
+	y: 0,
+	w: 480,
+	h: 360,
+};
+const frame = { x: 0, y: 0, w: 480, h: 360 };
+const at = new Date(2026, 9, 27, 14, 5);
+
+describe("regionReportText", () => {
+	it("heads each session's answer with its name, and says who did not answer", () => {
+		assert.equal(
+			regionReportText(
+				[
+					{ name: "api", answer: { ok: true, answer: " - done \n" } },
+					{ name: "web", answer: { ok: false, error: "timed out" } },
+				],
+				at,
+			),
+			"**Status · 14:05**\n\n**api**\n\n- done\n\n**web**\n\n_No answer: timed out_",
+		);
+	});
+
+	it("fits the note limit", () => {
+		const text = regionReportText(
+			[{ name: "api", answer: { ok: true, answer: "x".repeat(maxNoteText) } }],
+			at,
+		);
+		assert.equal(text.length, maxNoteText);
+		assert.ok(text.endsWith("…"));
+	});
+});
+
+describe("regionReportNote", () => {
+	it("places a new note beside the region, linked to it and not to a session", () => {
+		const note = regionReportNote(
+			region,
+			frame,
+			"- done",
+			{},
+			new Map(),
+			() => "new",
+		);
+		assert.equal(note.region, region.id);
+		assert.equal(note.session, undefined);
+		assert.equal(note.x, 528);
+		assert.equal(note.y, 0);
+	});
+
+	it("rewrites the region's earlier report, not a session's report", () => {
+		const sessionReport: Note = { ...other, id: "s", session: session.id };
+		const earlier: Note = { ...other, id: "r", x: 999, region: region.id };
+		const note = regionReportNote(
+			region,
+			frame,
+			"- later",
+			{ s: sessionReport, r: earlier },
+			new Map(),
+			() => "new",
+		);
+		assert.equal(note.id, "r");
+		assert.equal(note.x, 999);
+		assert.equal(note.text, "- later");
+	});
+});
+
+describe("createRegionReportRunner", () => {
+	const runner = (
+		members: () => RegionMembers | null,
+		answer: (s: Session) => Answer,
+		stored: Note[],
+	) =>
+		createRegionReportRunner({
+			ask: async (s) => answer(s),
+			annotations: {
+				current: () => ({}),
+				put: (note) => {
+					stored.push(note as Note);
+					return { ok: true };
+				},
+				remove: () => false,
+				saved: async () => {},
+			},
+			members,
+			cards: () => new Map(),
+			audit: () => {},
+			announce: () => {},
+			now: () => at,
+			newId: () => "new",
+		});
+	const second: Session = { ...session, id: "second", name: "acme-web" };
+
+	it("notes every session's answer in one note, even when some fail", async () => {
+		const stored: Note[] = [];
+		const result = await runner(
+			() => ({ frame, sessions: [session, second] }),
+			(s) =>
+				s.id === session.id
+					? { ok: true, answer: "- done" }
+					: { ok: false, error: "timed out" },
+			stored,
+		)(region, null);
+		assert.deepEqual(result, { ok: true });
+		assert.equal(stored.length, 1);
+		assert.match(stored[0]?.text ?? "", /\*\*acme-api\*\*\n\n- done/);
+		assert.match(
+			stored[0]?.text ?? "",
+			/\*\*acme-web\*\*\n\n_No answer: timed out_/,
+		);
+	});
+
+	it("fails without a note when no session answers", async () => {
+		const stored: Note[] = [];
+		const result = await runner(
+			() => ({ frame, sessions: [session] }),
+			() => ({ ok: false, error: "timed out" }),
+			stored,
+		)(region, null);
+		assert.deepEqual(result, { ok: false, error: "timed out" });
+		assert.deepEqual(stored, []);
+	});
+
+	it("refuses an empty region without asking anyone", async () => {
+		const asked: string[] = [];
+		const result = await runner(
+			() => ({ frame, sessions: [] }),
+			(s) => {
+				asked.push(s.id);
+				return { ok: true, answer: "- done" };
+			},
+			[],
+		)(region, null);
+		assert.equal(result?.ok, false);
+		assert.deepEqual(asked, []);
+	});
+
+	it("drops the answers when the region was deleted while they were asked", async () => {
+		let calls = 0;
+		const stored: Note[] = [];
+		const result = await runner(
+			() => (calls++ === 0 ? { frame, sessions: [session] } : null),
+			() => ({ ok: true, answer: "- done" }),
+			stored,
+		)(region, null);
+		assert.equal(result?.ok, false);
+		assert.deepEqual(stored, []);
+	});
+
+	it("runs one report per region at a time", async () => {
+		const run = runner(
+			() => ({ frame, sessions: [session] }),
+			() => ({ ok: true, answer: "- done" }),
+			[],
+		);
+		const first = run(region, null);
+		assert.equal(run(region, null), null);
+		await first;
+		assert.notEqual(run(region, null), null);
 	});
 });

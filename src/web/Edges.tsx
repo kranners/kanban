@@ -1,16 +1,17 @@
 import { GitBranch } from "lucide-preact";
 import type { ComponentChildren } from "preact";
-import type { Annotation, Board, Message } from "../shared/types.ts";
+import type { Annotation, Board, Message, Point } from "../shared/types.ts";
 import {
 	drawnLinks,
 	messageArc,
+	regionTetherLine,
 	tetherLine,
 	treeMidpoint,
 	treePath,
 } from "./geometry.ts";
 import type { NodeKey } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
-import type { Arrangement } from "./placement.ts";
+import type { Arrangement, Rect } from "./placement.ts";
 
 const freshMessageMs = 60_000;
 const reducedMotion =
@@ -132,22 +133,32 @@ export function Links(props: EdgeProps) {
 }
 
 export function Tethers(
-	props: Omit<EdgeProps, "board"> & { notes: readonly Annotation[] },
+	props: Omit<EdgeProps, "board"> & {
+		notes: readonly Annotation[];
+		regions: ReadonlyMap<string, Rect>;
+	},
 ) {
+	const line = (key: string, from: Point, to: Point, dimmed: boolean) => (
+		<g key={key} class={`tether${dimmed ? " dimmed" : ""}`}>
+			<line x1={from.x} y1={from.y} x2={to.x} y2={to.y} />
+			<circle cx={from.x} cy={from.y} r="3" />
+			<circle cx={to.x} cy={to.y} r="3" />
+		</g>
+	);
 	const tethers = props.notes.flatMap((note) => {
-		if (note.kind !== "note" || !note.session) return [];
+		if (note.kind !== "note") return [];
+		if (note.region) {
+			const frame = props.regions.get(note.region);
+			const tether = frame && regionTetherLine(note, frame);
+			return tether ? [line(note.id, tether.from, tether.to, false)] : [];
+		}
+		if (!note.session) return [];
 		const key = nodeKey({ kind: "session", id: note.session });
 		const card = props.layout.nodes.get(key);
-		const line = card && tetherLine(note, card);
-		if (!line) return [];
-		const { from, to } = line;
-		return [
-			<g key={note.id} class={`tether${props.visible(key) ? "" : " dimmed"}`}>
-				<line x1={from.x} y1={from.y} x2={to.x} y2={to.y} />
-				<circle cx={from.x} cy={from.y} r="3" />
-				<circle cx={to.x} cy={to.y} r="3" />
-			</g>,
-		];
+		const tether = card && tetherLine(note, card);
+		return tether
+			? [line(note.id, tether.from, tether.to, !props.visible(key))]
+			: [];
 	});
 	return (
 		<EdgeLayer layout={props.layout} class="edges tethers">

@@ -33,6 +33,13 @@ export type AuditEvent =
 			identity: string | null;
 			result: string;
 	  }
+	| {
+			action: "region-report";
+			regionId: string;
+			cwd: string;
+			identity: string | null;
+			result: string;
+	  }
 	| { action: "mirror-open"; sessionId: string; identity: string | null }
 	| { action: "view-open"; sessionId: string; identity: string | null }
 	| {

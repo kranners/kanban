@@ -12,7 +12,7 @@ import {
 	createBoardAgent,
 	isAgentDir,
 } from "./boardAgent.ts";
-import { createBoardTools } from "./boardTools.ts";
+import { createBoardTools, projectsOf } from "./boardTools.ts";
 import { cmuxCli, createCmuxTargets } from "./cmux.ts";
 import { createColourStore, loadColours } from "./colours.ts";
 import { listCommands } from "./commands.ts";
@@ -34,9 +34,20 @@ import { createLayoutStore, loadLayout } from "./layout.ts";
 import { createMirrorHub } from "./mirror.ts";
 import { createPromptSender } from "./prompts.ts";
 import { createRegionStore, loadRegions } from "./regions.ts";
-import { cardsOf, createReportRunner } from "./reports.ts";
+import {
+	cardsOf,
+	createRegionReportRunner,
+	createReportRunner,
+	regionMembersOf,
+} from "./reports.ts";
 import { claudeLauncher } from "./sessions.ts";
 import { attachTty, cmuxTty, sharedAttachTty } from "./terminals.ts";
+import {
+	claudeCodeToken,
+	createUsageMonitor,
+	loadUsageSamples,
+	usageIntervalMs,
+} from "./usage.ts";
 
 const configOrExit = (): Config => {
 	try {
@@ -84,6 +95,17 @@ const comments = createCommentStore({
 	onChange: (thread) => feed?.comment(thread),
 	onRemove: (threads) => feed?.comments(threads),
 });
+const usageFile = join(config.stateDir, "usage.json");
+const usage = createUsageMonitor({
+	file: usageFile,
+	initial: await loadUsageSamples(usageFile),
+	token: claudeCodeToken(config.claudeHome),
+	fetch,
+	now: Date.now,
+	onChange: (next) => feed?.usage(next),
+});
+void usage.check();
+const usagePoll = setInterval(usage.check, usageIntervalMs);
 const probes = new Set<string>();
 const cmux = cmuxCli(config.cmuxBin);
 const cmuxTargets = createCmuxTargets({
@@ -127,6 +149,7 @@ feed = createFeed({
 	colours: colours.current,
 	regions: regions.current,
 	comments: comments.current,
+	usage: usage.current,
 });
 
 const exitDeps = claudeExitDeps({
@@ -146,6 +169,19 @@ const runReport = createReportRunner({
 	cards: () => cardsOf(source.board(), layout.current()),
 	audit,
 	announce: (sessionId, result) => feed?.report(sessionId, result),
+});
+const runRegionReport = createRegionReportRunner({
+	ask,
+	annotations,
+	members: (regionId) =>
+		regionMembersOf(
+			source.board(),
+			projectsOf(source.board(), { layout, annotations, regions }),
+			regionId,
+		),
+	cards: () => cardsOf(source.board(), layout.current()),
+	audit,
+	announce: (regionId, result) => feed?.regionReport(regionId, result),
 });
 const launch = claudeLauncher(config.claudeBin);
 const attachPty = claudeAttachPty(config.claudeBin);
@@ -214,6 +250,7 @@ const server = createKanbanServer({
 	launch,
 	exit: runExit,
 	report: runReport,
+	regionReport: runRegionReport,
 	layout,
 	annotations,
 	colours,
@@ -242,6 +279,7 @@ const shutdown = () => {
 	agent.stopAll();
 	source.stop();
 	clearInterval(cmuxPoll);
+	clearInterval(usagePoll);
 	server.close();
 	server.closeAllConnections();
 	setTimeout(() => process.exit(0), 500).unref();

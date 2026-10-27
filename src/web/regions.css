@@ -209,6 +209,7 @@
 }
 
 .group-frame .region-label {
+	max-width: calc(100% - 92px);
 	cursor: grab;
 	touch-action: none;
 }
@@ -275,4 +276,60 @@
 .region-edge[data-edge="nw"],
 .region-edge[data-edge="se"] {
 	cursor: nwse-resize;
+}
+
+.region-corner {
+	position: absolute;
+	top: 4px;
+	right: 10px;
+	display: flex;
+	gap: 6px;
+}
+
+.group-frame .region-corner .close-bubble {
+	width: 24px;
+	height: 24px;
+	border-color: transparent;
+	background: var(--region-chip);
+	color: var(--region-ink);
+	box-shadow: none;
+	opacity: 1;
+	scale: 1;
+	pointer-events: auto;
+}
+
+.group-frame .region-corner .close-bubble:hover:not(:disabled) {
+	border-color: var(--region-border);
+}
+
+.group-frame .region-corner .close-bubble.force:not(:disabled) {
+	border-color: var(--red);
+	background: var(--red);
+	color: #ffffff;
+}
+
+.group-frame .region-corner .close-bubble:disabled:not(.asking) {
+	opacity: 0.45;
+}
+
+.viewport.panning .group-frame .region-corner .close-bubble,
+.viewport.arranging .group-frame .region-corner .close-bubble {
+	pointer-events: none;
+}
+
+.region-notice-anchor {
+	position: absolute;
+	left: 0;
+	top: 0;
+	z-index: 3;
+	height: 0;
+	pointer-events: none;
+}
+
+.region-notice-anchor .region-notice {
+	top: 36px;
+	left: auto;
+	right: 10px;
+	width: min(320px, calc(100% - 20px));
+	pointer-events: auto;
 }

@@ -36,36 +36,50 @@ function setReport(id: string, state: ReportState | null): void {
 	);
 }
 
-export function receiveReport(id: string, result: ReportResult): void {
-	if (reports.peek().get(id)?.phase !== "asking") return;
-	setReport(id, result.ok ? null : { phase: "failed", error: result.error });
+export const regionReportKey = (regionId: string): string =>
+	`region:${regionId}`;
+
+export function receiveReport(key: string, result: ReportResult): void {
+	if (reports.peek().get(key)?.phase !== "asking") return;
+	setReport(key, result.ok ? null : { phase: "failed", error: result.error });
 }
 
 export function forgetAskingReports(): void {
-	for (const [id, state] of reports.peek()) {
-		if (state.phase === "asking") setReport(id, null);
+	for (const [key, state] of reports.peek()) {
+		if (state.phase === "asking") setReport(key, null);
 	}
 }
 
-export function dismissReport(id: string): void {
-	if (reports.peek().get(id)?.phase === "failed") setReport(id, null);
+export function dismissReport(key: string): void {
+	if (reports.peek().get(key)?.phase === "failed") setReport(key, null);
 }
 
-export async function requestReport(id: string): Promise<void> {
-	if (reports.peek().get(id)?.phase === "asking") return;
-	setReport(id, { phase: "asking" });
+async function ask(key: string, path: string): Promise<void> {
+	if (reports.peek().get(key)?.phase === "asking") return;
+	setReport(key, { phase: "asking" });
 	try {
-		const response = await fetch(
-			`/api/sessions/${encodeURIComponent(id)}/report`,
-			{ method: "POST" },
-		);
+		const response = await fetch(path, { method: "POST" });
 		if (response.status !== 202 && response.status !== 409) {
-			setReport(id, { phase: "failed", error: await errorOf(response) });
+			setReport(key, { phase: "failed", error: await errorOf(response) });
 		}
 	} catch (caught) {
-		setReport(id, {
+		setReport(key, {
 			phase: "failed",
 			error: `Couldn't reach the board server (${caught})`,
 		});
 	}
+}
+
+export function requestReport(sessionId: string): Promise<void> {
+	return ask(
+		sessionId,
+		`/api/sessions/${encodeURIComponent(sessionId)}/report`,
+	);
+}
+
+export function requestRegionReport(regionId: string): Promise<void> {
+	return ask(
+		regionReportKey(regionId),
+		`/api/regions/${encodeURIComponent(regionId)}/report`,
+	);
 }

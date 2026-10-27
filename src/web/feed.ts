@@ -3,7 +3,11 @@ import { receiveColours } from "./colours.ts";
 import { receiveComment, receiveComments } from "./comments.ts";
 import { receiveExit } from "./exits.ts";
 import { regions } from "./regionState.ts";
-import { forgetAskingReports, receiveReport } from "./reports.ts";
+import {
+	forgetAskingReports,
+	receiveReport,
+	regionReportKey,
+} from "./reports.ts";
 import {
 	annotations,
 	awaitingShort,
@@ -12,6 +16,7 @@ import {
 	layout,
 	openSession,
 } from "./state.ts";
+import { usage } from "./usage.ts";
 
 const attemptsBeforeLost = 4;
 
@@ -57,8 +62,16 @@ function receive(frame: BoardFeed): void {
 		receiveReport(frame.sessionId, frame.result);
 		return;
 	}
+	if (frame.type === "region-report") {
+		receiveReport(regionReportKey(frame.regionId), frame.result);
+		return;
+	}
 	if (frame.type === "comments") {
 		receiveComments(frame.comments);
+		return;
+	}
+	if (frame.type === "usage") {
+		usage.value = frame.usage;
 		return;
 	}
 	receiveComment(frame.comment);

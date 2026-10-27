@@ -1,14 +1,25 @@
+.focus {
+	display: flex;
+	font-family: var(--sans);
+	color: var(--ink);
+}
+
 .focus-backdrop {
 	position: fixed;
 	inset: 0;
 	z-index: 50;
-	display: flex;
 	padding: 20px;
 	background: color-mix(in srgb, var(--page) 70%, transparent);
 	backdrop-filter: blur(2px);
 	animation: focus-fade 180ms ease-out;
-	font-family: var(--sans);
-	color: var(--ink);
+}
+
+.focus-docked {
+	flex: none;
+	width: 50%;
+	position: relative;
+	z-index: 3;
+	border-left: 1px solid var(--hairline);
 }
 
 @keyframes focus-fade {
@@ -40,6 +51,20 @@
 	box-shadow:
 		0 1px 2px rgb(0 0 0 / 0.06),
 		0 24px 64px -16px rgb(0 0 0 / 0.28);
+}
+
+.focus-docked:focus {
+	outline: none;
+}
+
+.focus-docked .focus-scrim {
+	display: none;
+}
+
+.focus-docked .focus-panel {
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
 }
 
 .focus-header {

@@ -15,6 +15,7 @@ import {
 import type { Group } from "./groups.ts";
 import { NeedsYouCount, needsYouClass } from "./NeedsYou.tsx";
 import { justDragged, projectGestures } from "./projectDrag.ts";
+import { RegionControls } from "./RegionControls.tsx";
 import {
 	createRegion,
 	regionDialog,
@@ -80,6 +81,7 @@ function RegionFrame(props: { group: Group }): JSX.Element | null {
 					{...gestures(group, edge)}
 				/>
 			))}
+			<RegionControls group={group} />
 		</div>
 	);
 }

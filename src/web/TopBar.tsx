@@ -12,6 +12,7 @@ import {
 	toggleActivity,
 } from "./state.ts";
 import { cycleTheme, theme } from "./theme.ts";
+import { UsagePill } from "./UsagePill.tsx";
 
 const themeIcon = { system: SunMoon, light: Sun, dark: Moon };
 const themeName = {
@@ -67,6 +68,7 @@ export function TopBar() {
 				<SubagentPill />
 			</fieldset>
 			<div class="actions">
+				<UsagePill />
 				<NextNeedingYou />
 				<label class="search">
 					<Search size={14} aria-hidden="true" />

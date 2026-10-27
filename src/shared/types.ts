@@ -125,6 +125,7 @@ export type Note = Annotated & {
 	text: string;
 	color: NoteColor;
 	session?: string;
+	region?: string;
 };
 
 export type Sticker = Annotated & {
@@ -180,6 +181,18 @@ export type CommentDraft = { x: number; y: number; text: string };
 
 export type CommentPatch = { x?: number; y?: number; resolved?: boolean };
 
+export type UsageWindow = { percent: number; resetsAt: number | null };
+
+export type UsageSample = { at: number; session: number; week: number };
+
+export type Usage = {
+	session: UsageWindow | null;
+	week: UsageWindow | null;
+	samples: UsageSample[];
+	checkedAt: number | null;
+	error: string | null;
+};
+
 export type BoardFeed =
 	| { type: "board"; board: Board }
 	| { type: "layout"; layout: Layout }
@@ -188,8 +201,10 @@ export type BoardFeed =
 	| { type: "regions"; regions: Region[] }
 	| { type: "exit"; sessionId: string; result: ExitResult }
 	| { type: "report"; sessionId: string; result: ReportResult }
+	| { type: "region-report"; regionId: string; result: ReportResult }
 	| { type: "comments"; comments: CommentThread[] }
-	| { type: "comment"; comment: CommentThread };
+	| { type: "comment"; comment: CommentThread }
+	| { type: "usage"; usage: Usage };
 
 export type NewSessionRequest = {
 	cwd: string;

@@ -48,6 +48,18 @@ export function centreOn(rect: Rect): void {
 	);
 }
 
+export function keepInView(rect: Rect): void {
+	if (!stage) return;
+	const v = view.value;
+	const topLeft = toScreen(v, rect);
+	const inside =
+		topLeft.x >= 0 &&
+		topLeft.y >= 0 &&
+		topLeft.x + rect.w * v.k <= stage.clientWidth &&
+		topLeft.y + rect.h * v.k <= stage.clientHeight;
+	if (!inside) centreOn(rect);
+}
+
 export function clientPointOf(point: Point): Point | null {
 	if (!stage) return null;
 	const box = stage.getBoundingClientRect();
