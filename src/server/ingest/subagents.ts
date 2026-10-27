@@ -159,7 +159,11 @@ function returned(
 	return finished.has(id) || (run !== undefined && finished.has(run));
 }
 
-type JournalProgress = { started: Set<string>; finished: Set<string> };
+type JournalProgress = {
+	finished: Set<string>;
+	startedSteps: Set<string>;
+	finishedSteps: Set<string>;
+};
 
 function journalOf(
 	journals: Map<string, JournalProgress>,
@@ -173,7 +177,11 @@ function journalOf(
 }
 
 function readJournal(dir: string): JournalProgress {
-	const progress: JournalProgress = { started: new Set(), finished: new Set() };
+	const progress: JournalProgress = {
+		finished: new Set(),
+		startedSteps: new Set(),
+		finishedSteps: new Set(),
+	};
 	let text: string;
 	try {
 		text = readFileSync(join(dir, "journal.jsonl"), "utf8");
@@ -184,9 +192,11 @@ function readJournal(dir: string): JournalProgress {
 		const record = asObject(parseJson(line));
 		const agentId = asString(record?.agentId);
 		if (!agentId) continue;
-		if (record?.type === "started") progress.started.add(agentId);
+		const step = asString(record?.key) ?? agentId;
+		if (record?.type === "started") progress.startedSteps.add(step);
 		if (record?.type === "result" || record?.type === "failed") {
 			progress.finished.add(agentId);
+			progress.finishedSteps.add(step);
 		}
 	}
 	return progress;
@@ -208,14 +218,14 @@ export function runningWorkflows(
 	return [...runs].flatMap(([runId, { sessionId, dir }]) => {
 		const facts = liveParentFacts(sessionId);
 		if (!facts || facts.finishedTasks.has(runId)) return [];
-		const { started, finished } = readJournal(dir);
+		const { startedSteps, finishedSteps } = readJournal(dir);
 		return [
 			{
 				runId,
 				sessionId,
 				name: facts.workflowNames.get(runId) ?? runId,
-				done: finished.size,
-				total: Math.max(started.size, finished.size),
+				done: finishedSteps.size,
+				total: new Set([...startedSteps, ...finishedSteps]).size,
 			},
 		];
 	});

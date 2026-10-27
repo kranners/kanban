@@ -273,14 +273,22 @@
 	white-space: nowrap;
 }
 
-.workflows + .goal {
+.node.session .body:has(> .workflows) > .goal {
+	display: block;
 	padding-top: 8px;
-	-webkit-line-clamp: 3;
-	line-clamp: 3;
+	mask-image: linear-gradient(
+		to bottom,
+		#000 calc(100% - 1.3em - 12px),
+		transparent calc(100% - 12px)
+	);
 }
 
 .node.session:has(> .ribbon) .workflows {
 	padding-top: max(10px, calc(22px * min(var(--unzoom), 3) - 6px));
+}
+
+.world[data-far] .node.session:has(> .ribbon) .workflows {
+	padding-top: calc(22px * var(--unzoom) - 6px);
 }
 
 .ribbon:is(.act-done, .act-idle) .ribbon-text {

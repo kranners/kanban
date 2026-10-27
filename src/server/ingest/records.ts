@@ -231,6 +231,7 @@ function applyToolResults(
 			const taskId = asString(result.taskId);
 			const runId = asString(result.runId);
 			if (taskId && runId) facts.workflowRuns.set(taskId, runId);
+			if (runId) facts.finishedTasks.delete(runId);
 			const name = asString(result.workflowName);
 			if (runId && name) facts.workflowNames.set(runId, name);
 		} else if (tool.name === "Artifact") {

@@ -15,6 +15,7 @@ import {
 	abandoned,
 	type FoundSubagent,
 	newestPerSession,
+	runningWorkflows,
 	scanSubagents,
 	settleSubagents,
 	subagentLimit,
@@ -180,5 +181,44 @@ test("keeps an old subagent while a recent descendant of it still works", () => 
 			["parent", false, null],
 			["step", false, "wf_run"],
 		],
+	);
+});
+
+test("counts a workflow's steps by journal key, so a resumed step counts once", () => {
+	const dir = join(scratch, "workflows", "wf_resumed");
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(
+		join(dir, "journal.jsonl"),
+		[
+			{ type: "launched" },
+			{ type: "started", key: "k1", agentId: "a1" },
+			{ type: "started", key: "k2", agentId: "a2" },
+			{ type: "result", key: "k1", agentId: "a1" },
+			{ type: "started", key: "k2", agentId: "a2-again" },
+			{ type: "started", key: "k3", agentId: "a3" },
+			{ type: "failed", key: "k3", agentId: "a3" },
+		]
+			.map((record) => JSON.stringify(record))
+			.join("\n"),
+	);
+	const step: FoundSubagent = {
+		...found("a2-again", "s", 0),
+		transcriptPath: join(dir, "agent-a2-again.jsonl"),
+		workflowRun: "wf_resumed",
+	};
+	const facts = createFacts();
+	facts.workflowNames.set("wf_resumed", "audit");
+	assert.deepEqual(
+		runningWorkflows([step], () => facts),
+		[{ runId: "wf_resumed", sessionId: "s", name: "audit", done: 2, total: 3 }],
+	);
+	facts.finishedTasks.add("wf_resumed");
+	assert.deepEqual(
+		runningWorkflows([step], () => facts),
+		[],
+	);
+	assert.deepEqual(
+		runningWorkflows([step], () => null),
+		[],
 	);
 });
