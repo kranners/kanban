@@ -6,18 +6,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import WebSocket from "ws";
-import type {
-	Board,
-	BoardFeed,
-	ExitResult,
-	NewSessionRequest,
-	Point,
+import type { ToolCall } from "../agent/tools.ts";
+import {
+	type Board,
+	type BoardFeed,
+	type ExitResult,
+	maxNoteText,
+	type NewSessionRequest,
+	type Point,
 } from "../shared/types.ts";
-import { createAnnotationStore, maxNoteText } from "./annotations.ts";
+import { createAgentTokens } from "./agentAuth.ts";
+import { createAnnotationStore } from "./annotations.ts";
 import type { AttachHub } from "./attach.ts";
 import type { AuditEvent } from "./audit.ts";
 import type { Authenticate } from "./auth.ts";
 import { createColourStore } from "./colours.ts";
+import { createCommentStore } from "./comments.ts";
+import { createExitRunner } from "./exit.ts";
 import { createFeed } from "./feed.ts";
 import {
 	contentTypeFor,
@@ -202,6 +207,10 @@ describe("createKanbanServer", () => {
 	const mirrored: string[] = [];
 	const events: AuditEvent[] = [];
 	const origins: string[] = [];
+	const asked: [string, string][] = [];
+	const cancelled: string[] = [];
+	const toolCalls: [string, ToolCall][] = [];
+	const agentTokens = createAgentTokens(60_000);
 	let base = "";
 	let origin = "";
 	let close = () => {};
@@ -248,7 +257,15 @@ describe("createKanbanServer", () => {
 			onChange: (next) => feed?.regions(next),
 			newId: () => "region-1",
 		});
+		const comments = createCommentStore({
+			file: join(dist, "state", "comments.json"),
+			initial: [],
+			onChange: (thread) => feed?.comment(thread),
+			onRemove: (threads) => feed?.comments(threads),
+			newId: () => "thread-1",
+		});
 		feed = createFeed({
+			comments: comments.current,
 			layout: store.current,
 			annotations: annotations.current,
 			colours: colours.current,
@@ -276,11 +293,15 @@ describe("createKanbanServer", () => {
 				launched.push(request);
 				return { ok: true, short: "feedbeef" };
 			},
-			exit: async (session, force) => {
-				exits.push([session.id, force]);
-				await exitGate;
-				return exitResult;
-			},
+			exit: createExitRunner({
+				exit: async (session, force) => {
+					exits.push([session.id, force]);
+					await exitGate;
+					return exitResult;
+				},
+				audit: (event) => events.push(event),
+				announce: (sessionId, result) => feed?.exit(sessionId, result),
+			}),
 			layout: {
 				...store,
 				expect: (short, at) => {
@@ -291,6 +312,25 @@ describe("createKanbanServer", () => {
 			annotations,
 			colours,
 			regions,
+			comments,
+			agent: {
+				ask: (threadId, text) => {
+					asked.push([threadId, text]);
+					return comments.get(threadId)
+						? { ok: true }
+						: { error: "No such comment", status: 404 };
+				},
+				cancel: (threadId) => {
+					cancelled.push(threadId);
+					return true;
+				},
+				owns: comments.owns,
+			},
+			agentTokens,
+			tools: async (threadId, call) => {
+				toolCalls.push([threadId, call]);
+				return { ok: true, text: `ran ${call.tool}` };
+			},
 			attach,
 			mirror: {
 				open: (socket, session, identity) => {
@@ -803,7 +843,130 @@ describe("createKanbanServer", () => {
 		});
 		assert.deepEqual(
 			frames.map((frame) => frame.type),
-			["layout", "annotations", "colours", "regions", "board", "preview"],
+			[
+				"layout",
+				"annotations",
+				"colours",
+				"regions",
+				"comments",
+				"board",
+				"preview",
+			],
+		);
+	});
+
+	it("creates, replies to, moves, resolves and deletes comment threads", async () => {
+		const created = await send("POST", "/api/comments", {
+			x: 120,
+			y: -48,
+			text: "organise my board",
+		});
+		assert.equal(created.status, 201);
+		const thread = await created.json();
+		assert.equal(thread.id, "thread-1");
+		assert.deepEqual([thread.x, thread.y], [120, -48]);
+		assert.match(thread.sessionId, /^[0-9a-f-]{36}$/);
+		assert.equal(
+			(await send("POST", "/api/comments", { x: 1, y: 1, text: " " })).status,
+			400,
+		);
+		assert.equal(
+			(await send("POST", "/api/comments/thread-1/messages", { text: "more" }))
+				.status,
+			202,
+		);
+		assert.equal(
+			(await send("POST", "/api/comments/nope/messages", { text: "more" }))
+				.status,
+			404,
+		);
+		assert.deepEqual(asked, [
+			["thread-1", "organise my board"],
+			["thread-1", "more"],
+			["nope", "more"],
+		]);
+		const moved = await send("PATCH", "/api/comments/thread-1", {
+			x: 240,
+			y: 24,
+			resolved: true,
+		});
+		assert.equal(moved.status, 200);
+		const patched = await moved.json();
+		assert.deepEqual([patched.x, patched.y, patched.resolved], [240, 24, true]);
+		assert.equal(
+			(await send("PATCH", "/api/comments/thread-1", { x: 1 })).status,
+			400,
+		);
+		assert.equal(
+			(
+				await fetch(`${base}/api/comments/thread-1/cancel`, {
+					method: "POST",
+					headers: { ...authed, origin },
+				})
+			).status,
+			204,
+		);
+		assert.equal(
+			(
+				await fetch(`${base}/api/comments/thread-1`, {
+					method: "DELETE",
+					headers: { ...authed, origin },
+				})
+			).status,
+			204,
+		);
+		assert.deepEqual(cancelled, ["thread-1", "thread-1"]);
+		assert.equal(
+			(
+				await fetch(`${base}/api/comments/thread-1`, {
+					method: "DELETE",
+					headers: { ...authed, origin },
+				})
+			).status,
+			404,
+		);
+	});
+
+	it("runs agent tools only for a live token from loopback", async () => {
+		const call = (headers: Record<string, string>, body: unknown = {}) =>
+			fetch(`${base}/api/agent/tools/board_snapshot`, {
+				method: "POST",
+				headers: { "content-type": "application/json", ...headers },
+				body: JSON.stringify(body),
+			});
+		const token = agentTokens.issue("thread-9");
+		assert.equal((await call({})).status, 401);
+		assert.equal(
+			(await call({ authorization: `Bearer ${"x".repeat(43)}` })).status,
+			401,
+		);
+		assert.equal(
+			(await call({ ...authed, origin })).status,
+			401,
+			"browser credentials do not open agent tools",
+		);
+		assert.equal(
+			(
+				await call({
+					authorization: `Bearer ${token}`,
+					"cf-connecting-ip": "203.0.113.9",
+				})
+			).status,
+			401,
+			"requests through the tunnel are refused",
+		);
+		const ok = await call({ authorization: `Bearer ${token}` });
+		assert.equal(ok.status, 200);
+		assert.deepEqual(await ok.json(), { ok: true, text: "ran board_snapshot" });
+		assert.equal(
+			(await call({ authorization: `Bearer ${token}` }, { extra: 1 })).status,
+			400,
+		);
+		assert.deepEqual(toolCalls, [["thread-9", { tool: "board_snapshot" }]]);
+		agentTokens.revoke(token);
+		assert.equal(
+			(await call({ authorization: `Bearer ${token}` })).status,
+			401,
 		);
 	});
 

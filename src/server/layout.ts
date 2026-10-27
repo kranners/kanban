@@ -10,6 +10,7 @@ import { createStateFile, readState } from "./stateFile.ts";
 export type LayoutStore = {
 	current(): Layout;
 	set(update: LayoutUpdate): void;
+	setMany(updates: LayoutUpdate[]): void;
 	expect(short: string, at: Point): void;
 	observe(board: Board): void;
 	saved(): Promise<void>;
@@ -110,12 +111,19 @@ export const createLayoutStore = ({
 		onChange(layout);
 	};
 
+	const setMany = (updates: LayoutUpdate[]) => {
+		const next = { ...layout };
+		for (const { key, placement } of updates) {
+			missingSince.delete(key);
+			next[key] = placement;
+		}
+		commit(next);
+	};
+
 	return {
 		current: () => layout,
-		set({ key, placement }) {
-			missingSince.delete(key);
-			commit({ ...layout, [key]: placement });
-		},
+		set: (update) => setMany([update]),
+		setMany,
 		expect(short, at) {
 			pending.set(short, { at, since: now() });
 		},

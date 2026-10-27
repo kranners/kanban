@@ -3,6 +3,7 @@ import type {
 	Annotations,
 	Board,
 	BoardFeed,
+	CommentThread,
 	ExitResult,
 	Layout,
 	Preview,
@@ -24,6 +25,8 @@ export type Feed = {
 	colours(colours: RegionColours): void;
 	regions(regions: Region[]): void;
 	exit(sessionId: string, result: ExitResult): void;
+	comments(comments: CommentThread[]): void;
+	comment(comment: CommentThread): void;
 	size(): number;
 };
 
@@ -34,6 +37,7 @@ export type FeedOptions = {
 	annotations: () => Annotations;
 	colours: () => RegionColours;
 	regions: () => Region[];
+	comments: () => CommentThread[];
 };
 
 const socketOpen = 1;
@@ -45,6 +49,7 @@ export const createFeed = ({
 	annotations,
 	colours,
 	regions,
+	comments,
 }: FeedOptions): Feed => {
 	const clients = new Set<FeedSocket>();
 
@@ -66,6 +71,7 @@ export const createFeed = ({
 			send(socket, { type: "annotations", annotations: annotations() });
 			send(socket, { type: "colours", colours: colours() });
 			send(socket, { type: "regions", regions: regions() });
+			send(socket, { type: "comments", comments: comments() });
 			send(socket, { type: "board", board: board() });
 			for (const preview of previews())
 				send(socket, { type: "preview", preview });
@@ -78,6 +84,8 @@ export const createFeed = ({
 		colours: (next) => broadcast({ type: "colours", colours: next }),
 		regions: (next) => broadcast({ type: "regions", regions: next }),
 		exit: (sessionId, result) => broadcast({ type: "exit", sessionId, result }),
+		comments: (next) => broadcast({ type: "comments", comments: next }),
+		comment: (comment) => broadcast({ type: "comment", comment }),
 		size: () => clients.size,
 	};
 };

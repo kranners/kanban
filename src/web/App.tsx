@@ -12,6 +12,11 @@ import { arrangement, arrangeNode, groups } from "./arrangement.ts";
 import { arrived, beckoned } from "./attentionState.ts";
 import { Canvas } from "./Canvas.tsx";
 import { SessionCard, SubagentCard } from "./Card.tsx";
+import {
+	CommentLayer,
+	CommentOverlays,
+	useCommentGestures,
+} from "./Comments.tsx";
 import { colourOf } from "./colours.ts";
 import { Arcs, Links, messagePairs } from "./Edges.tsx";
 import {
@@ -178,6 +183,7 @@ function World(props: { board: Board; layout: Arrangement }) {
 				litPair={lit.pair}
 				visible={visible}
 			/>
+			<CommentLayer />
 		</>
 	);
 }
@@ -264,6 +270,7 @@ export function App() {
 	useBoardGestures();
 	useAnnotationGestures();
 	useNeedsYouShortcut();
+	useCommentGestures();
 	const session = focusedSession.value;
 	return (
 		<div class="app">
@@ -296,6 +303,7 @@ export function App() {
 			<StickerPicker />
 			<RegionMenu />
 			<RegionLayer />
+			<CommentOverlays />
 		</div>
 	);
 }

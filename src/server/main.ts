@@ -1,19 +1,31 @@
-import { join } from "node:path";
+import { mkdir } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import type { Board } from "../shared/types.ts";
+import { createAgentTokens } from "./agentAuth.ts";
 import { createAnnotationStore, loadAnnotations } from "./annotations.ts";
 import { claudeAttachPty, createAttachHub } from "./attach.ts";
 import { fileAudit } from "./audit.ts";
 import { authenticatorFor } from "./auth.ts";
+import { claudeAgentSpawner, createBoardAgent } from "./boardAgent.ts";
+import { createBoardTools } from "./boardTools.ts";
 import { cmuxCli, createCmuxTargets } from "./cmux.ts";
 import { createColourStore, loadColours } from "./colours.ts";
-import { type Config, loadConfig } from "./config.ts";
-import { claudeExitDeps, exitSession, liveInteractiveEntry } from "./exit.ts";
+import { createCommentStore, loadComments } from "./comments.ts";
+import { type Config, isLoopback, loadConfig } from "./config.ts";
+import {
+	claudeAsker,
+	claudeExitDeps,
+	createExitRunner,
+	exitSession,
+	liveInteractiveEntry,
+} from "./exit.ts";
 import { createFeed, type Feed } from "./feed.ts";
 import { createKanbanServer } from "./http.ts";
 import { startBoard } from "./ingest/index.ts";
 import { createLayoutStore, loadLayout } from "./layout.ts";
 import { createMirrorHub } from "./mirror.ts";
 import { createPreviewer } from "./preview.ts";
+import { createPromptSender } from "./prompts.ts";
 import { createRegionStore, loadRegions } from "./regions.ts";
 import { claudeLauncher } from "./sessions.ts";
 
@@ -28,6 +40,7 @@ const configOrExit = (): Config => {
 
 const config = configOrExit();
 const cmuxSyncMs = 5000;
+const agentTimeoutMs = 15 * 60_000;
 const audit = fileAudit(config.auditLog);
 
 let feed: Feed | null = null;
@@ -54,6 +67,13 @@ const regions = createRegionStore({
 	file: regionsFile,
 	initial: await loadRegions(regionsFile),
 	onChange: (next) => feed?.regions(next),
+});
+const commentsFile = join(config.stateDir, "comments.json");
+const comments = createCommentStore({
+	file: commentsFile,
+	initial: await loadComments(commentsFile),
+	onChange: (thread) => feed?.comment(thread),
+	onRemove: (threads) => feed?.comments(threads),
 });
 const probes = new Set<string>();
 const cmux = cmuxCli(config.cmuxBin);
@@ -83,7 +103,7 @@ const previewer = createPreviewer({
 });
 const source = startBoard({
 	claudeHome: config.claudeHome,
-	ignore: (sessionId) => probes.has(sessionId),
+	ignore: (sessionId) => probes.has(sessionId) || comments.owns(sessionId),
 	inCmux: cmuxTargets.has,
 	onChange: (board) => {
 		feed?.board(board);
@@ -103,6 +123,7 @@ feed = createFeed({
 	annotations: annotations.current,
 	colours: colours.current,
 	regions: regions.current,
+	comments: comments.current,
 });
 
 const exitDeps = claudeExitDeps({
@@ -110,19 +131,62 @@ const exitDeps = claudeExitDeps({
 	claudeHome: config.claudeHome,
 	probes,
 });
+const runExit = createExitRunner({
+	exit: (session, force) => exitSession(exitDeps, session, force),
+	audit,
+	announce: (sessionId, result) => feed?.exit(sessionId, result),
+});
+const launch = claudeLauncher(config.claudeBin);
+const attachPty = claudeAttachPty(config.claudeBin);
+const attach = createAttachHub(attachPty, audit);
+const agentTokens = createAgentTokens(agentTimeoutMs);
+const agentDir = join(config.stateDir, "agent");
+await mkdir(agentDir, { recursive: true });
+const agentHost = isLoopback(config.host) ? config.host : "127.0.0.1";
+const agent = createBoardAgent({
+	store: comments,
+	tokens: agentTokens,
+	spawn: claudeAgentSpawner(config.claudeBin, agentDir),
+	boardUrl: `http://${agentHost.includes(":") ? `[${agentHost}]` : agentHost}:${config.port}`,
+	mcpScript: resolve(import.meta.dirname, "../agent/mcp.ts"),
+	node: process.execPath,
+	timeoutMs: agentTimeoutMs,
+});
+const tools = createBoardTools({
+	source,
+	layout,
+	annotations,
+	colours,
+	regions,
+	comments,
+	launch,
+	exit: runExit,
+	ask: claudeAsker({ claudeBin: config.claudeBin, probes }),
+	prompt: createPromptSender({
+		spawnPty: attachPty,
+		attached: attach.attached,
+		cmux,
+		resolve: cmuxTargets.resolve,
+	}),
+	audit,
+});
 
 const server = createKanbanServer({
 	origins: config.origins,
 	dist: config.dist,
 	authenticate: authenticatorFor(config.auth),
 	source,
-	launch: claudeLauncher(config.claudeBin),
-	exit: (session, force) => exitSession(exitDeps, session, force),
+	launch,
+	exit: runExit,
 	layout,
 	annotations,
 	colours,
 	regions,
-	attach: createAttachHub(claudeAttachPty(config.claudeBin), audit),
+	comments,
+	agent,
+	agentTokens,
+	tools,
+	attach,
 	mirror: createMirrorHub({ cmux, resolve: cmuxTargets.resolve, audit }),
 	feed,
 	audit,

@@ -1,6 +1,7 @@
 import {
 	type Annotation,
 	type Annotations,
+	maxNoteText,
 	type NoteColor,
 	noteColors,
 } from "../shared/types.ts";
@@ -23,7 +24,6 @@ export type AnnotationStoreOptions = {
 
 export const annotationIdPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 export const maxAnnotations = 500;
-export const maxNoteText = 20_000;
 export const minAnnotationSize = 24;
 export const maxAnnotationSize = 2400;
 const maxDepth = 1_000_000_000;

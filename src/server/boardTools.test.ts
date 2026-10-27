@@ -1,0 +1,245 @@
+import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, it } from "node:test";
+import type { Board, Session } from "../shared/types.ts";
+import { noteSizeFor } from "../web/notes.ts";
+import { createAnnotationStore } from "./annotations.ts";
+import type { AuditEvent } from "./audit.ts";
+import { createBoardTools } from "./boardTools.ts";
+import { createColourStore } from "./colours.ts";
+import { createCommentStore } from "./comments.ts";
+import { createLayoutStore } from "./layout.ts";
+import { blockedReason } from "./prompts.ts";
+import { createRegionStore } from "./regions.ts";
+
+const session = (id: string, extra: Partial<Session> = {}): Session => ({
+	id,
+	short: `${id.slice(0, 7)}0`,
+	pid: 1,
+	name: `acme-${id.slice(0, 3)}`,
+	cwd: "/tmp",
+	project: "tmp",
+	kind: "background",
+	activity: "idle",
+	doing: null,
+	needs: null,
+	startedAt: 0,
+	updatedAt: 0,
+	attachable: true,
+	cmux: false,
+	...extra,
+});
+
+const board: Board = {
+	sessions: [session("aaaaaaaa-1"), session("bbbbbbbb-2")],
+	subagents: [],
+	subagentCounts: {},
+	links: [],
+	messages: [],
+	generatedAt: 0,
+};
+
+const setup = async () => {
+	const dir = await mkdtemp(join(tmpdir(), "kanban-tools-"));
+	const events: AuditEvent[] = [];
+	const exits: [string, boolean, string | null][] = [];
+	const layout = createLayoutStore({
+		file: join(dir, "l.json"),
+		initial: {},
+		onChange: () => {},
+	});
+	const annotations = createAnnotationStore({
+		file: join(dir, "a.json"),
+		initial: {},
+		onChange: () => {},
+	});
+	const regions = createRegionStore({
+		file: join(dir, "r.json"),
+		initial: [],
+		onChange: () => {},
+		newId: () => "r-1",
+	});
+	const colours = createColourStore({
+		file: join(dir, "c.json"),
+		initial: {},
+		onChange: () => {},
+	});
+	const comments = createCommentStore({
+		file: join(dir, "m.json"),
+		initial: [],
+		onChange: () => {},
+		onRemove: () => {},
+	});
+	let ids = 0;
+	const tools = createBoardTools({
+		source: {
+			board: () => board,
+			transcript: async () => [
+				{ at: 0, role: "assistant", text: "Fixed the bug" },
+			],
+		},
+		layout,
+		annotations,
+		colours,
+		regions,
+		comments,
+		launch: async () => ({ ok: true, short: "feedbeef" }),
+		exit: (s, force, identity) => {
+			exits.push([s.id, force, identity]);
+			return Promise.resolve({
+				ok: true,
+				exited: false,
+				reason: "Uncommitted work",
+			});
+		},
+		ask: async () => ({ ok: true, answer: "12" }),
+		prompt: async () => ({ ok: true, via: "claude attach" }),
+		audit: (event) => events.push(event),
+		newId: () => `n-${++ids}`,
+	});
+	return { tools, layout, annotations, regions, colours, events, exits };
+};
+
+describe("board tools", () => {
+	it("snapshots sessions with their cards", async () => {
+		const { tools, events } = await setup();
+		const result = await tools("t", { tool: "board_snapshot" });
+		assert.ok(result.ok);
+		const [summary, json] = result.text.split("\n");
+		assert.equal(summary, "Board: 2 sessions, 0 regions, 0 notes, 0 stickers");
+		const view = JSON.parse(json ?? "");
+		assert.equal(view.sessions[0].card.w, 312);
+		assert.equal(view.gridSize, 24);
+		assert.deepEqual(events, [], "reads are not audited");
+	});
+
+	it("moves cards by id or short id, pinned and snapped, all or nothing", async () => {
+		const { tools, layout, events } = await setup();
+		assert.deepEqual(
+			await tools("t", {
+				tool: "arrange",
+				cards: [
+					{ id: "aaaaaaa0", x: 50, y: 0 },
+					{ id: "nope", x: 0, y: 0 },
+				],
+				regions: [],
+				annotations: [],
+			}),
+			{ ok: false, error: "No card nope on the board" },
+		);
+		assert.deepEqual(layout.current(), {});
+		const moved = await tools("t", {
+			tool: "arrange",
+			cards: [
+				{ id: "aaaaaaa0", x: 50, y: 0 },
+				{ id: "bbbbbbbb-2", x: 400, y: 0, w: 480 },
+			],
+			regions: [],
+			annotations: [],
+		});
+		assert.deepEqual(moved, { ok: true, text: "Moved 2 cards" });
+		assert.deepEqual(layout.current(), {
+			"session:aaaaaaaa-1": { x: 48, y: 0, pinned: true },
+			"session:bbbbbbbb-2": { x: 408, y: 0, pinned: true, w: 480, h: 240 },
+		});
+		assert.deepEqual(events.at(-1), {
+			action: "board-agent",
+			thread: "t",
+			tool: "arrange",
+			target: null,
+			result: "Moved 2 cards",
+		});
+	});
+
+	it("writes and edits markdown notes and validates stickers", async () => {
+		const { tools, annotations } = await setup();
+		const created = await tools("t", {
+			tool: "put_note",
+			text: "## Report\n- done",
+			x: 0,
+			y: 0,
+			w: 384,
+		});
+		assert.deepEqual(created, {
+			ok: true,
+			text: "Created note '## Report' (id n-1)",
+		});
+		assert.equal(annotations.current()["n-1"]?.w, 384);
+		await tools("t", { tool: "put_note", id: "n-1", color: "blue" });
+		const note = annotations.current()["n-1"];
+		assert.equal(note?.kind === "note" && note.color, "blue");
+		assert.equal(note?.kind === "note" && note.text, "## Report\n- done");
+		const report = "## Report\n\n- line\n".repeat(40);
+		await tools("t", { tool: "put_note", text: report, x: 0, y: 0 });
+		const sized = annotations.current()["n-2"];
+		assert.deepEqual(sized && { w: sized.w, h: sized.h }, noteSizeFor(report));
+		assert.deepEqual(
+			await tools("t", {
+				tool: "put_sticker",
+				sticker: "not-a-sticker",
+				x: 0,
+				y: 0,
+			}),
+			{
+				ok: false,
+				error: "sticker must be one of the board's stickers",
+			},
+		);
+		assert.deepEqual(
+			await tools("t", { tool: "put_note", id: "missing", text: "x" }),
+			{ ok: false, error: "No note missing" },
+		);
+	});
+
+	it("draws regions with a colour and finishes sessions without forcing", async () => {
+		const { tools, regions, colours, exits, events } = await setup();
+		const region = await tools("t", {
+			tool: "create_region",
+			cwd: "/tmp",
+			name: "Scratch",
+			colour: "teal",
+			x: 0,
+			y: 0,
+			w: 480,
+			h: 336,
+		});
+		assert.ok(region.ok);
+		assert.equal(regions.current()[0]?.name, "Scratch");
+		assert.equal(Object.values(colours.current())[0], "teal");
+		const finished = await tools("t", {
+			tool: "finish_session",
+			session: "bbbbbbb0",
+		});
+		assert.deepEqual(finished, {
+			ok: true,
+			text: "acme-bbb is not ready to finish: Uncommitted work",
+		});
+		assert.deepEqual(exits, [["bbbbbbbb-2", false, "board-agent"]]);
+		assert.equal(events.at(-1)?.action, "board-agent");
+	});
+});
+
+describe("prompt safety", () => {
+	it("never types into a prompt waiting on the user, an attached session, or an unreachable one", () => {
+		assert.match(
+			blockedReason(session("a", { activity: "needs-you" }), []) ?? "",
+			/question or permission/,
+		);
+		assert.match(
+			blockedReason(session("aaaaaaaa"), ["aaaaaaa0"]) ?? "",
+			/open on the board/,
+		);
+		assert.match(
+			blockedReason(session("a", { kind: "interactive", cmux: false }), []) ??
+				"",
+			/not in a cmux pane/,
+		);
+		assert.equal(
+			blockedReason(session("a", { kind: "interactive", cmux: true }), []),
+			null,
+		);
+		assert.equal(blockedReason(session("aaaaaaaa"), []), null);
+	});
+});

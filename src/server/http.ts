@@ -10,12 +10,9 @@ import {
 import { extname, join, normalize, sep } from "node:path";
 import { type Duplex, pipeline } from "node:stream";
 import { WebSocketServer } from "ws";
-import type {
-	Board,
-	ExitResult,
-	Session,
-	TranscriptEntry,
-} from "../shared/types.ts";
+import { parseToolCall } from "../agent/tools.ts";
+import type { Board, Session, TranscriptEntry } from "../shared/types.ts";
+import type { AgentTokens } from "./agentAuth.ts";
 import { type AnnotationStore, parseAnnotation } from "./annotations.ts";
 import {
 	type AttachHub,
@@ -26,8 +23,18 @@ import {
 } from "./attach.ts";
 import type { Audit } from "./audit.ts";
 import { type Authenticate, originAllowed } from "./auth.ts";
+import type { BoardAgent } from "./boardAgent.ts";
+import type { BoardTools } from "./boardTools.ts";
 import { type ColourStore, maxColours, parseColourUpdate } from "./colours.ts";
-import type { SessionExiter } from "./exit.ts";
+import {
+	type CommentStore,
+	isThreadId,
+	maxThreads,
+	parseCommentDraft,
+	parseCommentPatch,
+	parseMessage,
+} from "./comments.ts";
+import type { ExitRunner } from "./exit.ts";
 import type { Feed } from "./feed.ts";
 import { boardKeys, type LayoutStore, parseLayoutUpdate } from "./layout.ts";
 import type { MirrorHub } from "./mirror.ts";
@@ -51,11 +58,15 @@ export type ServerDeps = {
 	authenticate: Authenticate;
 	source: BoardSource;
 	launch: SessionLauncher;
-	exit: SessionExiter;
+	exit: ExitRunner;
 	layout: LayoutStore;
 	annotations: AnnotationStore;
 	colours: ColourStore;
 	regions: RegionStore;
+	comments: CommentStore;
+	agent: BoardAgent;
+	agentTokens: AgentTokens;
+	tools: BoardTools;
 	attach: AttachHub;
 	mirror: MirrorHub;
 	feed: Feed;
@@ -74,6 +85,12 @@ export type Route =
 	| { kind: "create-region" }
 	| { kind: "update-region"; regionId: string }
 	| { kind: "delete-region"; regionId: string }
+	| { kind: "create-comment" }
+	| { kind: "reply-comment"; threadId: string }
+	| { kind: "cancel-comment"; threadId: string }
+	| { kind: "update-comment"; threadId: string }
+	| { kind: "delete-comment"; threadId: string }
+	| { kind: "agent-tool"; tool: string }
 	| { kind: "static"; path: string }
 	| { kind: "not-found" }
 	| { kind: "method-not-allowed" };
@@ -172,6 +189,34 @@ export const matchRoute = (method: string, url: URL): Route => {
 		if (method === "DELETE")
 			return { kind: "delete-region", regionId: region[1] };
 		return { kind: "method-not-allowed" };
+	}
+	if (path === "/api/comments") {
+		return method === "POST"
+			? { kind: "create-comment" }
+			: { kind: "method-not-allowed" };
+	}
+	const commentAction = path.match(
+		/^\/api\/comments\/([^/]+)\/(messages|cancel)$/,
+	);
+	if (commentAction?.[1] && isThreadId(commentAction[1])) {
+		if (method !== "POST") return { kind: "method-not-allowed" };
+		return commentAction[2] === "messages"
+			? { kind: "reply-comment", threadId: commentAction[1] }
+			: { kind: "cancel-comment", threadId: commentAction[1] };
+	}
+	const comment = path.match(/^\/api\/comments\/([^/]+)$/);
+	if (comment?.[1] && isThreadId(comment[1])) {
+		if (method === "PATCH")
+			return { kind: "update-comment", threadId: comment[1] };
+		if (method === "DELETE")
+			return { kind: "delete-comment", threadId: comment[1] };
+		return { kind: "method-not-allowed" };
+	}
+	const tool = path.match(/^\/api\/agent\/tools\/([a-z_]{1,64})$/);
+	if (tool?.[1]) {
+		return method === "POST"
+			? { kind: "agent-tool", tool: tool[1] }
+			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api" || path.startsWith("/api/")) return { kind: "not-found" };
 	if (method !== "GET" && method !== "HEAD")
@@ -310,8 +355,6 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		maxPayload: 1024 * 1024,
 	});
 
-	const exiting = new Set<string>();
-
 	const readBody = async (
 		req: IncomingMessage,
 		res: ServerResponse,
@@ -377,37 +420,13 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			.board()
 			.sessions.find((session) => session.id === sessionId);
 		if (!session) return sendError(res, 404);
-		if (exiting.has(session.id)) {
+		if (!deps.exit(session, force, identity)) {
 			return sendJson(res, 409, {
 				ok: false,
 				error: "This session is already exiting",
 			});
 		}
-		exiting.add(session.id);
 		sendJson(res, 202, { ok: true });
-		const result = await deps
-			.exit(session, force)
-			.catch(
-				(error: unknown): ExitResult => ({
-					ok: false,
-					error: `Exit failed: ${(error as Error).message}`,
-				}),
-			)
-			.finally(() => exiting.delete(session.id));
-		deps.audit({
-			action: "session-exit",
-			sessionId: session.id,
-			short: session.short,
-			kind: session.kind,
-			force,
-			identity,
-			result: !result.ok
-				? `error: ${result.error}`
-				: result.exited
-					? "exited"
-					: `not ready: ${result.reason}`,
-		});
-		deps.feed.exit(session.id, result);
 	};
 
 	const updateLayout = async (req: IncomingMessage, res: ServerResponse) => {
@@ -516,9 +535,119 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res.end();
 	};
 
+	const createComment = async (req: IncomingMessage, res: ServerResponse) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const draft = parseCommentDraft(read.body);
+		if ("error" in draft) {
+			return sendJson(res, 400, { ok: false, error: draft.error });
+		}
+		const thread = deps.comments.create(draft);
+		if (!thread) {
+			return sendJson(res, 409, {
+				ok: false,
+				error: `The board holds at most ${maxThreads} comments`,
+			});
+		}
+		const asked = deps.agent.ask(thread.id, draft.text);
+		if ("error" in asked) {
+			return sendJson(res, asked.status, { ok: false, error: asked.error });
+		}
+		sendJson(res, 201, deps.comments.get(thread.id) ?? thread);
+	};
+
+	const replyComment = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+		threadId: string,
+	) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const text = parseMessage(read.body);
+		if (typeof text !== "string") {
+			return sendJson(res, 400, { ok: false, error: text.error });
+		}
+		const asked = deps.agent.ask(threadId, text);
+		if ("error" in asked) {
+			return sendJson(res, asked.status, { ok: false, error: asked.error });
+		}
+		sendJson(res, 202, { ok: true });
+	};
+
+	const cancelComment = (
+		req: IncomingMessage,
+		res: ServerResponse,
+		threadId: string,
+	) => {
+		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		if (!deps.comments.get(threadId)) return sendError(res, 404);
+		deps.agent.cancel(threadId);
+		res.writeHead(204, { "cache-control": "no-store" });
+		res.end();
+	};
+
+	const updateComment = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+		threadId: string,
+	) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const patch = parseCommentPatch(read.body);
+		if ("error" in patch) {
+			return sendJson(res, 400, { ok: false, error: patch.error });
+		}
+		const thread = deps.comments.update(threadId, (current) => ({
+			...current,
+			...patch,
+		}));
+		if (!thread) return sendError(res, 404);
+		sendJson(res, 200, thread);
+	};
+
+	const deleteComment = (
+		req: IncomingMessage,
+		res: ServerResponse,
+		threadId: string,
+	) => {
+		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		deps.agent.cancel(threadId);
+		if (!deps.comments.remove(threadId)) return sendError(res, 404);
+		res.writeHead(204, { "cache-control": "no-store" });
+		res.end();
+	};
+
+	const agentTool = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+		tool: string,
+	) => {
+		const threadId = deps.agentTokens.verify(req);
+		if (!threadId) return sendError(res, 401);
+		if (!req.headers["content-type"]?.startsWith("application/json")) {
+			return sendError(res, 415);
+		}
+		let body: unknown;
+		try {
+			body = await readJson(req);
+		} catch {
+			return sendJson(res, 400, { ok: false, error: "Invalid JSON body" });
+		}
+		const call = parseToolCall(tool, body);
+		if ("error" in call) {
+			return sendJson(res, 400, { ok: false, error: call.error });
+		}
+		const outcome = await deps.tools(threadId, call);
+		if (!outcome.ok) {
+			return sendJson(res, 422, { ok: false, error: outcome.error });
+		}
+		sendJson(res, 200, { ok: true, text: outcome.text });
+	};
+
 	const handle = async (req: IncomingMessage, res: ServerResponse) => {
 		const route = matchRoute(req.method ?? "GET", requestUrl(req));
 		if (route.kind === "healthz") return sendJson(res, 200, { ok: true });
+		if (route.kind === "agent-tool") return agentTool(req, res, route.tool);
 		const auth = await deps.authenticate(req);
 		if (!auth.ok) return sendError(res, auth.status);
 		switch (route.kind) {
@@ -555,6 +684,16 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return updateRegion(req, res, route.regionId);
 			case "delete-region":
 				return deleteRegion(req, res, route.regionId);
+			case "create-comment":
+				return createComment(req, res);
+			case "reply-comment":
+				return replyComment(req, res, route.threadId);
+			case "cancel-comment":
+				return cancelComment(req, res, route.threadId);
+			case "update-comment":
+				return updateComment(req, res, route.threadId);
+			case "delete-comment":
+				return deleteComment(req, res, route.threadId);
 			case "static":
 				return serveStatic(res, deps.dist, route.path, req.method === "HEAD");
 		}

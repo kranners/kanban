@@ -52,6 +52,7 @@ kanban is a remote terminal into every background Claude Code session and every 
 - WebSocket upgrades must come from the board's own origin.
 - The server binds to localhost; `KANBAN_AUTH=off` is refused on any other address.
 - Session keys, the daemon control key and other secrets under `~/.claude` are never read or served.
+- The board agent behind / runs headless Claude Code with only the board's own tools, no shell or file access, and never force-exits; its tool endpoint takes a per-run token from loopback only, and every change it makes is audited.
 
 ## Credits
 

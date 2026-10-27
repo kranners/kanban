@@ -1,5 +1,6 @@
 import type { BoardFeed } from "../shared/types.ts";
 import { receiveColours } from "./colours.ts";
+import { receiveComment, receiveComments } from "./comments.ts";
 import { receiveExit } from "./exits.ts";
 import { regions } from "./regionState.ts";
 import {
@@ -50,6 +51,14 @@ function receive(frame: BoardFeed): void {
 	}
 	if (frame.type === "exit") {
 		receiveExit(frame.sessionId, frame.result);
+		return;
+	}
+	if (frame.type === "comments") {
+		receiveComments(frame.comments);
+		return;
+	}
+	if (frame.type === "comment") {
+		receiveComment(frame.comment);
 		return;
 	}
 	const next = new Map(previews.value);

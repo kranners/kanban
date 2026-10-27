@@ -3,12 +3,16 @@ import { mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import type { Annotation, Annotations, Note } from "../shared/types.ts";
+import {
+	type Annotation,
+	type Annotations,
+	maxNoteText,
+	type Note,
+} from "../shared/types.ts";
 import {
 	createAnnotationStore,
 	loadAnnotations,
 	maxAnnotations,
-	maxNoteText,
 	parseAnnotation,
 	parseAnnotations,
 } from "./annotations.ts";
