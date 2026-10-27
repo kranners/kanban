@@ -19,7 +19,7 @@ describe("loadConfig", () => {
 			aud: "aud-123",
 		});
 		assert.deepEqual(config.origins, ["https://kanban.example.com"]);
-		assert.equal(config.claudeBin, "/opt/homebrew/bin/claude");
+		assert.equal(config.claudeBin, "claude");
 		assert.equal(
 			config.cmuxBin,
 			"/Applications/cmux.app/Contents/Resources/bin/cmux",

@@ -104,7 +104,7 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
 		host,
 		auth,
 		origins: parseOrigins(env, auth, port),
-		claudeBin: env.CLAUDE_BIN || "/opt/homebrew/bin/claude",
+		claudeBin: env.CLAUDE_BIN || "claude",
 		cmuxBin:
 			env.CMUX_BIN || "/Applications/cmux.app/Contents/Resources/bin/cmux",
 		claudeHome: env.CLAUDE_HOME || join(homedir(), ".claude"),
