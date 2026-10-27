@@ -95,6 +95,7 @@ export function ArtifactLink(props: { artifact: Artifact }) {
 			href={artifact.url}
 			target="_blank"
 			rel="noopener noreferrer"
+			draggable={false}
 			title={`Open ${artifact.title}`}
 		>
 			<AppWindow size={12} aria-hidden="true" />
@@ -166,11 +167,12 @@ export function SessionCard(props: {
 }) {
 	const { session } = props;
 	const KindIcon = session.kind === "interactive" ? Terminal : Server;
-	const open = (event: MouseEvent) =>
-		props.onOpen(
-			session.id,
-			(event.currentTarget as HTMLElement).getBoundingClientRect(),
-		);
+	const open = (event: MouseEvent) => {
+		const control = event.currentTarget as HTMLElement;
+		const frame =
+			control.closest("[data-node]")?.querySelector(".frame") ?? control;
+		props.onOpen(session.id, frame.getBoundingClientRect());
+	};
 	return (
 		<div
 			class={nodeClass(

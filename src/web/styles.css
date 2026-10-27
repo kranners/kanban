@@ -679,6 +679,16 @@ button.reconnecting {
 	padding-bottom: 30px;
 }
 
+.node.has-artifacts .goal {
+	-webkit-line-clamp: 3;
+	line-clamp: 3;
+}
+
+.node.has-artifacts .body:has(.needs) .goal {
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+}
+
 .card-artifacts {
 	position: absolute;
 	left: 9px;
