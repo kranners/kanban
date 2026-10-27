@@ -50,6 +50,20 @@ describe("parseLayoutUpdate", () => {
 			}),
 			{ key: "subagent:agent_1", placement: { x: 1, y: 2, w: 300, h: 200 } },
 		);
+		assert.deepEqual(
+			parseLayoutUpdate({
+				key: "session:abc-1",
+				placement: { x: 1, y: 2, pinned: true },
+			}),
+			{ key: "session:abc-1", placement: { x: 1, y: 2, pinned: true } },
+		);
+		assert.deepEqual(
+			parseLayoutUpdate({
+				key: "session:abc-1",
+				placement: { x: 1, y: 2, pinned: "yes" },
+			}),
+			{ key: "session:abc-1", placement: { x: 1, y: 2 } },
+		);
 	});
 
 	it("rejects bad keys and placements", () => {

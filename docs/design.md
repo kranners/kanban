@@ -18,7 +18,7 @@ kanban builds on Claude Code's own primitives instead: the session registry, bac
 
 ## Sources of truth
 
-Everything about sessions is read from `~/.claude`; kanban keeps no database. It stores only what people put on the board, in `KANBAN_STATE` (default `~/.local/state/kanban`, or `~/.local/state/kanban-<port>` off the default port so dev servers never share the board's files), each written atomically: `layout.json`, where cards sit, with placements pruned a day after their node leaves the board; and `annotations.json`, the board's sticky notes and stickers.
+Everything about sessions is read from `~/.claude`; kanban keeps no database. It stores only what people put on the board, in `KANBAN_STATE` (default `~/.local/state/kanban`, or `~/.local/state/kanban-<port>` off the default port so dev servers never share the board's files), each written atomically: `layout.json`, where cards sit, with placements pruned a day after their node leaves the board (a card someone dragged or resized is pinned there; a card kanban placed keeps its spot only while its subagent grid still fits, and otherwise moves to the nearest free space); and `annotations.json`, the board's sticky notes and stickers.
 
 | Need                                    | Source                                                                                       |
 | --------------------------------------- | -------------------------------------------------------------------------------------------- |

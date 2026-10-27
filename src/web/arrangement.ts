@@ -79,7 +79,13 @@ effect(() => {
 });
 
 function samePlacement(a: Placement | undefined, b: Placement): boolean {
-	return a?.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+	return (
+		a?.x === b.x &&
+		a.y === b.y &&
+		a.w === b.w &&
+		a.h === b.h &&
+		a.pinned === b.pinned
+	);
 }
 
 function forget(key: NodeKey, placement: Placement): void {
@@ -144,7 +150,7 @@ export function arrangeNode(gesture: Arranging): void {
 			: saved?.w !== undefined && saved.h !== undefined
 				? { w: saved.w, h: saved.h }
 				: {};
-	const placement = { x: rect.x, y: rect.y, ...size };
+	const placement = { x: rect.x, y: rect.y, ...size, pinned: true as const };
 	if (phase === "move") previewPlacement(key, placement);
 	else void commitPlacement(key, placement);
 }

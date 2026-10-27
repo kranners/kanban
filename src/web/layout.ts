@@ -163,9 +163,6 @@ export function layoutBoard(
 			a.localeCompare(b)
 		);
 	};
-	const newestFirst = (a: NodeKey, b: NodeKey) =>
-		(nodes.get(b)?.startedAt ?? 0) - (nodes.get(a)?.startedAt ?? 0) ||
-		a.localeCompare(b);
 	const isLeafSubagent = (tree: Tree) =>
 		nodes.get(tree.key)?.ref.kind === "subagent" &&
 		tree.grid.length === 0 &&
@@ -195,10 +192,7 @@ export function layoutBoard(
 			.map(build);
 		const tree: Tree = {
 			key,
-			grid: children
-				.filter(isLeafSubagent)
-				.map((c) => c.key)
-				.sort(newestFirst),
+			grid: children.filter(isLeafSubagent).map((c) => c.key),
 			branches: children.filter((c) => !isLeafSubagent(c)),
 			width: 0,
 		};

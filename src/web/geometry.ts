@@ -1,5 +1,6 @@
-import type { PlacedNode } from "./layout.ts";
-import { sessionLabelHeight } from "./layout.ts";
+import type { Link } from "../shared/types.ts";
+import type { NodeKey, PlacedNode } from "./layout.ts";
+import { nodeKey, sessionLabelHeight } from "./layout.ts";
 
 export type Point = { x: number; y: number };
 
@@ -73,4 +74,32 @@ export function messageArc(from: PlacedNode, to: PlacedNode): Arc {
 			y: 0.25 * a.y + 0.5 * control.y + 0.25 * b.y,
 		},
 	};
+}
+
+export type DrawnLink = {
+	link: Link;
+	from: PlacedNode;
+	to: PlacedNode;
+	index: number;
+};
+
+export function drawnLinks(
+	links: readonly Link[],
+	nodes: ReadonlyMap<NodeKey, PlacedNode>,
+): DrawnLink[] {
+	const resolved = links.flatMap((link, index) => {
+		const from = nodes.get(nodeKey(link.from));
+		const to = nodes.get(nodeKey(link.to));
+		return from && to ? [{ link, from, to, index }] : [];
+	});
+	const firstFollowerRow = new Map<NodeKey, number>();
+	for (const { from, to } of resolved) {
+		if (!to.follows) continue;
+		const top = firstFollowerRow.get(from.key) ?? to.y;
+		firstFollowerRow.set(from.key, Math.min(top, to.y));
+	}
+	return resolved.filter(
+		({ from, to }) =>
+			!to.follows || to.y <= (firstFollowerRow.get(from.key) ?? to.y),
+	);
 }

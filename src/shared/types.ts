@@ -78,7 +78,7 @@ export type TranscriptEntry = {
 
 export type Point = { x: number; y: number };
 
-export type Placement = Point & { w?: number; h?: number };
+export type Placement = Point & { w?: number; h?: number; pinned?: true };
 
 export type Layout = Record<string, Placement>;
 

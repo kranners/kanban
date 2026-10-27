@@ -48,9 +48,11 @@ export const parsePoint = (value: unknown): Point | null => {
 export const parsePlacement = (value: unknown): Placement | null => {
 	const point = parsePoint(value);
 	if (!point) return null;
-	const { w, h } = value as Record<string, unknown>;
-	if (w === undefined && h === undefined) return point;
-	return isSize(w) && isSize(h) ? { ...point, w, h } : null;
+	const { w, h, pinned } = value as Record<string, unknown>;
+	const placed: Placement =
+		pinned === true ? { ...point, pinned: true } : point;
+	if (w === undefined && h === undefined) return placed;
+	return isSize(w) && isSize(h) ? { ...placed, w, h } : null;
 };
 
 export const parseLayoutUpdate = (

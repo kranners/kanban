@@ -1,4 +1,10 @@
-import type { Board, Layout, NodeRef, Point } from "../shared/types.ts";
+import type {
+	Board,
+	Layout,
+	NodeRef,
+	Point,
+	Session,
+} from "../shared/types.ts";
 import { gridSize, snap, snapPoint } from "./grid.ts";
 import type { BoardLayout, NodeKey, PlacedNode } from "./layout.ts";
 import { defaultLayoutOptions, layoutBoard, nodeKey } from "./layout.ts";
@@ -175,17 +181,27 @@ export function arrange(
 		return node ? snapPoint(node) : null;
 	};
 
-	for (const s of board.sessions) {
+	const byStart = (a: Session, b: Session) =>
+		a.startedAt - b.startedAt || a.id.localeCompare(b.id);
+	const savedSpot = (key: NodeKey): Point => ({
+		x: saved[key]?.x ?? 0,
+		y: saved[key]?.y ?? 0,
+	});
+	const sessionRect = (key: NodeKey, at: Point): Rect => ({
+		...at,
+		w: saved[key]?.w ?? sessionSize.w,
+		h: saved[key]?.h ?? sessionSize.h,
+	});
+	const savedSessions = board.sessions
+		.filter((s) => saved[nodeKey({ kind: "session", id: s.id })])
+		.sort(byStart);
+	const pinned = (s: Session) =>
+		saved[nodeKey({ kind: "session", id: s.id })]?.pinned === true;
+
+	for (const s of savedSessions.filter(pinned)) {
 		const ref: NodeRef = { kind: "session", id: s.id };
 		const key = nodeKey(ref);
-		const placement = saved[key];
-		if (!placement) continue;
-		const rect = {
-			x: placement.x,
-			y: placement.y,
-			w: placement.w ?? sessionSize.w,
-			h: placement.h ?? sessionSize.h,
-		};
+		const rect = sessionRect(key, savedSpot(key));
 		put(key, ref, rect);
 		occupied.push(...footprint(key, rect));
 	}
@@ -220,11 +236,21 @@ export function arrange(
 		return { x: start.x, y: snap(taken.y + taken.height + clearance) };
 	};
 
+	for (const s of savedSessions.filter((s) => !pinned(s))) {
+		const ref: NodeRef = { kind: "session", id: s.id };
+		const key = nodeKey(ref);
+		const fits = (point: Point) =>
+			free(footprint(key, sessionRect(key, point)));
+		const spot = nearestFree(savedSpot(key), fits) ?? below(savedSpot(key));
+		put(key, ref, sessionRect(key, spot));
+		occupied.push(...footprint(key, sessionRect(key, spot)));
+	}
+
 	occupied.push(...reserved);
 
 	const unplaced = board.sessions
 		.filter((s) => !saved[nodeKey({ kind: "session", id: s.id })])
-		.sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id));
+		.sort(byStart);
 	for (const s of unplaced) {
 		const ref: NodeRef = { kind: "session", id: s.id };
 		const key = nodeKey(ref);

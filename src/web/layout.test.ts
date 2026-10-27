@@ -145,8 +145,8 @@ test("children sit below their parent and are centred under it", () => {
 	assert.ok(root && one && two);
 	assert.equal(one.y, root.y + root.h + defaultLayoutOptions.levelGap);
 	assert.equal(one.y, two.y);
-	assert.ok(two.x + two.w <= one.x);
-	const childrenCentre = (two.x + one.x + one.w) / 2;
+	assert.ok(one.x + one.w <= two.x);
+	const childrenCentre = (one.x + two.x + two.w) / 2;
 	assert.equal(root.x + root.w / 2, childrenCentre);
 	assert.equal(one.w, defaultLayoutOptions.subagent.w);
 });
@@ -197,16 +197,31 @@ test("many subagents wrap into a compact grid under their session", () => {
 	assert.deepEqual(overlapping([...nodes.values()]), []);
 });
 
-test("the grid reads newest first, left to right then down", () => {
+test("the grid reads oldest first, left to right then down", () => {
 	const b = board({ sessions: [session("root", 0)], subagents: crowd(5) });
 	const { nodes } = layoutBoard(b);
 	const at = (id: string) => nodes.get(nodeKey(a(id)));
-	const [newest, second, third, fourth] = ["sa4", "sa3", "sa2", "sa1"].map(at);
-	assert.ok(newest && second && third && fourth);
-	assert.equal(newest.y, third.y);
-	assert.ok(newest.x < second.x && second.x < third.x);
-	assert.equal(fourth.x, newest.x);
-	assert.ok(fourth.y > newest.y);
+	const [oldest, second, third, fourth] = ["sa0", "sa1", "sa2", "sa3"].map(at);
+	assert.ok(oldest && second && third && fourth);
+	assert.equal(oldest.y, third.y);
+	assert.ok(oldest.x < second.x && second.x < third.x);
+	assert.equal(fourth.x, oldest.x);
+	assert.ok(fourth.y > oldest.y);
+});
+
+test("a new subagent joins the end of a full grid without moving the others", () => {
+	const before = layoutBoard(
+		board({ sessions: [session("root", 0)], subagents: crowd(7) }),
+	);
+	const after = layoutBoard(
+		board({ sessions: [session("root", 0)], subagents: crowd(8) }),
+	);
+	for (const c of crowd(7)) {
+		const key = nodeKey(a(c.id));
+		const was = before.nodes.get(key);
+		const now = after.nodes.get(key);
+		assert.deepEqual([now?.x, now?.y], [was?.x, was?.y], key);
+	}
 });
 
 test("spawned sessions stay a tree beside the subagent grid", () => {

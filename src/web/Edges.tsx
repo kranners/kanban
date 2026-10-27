@@ -1,8 +1,8 @@
 import { GitBranch } from "lucide-preact";
 import type { ComponentChildren } from "preact";
 import type { Board, Message } from "../shared/types.ts";
-import { messageArc, treeMidpoint, treePath } from "./geometry.ts";
-import type { NodeKey, PlacedNode } from "./layout.ts";
+import { drawnLinks, messageArc, treeMidpoint, treePath } from "./geometry.ts";
+import type { NodeKey } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import type { Arrangement } from "./placement.ts";
 
@@ -75,49 +75,36 @@ function EdgeLayer(props: {
 	);
 }
 
-function followerTops(layout: Placed): Map<NodeKey, number> {
-	const tops = new Map<NodeKey, number>();
-	for (const node of layout.nodes.values()) {
-		if (!node.follows) continue;
-		tops.set(node.follows, Math.min(tops.get(node.follows) ?? node.y, node.y));
-	}
-	return tops;
-}
-
 export function Links(props: EdgeProps) {
 	const { board, layout } = props;
-	const tops = followerTops(layout);
-	const belowFirstFollowerRow = (from: PlacedNode, to: PlacedNode) =>
-		to.follows === from.key && to.y > (tops.get(from.key) ?? to.y);
-	const links = board.links.flatMap((link, index) => {
-		const from = layout.nodes.get(nodeKey(link.from));
-		const to = layout.nodes.get(nodeKey(link.to));
-		if (!from || !to || belowFirstFollowerRow(from, to)) return [];
-		const path = treePath(from, to);
-		const mid = treeMidpoint(from, to);
-		const id = `${from.key}>${to.key}>${index}`;
-		return [
-			<g
-				key={id}
-				class={`edge edge-${link.kind}${faded(props, from.key, to.key)}`}
-			>
-				<path
-					d={path}
-					style={curveStyle(path)}
-					marker-end={link.kind === "spawned" ? "url(#arrow)" : undefined}
-				/>
-				{link.kind === "forked" && (
-					<g
-						class="edge-badge"
-						style={{ transform: `translate(${mid.x}px, ${mid.y}px)` }}
-					>
-						<circle r="11" />
-						<GitBranch x={-7} y={-7} size={14} strokeWidth={2} />
-					</g>
-				)}
-			</g>,
-		];
-	});
+	const links = drawnLinks(board.links, layout.nodes).map(
+		({ link, from, to, index }) => {
+			const path = treePath(from, to);
+			const mid = treeMidpoint(from, to);
+			const id = `${from.key}>${to.key}>${index}`;
+			return (
+				<g
+					key={id}
+					class={`edge edge-${link.kind}${faded(props, from.key, to.key)}`}
+				>
+					<path
+						d={path}
+						style={curveStyle(path)}
+						marker-end={link.kind === "spawned" ? "url(#arrow)" : undefined}
+					/>
+					{link.kind === "forked" && (
+						<g
+							class="edge-badge"
+							style={{ transform: `translate(${mid.x}px, ${mid.y}px)` }}
+						>
+							<circle r="11" />
+							<GitBranch x={-7} y={-7} size={14} strokeWidth={2} />
+						</g>
+					)}
+				</g>
+			);
+		},
+	);
 	return (
 		<EdgeLayer layout={layout} class="edges">
 			<defs>

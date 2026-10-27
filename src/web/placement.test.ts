@@ -237,3 +237,43 @@ test("a session's many subagents follow it as a compact grid that others keep cl
 	assert.ok(followers.every((f) => f && onGrid(f)));
 	assertApart(nodes.values());
 });
+
+test("a saved session moves out of the way when a neighbour's subagents grow into it", () => {
+	const crowd = Array.from({ length: 12 }, (_, i) =>
+		subagent(`sa${i}`, "busy", i + 1),
+	);
+	const b = board({
+		sessions: [session("busy", 1), session("below", 2)],
+		subagents: crowd,
+	});
+	const saved: Layout = {
+		"session:busy": { x: 0, y: 0 },
+		"session:below": { x: 0, y: 480 },
+	};
+	const { nodes } = place(b, saved);
+	assert.deepEqual(
+		[nodes.get("session:busy")?.x, nodes.get("session:busy")?.y],
+		[0, 0],
+	);
+	assertApart(nodes.values());
+});
+
+test("a pinned session stays put and the unpinned neighbour gives way", () => {
+	const crowd = Array.from({ length: 12 }, (_, i) =>
+		subagent(`sa${i}`, "busy", i + 1),
+	);
+	const b = board({
+		sessions: [session("busy", 2), session("below", 1)],
+		subagents: crowd,
+	});
+	const saved: Layout = {
+		"session:busy": { x: 0, y: 0 },
+		"session:below": { x: 0, y: 480, pinned: true },
+	};
+	const { nodes } = place(b, saved);
+	assert.deepEqual(
+		[nodes.get("session:below")?.x, nodes.get("session:below")?.y],
+		[0, 480],
+	);
+	assertApart(nodes.values());
+});
