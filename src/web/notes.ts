@@ -204,6 +204,14 @@ export function recoloured(
 	);
 }
 
+export function retexted(
+	latest: Annotation | undefined,
+	note: Note,
+	text: string,
+): Note {
+	return { ...(latest?.kind === "note" ? latest : note), text };
+}
+
 export function matchingStickers(
 	stickers: readonly StickerEntry[],
 	query: string,

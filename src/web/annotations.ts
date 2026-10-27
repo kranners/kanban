@@ -2,6 +2,7 @@ import { computed, effect, signal } from "@preact/signals";
 import type {
 	Annotation,
 	Annotations,
+	Note,
 	NoteColor,
 	Point,
 } from "../shared/types.ts";
@@ -12,6 +13,7 @@ import {
 	newNote,
 	newSticker,
 	recoloured,
+	retexted,
 	sameAnnotation,
 	sentToBack,
 	stacked,
@@ -121,6 +123,14 @@ export function saveSoon(annotations: readonly Annotation[]): void {
 			}, settleMs),
 		);
 	}
+}
+
+export function typeText(note: Note, text: string): void {
+	saveSoon([retexted(saved.peek()[note.id], note, text)]);
+}
+
+export function saveText(note: Note, text: string): void {
+	save([retexted(saved.peek()[note.id], note, text)]);
 }
 
 export function select(ids: Iterable<string>): void {

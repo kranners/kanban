@@ -25,13 +25,14 @@ import {
 	preview,
 	recolourSelection,
 	save,
-	saveSoon,
+	saveText,
 	select,
 	selected,
 	selection,
 	sendSelectionToBack,
 	stickerPicker,
 	toggleSelected,
+	typeText,
 } from "./annotations.ts";
 import { boardPointAt, view } from "./Canvas.tsx";
 import { commandKey } from "./focus/platform.ts";
@@ -48,6 +49,7 @@ import {
 } from "./notes.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 import { blocked, isTyping, pointerTarget } from "./Spawning.tsx";
+import { boardMenu } from "./spawns.ts";
 import { stickerFiles } from "./stickers/files.ts";
 import { stickerManifest } from "./stickers/manifest.ts";
 
@@ -133,7 +135,7 @@ function NoteEditor(props: { note: Note }): JSX.Element {
 
 	const finish = () => {
 		if (editing.peek() === note.id) editing.value = null;
-		if (text !== note.text) save([{ ...note, text }]);
+		if (text !== note.text) saveText(note, text);
 	};
 
 	return (
@@ -148,7 +150,7 @@ function NoteEditor(props: { note: Note }): JSX.Element {
 			onInput={(event) => {
 				const next = event.currentTarget.value;
 				setText(next);
-				saveSoon([{ ...note, text: next }]);
+				typeText(note, next);
 			}}
 			onBlur={finish}
 			onKeyDown={(event) => {
@@ -338,6 +340,7 @@ export function AnnotationMenu(): JSX.Element | null {
 			onKeyDown={(event) => {
 				if (event.key === "Escape") {
 					event.preventDefault();
+					event.stopPropagation();
 					annotationMenu.value = null;
 				} else if (list.current) moveMenuFocus(list.current, event);
 			}}
@@ -436,7 +439,7 @@ export function StickerPicker(): JSX.Element | null {
 		addSticker(id, picker.board);
 	};
 	const left = Math.max(8, Math.min(picker.client.x, innerWidth - 344));
-	const top = Math.max(8, Math.min(picker.client.y, innerHeight - 312));
+	const top = Math.max(8, Math.min(picker.client.y, innerHeight - 336));
 	return (
 		<div
 			class="sticker-picker"
@@ -517,6 +520,24 @@ export function StickerPicker(): JSX.Element | null {
 					<p class="sticker-empty">No stickers match “{query}”</p>
 				)}
 			</div>
+			<p class="sticker-credit">
+				Stickers:{" "}
+				<a
+					href="https://github.com/jdecked/twemoji"
+					target="_blank"
+					rel="noreferrer"
+				>
+					Twemoji
+				</a>
+				,{" "}
+				<a
+					href="https://creativecommons.org/licenses/by/4.0/"
+					target="_blank"
+					rel="noreferrer"
+				>
+					CC-BY 4.0
+				</a>
+			</p>
 		</div>
 	);
 }
@@ -615,6 +636,12 @@ export function useAnnotationGestures(): void {
 				notes: chosen.filter((a) => a.kind === "note").length,
 			});
 			if (!command) return;
+			if (
+				boardMenu.peek() &&
+				command.kind !== "note" &&
+				command.kind !== "sticker"
+			)
+				return;
 			if (command.kind === "edit" && onActivatable(event.target)) return;
 			if (command.kind === "deselect" && document.querySelector(".board-menu"))
 				return;

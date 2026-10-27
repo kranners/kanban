@@ -245,6 +245,17 @@
 	box-shadow: inset 0 0 0 1px var(--hairline-strong);
 }
 
+.sticker-credit {
+	margin: 0;
+	color: var(--muted);
+	font-size: 11px;
+	text-align: right;
+}
+
+.sticker-credit a {
+	color: inherit;
+}
+
 .sticker-empty {
 	grid-column: 1 / -1;
 	margin: 0;

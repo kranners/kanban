@@ -18,6 +18,7 @@ import {
 	noteSize,
 	recoloured,
 	resized,
+	retexted,
 	sameAnnotation,
 	sentToBack,
 	stacked,
@@ -121,6 +122,19 @@ describe("stacking", () => {
 			coloured.map((a) => [a.id, a.color]),
 			[["a", "pink"]],
 		);
+	});
+
+	it("puts typed text on the latest saved note so another tab's move survives", () => {
+		const typing = { ...note("a", 1), x: 521, text: "abcde" };
+		const movedElsewhere = { ...note("a", 1), x: 821, text: "abcde" };
+		assert.deepEqual(retexted(movedElsewhere, typing, "abcdef"), {
+			...movedElsewhere,
+			text: "abcdef",
+		});
+		assert.deepEqual(retexted(undefined, typing, "abcdef"), {
+			...typing,
+			text: "abcdef",
+		});
 	});
 });
 
