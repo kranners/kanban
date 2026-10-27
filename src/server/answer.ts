@@ -5,6 +5,7 @@ import {
 	type AskScreen,
 	type ChoiceScreen,
 	cursorRow,
+	isSubmitRow,
 	moves,
 	normalise,
 	readDialog,
@@ -168,9 +169,7 @@ const answerOne = async (
 		screen = askScreen(toggled);
 	}
 	if (other) screen = await typeOther(drive, screen, count, other);
-	const submit = screen.rows.findIndex(
-		(row) => normalise(row.label) === "submit",
-	);
+	const submit = screen.rows.findIndex(isSubmitRow);
 	if (submit === -1) throw new Refusal(notShowing);
 	screen = await moveTo(drive, screen, submit);
 	await drive.press(["Enter"]);
