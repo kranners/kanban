@@ -12,6 +12,7 @@ import type {
 	NewSessionRequest,
 	Point,
 } from "../shared/types.ts";
+import { createAnnotationStore } from "./annotations.ts";
 import type { AttachHub } from "./attach.ts";
 import type { AuditEvent } from "./audit.ts";
 import type { Authenticate } from "./auth.ts";
@@ -61,6 +62,17 @@ describe("matchRoute", () => {
 		});
 		assert.deepEqual(route("PUT", "/api/layout"), { kind: "update-layout" });
 		assert.deepEqual(route("POST", "/api/layout"), {
+			kind: "method-not-allowed",
+		});
+		assert.deepEqual(route("PUT", "/api/annotations/n-1"), {
+			kind: "put-annotation",
+			id: "n-1",
+		});
+		assert.deepEqual(route("DELETE", "/api/annotations/n-1"), {
+			kind: "delete-annotation",
+			id: "n-1",
+		});
+		assert.deepEqual(route("GET", "/api/annotations/n-1"), {
 			kind: "method-not-allowed",
 		});
 		assert.deepEqual(route("GET", "/api/nope"), { kind: "not-found" });
@@ -159,6 +171,8 @@ describe("createKanbanServer", () => {
 	let exitGate: Promise<void> = Promise.resolve();
 	let layoutFile = "";
 	let layoutSaved = () => Promise.resolve();
+	let annotationsFile = "";
+	let annotationsSaved = () => Promise.resolve();
 	const attached: string[] = [];
 	const mirrored: string[] = [];
 	const events: AuditEvent[] = [];
@@ -189,8 +203,16 @@ describe("createKanbanServer", () => {
 			onChange: (layout) => feed?.layout(layout),
 		});
 		layoutSaved = store.saved;
+		annotationsFile = join(dist, "state", "annotations.json");
+		const annotations = createAnnotationStore({
+			file: annotationsFile,
+			initial: {},
+			onChange: (next) => feed?.annotations(next),
+		});
+		annotationsSaved = annotations.saved;
 		feed = createFeed({
 			layout: store.current,
+			annotations: annotations.current,
 			board: () => board,
 			previews: () => [
 				{
@@ -226,6 +248,7 @@ describe("createKanbanServer", () => {
 					store.expect(short, at);
 				},
 			},
+			annotations,
 			attach,
 			mirror: {
 				open: (socket, session, identity) => {
@@ -487,6 +510,67 @@ describe("createKanbanServer", () => {
 		});
 	});
 
+	it("stores and deletes annotations and broadcasts them", async () => {
+		const socket = new WebSocket(`${base.replace("http", "ws")}/api/feed`, {
+			headers: { ...authed, origin },
+		});
+		const frames: BoardFeed[] = [];
+		const received = (count: number) =>
+			new Promise<void>((resolve) => {
+				const check = () => {
+					if (frames.length >= count) resolve();
+					else setTimeout(check, 5);
+				};
+				check();
+			});
+		socket.on("message", (data) => {
+			const frame = JSON.parse(String(data)) as BoardFeed;
+			if (frame.type === "annotations") frames.push(frame);
+		});
+		await new Promise((resolve) => socket.on("open", resolve));
+		await received(1);
+		assert.deepEqual(frames[0], { type: "annotations", annotations: {} });
+
+		const note = {
+			kind: "note",
+			x: 0,
+			y: 0,
+			w: 192,
+			h: 192,
+			z: 1,
+			text: "hi",
+			color: "pink",
+		};
+		assert.equal((await send("PUT", "/api/annotations/n1", note)).status, 204);
+		await received(2);
+		assert.deepEqual(frames[1], {
+			type: "annotations",
+			annotations: { n1: { id: "n1", ...note } },
+		});
+		const invalid = await send("PUT", "/api/annotations/n2", {
+			...note,
+			color: "teal",
+		});
+		assert.equal(invalid.status, 400);
+
+		const remove = (id: string, headers: Record<string, string> = {}) =>
+			fetch(`${base}/api/annotations/${id}`, {
+				method: "DELETE",
+				headers: { ...authed, origin, ...headers },
+			});
+		assert.equal(
+			(await remove("n1", { origin: "https://evil.example" })).status,
+			403,
+		);
+		assert.equal((await remove("n1")).status, 204);
+		assert.equal((await remove("n1")).status, 404);
+		await received(3);
+		assert.deepEqual(frames[2], { type: "annotations", annotations: {} });
+		socket.close();
+		await annotationsSaved();
+		assert.deepEqual(JSON.parse(await readFile(annotationsFile, "utf8")), {});
+	});
+
 	const upgradeStatus = (path: string, headers: Record<string, string>) =>
 		new Promise<number | "open">((resolve) => {
 			const socket = new WebSocket(`${base.replace("http", "ws")}${path}`, {
@@ -562,7 +646,7 @@ describe("createKanbanServer", () => {
 			});
 			socket.on("message", (data) => {
 				received.push(JSON.parse(String(data)));
-				if (received.length === 3) {
+				if (received.length === 4) {
 					socket.close();
 					resolve(received);
 				}
@@ -570,7 +654,7 @@ describe("createKanbanServer", () => {
 		});
 		assert.deepEqual(
 			frames.map((frame) => frame.type),
-			["layout", "board", "preview"],
+			["layout", "annotations", "board", "preview"],
 		);
 	});
 

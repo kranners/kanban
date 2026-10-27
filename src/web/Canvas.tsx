@@ -74,6 +74,7 @@ export function Canvas(props: {
 	fitKey: string;
 	rectOf?: (key: NodeKey) => Rect | undefined;
 	onArrange?: (gesture: Arranging) => void;
+	tools?: ComponentChildren;
 	children: ComponentChildren;
 }) {
 	const viewport = useRef<HTMLDivElement>(null);
@@ -419,6 +420,12 @@ export function Canvas(props: {
 				>
 					<Maximize size={15} />
 				</button>
+				{props.tools && (
+					<>
+						<span class="zoom-sep" />
+						{props.tools}
+					</>
+				)}
 			</div>
 		</div>
 	);

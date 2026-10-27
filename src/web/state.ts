@@ -1,6 +1,7 @@
 import { computed, signal } from "@preact/signals";
 import type {
 	Activity,
+	Annotations,
 	Board,
 	Layout,
 	Preview,
@@ -30,6 +31,8 @@ setInterval(() => {
 }, 5000);
 
 export const layout = signal<Layout>({});
+
+export const annotations = signal<Annotations>({});
 
 export const sessionsById = computed(
 	() => new Map((board.value?.sessions ?? []).map((s) => [s.id, s])),

@@ -16,6 +16,7 @@ import type {
 	Session,
 	TranscriptEntry,
 } from "../shared/types.ts";
+import { type AnnotationStore, parseAnnotation } from "./annotations.ts";
 import {
 	type AttachHub,
 	type AttachTarget,
@@ -44,6 +45,7 @@ export type ServerDeps = {
 	launch: SessionLauncher;
 	exit: SessionExiter;
 	layout: LayoutStore;
+	annotations: AnnotationStore;
 	attach: AttachHub;
 	mirror: MirrorHub;
 	feed: Feed;
@@ -56,6 +58,8 @@ export type Route =
 	| { kind: "create-session" }
 	| { kind: "exit-session"; sessionId: string }
 	| { kind: "update-layout" }
+	| { kind: "put-annotation"; id: string }
+	| { kind: "delete-annotation"; id: string }
 	| { kind: "static"; path: string }
 	| { kind: "not-found" }
 	| { kind: "method-not-allowed" };
@@ -128,6 +132,14 @@ export const matchRoute = (method: string, url: URL): Route => {
 		return method === "PUT"
 			? { kind: "update-layout" }
 			: { kind: "method-not-allowed" };
+	}
+	const annotation = path.match(/^\/api\/annotations\/([^/]+)$/);
+	if (annotation?.[1]) {
+		if (method === "PUT") return { kind: "put-annotation", id: annotation[1] };
+		if (method === "DELETE") {
+			return { kind: "delete-annotation", id: annotation[1] };
+		}
+		return { kind: "method-not-allowed" };
 	}
 	if (path === "/api" || path.startsWith("/api/")) return { kind: "not-found" };
 	if (method !== "GET" && method !== "HEAD")
@@ -381,6 +393,36 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res.end();
 	};
 
+	const putAnnotation = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+		id: string,
+	) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const annotation = parseAnnotation(id, read.body);
+		if ("error" in annotation) {
+			return sendJson(res, 400, { ok: false, error: annotation.error });
+		}
+		const stored = deps.annotations.put(annotation);
+		if ("error" in stored) {
+			return sendJson(res, 409, { ok: false, error: stored.error });
+		}
+		res.writeHead(204, { "cache-control": "no-store" });
+		res.end();
+	};
+
+	const deleteAnnotation = (
+		req: IncomingMessage,
+		res: ServerResponse,
+		id: string,
+	) => {
+		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		if (!deps.annotations.remove(id)) return sendError(res, 404);
+		res.writeHead(204, { "cache-control": "no-store" });
+		res.end();
+	};
+
 	const handle = async (req: IncomingMessage, res: ServerResponse) => {
 		const route = matchRoute(req.method ?? "GET", requestUrl(req));
 		if (route.kind === "healthz") return sendJson(res, 200, { ok: true });
@@ -408,6 +450,10 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return exitSession(req, res, route.sessionId, auth.identity);
 			case "update-layout":
 				return updateLayout(req, res);
+			case "put-annotation":
+				return putAnnotation(req, res, route.id);
+			case "delete-annotation":
+				return deleteAnnotation(req, res, route.id);
 			case "static":
 				return serveStatic(res, deps.dist, route.path, req.method === "HEAD");
 		}

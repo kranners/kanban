@@ -1,0 +1,255 @@
+:root {
+	--note-yellow: #fdf0a2;
+	--note-pink: #fbd3df;
+	--note-green: #cdeacb;
+	--note-blue: #cfe2f8;
+	--note-purple: #e1d6f6;
+	--note-orange: #fdd9b0;
+	--note-ink: #2a2721;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--note-yellow: #d8c868;
+		--note-pink: #d69bb0;
+		--note-green: #93bf8e;
+		--note-blue: #8fb2da;
+		--note-purple: #ae9fd4;
+		--note-orange: #dca46f;
+		--note-ink: #1a1815;
+	}
+}
+
+:root[data-theme="dark"] {
+	--note-yellow: #d8c868;
+	--note-pink: #d69bb0;
+	--note-green: #93bf8e;
+	--note-blue: #8fb2da;
+	--note-purple: #ae9fd4;
+	--note-orange: #dca46f;
+	--note-ink: #1a1815;
+}
+
+.note-yellow {
+	--note-fill: var(--note-yellow);
+}
+
+.note-pink {
+	--note-fill: var(--note-pink);
+}
+
+.note-green {
+	--note-fill: var(--note-green);
+}
+
+.note-blue {
+	--note-fill: var(--note-blue);
+}
+
+.note-purple {
+	--note-fill: var(--note-purple);
+}
+
+.note-orange {
+	--note-fill: var(--note-orange);
+}
+
+.annotation {
+	position: absolute;
+	left: 0;
+	top: 0;
+	cursor: grab;
+	animation: menu-in calc(140ms * var(--motion)) ease-out;
+}
+
+.viewport.panning .annotation {
+	pointer-events: none;
+}
+
+.annotation.selected {
+	outline: 2px solid var(--accent);
+	outline-offset: 3px;
+}
+
+.annotation:hover .resize-handle,
+.annotation.selected .resize-handle {
+	opacity: 1;
+}
+
+.note {
+	display: flex;
+	padding: 14px;
+	border: 1px solid color-mix(in srgb, var(--note-fill) 82%, var(--note-ink));
+	border-radius: 4px;
+	background: var(--note-fill);
+}
+
+.note.selected {
+	outline-offset: 2px;
+}
+
+.note-text {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+	color: var(--note-ink);
+	font-size: 14px;
+	line-height: 1.3;
+	text-align: center;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.note-text.empty {
+	color: color-mix(in srgb, var(--note-ink) 45%, transparent);
+	font-size: 13px;
+}
+
+.note.editing {
+	align-items: center;
+	cursor: text;
+}
+
+.note-editor {
+	flex: 1;
+	display: block;
+	max-height: 100%;
+	field-sizing: content;
+	padding: 0;
+	border: 0;
+	outline: none;
+	resize: none;
+	background: transparent;
+	font: inherit;
+	user-select: text;
+	-webkit-user-select: text;
+}
+
+.sticker {
+	border-radius: 6px;
+}
+
+.sticker-image {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	pointer-events: none;
+}
+
+.board-menu-sep {
+	display: block;
+	height: 1px;
+	margin: 4px 0;
+	background: var(--hairline);
+}
+
+.board-menu-item.danger,
+.board-menu-item.danger svg {
+	color: var(--red);
+}
+
+.swatches {
+	display: flex;
+	gap: 6px;
+	margin: 0;
+	padding: 6px 8px 8px;
+	border: 0;
+}
+
+.swatch {
+	width: 20px;
+	height: 20px;
+	padding: 0;
+	border: 1px solid color-mix(in srgb, var(--note-fill) 75%, var(--note-ink));
+	border-radius: 50%;
+	background: var(--note-fill);
+	cursor: pointer;
+}
+
+.swatch:hover,
+.swatch:focus-visible {
+	outline: none;
+	box-shadow:
+		0 0 0 2px var(--surface),
+		0 0 0 3px var(--hairline-strong);
+}
+
+.swatch[aria-checked="true"] {
+	box-shadow:
+		0 0 0 2px var(--surface),
+		0 0 0 3.5px var(--accent);
+}
+
+.sticker-picker {
+	position: fixed;
+	z-index: 40;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	width: 336px;
+	padding: 8px;
+	border: 1px solid var(--hairline);
+	border-radius: var(--radius-sm);
+	background: var(--surface);
+	box-shadow: var(--shadow-pop);
+	animation: menu-in calc(120ms * var(--motion)) ease-out;
+}
+
+.sticker-search {
+	height: 32px;
+	padding: 0 10px;
+	border: 1px solid var(--hairline);
+	border-radius: 6px;
+	outline: none;
+	background: var(--page);
+	color: var(--ink);
+	font: inherit;
+	font-size: 13px;
+}
+
+.sticker-search:focus {
+	border-color: var(--accent);
+	box-shadow: var(--focus-ring);
+}
+
+.sticker-grid {
+	display: grid;
+	grid-template-columns: repeat(8, 1fr);
+	gap: 2px;
+	max-height: 248px;
+	overflow-y: auto;
+}
+
+.sticker-option {
+	display: grid;
+	place-items: center;
+	aspect-ratio: 1;
+	padding: 0;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	cursor: pointer;
+}
+
+.sticker-option img {
+	width: 26px;
+	height: 26px;
+}
+
+.sticker-option[aria-selected="true"] {
+	background: var(--surface-2);
+	box-shadow: inset 0 0 0 1px var(--hairline-strong);
+}
+
+.sticker-empty {
+	grid-column: 1 / -1;
+	margin: 0;
+	padding: 16px 8px;
+	color: var(--muted);
+	font-size: 12.5px;
+	text-align: center;
+}

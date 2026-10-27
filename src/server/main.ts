@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { createAnnotationStore, loadAnnotations } from "./annotations.ts";
 import { claudeAttachPty, createAttachHub } from "./attach.ts";
 import { fileAudit } from "./audit.ts";
 import { authenticatorFor } from "./auth.ts";
@@ -32,6 +33,12 @@ const layout = createLayoutStore({
 	file: layoutFile,
 	initial: await loadLayout(layoutFile),
 	onChange: (next) => feed?.layout(next),
+});
+const annotationsFile = join(config.stateDir, "annotations.json");
+const annotations = createAnnotationStore({
+	file: annotationsFile,
+	initial: await loadAnnotations(annotationsFile),
+	onChange: (next) => feed?.annotations(next),
 });
 const probes = new Set<string>();
 const cmux = cmuxCli(config.cmuxBin);
@@ -67,6 +74,7 @@ feed = createFeed({
 	board: source.board,
 	previews: previewer.latest,
 	layout: layout.current,
+	annotations: annotations.current,
 });
 
 const exitDeps = claudeExitDeps({
@@ -83,6 +91,7 @@ const server = createKanbanServer({
 	launch: claudeLauncher(config.claudeBin),
 	exit: (session, force) => exitSession(exitDeps, session, force),
 	layout,
+	annotations,
 	attach: createAttachHub(claudeAttachPty(config.claudeBin), audit),
 	mirror: createMirrorHub({ cmux, resolve: cmuxTargets.resolve, audit }),
 	feed,
