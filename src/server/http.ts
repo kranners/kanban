@@ -26,6 +26,7 @@ import {
 } from "./attach.ts";
 import type { Audit } from "./audit.ts";
 import { type Authenticate, originAllowed } from "./auth.ts";
+import { type ColourStore, parseColourUpdate } from "./colours.ts";
 import type { SessionExiter } from "./exit.ts";
 import type { Feed } from "./feed.ts";
 import { boardKeys, type LayoutStore, parseLayoutUpdate } from "./layout.ts";
@@ -46,6 +47,7 @@ export type ServerDeps = {
 	exit: SessionExiter;
 	layout: LayoutStore;
 	annotations: AnnotationStore;
+	colours: ColourStore;
 	attach: AttachHub;
 	mirror: MirrorHub;
 	feed: Feed;
@@ -60,6 +62,7 @@ export type Route =
 	| { kind: "update-layout" }
 	| { kind: "put-annotation"; id: string }
 	| { kind: "delete-annotation"; id: string }
+	| { kind: "update-colour" }
 	| { kind: "static"; path: string }
 	| { kind: "not-found" }
 	| { kind: "method-not-allowed" };
@@ -140,6 +143,11 @@ export const matchRoute = (method: string, url: URL): Route => {
 			return { kind: "delete-annotation", id: annotation[1] };
 		}
 		return { kind: "method-not-allowed" };
+	}
+	if (path === "/api/colours") {
+		return method === "PUT"
+			? { kind: "update-colour" }
+			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api" || path.startsWith("/api/")) return { kind: "not-found" };
 	if (method !== "GET" && method !== "HEAD")
@@ -423,6 +431,18 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res.end();
 	};
 
+	const updateColour = async (req: IncomingMessage, res: ServerResponse) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const update = parseColourUpdate(read.body);
+		if ("error" in update) {
+			return sendJson(res, 400, { ok: false, error: update.error });
+		}
+		deps.colours.set(update);
+		res.writeHead(204, { "cache-control": "no-store" });
+		res.end();
+	};
+
 	const handle = async (req: IncomingMessage, res: ServerResponse) => {
 		const route = matchRoute(req.method ?? "GET", requestUrl(req));
 		if (route.kind === "healthz") return sendJson(res, 200, { ok: true });
@@ -454,6 +474,8 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return putAnnotation(req, res, route.id);
 			case "delete-annotation":
 				return deleteAnnotation(req, res, route.id);
+			case "update-colour":
+				return updateColour(req, res);
 			case "static":
 				return serveStatic(res, deps.dist, route.path, req.method === "HEAD");
 		}

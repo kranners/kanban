@@ -18,7 +18,7 @@ kanban builds on Claude Code's own primitives instead: the session registry, bac
 
 ## Sources of truth
 
-Everything about sessions is read from `~/.claude`; kanban keeps no database. It stores only what people put on the board, in `KANBAN_STATE` (default `~/.local/state/kanban`, or `~/.local/state/kanban-<port>` off the default port so dev servers never share the board's files), each written atomically: `layout.json`, where cards sit, with placements pruned a day after their node leaves the board (a card someone dragged or resized is pinned there; a card kanban placed keeps its spot only while its subagent grid still fits, and otherwise moves to the nearest free space); and `annotations.json`, the board's sticky notes and stickers.
+Everything about sessions is read from `~/.claude`; kanban keeps no database. It stores only what people put on the board, in `KANBAN_STATE` (default `~/.local/state/kanban`, or `~/.local/state/kanban-<port>` off the default port so dev servers never share the board's files), each written atomically: `layout.json`, where cards sit, with placements pruned a day after their node leaves the board (a card someone dragged or resized is pinned there; a card kanban placed keeps its spot only while its subagent grid still fits, and otherwise moves to the nearest free space); `annotations.json`, the board's sticky notes and stickers; and `colours.json`, the colours people chose for project regions, keyed by cwd and validated against the palette.
 
 | Need                                    | Source                                                                                       |
 | --------------------------------------- | -------------------------------------------------------------------------------------------- |
@@ -56,19 +56,20 @@ An `Annotation` is a note (`text`, a `color` from a fixed palette of six) or a s
 
 One Node 24 process on `127.0.0.1:7420` serves the built page and these endpoints:
 
-| Endpoint                           | Purpose                                                                                                                                 |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /`                            | the page                                                                                                                                |
-| `WS /api/feed`                     | `BoardFeed` frames: `layout`, `annotations` then a full `board` on connect, each again on change, `preview` thumbnails, `exit` outcomes |
-| `GET /api/sessions/:id/transcript` | recent `TranscriptEntry`s for read-only cards                                                                                           |
-| `POST /api/sessions`               | `NewSessionRequest` → `claude --bg`; without `name` Claude Code names it, with `at` the card spawns there                               |
-| `POST /api/sessions/:id/exit`      | `ExitRequest` → 202 at once; the `ExitResult` arrives later as an `exit` feed frame, since asking can outlast the tunnel's ~100s limit  |
-| `PUT /api/layout`                  | `LayoutUpdate` → 204: stores one node's placement and broadcasts the layout                                                             |
-| `PUT /api/annotations/:id`         | `Annotation` → 204: creates or replaces one note or sticker and broadcasts the annotations                                              |
-| `DELETE /api/annotations/:id`      | 204: removes one note or sticker and broadcasts the annotations                                                                         |
-| `WS /api/attach/:short`            | a `claude attach` pty: binary output down, `AttachClientFrame`s up                                                                      |
-| `WS /api/mirror/:sessionId`        | a cmux pane: `MirrorServerFrame`s (screen text on change, errors, end) down, `MirrorClientFrame`s (text, allowlisted keys) up           |
-| `GET /healthz`                     | liveness                                                                                                                                |
+| Endpoint                           | Purpose                                                                                                                                            |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /`                            | the page                                                                                                                                           |
+| `WS /api/feed`                     | `BoardFeed` frames: `layout`, `annotations`, `colours` then a full `board` on connect, each again on change, `preview` thumbnails, `exit` outcomes |
+| `GET /api/sessions/:id/transcript` | recent `TranscriptEntry`s for read-only cards                                                                                                      |
+| `POST /api/sessions`               | `NewSessionRequest` → `claude --bg`; without `name` Claude Code names it, with `at` the card spawns there                                          |
+| `POST /api/sessions/:id/exit`      | `ExitRequest` → 202 at once; the `ExitResult` arrives later as an `exit` feed frame, since asking can outlast the tunnel's ~100s limit             |
+| `PUT /api/layout`                  | `LayoutUpdate` → 204: stores one node's placement and broadcasts the layout                                                                        |
+| `PUT /api/annotations/:id`         | `Annotation` → 204: creates or replaces one note or sticker and broadcasts the annotations                                                         |
+| `DELETE /api/annotations/:id`      | 204: removes one note or sticker and broadcasts the annotations                                                                                    |
+| `PUT /api/colours`                 | `RegionColourUpdate` → 204: sets one cwd's region colour, or `null` to return it to its default, and broadcasts the colours                        |
+| `WS /api/attach/:short`            | a `claude attach` pty: binary output down, `AttachClientFrame`s up                                                                                 |
+| `WS /api/mirror/:sessionId`        | a cmux pane: `MirrorServerFrame`s (screen text on change, errors, end) down, `MirrorClientFrame`s (text, allowlisted keys) up                      |
+| `GET /healthz`                     | liveness                                                                                                                                           |
 
 One attach per session: a second attach takes over and the first gets `taken-over`, because Claude Code redraws a shared session at the last attacher's size. Closing the socket kills the attach process, which detaches without stopping the session. If the attach drops into Claude's agent view (← on an empty prompt, recognised by its `claude agents` window title), kanban sends Enter to return, and Escape for a workspace trust dialog there. This guard is a convenience against stray keys, not a security boundary: whoever passes Cloudflare Access can already drive any background session, so Access is the boundary.
 
@@ -87,8 +88,9 @@ Exiting asks the agent itself without touching the real session: `claude -p --re
 5. **Read.** Click any other interactive card (started in a terminal outside cmux). It opens a live transcript, read-only.
 6. **Start.** New session: pick a directory (recent ones suggested), optionally name it, give a first prompt. It appears on the board and opens focused.
 7. **Start in place.** Right-click the board (or press A) and type just the prompt. It starts in the group's project under the pointer, or the most recently active one (Tab cycles); a ghost card holds the spot until the session lands there.
-8. **Exit.** Hover a card and click its corner ×, then confirm. The agent is asked whether it is safe to exit: if so the card leaves, otherwise it shakes and shows why. Hold Shift for a red × that force-exits without asking.
-9. **Annotate.** Press N (or right-click → Add note here, or the note button by the zoom controls) for a sticky note at the pointer, already in edit mode; Escape or clicking away saves it. Press S for the sticker picker: type to filter, arrows to choose, Enter to place. Drag to move, drag the corner to resize (stickers keep their shape), double-click or Enter to edit a note. Click selects, Shift+click adds to the selection, clicking the board clears it. Right-click a note or sticker for Edit text, Colour, Duplicate (⌘D), Bring to front (⌘]), Send to back (⌘[) and Delete (⌫); arrows nudge the selection a pixel, Shift+arrows a grid step. Notes and stickers sit above group frames and beneath cards, in board coordinates, so they pan and zoom with everything else.
+8. **Colour a project.** Click a project region's label and pick one of eight colours; arrow keys move between swatches, Escape or a click elsewhere closes. The colour applies at once and sticks to the project's directory, so every region for that cwd shares it.
+9. **Exit.** Hover a card and click its corner ×, then confirm. The agent is asked whether it is safe to exit: if so the card leaves, otherwise it shakes and shows why. Hold Shift for a red × that force-exits without asking.
+10. **Annotate.** Press N (or right-click → Add note here, or the note button by the zoom controls) for a sticky note at the pointer, already in edit mode; Escape or clicking away saves it. Press S for the sticker picker: type to filter, arrows to choose, Enter to place. Drag to move, drag the corner to resize (stickers keep their shape), double-click or Enter to edit a note. Click selects, Shift+click adds to the selection, clicking the board clears it. Right-click a note or sticker for Edit text, Colour, Duplicate (⌘D), Bring to front (⌘]), Send to back (⌘[) and Delete (⌫); arrows nudge the selection a pixel, Shift+arrows a grid step. Notes and stickers sit above group frames and beneath cards, in board coordinates, so they pan and zoom with everything else.
 
 ## Infrastructure
 
@@ -105,3 +107,5 @@ A web app instead of a desktop wrapper: the server must run as a long-lived loca
 ## Visual design
 
 Flat and quiet: a warm off-white canvas, white cards with hairline borders, no shadows except on the focused card, one accent colour. Inter for the interface, JetBrains Mono for terminals and previews, Lucide icons. Light and dark follow the system, with a toggle. State is always colour plus shape.
+
+Project regions are tinted from an eight-colour palette (`src/web/regions.css`, `src/shared/colours.ts`): a faint fill, a stronger border and a label chip whose text keeps at least 4.5:1 contrast in both themes. Each cwd hashes to a default colour so regions differ out of the box; a chosen colour overrides it.

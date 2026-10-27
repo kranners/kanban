@@ -1,3 +1,4 @@
+import type { RegionColours } from "../shared/colours.ts";
 import type {
 	Annotations,
 	Board,
@@ -19,6 +20,7 @@ export type Feed = {
 	preview(preview: Preview): void;
 	layout(layout: Layout): void;
 	annotations(annotations: Annotations): void;
+	colours(colours: RegionColours): void;
 	exit(sessionId: string, result: ExitResult): void;
 	size(): number;
 };
@@ -28,6 +30,7 @@ export type FeedOptions = {
 	previews: () => Preview[];
 	layout: () => Layout;
 	annotations: () => Annotations;
+	colours: () => RegionColours;
 };
 
 const socketOpen = 1;
@@ -37,6 +40,7 @@ export const createFeed = ({
 	previews,
 	layout,
 	annotations,
+	colours,
 }: FeedOptions): Feed => {
 	const clients = new Set<FeedSocket>();
 
@@ -56,6 +60,7 @@ export const createFeed = ({
 			socket.on("close", () => clients.delete(socket));
 			send(socket, { type: "layout", layout: layout() });
 			send(socket, { type: "annotations", annotations: annotations() });
+			send(socket, { type: "colours", colours: colours() });
 			send(socket, { type: "board", board: board() });
 			for (const preview of previews())
 				send(socket, { type: "preview", preview });
@@ -65,6 +70,7 @@ export const createFeed = ({
 		layout: (next) => broadcast({ type: "layout", layout: next }),
 		annotations: (next) =>
 			broadcast({ type: "annotations", annotations: next }),
+		colours: (next) => broadcast({ type: "colours", colours: next }),
 		exit: (sessionId, result) => broadcast({ type: "exit", sessionId, result }),
 		size: () => clients.size,
 	};

@@ -1,4 +1,5 @@
 import type { BoardFeed } from "../shared/types.ts";
+import { receiveColours } from "./colours.ts";
 import { receiveExit } from "./exits.ts";
 import {
 	annotations,
@@ -36,6 +37,10 @@ function receive(frame: BoardFeed): void {
 	}
 	if (frame.type === "annotations") {
 		annotations.value = frame.annotations;
+		return;
+	}
+	if (frame.type === "colours") {
+		receiveColours(frame.colours);
 		return;
 	}
 	if (frame.type === "exit") {

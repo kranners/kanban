@@ -16,6 +16,7 @@ import { createAnnotationStore } from "./annotations.ts";
 import type { AttachHub } from "./attach.ts";
 import type { AuditEvent } from "./audit.ts";
 import type { Authenticate } from "./auth.ts";
+import { createColourStore } from "./colours.ts";
 import { createFeed } from "./feed.ts";
 import {
 	contentTypeFor,
@@ -73,6 +74,10 @@ describe("matchRoute", () => {
 			id: "n-1",
 		});
 		assert.deepEqual(route("GET", "/api/annotations/n-1"), {
+			kind: "method-not-allowed",
+		});
+		assert.deepEqual(route("PUT", "/api/colours"), { kind: "update-colour" });
+		assert.deepEqual(route("GET", "/api/colours"), {
 			kind: "method-not-allowed",
 		});
 		assert.deepEqual(route("GET", "/api/nope"), { kind: "not-found" });
@@ -173,6 +178,8 @@ describe("createKanbanServer", () => {
 	let layoutSaved = () => Promise.resolve();
 	let annotationsFile = "";
 	let annotationsSaved = () => Promise.resolve();
+	let coloursFile = "";
+	let coloursSaved = () => Promise.resolve();
 	const attached: string[] = [];
 	const mirrored: string[] = [];
 	const events: AuditEvent[] = [];
@@ -210,9 +217,17 @@ describe("createKanbanServer", () => {
 			onChange: (next) => feed?.annotations(next),
 		});
 		annotationsSaved = annotations.saved;
+		coloursFile = join(dist, "state", "colours.json");
+		const colours = createColourStore({
+			file: coloursFile,
+			initial: {},
+			onChange: (next) => feed?.colours(next),
+		});
+		coloursSaved = colours.saved;
 		feed = createFeed({
 			layout: store.current,
 			annotations: annotations.current,
+			colours: colours.current,
 			board: () => board,
 			previews: () => [
 				{
@@ -249,6 +264,7 @@ describe("createKanbanServer", () => {
 				},
 			},
 			annotations,
+			colours,
 			attach,
 			mirror: {
 				open: (socket, session, identity) => {
@@ -571,6 +587,41 @@ describe("createKanbanServer", () => {
 		assert.deepEqual(JSON.parse(await readFile(annotationsFile, "utf8")), {});
 	});
 
+	it("stores region colours by cwd and broadcasts them", async () => {
+		const cwd = "/Users/me/dev/acme-api";
+		const socket = new WebSocket(`${base.replace("http", "ws")}/api/feed`, {
+			headers: { ...authed, origin },
+		});
+		const broadcast = new Promise<BoardFeed>((resolve) => {
+			let frames = 0;
+			socket.on("message", (data) => {
+				const frame = JSON.parse(String(data)) as BoardFeed;
+				if (frame.type === "colours" && ++frames === 2) resolve(frame);
+			});
+		});
+		await new Promise((resolve) => socket.on("open", resolve));
+		const stored = await send("PUT", "/api/colours", { cwd, colour: "teal" });
+		assert.equal(stored.status, 204);
+		assert.deepEqual(await broadcast, {
+			type: "colours",
+			colours: { [cwd]: "teal" },
+		});
+		socket.close();
+		assert.equal(
+			(await send("PUT", "/api/colours", { cwd, colour: "plaid" })).status,
+			400,
+		);
+		assert.equal(
+			(await send("PUT", "/api/colours", { cwd: "acme", colour: "red" }))
+				.status,
+			400,
+		);
+		await coloursSaved();
+		assert.deepEqual(JSON.parse(await readFile(coloursFile, "utf8")), {
+			[cwd]: "teal",
+		});
+	});
+
 	const upgradeStatus = (path: string, headers: Record<string, string>) =>
 		new Promise<number | "open">((resolve) => {
 			const socket = new WebSocket(`${base.replace("http", "ws")}${path}`, {
@@ -654,7 +705,7 @@ describe("createKanbanServer", () => {
 		});
 		assert.deepEqual(
 			frames.map((frame) => frame.type),
-			["layout", "annotations", "board", "preview"],
+			["layout", "annotations", "colours", "board", "preview"],
 		);
 	});
 

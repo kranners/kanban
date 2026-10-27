@@ -11,6 +11,7 @@ import { withoutSessions } from "./actions.ts";
 import { arrangement, arrangeNode, groups } from "./arrangement.ts";
 import { Canvas } from "./Canvas.tsx";
 import { SessionCard, SubagentCard } from "./Card.tsx";
+import { colourOf } from "./colours.ts";
 import { Arcs, Links, messagePairs } from "./Edges.tsx";
 import {
 	CloseButton,
@@ -22,7 +23,7 @@ import type { ExitState } from "./exitState.ts";
 import { departed, exits } from "./exitState.ts";
 import { Focus } from "./focus/Focus.tsx";
 import { NewSession } from "./focus/NewSession.tsx";
-import { GroupFrames } from "./Groups.tsx";
+import { GroupFrames, RegionColourMenu } from "./Groups.tsx";
 import type { NodeKey, PlacedNode } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import type { Arrangement } from "./placement.ts";
@@ -109,7 +110,9 @@ function World(props: { board: Board; layout: Arrangement }) {
 	const sessionPreviews = previews.value;
 	const t = now.value;
 	const frames = groups.value;
-	const grouped = new Set(frames.flatMap((g) => g.members));
+	const regions = new Map(
+		frames.flatMap((g) => g.members.map((key) => [key, colourOf(g.cwd)])),
+	);
 	const exiting = exits.value;
 	const card = (
 		session: Session,
@@ -125,7 +128,7 @@ function World(props: { board: Board; layout: Arrangement }) {
 			emphasis={{
 				dimmed: !visible(node.key),
 				lit: lit.nodes.has(node.key),
-				grouped: grouped.has(node.key),
+				region: regions.get(node.key),
 			}}
 			onOpen={openSession}
 			state={exitStateClass(state)}
@@ -281,6 +284,7 @@ export function App() {
 			<BoardMenu />
 			<AnnotationMenu />
 			<StickerPicker />
+			<RegionColourMenu />
 		</div>
 	);
 }

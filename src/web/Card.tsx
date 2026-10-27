@@ -1,19 +1,20 @@
 import { Bot, Server, Terminal } from "lucide-preact";
 import type { ComponentChildren } from "preact";
 import { useLayoutEffect, useRef } from "preact/hooks";
+import type { RegionColour } from "../shared/colours.ts";
 import type { Preview, Session, Subagent } from "../shared/types.ts";
 import { ActivityBadge, activityLabel } from "./activity.tsx";
 import type { PlacedNode } from "./layout.ts";
 import { relativeTime } from "./time.ts";
 
-type Emphasis = { dimmed: boolean; lit: boolean; grouped?: boolean };
+type Emphasis = { dimmed: boolean; lit: boolean; region?: RegionColour };
 
 function nodeClass(base: string, emphasis: Emphasis): string {
 	return [
 		base,
 		emphasis.dimmed && "dimmed",
 		emphasis.lit && "lit",
-		emphasis.grouped && "grouped",
+		emphasis.region && `grouped region region-${emphasis.region}`,
 	]
 		.filter(Boolean)
 		.join(" ");

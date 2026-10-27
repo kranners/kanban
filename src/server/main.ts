@@ -5,6 +5,7 @@ import { claudeAttachPty, createAttachHub } from "./attach.ts";
 import { fileAudit } from "./audit.ts";
 import { authenticatorFor } from "./auth.ts";
 import { cmuxCli, createCmuxTargets } from "./cmux.ts";
+import { createColourStore, loadColours } from "./colours.ts";
 import { type Config, loadConfig } from "./config.ts";
 import { claudeExitDeps, exitSession, liveInteractiveEntry } from "./exit.ts";
 import { createFeed, type Feed } from "./feed.ts";
@@ -40,6 +41,12 @@ const annotations = createAnnotationStore({
 	file: annotationsFile,
 	initial: await loadAnnotations(annotationsFile),
 	onChange: (next) => feed?.annotations(next),
+});
+const coloursFile = join(config.stateDir, "colours.json");
+const colours = createColourStore({
+	file: coloursFile,
+	initial: await loadColours(coloursFile),
+	onChange: (next) => feed?.colours(next),
 });
 const probes = new Set<string>();
 const cmux = cmuxCli(config.cmuxBin);
@@ -87,6 +94,7 @@ feed = createFeed({
 	previews: previewer.latest,
 	layout: layout.current,
 	annotations: annotations.current,
+	colours: colours.current,
 });
 
 const exitDeps = claudeExitDeps({
@@ -104,6 +112,7 @@ const server = createKanbanServer({
 	exit: (session, force) => exitSession(exitDeps, session, force),
 	layout,
 	annotations,
+	colours,
 	attach: createAttachHub(claudeAttachPty(config.claudeBin), audit),
 	mirror: createMirrorHub({ cmux, resolve: cmuxTargets.resolve, audit }),
 	feed,
