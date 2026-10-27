@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -9,8 +9,10 @@ import { createAgentTokens } from "./agentAuth.ts";
 import {
 	type AgentProcess,
 	agentArgs,
+	agentMarker,
 	applyStreamEvent,
 	createBoardAgent,
+	isAgentDir,
 } from "./boardAgent.ts";
 import { createCommentStore } from "./comments.ts";
 
@@ -178,6 +180,34 @@ describe("board agent", () => {
 		assert.equal(cancelled?.running, false);
 		assert.equal(cancelled?.events.at(-1)?.text, "Cancelled");
 		assert.equal(agent.cancel(thread.id), false);
+	});
+
+	it("stops every run when the server shuts down", async () => {
+		const { store, agent, runs } = await setup();
+		const threads = [
+			store.create({ x: 0, y: 0, text: "a" }),
+			store.create({ x: 0, y: 0, text: "b" }),
+		];
+		for (const thread of threads) if (thread) agent.ask(thread.id, "go");
+		agent.stopAll();
+		await tick();
+		await tick();
+		assert.deepEqual(
+			runs.map((run) => run.killed),
+			[["SIGTERM"], ["SIGTERM"]],
+		);
+		for (const thread of threads) {
+			const stopped = thread && store.get(thread.id);
+			assert.equal(stopped?.running, false);
+			assert.match(stopped?.events.at(-1)?.text ?? "", /server stopped/);
+		}
+	});
+
+	it("knows its own working directory by a marker any server can see", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-agent-dir-"));
+		assert.equal(isAgentDir(dir), false);
+		await writeFile(join(dir, agentMarker), "");
+		assert.equal(isAgentDir(dir), true);
 	});
 
 	it("allows only the board's own tools", () => {

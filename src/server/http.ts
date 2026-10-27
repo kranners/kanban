@@ -64,7 +64,7 @@ export type ServerDeps = {
 	colours: ColourStore;
 	regions: RegionStore;
 	comments: CommentStore;
-	agent: BoardAgent;
+	agent: Omit<BoardAgent, "stopAll">;
 	agentTokens: AgentTokens;
 	tools: BoardTools;
 	attach: AttachHub;

@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Board } from "../shared/types.ts";
 import { createAgentTokens } from "./agentAuth.ts";
@@ -6,7 +6,12 @@ import { createAnnotationStore, loadAnnotations } from "./annotations.ts";
 import { claudeAttachPty, createAttachHub } from "./attach.ts";
 import { fileAudit } from "./audit.ts";
 import { authenticatorFor } from "./auth.ts";
-import { claudeAgentSpawner, createBoardAgent } from "./boardAgent.ts";
+import {
+	agentMarker,
+	claudeAgentSpawner,
+	createBoardAgent,
+	isAgentDir,
+} from "./boardAgent.ts";
 import { createBoardTools } from "./boardTools.ts";
 import { cmuxCli, createCmuxTargets } from "./cmux.ts";
 import { createColourStore, loadColours } from "./colours.ts";
@@ -103,7 +108,8 @@ const previewer = createPreviewer({
 });
 const source = startBoard({
 	claudeHome: config.claudeHome,
-	ignore: (sessionId) => probes.has(sessionId) || comments.owns(sessionId),
+	ignore: (sessionId, cwd) =>
+		probes.has(sessionId) || comments.owns(sessionId) || isAgentDir(cwd),
 	inCmux: cmuxTargets.has,
 	onChange: (board) => {
 		feed?.board(board);
@@ -142,6 +148,7 @@ const attach = createAttachHub(attachPty, audit);
 const agentTokens = createAgentTokens(agentTimeoutMs);
 const agentDir = join(config.stateDir, "agent");
 await mkdir(agentDir, { recursive: true });
+await writeFile(join(agentDir, agentMarker), "");
 const agentHost = isLoopback(config.host) ? config.host : "127.0.0.1";
 const agent = createBoardAgent({
 	store: comments,
@@ -199,6 +206,7 @@ server.listen(config.port, config.host, () => {
 });
 
 const shutdown = () => {
+	agent.stopAll();
 	source.stop();
 	clearInterval(cmuxPoll);
 	server.close();

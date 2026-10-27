@@ -477,6 +477,7 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				thread: threadId,
 				tool: call.tool,
 				target: targetOf(call),
+				input: inputOf(call),
 				result: outcome.ok
 					? (outcome.text.split("\n")[0] ?? "")
 					: `error: ${outcome.error}`,
@@ -492,5 +493,12 @@ const targetOf = (call: ToolCall): string | null => {
 	if ("session" in call) return call.session;
 	if ("cwd" in call) return call.cwd;
 	if ("id" in call) return call.id ?? null;
+	return null;
+};
+
+const inputOf = (call: ToolCall): string | null => {
+	if (call.tool === "send_prompt") return call.text;
+	if (call.tool === "ask_session") return call.question;
+	if (call.tool === "start_session") return call.prompt;
 	return null;
 };

@@ -11,7 +11,11 @@ import { createBoardTools } from "./boardTools.ts";
 import { createColourStore } from "./colours.ts";
 import { createCommentStore } from "./comments.ts";
 import { createLayoutStore } from "./layout.ts";
-import { blockedReason } from "./prompts.ts";
+import {
+	blockedReason,
+	createPromptSender,
+	unsafeTextReason,
+} from "./prompts.ts";
 import { createRegionStore } from "./regions.ts";
 
 const session = (id: string, extra: Partial<Session> = {}): Session => ({
@@ -149,6 +153,7 @@ describe("board tools", () => {
 			thread: "t",
 			tool: "arrange",
 			target: null,
+			input: null,
 			result: "Moved 2 cards",
 		});
 	});
@@ -219,6 +224,29 @@ describe("board tools", () => {
 		assert.deepEqual(exits, [["bbbbbbbb-2", false, "board-agent"]]);
 		assert.equal(events.at(-1)?.action, "board-agent");
 	});
+
+	it("records what the agent typed, asked or started in the audit log", async () => {
+		const { tools, events } = await setup();
+		await tools("t", {
+			tool: "send_prompt",
+			session: "aaaaaaa0",
+			text: "Run the tests",
+		});
+		await tools("t", {
+			tool: "ask_session",
+			session: "aaaaaaa0",
+			question: "What changed?",
+		});
+		assert.deepEqual(
+			events.map((event) =>
+				event.action === "board-agent" ? [event.tool, event.input] : null,
+			),
+			[
+				["send_prompt", "Run the tests"],
+				["ask_session", "What changed?"],
+			],
+		);
+	});
 });
 
 describe("prompt safety", () => {
@@ -241,5 +269,38 @@ describe("prompt safety", () => {
 			null,
 		);
 		assert.equal(blockedReason(session("aaaaaaaa"), []), null);
+	});
+
+	it("refuses text the session would run as a command or that escapes the paste", () => {
+		for (const text of [
+			"!touch /tmp/x",
+			"  /exit",
+			"# remember this",
+			"hi\x1b[201~\r!touch /tmp/x\r",
+			"one\rtwo",
+		]) {
+			assert.ok(unsafeTextReason(text), JSON.stringify(text));
+		}
+		assert.equal(unsafeTextReason("Run the tests\n\tthen /exit"), null);
+	});
+
+	it("never pastes command text into a session", async () => {
+		const pasted: string[] = [];
+		const send = createPromptSender({
+			spawnPty: () => assert.fail("attached to a session"),
+			attached: () => [],
+			cmux: {
+				paste: async (_target: unknown, text: string) => {
+					pasted.push(text);
+					return { ok: true, value: null };
+				},
+			} as never,
+			resolve: async () => ({ ok: true, value: {} as never }),
+		});
+		const pane = session("a", { kind: "interactive", cmux: true });
+		assert.equal((await send(pane, "/exit")).ok, false);
+		assert.equal((await send(session("aaaaaaaa"), "!rm -rf ~")).ok, false);
+		assert.equal((await send(pane, "Run the tests")).ok, true);
+		assert.deepEqual(pasted, ["Run the tests"]);
 	});
 });

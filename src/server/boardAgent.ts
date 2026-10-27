@@ -1,4 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import {
 	type CommentEvent,
 	type CommentThread,
@@ -29,6 +31,7 @@ export type BoardAgent = {
 		text: string,
 	): { ok: true } | { error: string; status: 404 | 409 };
 	cancel(threadId: string): boolean;
+	stopAll(): void;
 	owns(sessionId: string): boolean;
 };
 
@@ -199,6 +202,15 @@ export const createBoardAgent = (deps: BoardAgentDeps): BoardAgent => {
 			events: [...thread.events, event],
 		}));
 
+	const halt = (threadId: string, reason: string): boolean => {
+		const child = runs.get(threadId);
+		if (!child) return false;
+		cancelling.add(threadId);
+		note(threadId, { kind: "error", at: Date.now(), text: reason });
+		child.kill("SIGTERM");
+		return true;
+	};
+
 	const start = (thread: CommentThread, text: string) => {
 		const token = deps.tokens.issue(thread.id);
 		const child = deps.spawn(agentArgs(thread, text, config), {
@@ -280,17 +292,20 @@ export const createBoardAgent = (deps: BoardAgentDeps): BoardAgent => {
 			if (updated) start(updated, text);
 			return { ok: true };
 		},
-		cancel(threadId) {
-			const child = runs.get(threadId);
-			if (!child) return false;
-			cancelling.add(threadId);
-			note(threadId, { kind: "error", at: Date.now(), text: "Cancelled" });
-			child.kill("SIGTERM");
-			return true;
+		cancel: (threadId) => halt(threadId, "Cancelled"),
+		stopAll() {
+			for (const threadId of [...runs.keys()]) {
+				halt(threadId, "The board server stopped, so this run was stopped");
+			}
 		},
 		owns: deps.store.owns,
 	};
 };
+
+export const agentMarker = ".kanban-board-agent";
+
+export const isAgentDir = (cwd: string): boolean =>
+	existsSync(join(cwd, agentMarker));
 
 export const claudeAgentSpawner =
 	(claudeBin: string, cwd: string): SpawnAgent =>

@@ -163,7 +163,7 @@ export const toolDefinitions: ToolDefinition[] = [
 	{
 		name: "send_prompt",
 		description:
-			"Send a prompt to a session on the user's behalf, as if they typed it and pressed Enter. Only for background sessions and sessions in a cmux pane. Use only when the user asked for it.",
+			"Send a prompt to a session on the user's behalf, as if they typed it and pressed Enter. Only for background sessions and sessions in a cmux pane. The text cannot start with !, / or #. Use only when the user asked for it.",
 		inputSchema: object(
 			{
 				session: sessionRef,

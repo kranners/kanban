@@ -51,6 +51,18 @@ const quiet = (
 		});
 	});
 
+const commandPrefixes = new Set(["!", "/", "#"]);
+const controlCharacters = /(?![\n\t])\p{Cc}/u;
+
+export const unsafeTextReason = (text: string): string | null => {
+	if (commandPrefixes.has(text.trimStart()[0] ?? "")) {
+		return "A prompt cannot start with !, / or #, which the session would run as a shell or slash command";
+	}
+	return controlCharacters.test(text)
+		? "A prompt cannot contain control characters"
+		: null;
+};
+
 export const blockedReason = (
 	session: Session,
 	attached: string[],
@@ -101,7 +113,8 @@ export const createPromptSender = (deps: PromptDeps): PromptSender => {
 	};
 
 	return async (session, text) => {
-		const blocked = blockedReason(session, deps.attached());
+		const blocked =
+			unsafeTextReason(text) ?? blockedReason(session, deps.attached());
 		if (blocked) return { ok: false, error: blocked };
 		if (session.kind === "background") return typeInto(session, text);
 		const target = await deps.resolve(session);

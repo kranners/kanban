@@ -60,7 +60,7 @@ const messageLimit = 200;
 export function startBoard(opts: {
 	claudeHome: string;
 	onChange: (board: Board) => void;
-	ignore?: (sessionId: string) => boolean;
+	ignore?: (sessionId: string, cwd: string) => boolean;
 	inCmux?: (pid: number) => boolean;
 }): BoardHandle {
 	const {
@@ -100,7 +100,7 @@ export function startBoard(opts: {
 	function build(): Board {
 		const now = Date.now();
 		const registry = readRegistry(claudeHome).filter(
-			(entry) => !ignore(entry.sessionId) && isAlive(entry.pid),
+			(entry) => !ignore(entry.sessionId, entry.cwd) && isAlive(entry.pid),
 		);
 		for (const entry of registry) {
 			byPid.set(entry.pid, entry.sessionId);

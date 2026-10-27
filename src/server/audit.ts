@@ -32,6 +32,7 @@ export type AuditEvent =
 			thread: string;
 			tool: string;
 			target: string | null;
+			input: string | null;
 			result: string;
 	  }
 	| {
