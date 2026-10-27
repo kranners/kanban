@@ -159,15 +159,18 @@ export const listFiles = async (
 		cache.set(key, { at: Date.now(), files });
 	}
 	const query = options.query.trim().toLowerCase();
-	return {
-		ok: true,
-		files: files
-			.flatMap((path) => {
-				const score = scoreFile(path, query);
-				return score === null ? [] : [{ path, score }];
-			})
-			.sort((a, b) => a.score - b.score || a.path.length - b.path.length)
-			.slice(0, limit)
-			.map(({ path }) => path),
-	};
+	const ranked = files
+		.flatMap((path) => {
+			const score = scoreFile(path, query);
+			return score === null ? [] : [{ path, score }];
+		})
+		.sort((a, b) => a.score - b.score || a.path.length - b.path.length);
+	const shown: string[] = [];
+	for (const { path } of ranked) {
+		const target = await resolved(join(cwd, path.split("/").join(sep)));
+		if (target && within(home, target)) continue;
+		shown.push(path);
+		if (shown.length >= limit) break;
+	}
+	return { ok: true, files: shown };
 };

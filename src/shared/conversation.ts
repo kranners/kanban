@@ -71,11 +71,13 @@ export type Dialog =
 			kind: "permission";
 			toolUseId: string | null;
 			title: string;
+			context: string | null;
 			question: string;
 			options: string[];
 			complete: boolean;
 	  }
-	| { kind: "question"; toolUseId: string; questions: AskQuestion[] };
+	| { kind: "question"; toolUseId: string; questions: AskQuestion[] }
+	| { kind: "menu"; title: string };
 
 export type AskAnswer = { selected: string[]; other: string | null };
 

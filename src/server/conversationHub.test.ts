@@ -85,14 +85,20 @@ const until = async (check: () => boolean, ms = 2000) => {
 	}
 };
 
-const fakeTty = (): SessionTty & { sent: string[]; keysSent: string[] } => {
+type FakeTty = SessionTty & {
+	sent: string[];
+	keysSent: string[];
+	shows: string;
+	opened: number;
+};
+
+const fakeTty = (): FakeTty => {
 	const tty = {
 		sent: [] as string[],
 		keysSent: [] as string[],
-		screen: async () => ({
-			ok: true as const,
-			value: "❯ \n  ⏵⏵ accept edits on",
-		}),
+		shows: "❯ \n  ⏵⏵ accept edits on",
+		opened: 0,
+		screen: async () => ({ ok: true as const, value: tty.shows }),
 		keys: async (keys: string[]) => {
 			tty.keysSent.push(...keys);
 			return { ok: true as const, value: null };
@@ -105,17 +111,26 @@ const fakeTty = (): SessionTty & { sent: string[]; keysSent: string[] } => {
 		isOpen: () => false,
 		close() {},
 	};
-	return tty as SessionTty & { sent: string[]; keysSent: string[] };
+	return tty as FakeTty;
 };
 
-const hub = (current: () => Session, tty = fakeTty(), windowSize = 3) => {
+const hub = (
+	current: () => Session,
+	tty = fakeTty(),
+	windowSize = 3,
+	transcriptPath: () => string | null = () => null,
+) => {
 	const events: AuditEvent[] = [];
 	return {
 		events,
 		tty,
 		hub: createConversationHub({
 			session: () => current(),
-			tty: () => tty,
+			tty: () => {
+				tty.opened += 1;
+				return tty;
+			},
+			transcriptPath,
 			audit: (event) => events.push(event),
 			pollMs: 5,
 			screenMs: 0,
@@ -329,6 +344,227 @@ describe("conversation stream", () => {
 	});
 });
 
+const bashCall = (id: string, command: string) =>
+	line({
+		type: "assistant",
+		message: {
+			id: `m-${id}`,
+			content: [{ type: "tool_use", id, name: "Bash", input: { command } }],
+		},
+	});
+
+const bashResult = (id: string) =>
+	line({
+		type: "user",
+		message: {
+			content: [{ type: "tool_result", tool_use_id: id, content: "" }],
+		},
+	});
+
+const permissionScreen = (command: string, cursor = 0) =>
+	[
+		"⏺ Running 1 shell command…",
+		`  ⎿  $ touch first.txt`,
+		"",
+		"─".repeat(60),
+		" Bash command",
+		` ${command}`,
+		" Do you want to proceed?",
+		...["Yes", "No"].map(
+			(option, at) => ` ${at === cursor ? "❯" : " "} ${at + 1}. ${option}`,
+		),
+		"",
+		" Esc to cancel",
+	].join("\n");
+
+const replies = (socket: FakeSocket) =>
+	socket.frames.flatMap((frame) =>
+		frame.type === "done" ? [[frame.id, frame.ok]] : [],
+	);
+
+describe("guarding what reaches the session", () => {
+	it("refuses a prompt while the screen shows a permission prompt the board has not caught up with", async () => {
+		const path = join(dir, "guard-prompt.jsonl");
+		writeFileSync(path, prompt("a") + bashCall("b1", "touch first.txt"));
+		const working = session({ activity: "working" });
+		const { hub: conversations, tty } = hub(() => working);
+		tty.shows = permissionScreen("touch first.txt");
+		const socket = fakeSocket();
+		conversations.open(
+			socket,
+			{ kind: "session", session: working, path },
+			null,
+			null,
+		);
+		socket.receive({ type: "prompt", id: "p1", text: "note" });
+		socket.receive({ type: "key", id: "k1", key: "Shift+Tab" });
+		await until(() => replies(socket).length === 2);
+		assert.deepEqual(replies(socket), [
+			["p1", false],
+			["k1", false],
+		]);
+		assert.deepEqual(tty.sent, []);
+		assert.deepEqual(tty.keysSent, []);
+		socket.hangUp();
+	});
+
+	it("answers a permission prompt only while that tool's prompt is on screen", async () => {
+		const path = join(dir, "guard-permission.jsonl");
+		writeFileSync(path, prompt("a") + bashCall("b1", "touch first.txt"));
+		const waiting = session({ activity: "needs-you" });
+		const { hub: conversations, tty } = hub(() => waiting);
+		tty.shows = permissionScreen("touch first.txt");
+		const socket = fakeSocket();
+		conversations.open(
+			socket,
+			{ kind: "session", session: waiting, path },
+			null,
+			null,
+		);
+		socket.receive({
+			type: "permission",
+			id: "y1",
+			toolUseId: "b1",
+			choice: 0,
+			label: "Yes",
+		});
+		await until(() => replies(socket).length === 1);
+		assert.deepEqual(tty.keysSent, ["Enter"]);
+		tty.shows = permissionScreen("touch second.txt");
+		socket.receive({
+			type: "permission",
+			id: "y2",
+			toolUseId: "b1",
+			choice: 0,
+			label: "Yes",
+		});
+		appendFileSync(path, bashResult("b1"));
+		socket.receive({
+			type: "permission",
+			id: "y3",
+			toolUseId: "b1",
+			choice: 0,
+			label: "Yes",
+		});
+		await until(() => replies(socket).length === 3);
+		assert.deepEqual(replies(socket), [
+			["y1", true],
+			["y2", false],
+			["y3", false],
+		]);
+		assert.deepEqual(tty.keysSent, ["Enter"]);
+		appendFileSync(path, bashCall("b2", "touch second.txt"));
+		socket.receive({
+			type: "permission",
+			id: "y5",
+			toolUseId: "b2",
+			choice: 0,
+			label: "Yes",
+		});
+		await until(() => replies(socket).length === 4);
+		assert.deepEqual(replies(socket).at(-1), ["y5", true]);
+		socket.hangUp();
+	});
+
+	it("interrupts only a working session, and closes a menu with Esc", async () => {
+		const path = join(dir, "guard-escape.jsonl");
+		writeFileSync(path, prompt("a") + bashResult("none"));
+		const idle = session();
+		const { hub: conversations, tty } = hub(() => idle);
+		const socket = fakeSocket();
+		conversations.open(
+			socket,
+			{ kind: "session", session: idle, path },
+			null,
+			null,
+		);
+		socket.receive({ type: "key", id: "k1", key: "Escape" });
+		await until(() => replies(socket).length === 1);
+		tty.shows = [
+			"─".repeat(60),
+			" Rewind",
+			" ❯ (current)",
+			" Enter to continue · Esc to cancel",
+		].join("\n");
+		socket.receive({ type: "prompt", id: "p1", text: "after" });
+		socket.receive({ type: "key", id: "k2", key: "Escape" });
+		await until(() => replies(socket).length === 3);
+		assert.deepEqual(replies(socket), [
+			["k1", false],
+			["p1", false],
+			["k2", true],
+		]);
+		assert.deepEqual(tty.keysSent, ["Escape"]);
+		assert.deepEqual(tty.sent, []);
+		await until(() =>
+			socket.frames.some(
+				(frame) => frame.type === "dialog" && frame.dialog?.kind === "menu",
+			),
+		);
+		socket.hangUp();
+	});
+
+	it("never opens a terminal for input queued before the last viewer left", async () => {
+		const path = join(dir, "guard-leave.jsonl");
+		writeFileSync(path, prompt("a"));
+		const background = session({
+			kind: "background",
+			attachable: true,
+			short: "abcd1234",
+			cmux: false,
+		});
+		const { hub: conversations, tty } = hub(() => background);
+		const socket = fakeSocket();
+		conversations.open(
+			socket,
+			{ kind: "session", session: background, path },
+			null,
+			null,
+		);
+		assert.deepEqual(conversations.attached(), ["abcd1234"]);
+		const opened = tty.opened;
+		socket.receive({ type: "key", id: "k1", key: "Shift+Tab" });
+		socket.receive({ type: "key", id: "k2", key: "Shift+Tab" });
+		socket.hangUp();
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		assert.deepEqual(tty.keysSent, []);
+		assert.equal(tty.opened, opened);
+		assert.deepEqual(conversations.attached(), []);
+	});
+
+	it("opens a live session that has no transcript yet and picks it up once written", async () => {
+		const path = join(dir, "guard-fresh.jsonl");
+		let written: string | null = null;
+		const fresh = session();
+		const { hub: conversations, tty } = hub(
+			() => fresh,
+			fakeTty(),
+			3,
+			() => written,
+		);
+		const socket = fakeSocket();
+		conversations.open(
+			socket,
+			{ kind: "session", session: fresh, path: null },
+			null,
+			null,
+		);
+		socket.receive({ type: "prompt", id: "p1", text: "first" });
+		await until(() => replies(socket).length === 1);
+		assert.deepEqual(tty.sent, ["first"]);
+		writeFileSync(path, prompt("first"));
+		written = path;
+		await until(() =>
+			itemFrames(socket).some((frame) =>
+				frame.items.some(
+					(item) => item.kind === "user" && item.text === "first",
+				),
+			),
+		);
+		socket.hangUp();
+	});
+});
+
 describe("conversation rules", () => {
 	it("parses resume points and client frames strictly", () => {
 		assert.deepEqual(parseSince("ab-1:42"), { epoch: "ab-1", rev: 42 });
@@ -472,12 +708,13 @@ describe("conversation rules", () => {
 			},
 		});
 		const prompt =
-			" Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel";
+			" Bash command\n ls\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel";
 		assert.deepEqual(dialogOf(bash, waiting, prompt), {
 			dialog: {
 				kind: "permission",
 				toolUseId: "b1",
 				title: "Bash",
+				context: null,
 				question: "Do you want to proceed?",
 				options: ["Yes", "No"],
 				complete: true,

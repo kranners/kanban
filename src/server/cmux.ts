@@ -187,25 +187,40 @@ export const createCmuxTargets = (deps: {
 	cmux: Cmux;
 	live(session: Session): Promise<boolean>;
 	onError?: (error: string) => void;
+	keepMs?: number;
+	now?: () => number;
 }): CmuxTargets => {
-	let cached = new Map<number, CmuxSurface>();
+	const keepMs = deps.keepMs ?? 60_000;
+	const now = deps.now ?? Date.now;
+	const seen = new Map<number, { surface: CmuxSurface; at: number }>();
 	let lastError: string | null = null;
-	let announced = surfacesKey(cached);
+	let announced = surfacesKey(new Map());
 
-	const load = async (): Promise<CmuxResult<Map<number, CmuxSurface>>> => {
+	const current = (): Map<number, CmuxSurface> =>
+		new Map([...seen].map(([pid, { surface }]) => [pid, surface]));
+
+	const list = async (): Promise<Map<number, CmuxSurface> | null> => {
 		const result = await deps.cmux.surfaces();
-		cached = result.ok ? result.value : new Map();
 		const error = result.ok ? null : result.error;
 		if (error && error !== lastError) deps.onError?.(error);
 		lastError = error;
-		return result;
+		return result.ok && result.value.size > 0 ? result.value : null;
 	};
 
 	return {
-		has: (pid) => cached.has(pid),
+		has: (pid) => seen.has(pid),
 		async refresh() {
-			await load();
-			const key = surfacesKey(cached);
+			const listed = await list();
+			const at = now();
+			if (listed) {
+				for (const pid of seen.keys()) if (!listed.has(pid)) seen.delete(pid);
+				for (const [pid, surface] of listed) seen.set(pid, { surface, at });
+			} else {
+				for (const [pid, entry] of seen) {
+					if (at - entry.at > keepMs) seen.delete(pid);
+				}
+			}
+			const key = surfacesKey(current());
 			const changed = key !== announced;
 			announced = key;
 			return changed;
@@ -220,12 +235,19 @@ export const createCmuxTargets = (deps: {
 					error: "The session's process is no longer the one on the board",
 				};
 			}
-			const surfaces = await load();
-			if (!surfaces.ok) return surfaces;
-			const target = surfaces.value.get(session.pid);
-			return target
-				? { ok: true, value: target }
-				: { ok: false, error: "This session is no longer in a cmux pane" };
+			const listed = await list();
+			const kept = seen.get(session.pid);
+			const target =
+				listed?.get(session.pid) ??
+				(!listed && kept && now() - kept.at <= keepMs ? kept.surface : null);
+			if (target) return { ok: true, value: target };
+			return {
+				ok: false,
+				error:
+					lastError && !listed
+						? lastError
+						: "This session is no longer in a cmux pane",
+			};
 		},
 	};
 };

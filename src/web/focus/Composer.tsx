@@ -198,7 +198,7 @@ export function Composer(props: {
 			props.onKey("Shift+Tab");
 			return;
 		}
-		if (event.key === "Escape") {
+		if (event.key === "Escape" && props.working) {
 			event.preventDefault();
 			props.onKey("Escape");
 			return;

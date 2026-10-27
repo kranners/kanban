@@ -92,6 +92,11 @@ describe("reading the TUI's screen", () => {
 			],
 			cursor: 1,
 			complete: true,
+			body: [
+				"Bash command",
+				' Create out.txt with "hi" content',
+				" echo hi > out.txt",
+			].join("\n"),
 		});
 	});
 
@@ -117,6 +122,7 @@ describe("reading the TUI's screen", () => {
 			],
 			cursor: 0,
 			complete: false,
+			body: "",
 		});
 		assert.equal(
 			sameLabel(
@@ -179,6 +185,43 @@ describe("reading the TUI's screen", () => {
 	it("finds no dialog in an ordinary screen or a numbered list without a cursor", () => {
 		assert.equal(readDialog(idle), null);
 		assert.equal(readDialog(""), null);
+	});
+
+	it("ignores a numbered list in the conversation above the input box", () => {
+		const echoed = [
+			"❯ 1. Pick the plan",
+			"  2. Then the work",
+			"",
+			"⏺ On it.",
+			rule,
+			"❯ ",
+			rule,
+			"  ⏸ manual mode on",
+		].join("\n");
+		assert.equal(readDialog(echoed), null);
+	});
+
+	it("reads a menu that is not a numbered prompt, such as Rewind", () => {
+		const rewind = [
+			"⏺ Done.",
+			rule,
+			" Rewind",
+			"",
+			" Restore the code and/or conversation to the point before…",
+			"",
+			" ❯ (current)",
+			"",
+			" Enter to continue · Esc to cancel",
+		].join("\n");
+		assert.deepEqual(readDialog(rewind), { kind: "menu", title: "Rewind" });
+		const quoted = [
+			"⏺ Press Esc to cancel the picker.",
+			rule,
+			"❯ ",
+			rule,
+			"  ⏸ manual mode on",
+		].join("\n");
+		assert.equal(readDialog(quoted), null);
 	});
 
 	it("reads the permission mode from the footer", () => {
