@@ -19,6 +19,7 @@ export type Session = {
 	activity: Activity;
 	doing: string | null;
 	needs: string | null;
+	goal: string | null;
 	startedAt: number;
 	updatedAt: number;
 	attachable: boolean;
@@ -63,12 +64,6 @@ export type Board = {
 	generatedAt: number;
 };
 
-export type Preview = {
-	sessionId: string;
-	html: string;
-	capturedAt: number;
-};
-
 export type TranscriptEntry = {
 	at: number;
 	role: "user" | "assistant" | "tool" | "peer";
@@ -85,7 +80,6 @@ export type LayoutUpdate = { key: string; placement: Placement };
 
 export type BoardFeed =
 	| { type: "board"; board: Board }
-	| { type: "preview"; preview: Preview }
 	| { type: "layout"; layout: Layout }
 	| { type: "exit"; sessionId: string; result: ExitResult };
 

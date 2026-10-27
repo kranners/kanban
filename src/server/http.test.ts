@@ -109,6 +109,7 @@ const board: Board = {
 			activity: "idle",
 			doing: null,
 			needs: null,
+			goal: null,
 			startedAt: 0,
 			updatedAt: 0,
 			attachable: true,
@@ -168,13 +169,6 @@ describe("createKanbanServer", () => {
 		feed = createFeed({
 			layout: store.current,
 			board: () => board,
-			previews: () => [
-				{
-					sessionId: board.sessions[0]?.id ?? "",
-					html: "<pre></pre>",
-					capturedAt: 1,
-				},
-			],
 		});
 		const server = createKanbanServer({
 			origins,
@@ -497,7 +491,7 @@ describe("createKanbanServer", () => {
 		assert.deepEqual(attached, ["abcd1234 /Users/me/dev/acme-api"]);
 	});
 
-	it("sends the board and cached previews when a feed client connects", async () => {
+	it("sends the layout and board when a feed client connects", async () => {
 		const frames = await new Promise<BoardFeed[]>((resolve) => {
 			const received: BoardFeed[] = [];
 			const socket = new WebSocket(`${base.replace("http", "ws")}/api/feed`, {
@@ -505,7 +499,7 @@ describe("createKanbanServer", () => {
 			});
 			socket.on("message", (data) => {
 				received.push(JSON.parse(String(data)));
-				if (received.length === 3) {
+				if (received.length === 2) {
 					socket.close();
 					resolve(received);
 				}
@@ -513,7 +507,7 @@ describe("createKanbanServer", () => {
 		});
 		assert.deepEqual(
 			frames.map((frame) => frame.type),
-			["layout", "board", "preview"],
+			["layout", "board"],
 		);
 	});
 

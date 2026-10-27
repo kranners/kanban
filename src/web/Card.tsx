@@ -1,7 +1,6 @@
 import { Bot, Server, Terminal } from "lucide-preact";
 import type { ComponentChildren } from "preact";
-import { useLayoutEffect, useRef } from "preact/hooks";
-import type { Preview, Session, Subagent } from "../shared/types.ts";
+import type { Session, Subagent } from "../shared/types.ts";
 import { ActivityBadge, activityLabel } from "./activity.tsx";
 import type { PlacedNode } from "./layout.ts";
 import { relativeTime } from "./time.ts";
@@ -27,66 +26,9 @@ function position(node: PlacedNode) {
 	};
 }
 
-function TerminalPreview(props: { html: string }) {
-	const content = useRef<HTMLDivElement>(null);
-	useLayoutEffect(() => {
-		if (content.current) content.current.innerHTML = props.html;
-	}, [props.html]);
-	return (
-		<div class="term" aria-hidden="true">
-			<div class="term-content" ref={content} />
-		</div>
-	);
-}
-
-function ReadOnlyChip() {
-	return (
-		<span class="chip">
-			<Terminal size={12} aria-hidden="true" />
-			In a terminal · read-only
-		</span>
-	);
-}
-
-function InteractiveBody(props: {
-	session: Session;
-	preview: Preview | undefined;
-}) {
-	if (props.preview)
-		return (
-			<>
-				<TerminalPreview html={props.preview.html} />
-				<div class="chip-overlay">
-					<ReadOnlyChip />
-				</div>
-			</>
-		);
-	return (
-		<div class="term placeholder" aria-hidden="true">
-			<div class="term-lines">
-				<div class="term-line">
-					<span class="term-prompt">❯</span> {props.session.name}
-				</div>
-				{props.session.doing && (
-					<div class="term-line term-dim">
-						<span class="term-bullet">●</span> {props.session.doing}
-					</div>
-				)}
-			</div>
-			<ReadOnlyChip />
-		</div>
-	);
-}
-
-function BackgroundBody(props: { preview: Preview | undefined }) {
-	if (props.preview) return <TerminalPreview html={props.preview.html} />;
-	return (
-		<div class="term placeholder" aria-hidden="true">
-			<div class="term-lines">
-				<div class="term-line term-dim">Waiting for output…</div>
-			</div>
-		</div>
-	);
+function GoalBody(props: { goal: string | null }) {
+	if (props.goal) return <p class="goal">{props.goal}</p>;
+	return <p class="goal goal-empty">No goal yet</p>;
 }
 
 function cardStatus(session: Session): string {
@@ -96,10 +38,18 @@ function cardStatus(session: Session): string {
 	return detail ? `${label}: ${detail}` : label;
 }
 
+function repeatsGoal(session: Session): boolean {
+	return session.name.toLowerCase() === session.goal?.toLowerCase();
+}
+
+function cardLabel(session: Session): string {
+	const goal = session.goal ? `, goal: ${session.goal}` : "";
+	return `Open ${session.name}${goal}, ${cardStatus(session)}`;
+}
+
 export function SessionCard(props: {
 	node: PlacedNode;
 	session: Session;
-	preview: Preview | undefined;
 	now: number;
 	emphasis: Emphasis;
 	onOpen: (id: string, origin: DOMRect) => void;
@@ -124,21 +74,17 @@ export function SessionCard(props: {
 			data-node={props.node.key}
 		>
 			<div class="label">
-				<div class="label-name">{session.name}</div>
+				{!repeatsGoal(session) && <div class="label-name">{session.name}</div>}
 				<div class="label-doing">{session.doing ?? activityHint(session)}</div>
 			</div>
 			<button
 				type="button"
 				class="frame"
-				aria-label={`Open ${session.name}, ${cardStatus(session)}`}
+				aria-label={cardLabel(session)}
 				onClick={open}
 			>
 				<div class="body">
-					{session.kind === "interactive" ? (
-						<InteractiveBody session={session} preview={props.preview} />
-					) : (
-						<BackgroundBody preview={props.preview} />
-					)}
+					<GoalBody goal={session.goal} />
 					{session.activity === "needs-you" && session.needs && (
 						<div class="needs" title={session.needs}>
 							{session.needs}

@@ -11,7 +11,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, describe, test } from "node:test";
 import type { Board } from "../../shared/types.ts";
-import { startBoard } from "./index.ts";
+import { goalOf, startBoard } from "./index.ts";
+import { createFacts } from "./records.ts";
+import type { Job } from "./registry.ts";
 
 const now = Date.now();
 const iso = (offsetMs: number) => new Date(now + offsetMs).toISOString();
@@ -403,6 +405,7 @@ describe("startBoard", () => {
 			activity: "working",
 			doing: "Edit: /Users/me/dev/acme-api/src/a.ts",
 			needs: null,
+			goal: null,
 			startedAt: now - 3_600_000,
 			updatedAt: now - 60_000,
 			attachable: false,
@@ -426,6 +429,7 @@ describe("startBoard", () => {
 		assert.equal(item.activity, "stopped");
 		assert.equal(item.needs, null);
 		assert.equal(item.name, "acme-api docs");
+		assert.equal(item.goal, "Docs");
 		assert.equal(item.attachable, true);
 	});
 
@@ -540,5 +544,61 @@ describe("startBoard", () => {
 		assert.equal(handle.board(), changes[0]);
 		await new Promise((resolve) => setTimeout(resolve, 2400));
 		assert.equal(changes.length, 1);
+	});
+});
+
+describe("goalOf", () => {
+	const facts = (aiTitle: string | null, lastPrompt: string | null) => ({
+		...createFacts(),
+		aiTitle,
+		lastPrompt,
+	});
+	const job = (intent: string | null): Job => ({
+		short: "0a1b2c3d",
+		sessionId: worker,
+		cwd: "/Users/me/dev/acme-web",
+		name: null,
+		state: null,
+		tempo: null,
+		detail: null,
+		needs: null,
+		intent,
+		createdAt: 0,
+		updatedAt: 0,
+	});
+
+	test("prefers the ai title over the last prompt and job intent", () => {
+		assert.equal(
+			goalOf(facts("Fix checkout", "make it faster"), job("start here")),
+			"Fix checkout",
+		);
+	});
+
+	test("falls back to the last prompt, then the job intent", () => {
+		assert.equal(
+			goalOf(facts(null, "make it faster"), job("start here")),
+			"make it faster",
+		);
+		assert.equal(goalOf(facts(null, null), job("start here")), "start here");
+		assert.equal(goalOf(null, job("start here")), "start here");
+	});
+
+	test("reduces a long multi-line prompt to one short line", () => {
+		const goal = goalOf(
+			facts(
+				null,
+				`\n\n  fix   the\tbuild ${"and more ".repeat(20)}\nthen deploy`,
+			),
+			null,
+		);
+		assert.ok(goal?.startsWith("fix the build and more"));
+		assert.ok(!goal?.includes("deploy"));
+		assert.equal(goal?.length, 100);
+		assert.ok(goal?.endsWith("…"));
+	});
+
+	test("is null without a title, prompt or intent", () => {
+		assert.equal(goalOf(facts(null, "   \n "), job(null)), null);
+		assert.equal(goalOf(null, null), null);
 	});
 });

@@ -30,6 +30,8 @@ export type Handback = { agentId: string; at: number; summary: string };
 
 export type TranscriptFacts = {
 	doing: string | null;
+	aiTitle: string | null;
+	lastPrompt: string | null;
 	lastAt: number;
 	tools: Map<string, { name: string; input: Json }>;
 	sent: Map<string, SentMessage>;
@@ -51,6 +53,8 @@ const taskIdPattern = /<task-id>([^<\s]+)<\/task-id>/g;
 export function createFacts(): TranscriptFacts {
 	return {
 		doing: null,
+		aiTitle: null,
+		lastPrompt: null,
 		lastAt: 0,
 		tools: new Map(),
 		sent: new Map(),
@@ -101,6 +105,13 @@ export function applyRecord(
 		case "queue-operation":
 			collectFinishedTasks(facts, asString(record.content) ?? "");
 			return;
+		case "ai-title":
+			facts.aiTitle = asString(record.aiTitle)?.trim() || facts.aiTitle;
+			return;
+		case "last-prompt":
+			facts.lastPrompt =
+				humanGoal(asString(record.lastPrompt)) ?? facts.lastPrompt;
+			return;
 		case "continued-in": {
 			const child = asString(record.continuedInSessionId);
 			if (child) facts.forkedChildren.add(child);
@@ -115,6 +126,20 @@ function isInheritedFromFork(record: Json): boolean {
 		typeof record.sessionId === "string" &&
 		record.session_id !== record.sessionId
 	);
+}
+
+const relayedPrompts = [
+	"!",
+	"<",
+	"Another Claude session sent a message:",
+	"[Artifact comment sent to Claude]",
+];
+
+function humanGoal(prompt: string | null): string | null {
+	const text = prompt?.replace(/^(\[Image #\d+\]\s*)+/, "").trim();
+	if (!text || relayedPrompts.some((prefix) => text.startsWith(prefix)))
+		return null;
+	return text;
 }
 
 function applyAssistant(facts: TranscriptFacts, record: Json, at: number) {

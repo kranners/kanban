@@ -72,6 +72,7 @@ function session(id: string): Session {
 		activity: "idle",
 		doing: null,
 		needs: null,
+		goal: null,
 		startedAt: 1,
 		updatedAt: 1,
 		attachable: true,

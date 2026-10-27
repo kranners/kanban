@@ -31,7 +31,7 @@ Everything about sessions is read from `~/.claude`; kanban keeps no database. Th
 | Spawned by `claude --bg`                | `backgrounded · <short>` in a parent's Bash tool result                                      |
 | Forked by `/bg`                         | `continued-in` record in the parent transcript                                               |
 | Messages                                | `SendMessage` tool results (`msg_id`) matched to recipients' `origin.kind == "peer"` records |
-| Card preview                            | last 12 transcript entries, rendered server-side when `updatedAt` changes                    |
+| Card goal                               | latest `ai-title` record, else the first line of the latest `last-prompt`, else job `intent` |
 
 Secrets that are never read or served: `sessions/*.key`, `daemon/control.key`, roster `ptyAuth`/`rvAuth`, `respawnFlags`, `providerEnv`.
 
@@ -57,7 +57,7 @@ One Node 24 process on `127.0.0.1:7420` serves the built page and these endpoint
 | Endpoint                           | Purpose                                                                                                                                |
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /`                            | the page                                                                                                                               |
-| `WS /api/feed`                     | `BoardFeed` frames: `layout` then a full `board` on connect, each again on change, `preview` thumbnails, `exit` outcomes               |
+| `WS /api/feed`                     | `BoardFeed` frames: `layout` then a full `board` on connect, each again on change, `exit` outcomes                                     |
 | `GET /api/sessions/:id/transcript` | recent `TranscriptEntry`s for read-only cards                                                                                          |
 | `POST /api/sessions`               | `NewSessionRequest` → `claude --bg`; without `name` Claude Code names it, with `at` the card spawns there                              |
 | `POST /api/sessions/:id/exit`      | `ExitRequest` → 202 at once; the `ExitResult` arrives later as an `exit` feed frame, since asking can outlast the tunnel's ~100s limit |
@@ -73,7 +73,7 @@ Exiting asks the agent itself without touching the real session: `claude -p --re
 
 ## User flows
 
-1. **Scan.** Open the board. Cards group into families (a session and everything it spawned), newest first by when they started, so cards stay put while sessions work. Each card shows its name and what it is doing above a live preview, with a state badge.
+1. **Scan.** Open the board. Cards group into families (a session and everything it spawned), newest first by when they started, so cards stay put while sessions work. Each card shows its name and what it is doing above its goal in large type, with a state badge.
 2. **Follow messages.** A message animates along a dashed arc from sender to recipient; the messages rail lists them newest first, and selecting one highlights both ends.
 3. **Focus.** Click a background card. It expands into a full-window terminal attached to the session, with focus in the prompt; type to send. Close returns to the board, and the session keeps running.
 4. **Read.** Click an interactive card (started in a terminal). It opens a live transcript, read-only, with a note that sessions started from the board are the ones you can drive.
@@ -95,4 +95,4 @@ A web app instead of a desktop wrapper: the server must run as a long-lived loca
 
 ## Visual design
 
-Flat and quiet: a warm off-white canvas, white cards with hairline borders, no shadows except on the focused card, one accent colour. Inter for the interface, JetBrains Mono for terminals and previews, Lucide icons. Light and dark follow the system, with a toggle. State is always colour plus shape.
+Flat and quiet: a warm off-white canvas, white cards with hairline borders, no shadows except on the focused card, one accent colour. Inter for the interface, JetBrains Mono for terminals, Lucide icons. Light and dark follow the system, with a toggle. State is always colour plus shape.

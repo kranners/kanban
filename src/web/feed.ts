@@ -6,7 +6,6 @@ import {
 	connection,
 	layout,
 	openSession,
-	previews,
 } from "./state.ts";
 
 const attemptsBeforeLost = 4;
@@ -33,13 +32,7 @@ function receive(frame: BoardFeed): void {
 		layout.value = frame.layout;
 		return;
 	}
-	if (frame.type === "exit") {
-		receiveExit(frame.sessionId, frame.result);
-		return;
-	}
-	const next = new Map(previews.value);
-	next.set(frame.preview.sessionId, frame.preview);
-	previews.value = next;
+	receiveExit(frame.sessionId, frame.result);
 }
 
 export function connectFeed(): void {

@@ -1,16 +1,9 @@
 import { computed, signal } from "@preact/signals";
-import type {
-	Activity,
-	Board,
-	Layout,
-	Preview,
-	Session,
-} from "../shared/types.ts";
+import type { Activity, Board, Layout, Session } from "../shared/types.ts";
 
 export type Connection = "connecting" | "open" | "reconnecting" | "lost";
 
 export const board = signal<Board | null>(null);
-export const previews = signal<ReadonlyMap<string, Preview>>(new Map());
 export const connection = signal<Connection>("connecting");
 export const activityFilter = signal<ReadonlySet<Activity>>(new Set());
 export const search = signal("");
