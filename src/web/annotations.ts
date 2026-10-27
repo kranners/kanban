@@ -6,8 +6,10 @@ import type {
 	NoteColor,
 	Point,
 } from "../shared/types.ts";
+import { arrangement, reserved } from "./arrangement.ts";
 import {
 	broughtToFront,
+	clearOf,
 	duplicated,
 	moved,
 	newNote,
@@ -19,6 +21,7 @@ import {
 	stacked,
 	topZ,
 } from "./notes.ts";
+import type { Rect } from "./placement.ts";
 import { annotations as saved } from "./state.ts";
 
 export type AnnotationMenu = { client: Point };
@@ -144,15 +147,29 @@ export function toggleSelected(id: string): void {
 	selection.value = next;
 }
 
+function taken(): Rect[] {
+	return [
+		...(arrangement.peek()?.nodes.values() ?? []),
+		...reserved.peek(),
+		...Object.values(current.peek()),
+	];
+}
+
 export function addNote(at: Point, color?: NoteColor): void {
-	const note = newNote(newId(), at, topZ(current.peek()) + 1, color);
+	const note = clearOf(
+		newNote(newId(), at, topZ(current.peek()) + 1, color),
+		taken(),
+	);
 	save([note]);
 	select([note.id]);
 	editing.value = note.id;
 }
 
 export function addSticker(sticker: string, at: Point): void {
-	const added = newSticker(newId(), sticker, at, topZ(current.peek()) + 1);
+	const added = clearOf(
+		newSticker(newId(), sticker, at, topZ(current.peek()) + 1),
+		taken(),
+	);
 	save([added]);
 	select([added.id]);
 }
@@ -169,7 +186,7 @@ export function deleteSelection(): void {
 }
 
 export function duplicateSelection(): void {
-	const copies = duplicated(current.peek(), selection.peek(), newId);
+	const copies = duplicated(current.peek(), selection.peek(), newId, taken());
 	save(copies);
 	select(copies.map((a) => a.id));
 }

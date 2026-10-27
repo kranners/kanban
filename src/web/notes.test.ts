@@ -26,6 +26,7 @@ import {
 	stickerSize,
 	topZ,
 } from "./notes.ts";
+import { near } from "./placement.ts";
 import { stickerManifest } from "./stickers/manifest.ts";
 
 const note = (id: string, z: number): Note => ({
@@ -120,13 +121,39 @@ describe("stacking", () => {
 		assert.ok(lowered.every((a) => a.z < 1));
 	});
 
-	it("duplicates a selection a grid step away on top", () => {
+	it("duplicates a selection on top, clear of everything taken", () => {
 		let next = 0;
 		const copies = duplicated(all, ["a", "missing"], () => `copy-${++next}`);
 		assert.equal(copies.length, 1);
+		const copy = copies[0];
+		assert.ok(copy);
+		assert.deepEqual({ id: copy.id, z: copy.z }, { id: "copy-1", z: 6 });
+		for (const a of Object.values(all))
+			assert.ok(!near(copy, a, 0), `the copy covers ${a.id}`);
+	});
+
+	it("duplicates a selection a grid step away when that is clear", () => {
+		const [copy] = duplicated(all, ["a"], () => "copy", []);
 		assert.deepEqual(
-			{ id: copies[0]?.id, x: copies[0]?.x, z: copies[0]?.z },
-			{ id: "copy-1", x: (all.a?.x ?? 0) + gridSize, z: 6 },
+			[copy?.x, copy?.y],
+			[(all.a?.x ?? 0) + gridSize, (all.a?.y ?? 0) + gridSize],
+		);
+	});
+
+	it("keeps a duplicated selection's shape", () => {
+		const spread = board(note("a", 1), {
+			...sticker("c", 2),
+			x: 400,
+			y: 0,
+		});
+		const [first, second] = duplicated(spread, ["a", "c"], () => "copy");
+		assert.ok(first && second);
+		assert.deepEqual(
+			[second.x - first.x, second.y - first.y],
+			[
+				(spread.c?.x ?? 0) - (spread.a?.x ?? 0),
+				(spread.c?.y ?? 0) - (spread.a?.y ?? 0),
+			],
 		);
 	});
 
