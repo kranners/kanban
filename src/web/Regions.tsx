@@ -47,6 +47,7 @@ import {
 } from "./regions.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 import { blocked, isTyping, pointerTarget } from "./Spawning.tsx";
+import { OutstandingSubagentsCount } from "./SubagentPill.tsx";
 import { knownCwds } from "./state.ts";
 
 const dragThreshold = 4;
@@ -207,6 +208,7 @@ function RegionFrame(props: { group: Group }): JSX.Element | null {
 				<Folder size={12} aria-hidden="true" />
 				<span class="group-label-text">{group.project}</span>
 				<NeedsYouCount members={group.members} />
+				<OutstandingSubagentsCount members={group.members} />
 			</button>
 			{regionEdges.map((edge) => (
 				<div

@@ -261,6 +261,16 @@ button.reconnecting {
 	gap: 4px;
 }
 
+.subagent-waiting svg {
+	color: var(--idle-edge);
+}
+
+.pill .subagent-done,
+.pill .subagent-done .num {
+	color: var(--muted);
+	font-weight: 500;
+}
+
 .actions {
 	margin-left: auto;
 	display: flex;

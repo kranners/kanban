@@ -4,9 +4,14 @@ import { useLayoutEffect, useRef } from "preact/hooks";
 import type { RegionColour } from "../shared/colours.ts";
 import type { Preview, Session, Subagent } from "../shared/types.ts";
 import "./attention.css";
-import { subagentState } from "../shared/subagents.ts";
+import {
+	outstandingSubagents,
+	type SubagentCounts,
+	subagentState,
+} from "../shared/subagents.ts";
 import { ActivityBadge, ActivityIcon, activityLabel } from "./activity.tsx";
 import type { PlacedNode } from "./layout.ts";
+import { subagentHeadline } from "./subagentCounts.ts";
 import { ago, relativeTime } from "./time.ts";
 
 type Emphasis = {
@@ -121,17 +126,43 @@ function Ribbon(props: { session: Session; now: number }) {
 	);
 }
 
-function cardStatus(session: Session): string {
+function SubagentRibbon(props: { counts: SubagentCounts | undefined }) {
+	const { counts } = props;
+	if (!counts) return null;
+	const outstanding = outstandingSubagents(counts);
+	if (outstanding === 0) return null;
+	return (
+		<span
+			class={`ribbon subagent-ribbon${counts.working > 0 ? " running" : ""}`}
+			aria-hidden="true"
+		>
+			<Bot size={13} aria-hidden="true" />
+			<span class="ribbon-text">{subagentHeadline(counts, "waiting")}</span>
+			<span class="ribbon-count num">{outstanding}</span>
+		</span>
+	);
+}
+
+function cardStatus(
+	session: Session,
+	subagents: SubagentCounts | undefined,
+): string {
 	const detail =
 		session.activity === "needs-you" ? session.needs : session.doing;
 	const label = activityLabel[session.activity];
-	return detail ? `${label}: ${detail}` : label;
+	const status = detail ? `${label}: ${detail}` : label;
+	const waiting =
+		subagents && outstandingSubagents(subagents) > 0
+			? `; subagents ${subagentHeadline(subagents)}`
+			: "";
+	return `${status}${waiting}`;
 }
 
 export function SessionCard(props: {
 	node: PlacedNode;
 	session: Session;
 	preview: Preview | undefined;
+	subagents?: SubagentCounts;
 	now: number;
 	emphasis: Emphasis;
 	onOpen: (id: string, origin: DOMRect) => void;
@@ -162,7 +193,7 @@ export function SessionCard(props: {
 			<button
 				type="button"
 				class="frame"
-				aria-label={`Open ${session.name}, ${cardStatus(session)}`}
+				aria-label={`Open ${session.name}, ${cardStatus(session, props.subagents)}`}
 				onClick={open}
 			>
 				<div class="body">
@@ -199,6 +230,7 @@ export function SessionCard(props: {
 			</button>
 			{session.activity === "working" && <BusyEdge />}
 			<Ribbon session={session} now={props.now} />
+			<SubagentRibbon counts={props.subagents} />
 			{props.notice}
 			<span class="resize-handle" data-resize aria-hidden="true" />
 			{props.corner && <div class="node-corner">{props.corner}</div>}

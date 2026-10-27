@@ -134,6 +134,7 @@ function World(props: { board: Board; layout: Arrangement }) {
 			node={node}
 			session={session}
 			preview={sessionPreviews.get(session.id)}
+			subagents={props.board.subagentCounts[session.id]}
 			now={t}
 			emphasis={{
 				dimmed: !visible(node.key),

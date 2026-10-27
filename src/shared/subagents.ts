@@ -13,6 +13,10 @@ export function noSubagents(): SubagentCounts {
 	return { working: 0, idle: 0, done: 0 };
 }
 
+export function outstandingSubagents(counts: SubagentCounts): number {
+	return counts.working + counts.idle;
+}
+
 export function subagentCountsBySession(
 	subagents: readonly Subagent[],
 ): Record<string, SubagentCounts> {

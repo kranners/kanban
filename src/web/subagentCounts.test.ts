@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { subagentCountsBySession, subagentState } from "../shared/subagents.ts";
+import {
+	outstandingSubagents,
+	subagentCountsBySession,
+	subagentState,
+} from "../shared/subagents.ts";
 import type { Subagent } from "../shared/types.ts";
 import {
+	memberSubagentCounts,
 	sessionsWithWorkingSubagents,
+	subagentHeadline,
 	subagentSummary,
 	totalSubagentCounts,
 } from "./subagentCounts.ts";
@@ -67,13 +73,47 @@ test("finds the sessions that have a working subagent", () => {
 	]);
 });
 
-test("summarises only the states present", () => {
+test("leads with running and waiting on, keeping done and stalled in the summary", () => {
+	assert.equal(
+		subagentHeadline({ working: 3, idle: 2, done: 4 }),
+		"3 running · 5 waiting on",
+	);
+	assert.equal(
+		subagentHeadline({ working: 0, idle: 2, done: 4 }, "waiting"),
+		"2 waiting",
+	);
+	assert.equal(subagentHeadline({ working: 0, idle: 0, done: 4 }), "");
 	assert.equal(
 		subagentSummary({ working: 2, idle: 0, done: 1 }),
-		"3 subagents: 2 working, 1 done",
+		"3 subagents: 2 running · 2 waiting on · 1 done",
 	);
 	assert.equal(
 		subagentSummary({ working: 0, idle: 1, done: 0 }),
-		"1 subagent: 1 idle",
+		"1 subagent: 1 waiting on · 1 stalled",
 	);
+	assert.equal(
+		subagentSummary({ working: 0, idle: 0, done: 2 }),
+		"2 subagents: 2 done",
+	);
+});
+
+test("outstanding subagents are the running and stalled ones, not the done", () => {
+	assert.equal(outstandingSubagents({ working: 3, idle: 2, done: 4 }), 5);
+	assert.equal(outstandingSubagents({ working: 0, idle: 0, done: 4 }), 0);
+});
+
+test("totals the subagents of a region's member sessions only", () => {
+	const bySession = subagentCountsBySession(agents);
+	assert.deepEqual(
+		memberSubagentCounts(
+			["session:acme-api", "session:acme-docs", "subagent:a", "session:gone"],
+			bySession,
+		),
+		{ working: 1, idle: 1, done: 1 },
+	);
+	assert.deepEqual(memberSubagentCounts([], bySession), {
+		working: 0,
+		idle: 0,
+		done: 0,
+	});
 });

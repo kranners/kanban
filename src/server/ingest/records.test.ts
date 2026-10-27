@@ -194,6 +194,56 @@ describe("applyRecord", () => {
 		assert.deepEqual([...facts.finishedTasks], ["agentC"]);
 	});
 
+	test("ends stopped tasks and the workflow runs behind ended tasks", () => {
+		const facts = apply(
+			toolUse("t1", "Workflow", { script: "a.js" }),
+			toolResult("t1", {
+				status: "async_launched",
+				taskId: "w1",
+				runId: "wf_a",
+			}),
+			toolUse("t2", "Workflow", { script: "b.js" }),
+			toolResult("t2", {
+				status: "async_launched",
+				taskId: "w2",
+				runId: "wf_b",
+			}),
+			toolUse("t3", "Workflow", { script: "c.js" }),
+			toolResult("t3", {
+				status: "async_launched",
+				taskId: "w3",
+				runId: "wf_c",
+			}),
+			toolUse("t4", "TaskStop", { task_id: "w1" }),
+			toolResult("t4", { message: "Stopped", task_id: "w1" }),
+			toolUse("t5", "TaskStop", { task_id: "agentE" }),
+			toolResult("t5", { message: "Stopped", task_id: "agentE" }),
+			{
+				type: "user",
+				origin: { kind: "task-notification" },
+				message: {
+					content:
+						"<task-notification><task-id>w2</task-id><status>stopped</status></task-notification>",
+				},
+			},
+			toolUse("t6", "TaskStop", { task_id: "w3" }),
+			{
+				type: "user",
+				message: {
+					content: [{ type: "tool_result", tool_use_id: "t6", is_error: true }],
+				},
+				toolUseResult: "Error: No task found with ID: w3",
+			},
+		);
+		assert.deepEqual([...facts.finishedTasks].sort(), [
+			"agentE",
+			"w1",
+			"w2",
+			"wf_a",
+			"wf_b",
+		]);
+	});
+
 	test("keeps typed user text and skips meta, tool results and notifications", () => {
 		const facts = apply(
 			{ type: "user", message: { content: "fix the build" } },

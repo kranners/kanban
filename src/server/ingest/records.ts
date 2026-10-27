@@ -38,6 +38,7 @@ export type TranscriptFacts = {
 	spawnedShorts: Set<string>;
 	forkedChildren: Set<string>;
 	finishedTasks: Set<string>;
+	workflowRuns: Map<string, string>;
 	entries: TranscriptEntry[];
 };
 
@@ -59,6 +60,7 @@ export function createFacts(): TranscriptFacts {
 		spawnedShorts: new Set(),
 		forkedChildren: new Set(),
 		finishedTasks: new Set(),
+		workflowRuns: new Map(),
 		entries: [],
 	};
 }
@@ -192,6 +194,13 @@ function applyToolResults(
 				summary: messageSummary(tool.input),
 				to: address ? resolve(peerRefFromAddress(address)) : null,
 			});
+		} else if (tool.name === "TaskStop") {
+			const taskId = asString(result.task_id);
+			if (taskId) endTask(facts, taskId);
+		} else if (tool.name === "Workflow") {
+			const taskId = asString(result.taskId);
+			const runId = asString(result.runId);
+			if (taskId && runId) facts.workflowRuns.set(taskId, runId);
 		} else if (tool.name === "Bash") {
 			const stdout = asString(result.stdout) ?? "";
 			for (const match of stdout.matchAll(backgroundedPattern)) {
@@ -260,8 +269,14 @@ function collectFinishedAgent(facts: TranscriptFacts, result: Json | null) {
 function collectFinishedTasks(facts: TranscriptFacts, text: string) {
 	if (!text.includes("<task-notification>")) return;
 	for (const match of text.matchAll(taskIdPattern)) {
-		if (match[1]) facts.finishedTasks.add(match[1]);
+		if (match[1]) endTask(facts, match[1]);
 	}
+}
+
+function endTask(facts: TranscriptFacts, taskId: string) {
+	facts.finishedTasks.add(taskId);
+	const runId = facts.workflowRuns.get(taskId);
+	if (runId) facts.finishedTasks.add(runId);
 }
 
 function isToolResult(item: unknown): boolean {
