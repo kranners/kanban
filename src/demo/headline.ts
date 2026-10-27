@@ -183,10 +183,10 @@ const seats: Seat[] = [
 		in: projects.web,
 		col: 1,
 		row: 2,
-		name: "storybook 9",
-		goal: "Upgrade Storybook to 9",
+		name: "storybook 10",
+		goal: "Upgrade Storybook to 10",
 		activity: "working",
-		doing: "Running npx storybook@9 upgrade",
+		doing: "Running npx storybook@10 upgrade",
 	},
 	{
 		id: id(13),
@@ -214,8 +214,8 @@ const seats: Seat[] = [
 		in: projects.mobile,
 		col: 1,
 		row: 1,
-		name: "android 15 crash",
-		goal: "Fix the crash on launch on Android 15",
+		name: "android 16 crash",
+		goal: "Fix the crash on launch on Android 16",
 		activity: "working",
 		doing: "Reading crash logs from Play Console",
 	},
@@ -277,8 +277,8 @@ const seats: Seat[] = [
 		in: projects.infra,
 		col: 0,
 		row: 0,
-		name: "k8s 1.31",
-		goal: "Upgrade the cluster to Kubernetes 1.31",
+		name: "k8s 1.34",
+		goal: "Upgrade the cluster to Kubernetes 1.34",
 		activity: "working",
 		doing: "Draining node pool general-a",
 	},
@@ -299,8 +299,9 @@ const seats: Seat[] = [
 		row: 1,
 		name: "terraform drift",
 		goal: "Reconcile drift in the staging account",
-		activity: "idle",
-		doing: "Listed 6 drifted resources",
+		activity: "needs-you",
+		doing: "Waiting for approval",
+		needs: "Allow `terraform apply` to fix 6 drifted resources in staging?",
 	},
 	{
 		id: id(26),
@@ -352,7 +353,7 @@ const arriving: Seat[] = [
 		col: 1,
 		row: 2,
 		name: "hotfix 4.2.1",
-		goal: "Hotfix the Android 15 launch crash",
+		goal: "Hotfix the Android 16 launch crash",
 		activity: "working",
 		doing: "Bumping the version to 4.2.1",
 	},
@@ -726,7 +727,7 @@ function world(start: number): World {
 			},
 			spawned("checkout redesign", "a11y sweep"),
 			spawned("nightly ETL", "dedupe customers"),
-			{ from: s(sid("k8s 1.31")), to: s(sid("cert rotation")), kind: "forked" },
+			{ from: s(sid("k8s 1.34")), to: s(sid("cert rotation")), kind: "forked" },
 		],
 		messages: [
 			message(
@@ -759,7 +760,7 @@ function world(start: number): World {
 			),
 			message(
 				5,
-				"k8s 1.31",
+				"k8s 1.34",
 				"nightly ETL",
 				9,
 				"Node pool general-a drains at 14:00.",
@@ -816,7 +817,7 @@ const checklist: Note = {
 	id: "launch-checklist",
 	kind: "note",
 	color: "yellow",
-	text: "### v3 launch\n\n- [x] Orders ported\n- [x] Payments ported\n- [ ] Load test at 2x peak\n- [ ] Contract tests green\n- [ ] Docs live",
+	text: "### v3 launch\n\n- [x] Orders ported\n- [x] Contract tests green\n- [ ] Payments ported\n- [ ] Load test at 2x peak\n- [ ] Docs live",
 	x: projects.docs.x + 360,
 	y: projects.docs.y + rowPitch,
 	w: 288,
@@ -825,7 +826,7 @@ const checklist: Note = {
 };
 
 const webCwd = `/Users/me/dev/${projects.web.project}`;
-const webColour = defaultRegionColour(webCwd) === "violet" ? "teal" : "violet";
+const webColour = defaultRegionColour(webCwd) === "teal" ? "violet" : "teal";
 
 const timeline: Step[] = [
 	say(
@@ -842,7 +843,7 @@ const timeline: Step[] = [
 		"worker: load test",
 		"Load-test staging at 2x peak, never production.",
 	),
-	set(3.2, "storybook 9", { doing: "Fixing 3 stories after the upgrade" }),
+	set(3.2, "storybook 10", { doing: "Fixing 3 stories after the upgrade" }),
 	finish(3.8, "sa-orders-types", "Generated 18 v3 order types."),
 	set(4.4, "revenue dashboard", {
 		activity: "needs-you",
@@ -862,11 +863,11 @@ const timeline: Step[] = [
 		"checkout redesign",
 		"Yes. v3 always returns currency with totals.",
 	),
-	arrive(7.0, "hotfix 4.2.1", "android 15 crash"),
+	arrive(7.0, "hotfix 4.2.1", "android 16 crash"),
 	spawn(7.8, "sa-contract-verify"),
 	say(
 		8.6,
-		"k8s 1.31",
+		"k8s 1.34",
 		"nightly ETL",
 		"Draining general-a now; pause the nightly ETL.",
 	),
@@ -879,10 +880,9 @@ const timeline: Step[] = [
 	say(
 		10.6,
 		"nightly ETL",
-		"k8s 1.31",
+		"k8s 1.34",
 		"Paused. Ping me when the drain is done.",
 	),
-	at(11.4, (stage) => stage.colour(webCwd, webColour)),
 	set(12.0, "worker: load test", {
 		activity: "needs-you",
 		doing: "Waiting for approval",
@@ -905,21 +905,20 @@ const timeline: Step[] = [
 		"worker: contracts",
 		"Renamed fields updated in the payments handler.",
 	),
-	at(15.6, (stage) => stage.annotate({ [checklist.id]: checklist })),
-	set(16.2, "storybook 9", {
+	set(16.2, "storybook 10", {
 		activity: "done",
-		doing: "Upgraded to Storybook 9; 212 stories pass",
+		doing: "Upgraded to Storybook 10; 212 stories pass",
 	}),
 	say(
 		16.8,
 		"hotfix 4.2.1",
-		"android 15 crash",
+		"android 16 crash",
 		"Version bumped; which commit has the fix?",
 	),
 	arrive(17.4, "events backfill", "nightly ETL"),
 	say(
 		18.2,
-		"android 15 crash",
+		"android 16 crash",
 		"hotfix 4.2.1",
 		"Cherry-pick 9f3c2e1: guards the null splash intent.",
 	),
@@ -935,8 +934,8 @@ const timeline: Step[] = [
 		"/bg rollout review",
 		"Rollout plan v2 is in docs/rollout.md; review the canary steps.",
 	),
-	set(20.6, "k8s 1.31", { doing: "Upgrading the control plane" }),
-	say(21.4, "k8s 1.31", "nightly ETL", "Drain finished. Safe to resume."),
+	set(20.6, "k8s 1.34", { doing: "Upgrading the control plane" }),
+	say(21.4, "k8s 1.34", "nightly ETL", "Drain finished. Safe to resume."),
 	set(22.0, "nightly ETL", { doing: "Resuming from checkpoint 14 of 20" }),
 	set(22.6, "worker: load test", {
 		activity: "working",
@@ -956,6 +955,7 @@ const timeline: Step[] = [
 		doing: "Opened pull request #913",
 	}),
 	say(25.8, "worker: orders", "orders v3", "PR #913 is up: /orders on v3."),
+	at(26.2, (stage) => stage.colour(webCwd, webColour)),
 	finish(
 		26.6,
 		"sa-contract-pay",
@@ -993,6 +993,7 @@ const timeline: Step[] = [
 		"Backfilled 7 days; row counts match source.",
 	),
 	finish(30.2, "sa-backfill-verify", "Row counts match for all 7 days."),
+	at(30.5, (stage) => stage.annotate({ [checklist.id]: checklist })),
 	set(30.8, "events backfill", {
 		activity: "done",
 		doing: "Backfilled 7 days of events",

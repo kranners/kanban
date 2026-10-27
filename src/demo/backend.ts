@@ -238,8 +238,8 @@ export function createBackend(scenario: Scenario): Backend {
 		return {
 			model:
 				conversation.node.kind === "session"
-					? "claude-sonnet-4-5"
-					: "claude-haiku-4-5",
+					? "claude-opus-5-5"
+					: "claude-sonnet-5-5",
 			cwd: owner?.cwd ?? null,
 			branch: owner ? branchOf(owner.cwd) : null,
 			permissionMode: "default",
@@ -593,6 +593,19 @@ export function createBackend(scenario: Scenario): Backend {
 		return updated;
 	};
 
+	const waitingSummary = () => {
+		const total = world.sessions.length;
+		const waiting = world.sessions.filter(
+			(item) => item.activity === "needs-you",
+		);
+		if (waiting.length === 0)
+			return `None of the ${total} sessions is waiting on you right now.`;
+		const lines = waiting.map(
+			(item) => `“${item.name}” asks: ${item.needs ?? item.doing}`,
+		);
+		return `${waiting.length} of ${total} sessions ${waiting.length === 1 ? "is" : "are"} waiting on you. ${lines.join(" ")}`;
+	};
+
 	const ask = (id: string, text: string) => {
 		const action = `a${next()}`;
 		updateThread(id, (thread) => ({
@@ -633,7 +646,7 @@ export function createBackend(scenario: Scenario): Backend {
 					{
 						kind: "reply",
 						at: Date.now(),
-						text: `On a real board the board agent would act on that. This demo has ${world.sessions.length} made-up sessions, ${world.sessions.filter((item) => item.activity === "needs-you").length} of them waiting on you.`,
+						text: waitingSummary(),
 					},
 				],
 			})),
@@ -901,6 +914,7 @@ export function createBackend(scenario: Scenario): Backend {
 			]);
 			return;
 		}
+		const command = session.needs?.match(/`([^`]+)`/)?.[1];
 		settle(
 			node,
 			answers ? "User answered" : "Exit code 0",
@@ -910,7 +924,7 @@ export function createBackend(scenario: Scenario): Backend {
 			session.id,
 			{
 				activity: "working",
-				doing: "Carrying on after your answer",
+				doing: command ? `Running ${command}` : "Carrying on after your answer",
 				needs: null,
 			},
 			false,
@@ -919,7 +933,7 @@ export function createBackend(scenario: Scenario): Backend {
 		later(2400, () =>
 			update(session.id, {
 				activity: "done",
-				doing: "Finished after your answer",
+				doing: command ? `Ran ${command}` : "Wrapped up after your answer",
 			}),
 		);
 	};

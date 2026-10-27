@@ -13,7 +13,7 @@ const welcome = [
 	"**This board is a demo.** The sessions are made up and nothing runs.",
 	"",
 	"- Click a card to open its conversation",
-	"- Drag cards, or draw a region with **R**",
+	"- Drag cards, or press **R** for a project region",
 	"- Right-click the board for notes and stickers",
 	"- Press **/** to ask the board agent",
 ].join("\n");
