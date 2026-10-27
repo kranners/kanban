@@ -3,6 +3,7 @@ import type { MirrorKey, Session } from "../shared/types.ts";
 import type { Tty } from "./answer.ts";
 import { type AttachPty, escapeGuard, type PtyFactory } from "./attach.ts";
 import type { Cmux, CmuxResult, CmuxSurface } from "./cmux.ts";
+import { readDialog } from "./screen.ts";
 
 export type SessionTty = Tty & {
 	send(text: string): Promise<CmuxResult<null>>;
@@ -35,6 +36,12 @@ export const bracketedPaste = (text: string): string =>
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const done: CmuxResult<null> = { ok: true, value: null };
+
+const showingPrompt: CmuxResult<null> = {
+	ok: false,
+	error:
+		"The session is showing a prompt or menu, so nothing was submitted. Answer it first.",
+};
 
 export const cmuxTty = (deps: {
 	cmux: Cmux;
@@ -100,6 +107,84 @@ export const renderScreen = (terminal: headless.Terminal): string => {
 	return lines.join("\n");
 };
 
+export type PtyScreen = {
+	pty: AttachPty;
+	terminal: headless.Terminal;
+	lastOutput(): number;
+};
+
+type Timing = { settleMs: number; keyGapMs: number };
+
+const ptyDriver = (
+	live: () => Promise<CmuxResult<PtyScreen>>,
+	{ settleMs, keyGapMs }: Timing,
+): Pick<SessionTty, "screen" | "keys" | "paste" | "send"> => {
+	const quiet = async (screen: PtyScreen) => {
+		const deadline = Date.now() + settleMs * 8;
+		while (
+			Date.now() - screen.lastOutput() < settleMs &&
+			Date.now() < deadline
+		) {
+			await wait(settleMs / 2);
+		}
+	};
+	const showsPrompt = (screen: PtyScreen) =>
+		readDialog(renderScreen(screen.terminal)) !== null;
+	return {
+		async screen() {
+			const screen = await live();
+			if (!screen.ok) return screen;
+			await quiet(screen.value);
+			return { ok: true, value: renderScreen(screen.value.terminal) };
+		},
+		async keys(keys) {
+			const screen = await live();
+			if (!screen.ok) return screen;
+			for (const bytes of keySequence(keys)) {
+				screen.value.pty.write(bytes);
+				await wait(keyGapMs);
+			}
+			return done;
+		},
+		async paste(text) {
+			const screen = await live();
+			if (!screen.ok) return screen;
+			screen.value.pty.write(bracketedPaste(text));
+			await wait(keyGapMs);
+			return done;
+		},
+		async send(text) {
+			const screen = await live();
+			if (!screen.ok) return screen;
+			if (showsPrompt(screen.value)) return showingPrompt;
+			screen.value.pty.write(bracketedPaste(text));
+			await wait(400);
+			if (showsPrompt(screen.value)) return showingPrompt;
+			screen.value.pty.write(keyBytes.Enter);
+			await wait(keyGapMs);
+			return done;
+		},
+	};
+};
+
+export const sharedAttachTty = (deps: {
+	live(): PtyScreen | null;
+	settleMs?: number;
+	keyGapMs?: number;
+}): SessionTty => ({
+	...ptyDriver(
+		async () => {
+			const screen = deps.live();
+			return screen
+				? { ok: true, value: screen }
+				: { ok: false, error: "The terminal view of this session closed" };
+		},
+		{ settleMs: deps.settleMs ?? 250, keyGapMs: deps.keyGapMs ?? 60 },
+	),
+	isOpen: () => deps.live() !== null,
+	close() {},
+});
+
 export const attachTty = (deps: {
 	spawnPty: PtyFactory;
 	short: string;
@@ -116,9 +201,14 @@ export const attachTty = (deps: {
 	let terminal: headless.Terminal | null = null;
 	let lastOutput = 0;
 	let exited = false;
+	let closed = false;
 	let ready: Promise<boolean> | null = null;
 
+	const screenText = (): string =>
+		terminal ? renderScreen(terminal).replace(/\s+$/, "") : "";
+
 	const open = (): Promise<boolean> => {
+		if (closed) return Promise.resolve(false);
 		if (ready) return ready;
 		exited = false;
 		const screen = new headless.Terminal({
@@ -160,57 +250,20 @@ export const attachTty = (deps: {
 		return ready;
 	};
 
-	const screenText = (): string =>
-		terminal ? renderScreen(terminal).replace(/\s+$/, "") : "";
-
-	const attached = async (): Promise<CmuxResult<AttachPty>> => {
-		if (!(await open()) || !pty) {
-			return { ok: false, error: "Could not attach to the session" };
-		}
-		return { ok: true, value: pty };
-	};
-
-	const quiet = async () => {
-		const deadline = Date.now() + settleMs * 8;
-		while (Date.now() - lastOutput < settleMs && Date.now() < deadline) {
-			await wait(settleMs / 2);
-		}
-	};
-
 	return {
-		async screen() {
-			const live = await attached();
-			if (!live.ok) return live;
-			await quiet();
-			return { ok: true, value: terminal ? renderScreen(terminal) : "" };
-		},
-		async keys(keys) {
-			const live = await attached();
-			if (!live.ok) return live;
-			for (const bytes of keySequence(keys)) {
-				live.value.write(bytes);
-				await wait(keyGapMs);
-			}
-			return done;
-		},
-		async paste(text) {
-			const live = await attached();
-			if (!live.ok) return live;
-			live.value.write(bracketedPaste(text));
-			await wait(keyGapMs);
-			return done;
-		},
-		async send(text) {
-			const live = await attached();
-			if (!live.ok) return live;
-			live.value.write(bracketedPaste(text));
-			await wait(400);
-			live.value.write(keyBytes.Enter);
-			await wait(keyGapMs);
-			return done;
-		},
+		...ptyDriver(
+			async () =>
+				(await open()) && pty && terminal
+					? {
+							ok: true,
+							value: { pty, terminal, lastOutput: () => lastOutput },
+						}
+					: { ok: false, error: "Could not attach to the session" },
+			{ settleMs, keyGapMs },
+		),
 		isOpen: () => pty !== null,
 		close() {
+			closed = true;
 			pty?.kill("SIGHUP");
 			pty = null;
 			ready = null;

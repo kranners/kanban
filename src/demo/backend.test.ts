@@ -112,6 +112,9 @@ const probes: Record<string, Probe> = {
 			force: false,
 		});
 	},
+	"/api/sessions/:param/report": async (backend) => {
+		await answers(backend, "POST", `/api/sessions/${sessionId}/report`);
+	},
 	"/api/sessions/:param/files": async (backend) => {
 		const response = await answers(
 			backend,

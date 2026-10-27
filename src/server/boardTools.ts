@@ -12,9 +12,11 @@ import type {
 import { snap } from "../web/grid.ts";
 import { groupsOf } from "../web/groups.ts";
 import { nodeKey } from "../web/layout.ts";
-import { matchingStickers, noteSizeFor, topZ } from "../web/notes.ts";
+import { clearOf, matchingStickers, noteSizeFor, topZ } from "../web/notes.ts";
 import {
 	arrange,
+	clearSpot,
+	type Rect,
 	seedsOf,
 	sessionSize,
 	subagentSize,
@@ -92,13 +94,33 @@ const rect = (item: { x: number; y: number; w: number; h: number }) => ({
 	h: Math.round(item.h),
 });
 
+const arranged = (
+	board: Board,
+	deps: Pick<BoardToolDeps, "layout" | "annotations">,
+) =>
+	arrange(
+		board,
+		deps.layout.current(),
+		seedsOf(board),
+		new Map(),
+		Object.values(deps.annotations.current()),
+	);
+
+const occupied = (
+	board: Board,
+	deps: Pick<BoardToolDeps, "layout" | "annotations">,
+): Rect[] => [
+	...arranged(board, deps).nodes.values(),
+	...Object.values(deps.annotations.current()),
+];
+
 export const snapshot = (
 	board: Board,
 	deps: Pick<BoardToolDeps, "layout" | "annotations" | "colours" | "regions">,
 	anchor: { x: number; y: number } | null,
 ) => {
 	const saved = deps.layout.current();
-	const placed = arrange(board, saved, seedsOf(board), new Map());
+	const placed = arranged(board, deps);
 	const regions = deps.regions.current();
 	const groups = regionGroups(
 		regions,
@@ -174,6 +196,7 @@ export const snapshot = (
 							id: a.id,
 							...rect(a),
 							color: a.color,
+							session: a.session,
 							text: truncate(a.text, noteTextShown),
 						},
 					]
@@ -225,11 +248,18 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 		findSession(deps.source.board(), ref) ??
 		refused(`No session ${ref} on the board; use board_snapshot for ids`);
 
-	const store = (annotation: unknown, id: string): ToolOutcome | Annotation => {
+	const store = (
+		annotation: unknown,
+		id: string,
+		isNew: boolean,
+	): ToolOutcome | Annotation => {
 		const parsed = parseAnnotation(id, annotation);
 		if ("error" in parsed) return refused(parsed.error);
-		const put = deps.annotations.put(parsed);
-		return "error" in put ? refused(put.error) : parsed;
+		const placed = isNew
+			? clearOf(parsed, occupied(deps.source.board(), deps))
+			: parsed;
+		const put = deps.annotations.put(placed);
+		return "error" in put ? refused(put.error) : placed;
 	};
 
 	const handlers: {
@@ -314,7 +344,11 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 			});
 			if (!result.ok) return refused(result.error);
 			if (request.at) {
-				deps.layout.expect(result.short, request.at);
+				const at = clearSpot(
+					{ ...request.at, ...sessionSize },
+					occupied(deps.source.board(), deps),
+				);
+				deps.layout.expect(result.short, at);
 				deps.layout.observe(deps.source.board());
 			}
 			return done(
@@ -332,14 +366,18 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				text: "",
 			};
 			const noteId = id ?? newId();
-			const stored = store({ ...note, ...fields, id: noteId }, noteId);
+			const stored = store(
+				{ ...note, ...fields, id: noteId },
+				noteId,
+				!existing,
+			);
 			if ("ok" in stored) return stored;
 			const label = truncate(
 				stored.kind === "note" ? (stored.text.split("\n")[0] ?? "") : "",
 				60,
 			);
 			return done(
-				`${existing ? "Updated" : "Created"} note '${label}' (id ${noteId})`,
+				`${existing ? "Updated" : "Created"} note '${label}' (id ${noteId}) at ${stored.x},${stored.y}`,
 			);
 		},
 		put_sticker: ({ id, size, ...fields }) => {
@@ -361,11 +399,12 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 					id: stickerId,
 				},
 				stickerId,
+				!existing,
 			);
 			if ("ok" in stored) return stored;
 			const name = stored.kind === "sticker" ? stored.sticker : "";
 			return done(
-				`${existing ? "Updated" : "Placed"} sticker ${name} (id ${stickerId})`,
+				`${existing ? "Updated" : "Placed"} sticker ${name} (id ${stickerId}) at ${stored.x},${stored.y}`,
 			);
 		},
 		delete_annotations: ({ ids }) => {

@@ -1,6 +1,7 @@
 import {
 	CircleAlert,
 	MessageCircleQuestion,
+	PanelTop,
 	ShieldQuestion,
 } from "lucide-preact";
 import type { JSX } from "preact";
@@ -65,6 +66,9 @@ function Permission(props: {
 				<span>{dialog.title}</span>
 			</div>
 			<PendingInput tool={props.tool} />
+			{!props.tool && dialog.context && (
+				<pre class="av-output">{dialog.context}</pre>
+			)}
 			<p class="av-dialog-question">{dialog.question}</p>
 			{dialog.options.length > 0 && (
 				<fieldset
@@ -313,11 +317,13 @@ export function DialogForm(props: {
 
 	const blocked =
 		props.readOnly ??
-		(!props.answerable
-			? "Reading the prompt from the session…"
-			: dialog.kind === "permission" && !dialog.complete
-				? "The session's terminal is too small to show every choice. Widen its pane or open the terminal."
-				: null);
+		(dialog.kind === "menu"
+			? null
+			: !props.answerable
+				? "Reading the prompt from the session…"
+				: dialog.kind === "permission" && !dialog.complete
+					? "The session's terminal is too small to show every choice. Widen its pane or open the terminal."
+					: null);
 
 	return (
 		<section class="av-dialog" aria-label="The session is waiting for you">
@@ -339,6 +345,35 @@ export function DialogForm(props: {
 							void run({ type: "answer", toolUseId: dialog.toolUseId, answers })
 						}
 					/>
+				</>
+			) : dialog.kind === "menu" ? (
+				<>
+					<div class="av-dialog-title">
+						<PanelTop size={15} aria-hidden="true" />
+						<span>{dialog.title}</span>
+					</div>
+					<p class="av-dialog-question">
+						The session has a menu open, which only the terminal shows.
+					</p>
+					<div class="av-choices">
+						<button
+							type="button"
+							class="focus-button"
+							disabled={props.readOnly !== null || busy}
+							onClick={() => void run({ type: "key", key: "Escape" })}
+						>
+							Close it <kbd>Esc</kbd>
+						</button>
+						{props.onTerminal && (
+							<button
+								type="button"
+								class="focus-button"
+								onClick={props.onTerminal}
+							>
+								Open the terminal
+							</button>
+						)}
+					</div>
 				</>
 			) : (
 				<Permission

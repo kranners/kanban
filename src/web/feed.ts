@@ -3,6 +3,7 @@ import { receiveColours } from "./colours.ts";
 import { receiveComment, receiveComments } from "./comments.ts";
 import { receiveExit } from "./exits.ts";
 import { regions } from "./regionState.ts";
+import { forgetAskingReports, receiveReport } from "./reports.ts";
 import {
 	annotations,
 	awaitingShort,
@@ -52,6 +53,10 @@ function receive(frame: BoardFeed): void {
 		receiveExit(frame.sessionId, frame.result);
 		return;
 	}
+	if (frame.type === "report") {
+		receiveReport(frame.sessionId, frame.result);
+		return;
+	}
 	if (frame.type === "comments") {
 		receiveComments(frame.comments);
 		return;
@@ -66,6 +71,7 @@ export function connectFeed(): void {
 		socket.addEventListener("open", () => {
 			attempt = 0;
 			connection.value = "open";
+			forgetAskingReports();
 		});
 		socket.addEventListener("message", (event) => {
 			if (typeof event.data !== "string") return;

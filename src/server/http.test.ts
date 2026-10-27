@@ -8,6 +8,7 @@ import { after, before, describe, it } from "node:test";
 import WebSocket from "ws";
 import type { ToolCall } from "../agent/tools.ts";
 import {
+	type Annotations,
 	type Board,
 	type BoardFeed,
 	type ExitResult,
@@ -22,7 +23,7 @@ import type { AuditEvent } from "./audit.ts";
 import type { Authenticate } from "./auth.ts";
 import { createColourStore } from "./colours.ts";
 import { createCommentStore } from "./comments.ts";
-import { createExitRunner } from "./exit.ts";
+import { type Answer, createExitRunner } from "./exit.ts";
 import { createFeed } from "./feed.ts";
 import {
 	contentTypeFor,
@@ -33,6 +34,7 @@ import {
 } from "./http.ts";
 import { createLayoutStore } from "./layout.ts";
 import { createRegionStore } from "./regions.ts";
+import { createReportRunner } from "./reports.ts";
 
 const route = (method: string, path: string) =>
 	matchRoute(method, new URL(path, "http://x"));
@@ -66,6 +68,13 @@ describe("matchRoute", () => {
 			sessionId: "abc-1",
 		});
 		assert.deepEqual(route("GET", "/api/sessions/abc-1/exit"), {
+			kind: "method-not-allowed",
+		});
+		assert.deepEqual(route("POST", "/api/sessions/abc-1/report"), {
+			kind: "report-session",
+			sessionId: "abc-1",
+		});
+		assert.deepEqual(route("GET", "/api/sessions/abc-1/report"), {
 			kind: "method-not-allowed",
 		});
 		assert.deepEqual(route("PUT", "/api/layout"), { kind: "update-layout" });
@@ -170,6 +179,7 @@ const board: Board = {
 			updatedAt: 0,
 			attachable: true,
 			cmux: false,
+			artifacts: [],
 		},
 		{
 			id: "66666666-7777-8888-9999-000000000000",
@@ -187,10 +197,13 @@ const board: Board = {
 			updatedAt: 0,
 			attachable: false,
 			cmux: true,
+			artifacts: [],
 		},
 	],
 	subagents: [],
 	subagentCounts: {},
+	subagentStates: {},
+	workflowRuns: {},
 	links: [],
 	messages: [],
 	generatedAt: 1,
@@ -210,6 +223,10 @@ describe("createKanbanServer", () => {
 	const exits: [string, boolean][] = [];
 	let exitResult: ExitResult = { ok: true, exited: true };
 	let exitGate: Promise<void> = Promise.resolve();
+	const reports: [string, string][] = [];
+	let reportAnswer: Answer = { ok: true, answer: "- Tests pass" };
+	let reportGate: Promise<void> = Promise.resolve();
+	let annotationsNow = (): Annotations => ({});
 	let layoutFile = "";
 	let layoutSaved = () => Promise.resolve();
 	let annotationsFile = "";
@@ -242,6 +259,7 @@ describe("createKanbanServer", () => {
 				socket.close(1000, "fake");
 			},
 			attached: () => [],
+			screen: () => null,
 		};
 		layoutFile = join(dist, "state", "layout.json");
 		let feed: ReturnType<typeof createFeed> | null = null;
@@ -258,6 +276,7 @@ describe("createKanbanServer", () => {
 			onChange: (next) => feed?.annotations(next),
 		});
 		annotationsSaved = annotations.saved;
+		annotationsNow = annotations.current;
 		coloursFile = join(dist, "state", "colours.json");
 		const colours = createColourStore({
 			file: coloursFile,
@@ -311,6 +330,25 @@ describe("createKanbanServer", () => {
 				audit: (event) => events.push(event),
 				announce: (sessionId, result) => feed?.exit(sessionId, result),
 			}),
+			report: createReportRunner({
+				ask: async (session, question) => {
+					reports.push([session.id, question]);
+					await reportGate;
+					return reportAnswer;
+				},
+				annotations,
+				cards: () =>
+					new Map([
+						[
+							`session:${board.sessions[0]?.id}`,
+							{ x: 0, y: 24, w: 288, h: 168 },
+						],
+					]),
+				audit: (event) => events.push(event),
+				announce: (sessionId, result) => feed?.report(sessionId, result),
+				now: () => new Date(2026, 9, 27, 14, 5),
+				newId: () => "report-1",
+			}),
 			layout: {
 				...store,
 				expect: (short, at) => {
@@ -355,6 +393,7 @@ describe("createKanbanServer", () => {
 					socket.close(1000, "fake");
 				},
 				attached: () => [],
+				release() {},
 			},
 			files: async (cwd, query) => ({ ok: true, files: [`${cwd}:${query}`] }),
 			commands: async (cwd) => [
@@ -517,7 +556,7 @@ describe("createKanbanServer", () => {
 			body: JSON.stringify(body),
 		});
 
-	const exitFrames = async () => {
+	const feedFrames = async (type: BoardFeed["type"]) => {
 		const socket = new WebSocket(`${base.replace("http", "ws")}/api/feed`, {
 			headers: { ...authed, origin },
 		});
@@ -525,7 +564,7 @@ describe("createKanbanServer", () => {
 		const waiting: (() => void)[] = [];
 		socket.on("message", (data) => {
 			const frame = JSON.parse(String(data)) as BoardFeed;
-			if (frame.type !== "exit") return;
+			if (frame.type !== type) return;
 			frames.push(frame);
 			waiting.shift()?.();
 		});
@@ -542,7 +581,7 @@ describe("createKanbanServer", () => {
 
 	it("accepts an exit at once, then broadcasts and audits the outcome", async () => {
 		const id = board.sessions[0]?.id ?? "";
-		const feed = await exitFrames();
+		const feed = await feedFrames("exit");
 		let release = () => {};
 		exitGate = new Promise((resolve) => {
 			release = resolve;
@@ -604,6 +643,71 @@ describe("createKanbanServer", () => {
 			[id, false],
 			[id, true],
 		]);
+	});
+
+	it("asks for a status report and notes the answer beside the card", async () => {
+		const id = board.sessions[0]?.id ?? "";
+		const feed = await feedFrames("report");
+		let release = () => {};
+		reportGate = new Promise((resolve) => {
+			release = resolve;
+		});
+		assert.equal(
+			(await send("POST", `/api/sessions/${id}/report`, {})).status,
+			202,
+		);
+		assert.equal(
+			(await send("POST", `/api/sessions/${id}/report`, {})).status,
+			409,
+		);
+		release();
+		assert.deepEqual(await feed.next(), {
+			type: "report",
+			sessionId: id,
+			result: { ok: true },
+		});
+		const note = annotationsNow()["report-1"];
+		assert.equal(note?.kind === "note" && note.session, id);
+		assert.equal(note?.kind === "note" && note.x, 336);
+		assert.match(
+			note?.kind === "note" ? note.text : "",
+			/^\*\*Status · 14:05\*\*\n\n- Tests pass$/,
+		);
+		assert.deepEqual(events.at(-1), {
+			action: "session-report",
+			sessionId: id,
+			short: "abcd1234",
+			identity: "me@example.com",
+			result: "noted",
+		});
+
+		reportAnswer = { ok: false, error: "The session did not answer" };
+		await send("POST", `/api/sessions/${id}/report`, {});
+		assert.deepEqual(await feed.next(), {
+			type: "report",
+			sessionId: id,
+			result: reportAnswer,
+		});
+		feed.close();
+
+		assert.equal(
+			(await send("POST", "/api/sessions/nope/report", {})).status,
+			404,
+		);
+		assert.equal(
+			(
+				await fetch(`${base}/api/sessions/${id}/report`, {
+					method: "POST",
+					headers: { ...authed, origin: "https://evil.example" },
+				})
+			).status,
+			403,
+		);
+		assert.equal(reports.length, 2);
+		assert.equal(
+			(await send("DELETE", "/api/annotations/report-1", undefined)).status,
+			204,
+		);
 	});
 
 	it("stores placements for nodes on the board and broadcasts them", async () => {

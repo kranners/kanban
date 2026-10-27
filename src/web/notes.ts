@@ -8,6 +8,8 @@ import type {
 } from "../shared/types.ts";
 import type { KeyPress } from "./actions.ts";
 import { gridSize } from "./grid.ts";
+import type { Rect } from "./placement.ts";
+import { clearShift, clearSpot } from "./placement.ts";
 import type { StickerEntry } from "./stickers/manifest.ts";
 
 export const noteSize = 192;
@@ -197,17 +199,26 @@ export function sentToBack(
 	}));
 }
 
+export function clearOf<T extends Annotation>(
+	annotation: T,
+	taken: readonly Rect[],
+): T {
+	return { ...annotation, ...clearSpot(annotation, taken) };
+}
+
 export function duplicated(
 	annotations: Annotations,
 	ids: Iterable<string>,
 	newId: () => string,
+	taken: readonly Rect[] = Object.values(annotations),
 ): Annotation[] {
 	const top = topZ(annotations);
-	return selected(annotations, ids).map((a, index) => ({
-		...moved(a, gridSize, gridSize),
-		id: newId(),
-		z: top + index + 1,
-	}));
+	const sources = selected(annotations, ids);
+	const offset = clearShift(sources, taken, { x: gridSize, y: gridSize });
+	return sources.map((a, index) => {
+		const { session: _, ...copy } = moved(a, offset.x, offset.y) as Note;
+		return { ...(copy as Annotation), id: newId(), z: top + index + 1 };
+	});
 }
 
 export function recoloured(

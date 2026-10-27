@@ -1,5 +1,5 @@
 import type { RegionColours } from "./colours.ts";
-import type { SubagentCounts } from "./subagents.ts";
+import type { SubagentCounts, SubagentState } from "./subagents.ts";
 
 export type SessionKind = "interactive" | "background";
 
@@ -10,6 +10,8 @@ export type Activity =
 	| "done"
 	| "failed"
 	| "stopped";
+
+export type Artifact = { url: string; title: string; at: number };
 
 export type Session = {
 	id: string;
@@ -27,6 +29,7 @@ export type Session = {
 	updatedAt: number;
 	attachable: boolean;
 	cmux: boolean;
+	artifacts: Artifact[];
 };
 
 export type Subagent = {
@@ -65,6 +68,8 @@ export type Board = {
 	sessions: Session[];
 	subagents: Subagent[];
 	subagentCounts: Record<string, SubagentCounts>;
+	subagentStates: Record<string, SubagentState>;
+	workflowRuns: Record<string, string[]>;
 	links: Link[];
 	messages: Message[];
 	generatedAt: number;
@@ -106,7 +111,12 @@ type Annotated = {
 	z: number;
 };
 
-export type Note = Annotated & { kind: "note"; text: string; color: NoteColor };
+export type Note = Annotated & {
+	kind: "note";
+	text: string;
+	color: NoteColor;
+	session?: string;
+};
 
 export type Sticker = Annotated & {
 	kind: "sticker";
@@ -168,6 +178,7 @@ export type BoardFeed =
 	| { type: "colours"; colours: RegionColours }
 	| { type: "regions"; regions: Region[] }
 	| { type: "exit"; sessionId: string; result: ExitResult }
+	| { type: "report"; sessionId: string; result: ReportResult }
 	| { type: "comments"; comments: CommentThread[] }
 	| { type: "comment"; comment: CommentThread };
 
@@ -184,6 +195,8 @@ export type ExitResult =
 	| { ok: true; exited: true }
 	| { ok: true; exited: false; reason: string }
 	| { ok: false; error: string };
+
+export type ReportResult = { ok: true } | { ok: false; error: string };
 
 export type NewSessionResult =
 	| { ok: true; short: string }

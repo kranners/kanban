@@ -61,6 +61,14 @@ describe("parseAnnotation", () => {
 		assert.equal((parseAnnotation("r", { ...note, text }) as Note).text, text);
 	});
 
+	it("keeps the session a status report note is linked to", () => {
+		const session = "11111111-2222-3333-4444-555555555555";
+		assert.equal(
+			(parseAnnotation("r", { ...note, session }) as Note).session,
+			session,
+		);
+	});
+
 	it("takes the id from the path, not the body", () => {
 		const parsed = parseAnnotation("from-path", { ...note, id: "from-body" });
 		assert.equal((parsed as Annotation).id, "from-path");
@@ -83,6 +91,8 @@ describe("parseAnnotation", () => {
 			["n", { ...note, text: "x".repeat(maxNoteText + 1) }],
 			["n", { ...note, color: "red" }],
 			["n", { ...note, color: undefined }],
+			["n", { ...note, session: 7 }],
+			["n", { ...note, session: "../etc" }],
 			["s", { ...sticker, sticker: "../../etc/passwd" }],
 			["s", { ...sticker, sticker: "constructor" }],
 			["s", { ...sticker, rotation: 720 }],

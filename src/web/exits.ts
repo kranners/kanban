@@ -53,7 +53,7 @@ async function postExit(id: string, force: boolean): Promise<Accepted> {
 	}
 }
 
-async function errorOf(response: Response): Promise<string> {
+export async function errorOf(response: Response): Promise<string> {
 	try {
 		const body = (await response.json()) as { error?: unknown };
 		if (typeof body.error === "string" && body.error) return body.error;

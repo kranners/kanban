@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { closeSync, openSync, readSync, statSync } from "node:fs";
 import type {
+	BackgroundTask,
 	ConversationItem,
 	ConversationStatus,
 	PatchHunk,
 	ToolResult,
 } from "../shared/conversation.ts";
 import { stripAnsi } from "./ansi.ts";
+import { publishedArtifact } from "./artifacts.ts";
 import {
 	asNumber,
 	asObject,
@@ -24,6 +26,8 @@ export type ConversationLog = {
 	items: ConversationItem[];
 	rev: number;
 	tools: Map<string, number>;
+	tasks: Map<string, number>;
+	prompts: Map<string, number>;
 	usageSeen: Set<string>;
 	status: ConversationStatus;
 };
@@ -50,6 +54,8 @@ export function createLog(path: string): ConversationLog {
 		items: [],
 		rev: 0,
 		tools: new Map(),
+		tasks: new Map(),
+		prompts: new Map(),
 		usageSeen: new Set(),
 		status: {
 			model: null,
@@ -282,6 +288,7 @@ function applyUser(log: ConversationLog, record: Json, at: number) {
 		? content.filter((item) => asObject(item)?.type === "image").length
 		: 0;
 	if (text.trim() === "" && images === 0) return;
+	notePrompt(log, record);
 	push(log, {
 		kind: "user",
 		at,
@@ -293,6 +300,30 @@ function applyUser(log: ConversationLog, record: Json, at: number) {
 	setStatus(log, {
 		turnStartedAt: at,
 		...(mode ? { permissionMode: mode } : {}),
+	});
+}
+
+function notePrompt(log: ConversationLog, record: Json) {
+	const parent = asString(record.parentUuid);
+	if (!parent || record.isSidechain === true) return;
+	const earlier = log.prompts.get(parent);
+	if (earlier !== undefined) rewind(log, earlier);
+	log.prompts.set(parent, log.items.length);
+}
+
+function rewind(log: ConversationLog, from: number) {
+	for (const item of log.items.slice(from)) {
+		if (item.kind !== "rewound") {
+			replace(log, { kind: "rewound", index: item.index, rev: 0, at: item.at });
+		}
+	}
+	for (const [parent, index] of log.prompts) {
+		if (index >= from) log.prompts.delete(parent);
+	}
+	setStatus(log, {
+		pendingTools: log.status.pendingTools.filter(
+			(id) => (log.tools.get(id) ?? 0) < from,
+		),
 	});
 }
 
@@ -338,13 +369,35 @@ function applyCommand(log: ConversationLog, text: string, at: number): boolean {
 }
 
 function applyTaskNotification(log: ConversationLog, text: string, at: number) {
+	const status = tagPattern("status").exec(text)?.[1]?.trim() ?? null;
+	const toolUseId = tagPattern("tool-use-id").exec(text)?.[1]?.trim();
+	const taskId = tagPattern("task-id").exec(text)?.[1]?.trim();
+	settleTask(
+		log,
+		(toolUseId ? log.tools.get(toolUseId) : undefined) ??
+			(taskId ? log.tasks.get(taskId) : undefined),
+		status ?? "completed",
+	);
 	const summary = tagPattern("summary").exec(text)?.[1]?.trim();
 	if (!summary) return;
 	push(log, {
 		kind: "task",
 		at,
-		status: tagPattern("status").exec(text)?.[1]?.trim() ?? null,
+		status,
 		summary: clip(summary, 2000),
+	});
+}
+
+function settleTask(
+	log: ConversationLog,
+	index: number | undefined,
+	status: string,
+) {
+	const item = index === undefined ? undefined : log.items[index];
+	if (item?.kind !== "tool" || !item.result?.task) return;
+	replace(log, {
+		...item,
+		result: { ...item.result, task: { ...item.result.task, status } },
 	});
 }
 
@@ -381,7 +434,13 @@ function applyToolResults(
 		const item = index === undefined ? undefined : log.items[index];
 		if (!id || item?.kind !== "tool") continue;
 		finished.push(id);
-		replace(log, { ...item, result: toolResult(block, extra, at) });
+		const result = toolResult(item, block, extra, at);
+		replace(log, { ...item, result });
+		if (result.task) log.tasks.set(result.task.id, item.index);
+		const stopped = item.name === "TaskStop" ? asString(extra?.task_id) : null;
+		if (stopped && !result.isError) {
+			settleTask(log, log.tasks.get(stopped), "stopped");
+		}
 	}
 	if (finished.length > 0) {
 		setStatus(log, {
@@ -392,7 +451,12 @@ function applyToolResults(
 	}
 }
 
-function toolResult(block: Json, extra: Json | null, at: number): ToolResult {
+function toolResult(
+	item: { name: string; input: Json },
+	block: Json,
+	extra: Json | null,
+	at: number,
+): ToolResult {
 	const parts = Array.isArray(block.content)
 		? block.content.map(asObject)
 		: [{ type: "text", text: asString(block.content) ?? "" }];
@@ -409,7 +473,26 @@ function toolResult(block: Json, extra: Json | null, at: number): ToolResult {
 		agentId: asString(extra?.agentId) ?? agentIdIn(text),
 		answers: answersOf(extra?.answers),
 		interrupted: extra?.interrupted === true,
+		artifact:
+			item.name === "Artifact"
+				? publishedArtifact(item.input, extra, at)
+				: null,
+		task: backgroundTask(extra),
 		at,
+	};
+}
+
+function backgroundTask(extra: Json | null): BackgroundTask | null {
+	const id =
+		extra?.status === "async_launched"
+			? (asString(extra.taskId) ?? asString(extra.agentId))
+			: asString(extra?.backgroundTaskId);
+	if (!id) return null;
+	return {
+		id,
+		runId: asString(extra?.runId),
+		summary: asString(extra?.summary),
+		status: null,
 	};
 }
 

@@ -52,6 +52,36 @@ function frameEdgeToward(frame: Frame, target: Point): Point {
 	return { x: frame.centre.x + dx * scale, y: frame.centre.y + dy * scale };
 }
 
+type Rect = { x: number; y: number; w: number; h: number };
+
+function rectFrame(rect: Rect): Frame {
+	return {
+		centre: { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 },
+		halfWidth: rect.w / 2,
+		halfHeight: rect.h / 2,
+	};
+}
+
+function overlapping(a: Frame, b: Frame): boolean {
+	return (
+		Math.abs(a.centre.x - b.centre.x) < a.halfWidth + b.halfWidth &&
+		Math.abs(a.centre.y - b.centre.y) < a.halfHeight + b.halfHeight
+	);
+}
+
+export function tetherLine(
+	note: Rect,
+	node: PlacedNode,
+): { from: Point; to: Point } | null {
+	const source = rectFrame(note);
+	const target = frameOf(node);
+	if (overlapping(source, target)) return null;
+	return {
+		from: frameEdgeToward(source, target.centre),
+		to: frameEdgeToward(target, source.centre),
+	};
+}
+
 export type Arc = { path: string; mid: Point };
 
 export function messageArc(from: PlacedNode, to: PlacedNode): Arc {

@@ -17,7 +17,15 @@ export type Todo = { content: string; status: string };
 
 export type Token = { kind: "slash" | "mention"; query: string; start: number };
 
-export type ToolState = "running" | "done" | "error" | "interrupted";
+export type ToolState =
+	| "running"
+	| "background"
+	| "done"
+	| "error"
+	| "interrupted"
+	| "rejected";
+
+const rejectedPattern = /^The user doesn't want to proceed with this tool use/;
 
 const text = (value: unknown): string =>
 	typeof value === "string" ? value : "";
@@ -106,6 +114,8 @@ export function toolDetail(item: ToolItem): string {
 		case "Agent":
 		case "Task":
 			return text(input.description);
+		case "Workflow":
+			return item.result?.task?.summary ?? workflowDescription(input);
 		case "TodoWrite": {
 			const list = todos(input);
 			const done = list.filter((todo) => todo.status === "completed").length;
@@ -124,6 +134,11 @@ export function toolDetail(item: ToolItem): string {
 			return text(input.skill) || text(input.command);
 		case "SendMessage":
 			return text(input.summary) || text(input.to);
+		case "Artifact":
+			return (
+				item.result?.artifact?.title ??
+				(text(input.title) || text(input.action) || "publish")
+			);
 		default: {
 			const value = Object.values(input).find(
 				(entry): entry is string => typeof entry === "string" && entry !== "",
@@ -133,11 +148,33 @@ export function toolDetail(item: ToolItem): string {
 	}
 }
 
+export function workflowDescription(input: Record<string, unknown>): string {
+	const script = text(input.script);
+	const meta = /\bmeta\s*=\s*\{([\s\S]*?)\n\}/.exec(script)?.[1] ?? "";
+	const field = (name: string) =>
+		new RegExp(`\\b${name}:\\s*(['"\`])((?:\\\\.|(?!\\1).)*)\\1`).exec(
+			meta,
+		)?.[2] ?? "";
+	return (field("description") || field("name") || "workflow").replace(
+		/\\(.)/g,
+		"$1",
+	);
+}
+
 export function toolState(item: ToolItem): ToolState {
 	const result = item.result;
 	if (!result) return "running";
 	if (result.interrupted) return "interrupted";
-	return result.isError ? "error" : "done";
+	if (result.isError && rejectedPattern.test(result.text)) return "rejected";
+	if (result.isError || result.task?.status === "failed") return "error";
+	return result.task && result.task.status === null ? "background" : "done";
+}
+
+export function backgroundTools(items: ConversationItem[]): ToolItem[] {
+	return items.filter(
+		(item): item is ToolItem =>
+			item.kind === "tool" && toolState(item) === "background",
+	);
 }
 
 export function matchCount(item: ToolItem): number | null {

@@ -4,6 +4,7 @@ import type { ComponentChildren, VNode } from "preact";
 import {
 	isPlain,
 	parseMarkdown,
+	plainText,
 	renderMarkdown,
 	safeHref,
 	toggledTask,
@@ -60,6 +61,14 @@ function assertInert(source: string) {
 }
 
 describe("markdown rendering", () => {
+	it("reads inline markdown as plain text for one-line labels", () => {
+		assert.equal(
+			plainText("**Status: background** — removing the `effort` override"),
+			"Status: background — removing the effort override",
+		);
+		assert.equal(plainText("plain words"), "plain words");
+	});
+
 	it("renders GitHub-flavoured markdown", () => {
 		const { elements: found } = rendered(
 			[

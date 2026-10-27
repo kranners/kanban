@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Board, Link, Session, Subagent } from "../shared/types.ts";
-import { drawnLinks } from "./geometry.ts";
+import { drawnLinks, tetherLine } from "./geometry.ts";
+import { sessionLabelHeight } from "./layout.ts";
 import { arrange, seedsOf } from "./placement.ts";
 
 function session(id: string): Session {
@@ -21,6 +22,7 @@ function session(id: string): Session {
 		updatedAt: 0,
 		attachable: true,
 		cmux: false,
+		artifacts: [],
 	};
 }
 
@@ -57,6 +59,8 @@ test("only the first row of a grid gets an edge, for nested subagents too", () =
 		sessions: [session("root")],
 		subagents,
 		subagentCounts: {},
+		subagentStates: {},
+		workflowRuns: {},
 		links,
 		messages: [],
 		generatedAt: 0,
@@ -72,4 +76,33 @@ test("only the first row of a grid gets an edge, for nested subagents too", () =
 		"subagent:leaf2",
 		"subagent:outer",
 	]);
+});
+
+test("a tether runs between the facing edges of a note and its card frame", () => {
+	const board: Board = {
+		sessions: [session("root")],
+		subagents: [],
+		subagentCounts: {},
+		subagentStates: {},
+		workflowRuns: {},
+		links: [],
+		messages: [],
+		generatedAt: 0,
+	};
+	const card = arrange(board, {}, seedsOf(board), new Map()).nodes.get(
+		"session:root",
+	);
+	assert.ok(card);
+	const frameTop = card.y + sessionLabelHeight;
+	const note = {
+		x: card.x + card.w + 48,
+		y: frameTop,
+		w: 192,
+		h: card.y + card.h - frameTop,
+	};
+	assert.deepEqual(tetherLine(note, card), {
+		from: { x: note.x, y: note.y + note.h / 2 },
+		to: { x: card.x + card.w, y: note.y + note.h / 2 },
+	});
+	assert.equal(tetherLine({ ...note, x: card.x }, card), null);
 });

@@ -88,6 +88,7 @@ export function session(
 		updatedAt: start - 2 * minute,
 		attachable: true,
 		cmux: false,
+		artifacts: [],
 		...partial,
 	};
 }
@@ -120,6 +121,8 @@ export const toolResult = (
 	agentId: null,
 	answers: null,
 	interrupted: false,
+	artifact: null,
+	task: null,
 	at,
 	...extra,
 });
@@ -211,6 +214,7 @@ export function dialogOf(
 		kind: "permission",
 		toolUseId: pending.id,
 		title: pending.name,
+		context: null,
 		question: session.needs ?? "Do you want to proceed?",
 		options: permissionOptions,
 		complete: true,

@@ -17,15 +17,18 @@ import type { ConversationStatus } from "../../shared/conversation.ts";
 import type { Activity, Session } from "../../shared/types.ts";
 import { Composer } from "./Composer.tsx";
 import {
+	backgroundTools,
 	formatElapsed,
 	formatTokens,
 	modeLabel,
 	promptHistory,
 	type Queued,
 	stillQueued,
+	type ToolItem,
+	toolDetail,
 } from "./conversation.ts";
 import { DialogForm } from "./DialogForm.tsx";
-import { type SubagentLink, TranscriptItem } from "./Transcript.tsx";
+import { type Links, TranscriptItem } from "./Transcript.tsx";
 import {
 	type Outcome,
 	useConversation,
@@ -54,6 +57,7 @@ function StatusBar(props: {
 	mode: string | null;
 	activity: Activity | null;
 	cwd: string | null;
+	background: ToolItem[];
 }) {
 	const { status } = props;
 	const working = props.activity === "working";
@@ -92,6 +96,20 @@ function StatusBar(props: {
 		);
 	}
 	if (mode) parts.push(<span key="mode">{mode}</span>);
+	if (props.background.length > 0) {
+		parts.push(
+			<span
+				key="background"
+				class="av-status-background num"
+				title={props.background
+					.map((tool) => `${tool.name}: ${toolDetail(tool)}`)
+					.join("\n")}
+			>
+				<span class="av-running" aria-hidden="true" />
+				{props.background.length} in the background
+			</span>,
+		);
+	}
 	if (status?.contextTokens) {
 		parts.push(
 			<span
@@ -122,7 +140,7 @@ export function AgentView(props: {
 	session: Session | null;
 	activity: Activity | null;
 	onTerminal: (() => void) | null;
-	subagent: SubagentLink;
+	links: Links;
 }): JSX.Element {
 	const { view, request, loadOlder } = useConversation(props.node);
 	const scroller = useRef<HTMLDivElement>(null);
@@ -136,6 +154,11 @@ export function AgentView(props: {
 	const lastIndex = items.at(-1)?.index ?? 0;
 
 	const history = useMemo(() => promptHistory(items), [items]);
+	const shown = useMemo(
+		() => items.filter((item) => item.kind !== "rewound"),
+		[items],
+	);
+	const background = useMemo(() => backgroundTools(items), [items]);
 
 	useEffect(() => {
 		setQueued((current) =>
@@ -228,6 +251,7 @@ export function AgentView(props: {
 				mode={view.mode}
 				activity={props.activity}
 				cwd={props.session?.cwd ?? null}
+				background={background}
 			/>
 			{readOnly && props.node.kind === "session" && (
 				<div class="focus-callout">
@@ -250,9 +274,9 @@ export function AgentView(props: {
 									: `Load earlier messages (${view.window.first} more)`}
 							</button>
 						)}
-						{items.map((item) => (
+						{shown.map((item) => (
 							<div key={item.index} class="av-item">
-								<TranscriptItem item={item} subagent={props.subagent} />
+								<TranscriptItem item={item} links={props.links} />
 							</div>
 						))}
 						{queued.map((entry) => (

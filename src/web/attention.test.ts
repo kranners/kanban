@@ -28,6 +28,7 @@ function session(id: string, activity: Activity): Session {
 		updatedAt: 1,
 		attachable: true,
 		cmux: false,
+		artifacts: [],
 	};
 }
 
@@ -50,6 +51,8 @@ function boardOf(sessions: Session[], subagents: Subagent[] = []): Board {
 		sessions,
 		subagents,
 		subagentCounts: {},
+		subagentStates: {},
+		workflowRuns: {},
 		links: [],
 		messages: [],
 		generatedAt: 1,

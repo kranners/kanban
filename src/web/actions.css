@@ -64,6 +64,17 @@
 	cursor: default;
 }
 
+.report-bubble.asking {
+	opacity: 1;
+	scale: 1;
+}
+
+.report-mark {
+	font-size: 13px;
+	font-weight: 700;
+	line-height: 1;
+}
+
 .viewport.panning .close-bubble,
 .viewport.arranging .close-bubble,
 .node.exit-leaving .close-bubble {

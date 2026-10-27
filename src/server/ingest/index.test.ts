@@ -496,6 +496,7 @@ describe("startBoard", () => {
 			updatedAt: now - 60_000,
 			attachable: false,
 			cmux: true,
+			artifacts: [],
 		});
 	});
 

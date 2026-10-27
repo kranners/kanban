@@ -93,6 +93,29 @@ describe("attached terminal", () => {
 		assert.equal(tty.isOpen(), false);
 	});
 
+	it("never presses Enter over a permission prompt, and stays closed once closed", async () => {
+		const pty = fakePty();
+		const tty = attachTty({
+			spawnPty: pty.factory,
+			short: "abcd1234",
+			cwd: "/work/demo",
+			settleMs: 4,
+			readyMs: 500,
+			keyGapMs: 0,
+		});
+		await tty.screen();
+		pty.emit(
+			"\x1b[2J\x1b[H Bash command\r\n touch x\r\n Do you want to proceed?\r\n ❯ 1. Yes\r\n   2. No\r\n\r\n Esc to cancel",
+		);
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		const sent = await tty.send("note");
+		assert.equal(sent.ok, false);
+		assert.deepEqual(pty.written, []);
+		tty.close();
+		assert.equal((await tty.screen()).ok, false);
+		assert.equal(pty.spawned.length, 1);
+	});
+
 	it("reports a session it could not attach to", async () => {
 		const pty = fakePty();
 		const tty = attachTty({

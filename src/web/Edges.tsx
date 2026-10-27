@@ -1,7 +1,13 @@
 import { GitBranch } from "lucide-preact";
 import type { ComponentChildren } from "preact";
-import type { Board, Message } from "../shared/types.ts";
-import { drawnLinks, messageArc, treeMidpoint, treePath } from "./geometry.ts";
+import type { Annotation, Board, Message } from "../shared/types.ts";
+import {
+	drawnLinks,
+	messageArc,
+	tetherLine,
+	treeMidpoint,
+	treePath,
+} from "./geometry.ts";
 import type { NodeKey } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import type { Arrangement } from "./placement.ts";
@@ -121,6 +127,31 @@ export function Links(props: EdgeProps) {
 				</marker>
 			</defs>
 			{links}
+		</EdgeLayer>
+	);
+}
+
+export function Tethers(
+	props: Omit<EdgeProps, "board"> & { notes: readonly Annotation[] },
+) {
+	const tethers = props.notes.flatMap((note) => {
+		if (note.kind !== "note" || !note.session) return [];
+		const key = nodeKey({ kind: "session", id: note.session });
+		const card = props.layout.nodes.get(key);
+		const line = card && tetherLine(note, card);
+		if (!line) return [];
+		const { from, to } = line;
+		return [
+			<g key={note.id} class={`tether${props.visible(key) ? "" : " dimmed"}`}>
+				<line x1={from.x} y1={from.y} x2={to.x} y2={to.y} />
+				<circle cx={from.x} cy={from.y} r="3" />
+				<circle cx={to.x} cy={to.y} r="3" />
+			</g>,
+		];
+	});
+	return (
+		<EdgeLayer layout={props.layout} class="edges tethers">
+			{tethers}
 		</EdgeLayer>
 	);
 }

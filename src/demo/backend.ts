@@ -8,7 +8,10 @@ import type {
 	Drive,
 	ToolResult,
 } from "../shared/conversation.ts";
-import { subagentCountsBySession } from "../shared/subagents.ts";
+import {
+	outstandingStates,
+	subagentCountsBySession,
+} from "../shared/subagents.ts";
 import type {
 	AttachClientFrame,
 	Board,
@@ -207,6 +210,8 @@ export function createBackend(scenario: Scenario): Backend {
 			sessions: [...world.sessions],
 			subagents,
 			subagentCounts: subagentCountsBySession(subagents),
+			subagentStates: outstandingStates(subagents),
+			workflowRuns: {},
 			links: world.links.filter(connects),
 			messages: world.messages.filter(connects),
 			generatedAt: Date.now(),
@@ -541,6 +546,14 @@ export function createBackend(scenario: Scenario): Backend {
 		return json(202, { ok: true });
 	};
 
+	const reportSession = (id: string): Response => {
+		if (!sessionById(id)) return notFound();
+		later(1500, () =>
+			broadcast({ type: "report", sessionId: id, result: { ok: true } }),
+		);
+		return json(202, { ok: true });
+	};
+
 	const createSession = (body: unknown): Response => {
 		const request = body as Partial<NewSessionRequest> | null;
 		const prompt = request?.prompt?.trim() ?? "";
@@ -701,6 +714,11 @@ export function createBackend(scenario: Scenario): Backend {
 			"POST",
 			/^\/api\/sessions\/([^/]+)\/exit$/,
 			([id = ""], body) => exitSession(id, body),
+		],
+		[
+			"POST",
+			/^\/api\/sessions\/([^/]+)\/report$/,
+			([id = ""]) => reportSession(id),
 		],
 		[
 			"GET",

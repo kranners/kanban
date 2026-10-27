@@ -22,6 +22,7 @@ const session: Session = {
 	updatedAt: 0,
 	attachable: false,
 	cmux: true,
+	artifacts: [],
 };
 
 const target: CmuxSurface = { workspace: "WS", surface: "SF" };

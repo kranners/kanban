@@ -199,6 +199,10 @@
 	padding-top: max(12px, calc(22px * min(var(--unzoom), 3) - 14px));
 }
 
+.node.session:has(> .subagent-ribbon) .goal {
+	padding-top: calc(18px + 22px * min(var(--unzoom), 3));
+}
+
 .world[data-far] .node.session:has(> .ribbon) .goal {
 	padding-top: calc(22px * var(--unzoom) - 14px);
 }
@@ -233,8 +237,9 @@
 	--ribbon-edge: var(--idle-edge);
 	--ribbon-fill: color-mix(in srgb, var(--idle-edge) 14%, var(--surface));
 	--ribbon-ink: var(--idle-ink);
+	top: calc(var(--label-height) + 8px);
 	right: auto;
-	left: 22px;
+	left: 12px;
 	overflow: hidden;
 	border-style: dashed;
 	transform-origin: 0 0;

@@ -157,6 +157,7 @@ function NoteEditor(props: { note: Note }): JSX.Element {
 	const { note } = props;
 	const field = useRef<HTMLTextAreaElement>(null);
 	const [text, setText] = useState(note.text);
+	const [opened] = useState(note.text);
 	const [plain] = useState(() => isPlain(parseMarkdown(note.text)));
 
 	useEffect(() => {
@@ -168,7 +169,7 @@ function NoteEditor(props: { note: Note }): JSX.Element {
 
 	const finish = () => {
 		if (editing.peek() === note.id) editing.value = null;
-		if (text !== note.text) saveText(note, text);
+		if (text !== opened) saveText(note, text);
 	};
 
 	return (
