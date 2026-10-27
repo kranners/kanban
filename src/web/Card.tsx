@@ -179,8 +179,8 @@ export function SessionCard(props: {
 				</div>
 			</button>
 			{session.activity === "working" && <BusyEdge />}
-			<Ribbon session={session} now={props.now} />
 			<SubagentRibbon counts={props.subagents} />
+			<Ribbon session={session} now={props.now} />
 			{props.notice}
 			<span class="resize-handle" data-resize aria-hidden="true" />
 			{props.corner && <div class="node-corner">{props.corner}</div>}

@@ -1,0 +1,29 @@
+.demo-badge {
+	position: fixed;
+	left: 16px;
+	bottom: 60px;
+	z-index: 3;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 3px 10px;
+	border: 1px solid var(--hairline);
+	border-radius: 999px;
+	background: var(--surface);
+	color: var(--muted);
+	font: 500 11px / 18px var(--sans);
+}
+
+.demo-badge strong {
+	color: var(--accent);
+	font-weight: 600;
+}
+
+.demo-badge a {
+	color: inherit;
+	text-underline-offset: 2px;
+}
+
+.demo-badge a:hover {
+	color: var(--ink);
+}
