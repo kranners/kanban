@@ -47,10 +47,24 @@ const shownQuestion = (question: string): string[] => {
 	return [...quoted, `│ ${line}`];
 };
 
+const panelColumn = 160;
+
+const besidePanel = (screen: string, panel: string[] | undefined): string =>
+	panel
+		? screen
+				.split("\n")
+				.map(
+					(line, at) =>
+						`${line.padEnd(panelColumn).slice(0, panelColumn)}│${panel[at % panel.length]}`,
+				)
+				.join("\n")
+		: screen;
+
 export function fakeTui(opts: {
 	permission?: string[];
 	questions?: AskQuestion[];
 	lagReads?: number;
+	sidePanel?: string[];
 }): FakeTui {
 	let lag = 0;
 	const tui: FakeTui = {
@@ -143,7 +157,7 @@ export function fakeTui(opts: {
 				lag -= 1;
 				return { ok: true, value: "" };
 			}
-			return { ok: true, value: tui.render() };
+			return { ok: true, value: besidePanel(tui.render(), opts.sidePanel) };
 		},
 		async keys(keys: MirrorKey[]) {
 			for (const key of keys) press(key);

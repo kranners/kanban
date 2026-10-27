@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import headless from "@xterm/headless";
 import { moves, permissionMode, readDialog, sameLabel } from "./screen.ts";
+import { renderScreen } from "./terminals.ts";
 
 const rule = "─".repeat(80);
 const dashes = "╌".repeat(80);
@@ -249,6 +251,70 @@ describe("reading the TUI's screen", () => {
 		assert.equal(sameLabel("Yes", "Yes"), true);
 		assert.equal(sameLabel("No", "Yes"), false);
 		assert.equal(sameLabel("", "Yes"), false);
+	});
+
+	it("reads a question beside the diff panel, wide characters and all", async () => {
+		const left = [
+			"←  ☐ 区域  ☐ Banner  ✔ Submit  →",
+			"",
+			"│ 我们应该先部署东京区域，然后再部署其他区域吗？",
+			"│ Which region goes first?",
+			"",
+			"❯ 1. 东京",
+			"     Ships to the 東京 region first",
+			"  2. Everywhere at once",
+			"     Ships to every region together",
+			"  3. Type something.",
+			"",
+			"Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
+		];
+		const terminal = new headless.Terminal({
+			cols: 100,
+			rows: left.length,
+			allowProposedApi: true,
+		});
+		const drawn = left
+			.map(
+				(text, row) =>
+					`\x1b[${row + 1};1H${text}\x1b[${row + 1};70H│New file not yet staged.`,
+			)
+			.join("");
+		await new Promise<void>((done) => terminal.write(drawn, done));
+		const dialog = readDialog(renderScreen(terminal));
+		assert.equal(dialog?.kind, "ask");
+		if (dialog?.kind !== "ask") return;
+		assert.equal(
+			dialog.question,
+			"我们应该先部署东京区域，然后再部署其他区域吗？ Which region goes first?",
+		);
+		assert.deepEqual(
+			dialog.rows.map((row) => row.label),
+			["东京", "Everywhere at once", "Type something."],
+		);
+	});
+
+	it("keeps a long quoted question that fills half a short pane", () => {
+		const quoted = Array.from(
+			{ length: 8 },
+			(_, at) => `│ part ${at} of a question`,
+		);
+		const dialog = readDialog(
+			[
+				"☐ Retry",
+				...quoted,
+				"❯ 1. Keep retrying",
+				"  2. Stop",
+				"  3. Type something.",
+				"Enter to select · Esc to cancel",
+			].join("\n"),
+		);
+		assert.equal(dialog?.kind, "ask");
+		if (dialog?.kind !== "ask") return;
+		assert.match(dialog.question, /^part 0 of a question/);
+		assert.deepEqual(
+			dialog.rows.map((row) => row.label),
+			["Keep retrying", "Stop", "Type something."],
+		);
 	});
 
 	it("plans arrow moves between rows", () => {
