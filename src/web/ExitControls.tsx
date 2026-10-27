@@ -4,18 +4,29 @@ import type { JSX } from "preact";
 import type { Session } from "../shared/types.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import type { ExitState } from "./exitState.ts";
-import { askToExit, dismissExit, exitAsk, exitSession, held } from "./exits.ts";
+import {
+	askToExit,
+	dismissExit,
+	exitAsk,
+	exitSession,
+	exitSessions,
+	held,
+} from "./exits.ts";
 import { optionKey } from "./focus/platform.ts";
 
 export function exitStateClass(state: ExitState | undefined): string {
 	return state ? `exit-${state.phase}` : "";
 }
 
-function title(force: boolean, skipAsking: boolean): string {
-	if (force && skipAsking) return "Force exit now";
-	if (force) return "Force exit";
-	if (skipAsking) return "Exit session now";
-	return `Exit session (hold Shift to force, ${optionKey} to skip confirming)`;
+export function exitTitle(
+	force: boolean,
+	skipAsking: boolean,
+	what = "session",
+): string {
+	if (force && skipAsking) return `Force exit ${what} now`;
+	if (force) return `Force exit ${what}`;
+	if (skipAsking) return `Exit ${what} now`;
+	return `Exit ${what} (hold Shift to force, ${optionKey} to skip confirming)`;
 }
 
 export function CloseButton(props: {
@@ -38,7 +49,7 @@ export function CloseButton(props: {
 			type="button"
 			class={`close-bubble${force ? " force" : ""}`}
 			aria-label={checking ? `Exiting ${props.session.name}` : label}
-			title={title(force, skipAsking)}
+			title={exitTitle(force, skipAsking)}
 			disabled={checking}
 			data-no-pan
 			onClick={exit}
@@ -88,36 +99,71 @@ export function ExitNotice(props: {
 	);
 }
 
-function consequence(session: Session): string {
-	return session.kind === "background"
-		? "Exiting stops it, then removes it with claude rm, which keeps unpushed work and says so if it refuses."
-		: "Exiting sends SIGTERM to the terminal process it runs in.";
+function consequences(sessions: readonly Session[]): string[] {
+	const kinds = new Set(sessions.map((session) => session.kind));
+	return [
+		...(kinds.has("background")
+			? [
+					"Exiting a background session stops it, then removes it with claude rm, which keeps unpushed work and says so if it refuses.",
+				]
+			: []),
+		...(kinds.has("interactive")
+			? [
+					"Exiting an interactive session sends SIGTERM to the terminal process it runs in.",
+				]
+			: []),
+	];
+}
+
+function plural(count: number): string {
+	return count === 1 ? "1 session" : `${count} sessions`;
+}
+
+function explanation(ask: NonNullable<typeof exitAsk.value>): string {
+	if (ask.project === undefined)
+		return ask.force
+			? "This ends the session now, without asking whether it has unfinished work."
+			: "The board first asks the agent whether it has outstanding work, and only exits it if the agent says it's safe.";
+	return ask.force
+		? `This ends all ${plural(ask.sessions.length)} in ${ask.project} now, without asking whether they have unfinished work.`
+		: `The board asks each of the ${plural(ask.sessions.length)} in ${ask.project} whether it has outstanding work, and exits only the ones that say it's safe. The rest stay, with their reason on their card.`;
+}
+
+function dialogTitle(ask: NonNullable<typeof exitAsk.value>): string {
+	const verb = ask.force ? "Force exit" : "Exit";
+	if (ask.project === undefined) return `${verb} ${ask.sessions[0]?.name}?`;
+	return `${verb} every session in ${ask.project}?`;
 }
 
 export function ExitDialog(): JSX.Element | null {
 	const ask = exitAsk.value;
 	if (!ask) return null;
-	const { session, force } = ask;
+	const { sessions, force } = ask;
 	const close = () => {
 		exitAsk.value = null;
 	};
+	const label = force ? "Force exit" : "Exit";
 	return (
 		<ConfirmDialog
-			title={force ? `Force exit ${session.name}?` : `Exit ${session.name}?`}
-			confirmLabel={force ? "Force exit" : "Exit session"}
+			title={dialogTitle(ask)}
+			confirmLabel={
+				ask.project === undefined
+					? `${label} session`
+					: `${label} ${plural(sessions.length)}`
+			}
 			danger={force}
 			onCancel={close}
 			onConfirm={() => {
 				close();
-				void exitSession(session, force);
+				void exitSessions(sessions, force);
 			}}
 		>
-			<p>
-				{force
-					? "This ends the session now, without asking whether it has unfinished work."
-					: "The board first asks the agent whether it has outstanding work, and only exits it if the agent says it's safe."}
-			</p>
-			<p class="focus-muted">{consequence(session)}</p>
+			<p>{explanation(ask)}</p>
+			{consequences(sessions).map((line) => (
+				<p key={line} class="focus-muted">
+					{line}
+				</p>
+			))}
 		</ConfirmDialog>
 	);
 }

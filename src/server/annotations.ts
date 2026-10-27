@@ -45,6 +45,10 @@ const isNoteColor = (value: unknown): value is NoteColor =>
 const isRotation = (value: unknown): value is number =>
 	typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= 180;
 
+const isLink = (value: unknown): value is string | undefined =>
+	value === undefined ||
+	(typeof value === "string" && annotationIdPattern.test(value));
+
 export const parseAnnotation = (
 	id: string,
 	body: unknown,
@@ -67,18 +71,23 @@ export const parseAnnotation = (
 	if (!isDepth(z)) return { error: "z must be a finite number" };
 	const placed = { id, ...point, w, h, z };
 	if (fields.kind === "note") {
-		const { text, color, session } = fields;
+		const { text, color, session, region } = fields;
 		if (typeof text !== "string" || text.length > maxNoteText) {
 			return { error: `text must be a string of at most ${maxNoteText}` };
 		}
 		if (!isNoteColor(color)) {
 			return { error: `color must be one of ${noteColors.join(", ")}` };
 		}
-		if (session === undefined) return { ...placed, kind: "note", text, color };
-		if (typeof session !== "string" || !annotationIdPattern.test(session)) {
-			return { error: "session must be a session id" };
-		}
-		return { ...placed, kind: "note", text, color, session };
+		if (!isLink(session)) return { error: "session must be a session id" };
+		if (!isLink(region)) return { error: "region must be a region id" };
+		return {
+			...placed,
+			kind: "note",
+			text,
+			color,
+			...(session === undefined ? {} : { session }),
+			...(region === undefined ? {} : { region }),
+		};
 	}
 	if (fields.kind === "sticker") {
 		const { sticker, rotation } = fields;

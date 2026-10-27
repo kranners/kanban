@@ -216,7 +216,11 @@ export function duplicated(
 	const sources = selected(annotations, ids);
 	const offset = clearShift(sources, taken, { x: gridSize, y: gridSize });
 	return sources.map((a, index) => {
-		const { session: _, ...copy } = moved(a, offset.x, offset.y) as Note;
+		const {
+			session: _session,
+			region: _region,
+			...copy
+		} = moved(a, offset.x, offset.y) as Note;
 		return { ...(copy as Annotation), id: newId(), z: top + index + 1 };
 	});
 }

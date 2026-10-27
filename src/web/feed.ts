@@ -3,7 +3,11 @@ import { receiveColours } from "./colours.ts";
 import { receiveComment, receiveComments } from "./comments.ts";
 import { receiveExit } from "./exits.ts";
 import { regions } from "./regionState.ts";
-import { forgetAskingReports, receiveReport } from "./reports.ts";
+import {
+	forgetAskingReports,
+	receiveReport,
+	regionReportKey,
+} from "./reports.ts";
 import {
 	annotations,
 	awaitingShort,
@@ -55,6 +59,10 @@ function receive(frame: BoardFeed): void {
 	}
 	if (frame.type === "report") {
 		receiveReport(frame.sessionId, frame.result);
+		return;
+	}
+	if (frame.type === "region-report") {
+		receiveReport(regionReportKey(frame.regionId), frame.result);
 		return;
 	}
 	if (frame.type === "comments") {

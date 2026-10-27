@@ -125,6 +125,7 @@ export type Note = Annotated & {
 	text: string;
 	color: NoteColor;
 	session?: string;
+	region?: string;
 };
 
 export type Sticker = Annotated & {
@@ -188,6 +189,7 @@ export type BoardFeed =
 	| { type: "regions"; regions: Region[] }
 	| { type: "exit"; sessionId: string; result: ExitResult }
 	| { type: "report"; sessionId: string; result: ReportResult }
+	| { type: "region-report"; regionId: string; result: ReportResult }
 	| { type: "comments"; comments: CommentThread[] }
 	| { type: "comment"; comment: CommentThread };
 

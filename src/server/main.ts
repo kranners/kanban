@@ -12,7 +12,7 @@ import {
 	createBoardAgent,
 	isAgentDir,
 } from "./boardAgent.ts";
-import { createBoardTools } from "./boardTools.ts";
+import { createBoardTools, projectsOf } from "./boardTools.ts";
 import { cmuxCli, createCmuxTargets } from "./cmux.ts";
 import { createColourStore, loadColours } from "./colours.ts";
 import { listCommands } from "./commands.ts";
@@ -34,7 +34,12 @@ import { createLayoutStore, loadLayout } from "./layout.ts";
 import { createMirrorHub } from "./mirror.ts";
 import { createPromptSender } from "./prompts.ts";
 import { createRegionStore, loadRegions } from "./regions.ts";
-import { cardsOf, createReportRunner } from "./reports.ts";
+import {
+	cardsOf,
+	createRegionReportRunner,
+	createReportRunner,
+	regionMembersOf,
+} from "./reports.ts";
 import { claudeLauncher } from "./sessions.ts";
 import { attachTty, cmuxTty, sharedAttachTty } from "./terminals.ts";
 
@@ -147,6 +152,19 @@ const runReport = createReportRunner({
 	audit,
 	announce: (sessionId, result) => feed?.report(sessionId, result),
 });
+const runRegionReport = createRegionReportRunner({
+	ask,
+	annotations,
+	members: (regionId) =>
+		regionMembersOf(
+			source.board(),
+			projectsOf(source.board(), { layout, annotations, regions }),
+			regionId,
+		),
+	cards: () => cardsOf(source.board(), layout.current()),
+	audit,
+	announce: (regionId, result) => feed?.regionReport(regionId, result),
+});
 const launch = claudeLauncher(config.claudeBin);
 const attachPty = claudeAttachPty(config.claudeBin);
 const attach = createAttachHub(attachPty, audit, (short) =>
@@ -214,6 +232,7 @@ const server = createKanbanServer({
 	launch,
 	exit: runExit,
 	report: runReport,
+	regionReport: runRegionReport,
 	layout,
 	annotations,
 	colours,

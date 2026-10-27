@@ -162,6 +162,10 @@ const probes: Record<string, Probe> = {
 		await answers(backend, "PATCH", `/api/regions/${id}`, { name: "API" });
 		await answers(backend, "DELETE", `/api/regions/${id}`);
 	},
+	"/api/regions/:param/report": async (backend) => {
+		const id = await region(backend);
+		await answers(backend, "POST", `/api/regions/${id}/report`);
+	},
 	"/api/comments": async (backend) => {
 		await thread(backend);
 	},

@@ -34,7 +34,7 @@ import {
 } from "./http.ts";
 import { createLayoutStore } from "./layout.ts";
 import { createRegionStore } from "./regions.ts";
-import { createReportRunner } from "./reports.ts";
+import { createRegionReportRunner, createReportRunner } from "./reports.ts";
 
 const route = (method: string, path: string) =>
 	matchRoute(method, new URL(path, "http://x"));
@@ -106,6 +106,13 @@ describe("matchRoute", () => {
 			regionId: "region-1",
 		});
 		assert.deepEqual(route("GET", "/api/regions/region-1"), {
+			kind: "method-not-allowed",
+		});
+		assert.deepEqual(route("POST", "/api/regions/region-1/report"), {
+			kind: "report-region",
+			regionId: "region-1",
+		});
+		assert.deepEqual(route("GET", "/api/regions/region-1/report"), {
 			kind: "method-not-allowed",
 		});
 		assert.deepEqual(route("DELETE", "/api/regions/..%2Fx"), {
@@ -349,6 +356,25 @@ describe("createKanbanServer", () => {
 				announce: (sessionId, result) => feed?.report(sessionId, result),
 				now: () => new Date(2026, 9, 27, 14, 5),
 				newId: () => "report-1",
+			}),
+			regionReport: createRegionReportRunner({
+				ask: async (session, question) => {
+					reports.push([session.id, question]);
+					return reportAnswer;
+				},
+				annotations,
+				members: (regionId) =>
+					regionId === "region-1"
+						? {
+								frame: { x: 0, y: 0, w: 480, h: 360 },
+								sessions: board.sessions,
+							}
+						: null,
+				cards: () => new Map(),
+				audit: (event) => events.push(event),
+				announce: (regionId, result) => feed?.regionReport(regionId, result),
+				now: () => new Date(2026, 9, 27, 14, 5),
+				newId: () => "region-report-1",
 			}),
 			layout: {
 				...store,
@@ -912,6 +938,62 @@ describe("createKanbanServer", () => {
 		assert.deepEqual(
 			frames.map((frame) => frame.type === "regions" && frame.regions),
 			[[], [region], [{ ...region, name: "Acme" }], []],
+		);
+	});
+
+	it("asks every session in a project region and notes the answers beside it", async () => {
+		reportAnswer = { ok: true, answer: "- Tests pass" };
+		const draft = { cwd: realpathSync(tmpdir()), x: 0, y: 24, w: 480, h: 336 };
+		assert.equal((await send("POST", "/api/regions", draft)).status, 201);
+		const feed = await feedFrames("region-report");
+		assert.equal(
+			(await send("POST", "/api/regions/region-1/report", {})).status,
+			202,
+		);
+		assert.deepEqual(await feed.next(), {
+			type: "region-report",
+			regionId: "region-1",
+			result: { ok: true },
+		});
+		feed.close();
+		const note = annotationsNow()["region-report-1"];
+		assert.equal(note?.kind === "note" && note.region, "region-1");
+		assert.equal(note?.kind === "note" && note.session, undefined);
+		assert.equal(note?.kind === "note" && note.x, 528);
+		const names = board.sessions.map((session) => session.name);
+		assert.equal(
+			note?.kind === "note" ? note.text : "",
+			[
+				"**Status · 14:05**",
+				...names.map((name) => `**${name}**\n\n- Tests pass`),
+			].join("\n\n"),
+		);
+		const audited = events.at(-1);
+		assert.equal(
+			audited?.action === "region-report" && audited.result,
+			"noted",
+		);
+		assert.equal(
+			(await send("POST", "/api/regions/other/report", {})).status,
+			404,
+		);
+		assert.equal(
+			(
+				await fetch(`${base}/api/regions/region-1/report`, {
+					method: "POST",
+					headers: { ...authed, origin: "https://evil.example" },
+				})
+			).status,
+			403,
+		);
+		assert.equal(
+			(await send("DELETE", "/api/annotations/region-report-1", undefined))
+				.status,
+			204,
+		);
+		assert.equal(
+			(await send("DELETE", "/api/regions/region-1", undefined)).status,
+			204,
 		);
 	});
 

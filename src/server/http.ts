@@ -58,7 +58,7 @@ import {
 	parseRegionPatch,
 	type RegionStore,
 } from "./regions.ts";
-import type { ReportRunner } from "./reports.ts";
+import type { RegionReportRunner, ReportRunner } from "./reports.ts";
 import { type SessionLauncher, validateNewSession } from "./sessions.ts";
 
 export type BoardSource = {
@@ -75,6 +75,7 @@ export type ServerDeps = {
 	launch: SessionLauncher;
 	exit: ExitRunner;
 	report: ReportRunner;
+	regionReport: RegionReportRunner;
 	layout: LayoutStore;
 	annotations: AnnotationStore;
 	colours: ColourStore;
@@ -107,6 +108,7 @@ export type Route =
 	| { kind: "create-region" }
 	| { kind: "update-region"; regionId: string }
 	| { kind: "delete-region"; regionId: string }
+	| { kind: "report-region"; regionId: string }
 	| { kind: "create-comment" }
 	| { kind: "reply-comment"; threadId: string }
 	| { kind: "cancel-comment"; threadId: string }
@@ -231,6 +233,12 @@ export const matchRoute = (method: string, url: URL): Route => {
 		if (method === "DELETE")
 			return { kind: "delete-region", regionId: region[1] };
 		return { kind: "method-not-allowed" };
+	}
+	const regionReport = path.match(/^\/api\/regions\/([^/]+)\/report$/);
+	if (regionReport?.[1] && isRegionId(regionReport[1])) {
+		return method === "POST"
+			? { kind: "report-region", regionId: regionReport[1] }
+			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api/comments") {
 		return method === "POST"
@@ -625,6 +633,26 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res.end();
 	};
 
+	const reportRegion = (
+		req: IncomingMessage,
+		res: ServerResponse,
+		regionId: string,
+		identity: string | null,
+	) => {
+		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		const region = deps.regions
+			.current()
+			.find((region) => region.id === regionId);
+		if (!region) return sendError(res, 404);
+		if (!deps.regionReport(region, identity)) {
+			return sendJson(res, 409, {
+				ok: false,
+				error: "This project is already writing a status report",
+			});
+		}
+		sendJson(res, 202, { ok: true });
+	};
+
 	const createComment = async (req: IncomingMessage, res: ServerResponse) => {
 		const read = await readBody(req, res);
 		if (!read) return;
@@ -788,6 +816,8 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return updateRegion(req, res, route.regionId);
 			case "delete-region":
 				return deleteRegion(req, res, route.regionId);
+			case "report-region":
+				return reportRegion(req, res, route.regionId, auth.identity);
 			case "create-comment":
 				return createComment(req, res);
 			case "reply-comment":

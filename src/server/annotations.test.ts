@@ -69,6 +69,14 @@ describe("parseAnnotation", () => {
 		);
 	});
 
+	it("keeps the region a project status report note is linked to", () => {
+		const region = "11111111-2222-3333-4444-555555555555";
+		assert.equal(
+			(parseAnnotation("r", { ...note, region }) as Note).region,
+			region,
+		);
+	});
+
 	it("takes the id from the path, not the body", () => {
 		const parsed = parseAnnotation("from-path", { ...note, id: "from-body" });
 		assert.equal((parsed as Annotation).id, "from-path");
@@ -93,6 +101,8 @@ describe("parseAnnotation", () => {
 			["n", { ...note, color: undefined }],
 			["n", { ...note, session: 7 }],
 			["n", { ...note, session: "../etc" }],
+			["n", { ...note, region: 7 }],
+			["n", { ...note, region: "../etc" }],
 			["s", { ...sticker, sticker: "../../etc/passwd" }],
 			["s", { ...sticker, sticker: "constructor" }],
 			["s", { ...sticker, rotation: 720 }],

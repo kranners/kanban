@@ -93,6 +93,7 @@ const board: Board = {
 	subagentCounts: {},
 	subagentStates: {},
 	workflowRuns: {},
+	workflows: [],
 	links: [
 		{
 			from: { kind: "session", id: "a" },

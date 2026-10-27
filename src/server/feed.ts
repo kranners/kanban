@@ -25,6 +25,7 @@ export type Feed = {
 	regions(regions: Region[]): void;
 	exit(sessionId: string, result: ExitResult): void;
 	report(sessionId: string, result: ReportResult): void;
+	regionReport(regionId: string, result: ReportResult): void;
 	comments(comments: CommentThread[]): void;
 	comment(comment: CommentThread): void;
 	size(): number;
@@ -81,6 +82,8 @@ export const createFeed = ({
 		exit: (sessionId, result) => broadcast({ type: "exit", sessionId, result }),
 		report: (sessionId, result) =>
 			broadcast({ type: "report", sessionId, result }),
+		regionReport: (regionId, result) =>
+			broadcast({ type: "region-report", regionId, result }),
 		comments: (next) => broadcast({ type: "comments", comments: next }),
 		comment: (comment) => broadcast({ type: "comment", comment }),
 		size: () => clients.size,

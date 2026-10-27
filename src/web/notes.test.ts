@@ -157,10 +157,11 @@ describe("stacking", () => {
 		);
 	});
 
-	it("leaves a duplicated status report unlinked from its session", () => {
-		const report = { ...note("a", 1), session: "s-1" };
+	it("leaves a duplicated status report unlinked from its session or region", () => {
+		const report = { ...note("a", 1), session: "s-1", region: "r-1" };
 		const [copy] = duplicated(board(report), ["a"], () => "copy");
 		assert.equal(copy?.kind === "note" && "session" in copy, false);
+		assert.equal(copy?.kind === "note" && "region" in copy, false);
 	});
 
 	it("recolours only notes that change", () => {

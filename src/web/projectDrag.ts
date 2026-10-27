@@ -1,4 +1,4 @@
-import type { Point } from "../shared/types.ts";
+import type { Annotation, Point } from "../shared/types.ts";
 import { current as shownAnnotations } from "./annotations.ts";
 import { groups } from "./arrangement.ts";
 import { view } from "./Canvas.tsx";
@@ -58,6 +58,18 @@ function follow(on: boolean): void {
 	toggle("pointercancel", endDrag);
 }
 
+function notesOf(project: Group): Annotation[] {
+	const all = Object.values(shownAnnotations.peek());
+	const inside = new Set(centredIn(project.frame, all));
+	return all.filter(
+		(a) =>
+			inside.has(a) ||
+			(a.kind === "note" &&
+				a.region !== undefined &&
+				a.region === project.region?.id),
+	);
+}
+
 function beginDrag(
 	event: PointerEvent,
 	project: Group,
@@ -69,10 +81,7 @@ function beginDrag(
 	const origin = project.region ? rectOf(project.region) : project.frame;
 	const load =
 		handle === "move"
-			? loadOf(
-					project.members,
-					centredIn(project.frame, Object.values(shownAnnotations.peek())),
-				)
+			? loadOf(project.members, notesOf(project))
 			: { nodes: [], notes: [] };
 	drag = {
 		pointerId: event.pointerId,

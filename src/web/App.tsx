@@ -37,6 +37,7 @@ import { nodeKey } from "./layout.ts";
 import { useNeedsYouShortcut } from "./NeedsYou.tsx";
 import type { Arrangement } from "./placement.ts";
 import { Rail } from "./Rail.tsx";
+import { RegionNotices } from "./RegionControls.tsx";
 import { RegionFrames, RegionLayer } from "./Regions.tsx";
 import { ReportButton, ReportNotice } from "./ReportControls.tsx";
 import { reports } from "./reports.ts";
@@ -125,6 +126,9 @@ function World(props: { board: Board; layout: Arrangement }) {
 	const regions = new Map(
 		frames.flatMap((g) => g.members.map((key) => [key, colourOf(g.cwd)])),
 	);
+	const regionFrames = new Map(
+		frames.flatMap((g) => (g.region ? [[g.region.id, g.frame] as const] : [])),
+	);
 	const exiting = exits.value;
 	const reporting = reports.value;
 	const landed = arrived.value;
@@ -171,7 +175,12 @@ function World(props: { board: Board; layout: Arrangement }) {
 			<GroupFrames groups={frames.filter((g) => !g.region)} />
 			<RegionFrames groups={frames} />
 			<AnnotationLayer />
-			<Tethers layout={props.layout} visible={visible} notes={ordered.value} />
+			<Tethers
+				layout={props.layout}
+				visible={visible}
+				notes={ordered.value}
+				regions={regionFrames}
+			/>
 			<Links board={props.board} layout={props.layout} visible={visible} />
 			{sessionCards(props.board, props.layout).map(({ session, node }) =>
 				card(session, node, exiting.get(session.id)),
@@ -203,6 +212,7 @@ function World(props: { board: Board; layout: Arrangement }) {
 				litPair={lit.pair}
 				visible={visible}
 			/>
+			<RegionNotices groups={frames} />
 			<CommentLayer />
 		</>
 	);

@@ -6,7 +6,11 @@ import { exits } from "./exitState.ts";
 import { nodeKey } from "./layout.ts";
 import { board } from "./state.ts";
 
-export type ExitAsk = { session: Session; force: boolean };
+export type ExitAsk = {
+	sessions: readonly Session[];
+	force: boolean;
+	project?: string;
+};
 
 const leaveMs = 260;
 const noticeMs = 15_000;
@@ -110,7 +114,23 @@ export function busy(id: string): boolean {
 
 export function askToExit(session: Session, force: boolean): void {
 	if (busy(session.id)) return;
-	exitAsk.value = { session, force };
+	exitAsk.value = { sessions: [session], force };
+}
+
+export function askToExitProject(
+	project: string,
+	sessions: readonly Session[],
+	force: boolean,
+): void {
+	const idle = sessions.filter((session) => !busy(session.id));
+	if (idle.length > 0) exitAsk.value = { sessions: idle, force, project };
+}
+
+export async function exitSessions(
+	sessions: readonly Session[],
+	force: boolean,
+): Promise<void> {
+	await Promise.all(sessions.map((session) => exitSession(session, force)));
 }
 
 export async function exitSession(

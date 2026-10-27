@@ -853,6 +853,22 @@ export function createBackend(scenario: Scenario): Backend {
 				return empty(204);
 			},
 		],
+		[
+			"POST",
+			/^\/api\/regions\/([^/]+)\/report$/,
+			([id = ""]) => {
+				if (!world.regions.some((region) => region.id === id))
+					return notFound();
+				later(1500, () =>
+					broadcast({
+						type: "region-report",
+						regionId: id,
+						result: { ok: true },
+					}),
+				);
+				return json(202, { ok: true });
+			},
+		],
 		["POST", /^\/api\/comments$/, (_, body) => createComment(body)],
 		[
 			"POST",
