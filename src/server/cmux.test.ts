@@ -68,6 +68,22 @@ describe("explainFailure", () => {
 		);
 		assert.equal(explainFailure("/bin/cmux", ""), "cmux: no output");
 	});
+
+	it("explains an open question or a draft without mentioning cmux flags", () => {
+		const dialog = explainFailure(
+			"/bin/cmux",
+			"Error: paste: 313A is waiting on a question or dialog, so nothing was sent. Retry once it is answered, or pass --force to send anyway.",
+		);
+		const draft = explainFailure(
+			"/bin/cmux",
+			"Error: paste: the agent prompt in 313A holds text someone is typing, so nothing was sent. Retry when the prompt is clear, or pass --force to send anyway.",
+		);
+		for (const message of [dialog, draft]) {
+			assert.doesNotMatch(message, /--force|cmux/);
+		}
+		assert.match(dialog, /question open/);
+		assert.match(draft, /typing/);
+	});
 });
 
 describe("cmuxCli against a fake cmux", () => {
@@ -127,7 +143,7 @@ describe("cmuxCli against a fake cmux", () => {
 			"top|--all|--processes|--format|tsv|--id-format|uuids|surface-env=unset",
 			`read-screen|--workspace|${workspace}|--surface|${surface}|surface-env=unset`,
 			`paste|--workspace|${workspace}|--surface|${surface}|--submit|--|-n ship it|surface-env=unset`,
-			`send-key|--workspace|${workspace}|--surface|${surface}|--|shift+tab|surface-env=unset`,
+			`send-key|--workspace|${workspace}|--surface|${surface}|--force|--|shift+tab|surface-env=unset`,
 		]);
 	});
 

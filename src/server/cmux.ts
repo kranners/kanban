@@ -78,6 +78,12 @@ export const explainFailure = (cmuxBin: string, output: string): string => {
 	if (/ENOENT/.test(detail)) {
 		return `cmux was not found at ${cmuxBin}; set CMUX_BIN`;
 	}
+	if (/waiting on a question or dialog/.test(detail)) {
+		return "The session has a question open, so the text was not sent. Answer it with the keys first.";
+	}
+	if (/holds text someone is typing/.test(detail)) {
+		return "Someone is typing in the session's prompt, so the text was not sent. Try again once the prompt is clear.";
+	}
 	if (refusal.test(detail)) {
 		return `cmux refused kanban (${detail}). Run kanban from inside cmux, or set CMUX_SOCKET_PASSWORD to cmux's socket password.`;
 	}
@@ -160,7 +166,9 @@ export const cmuxCli = (cmuxBin: string): Cmux => {
 				]),
 			),
 		sendKey: async (target, key) =>
-			done(await run(["send-key", ...at(target), "--", cmuxKeys[key]])),
+			done(
+				await run(["send-key", ...at(target), "--force", "--", cmuxKeys[key]]),
+			),
 	};
 };
 

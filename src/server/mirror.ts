@@ -49,56 +49,66 @@ export type MirrorHub = {
 	open(socket: AttachSocket, session: Session, identity: string | null): void;
 };
 
+type Watch = {
+	join(socket: AttachSocket): void;
+	leave(socket: AttachSocket): void;
+	sent(): void;
+};
+
 export const createMirrorHub = (deps: MirrorDeps): MirrorHub => {
 	const pollMs = deps.pollMs ?? 500;
 	const checkMs = deps.checkMs ?? 5000;
+	const watches = new Map<string, Watch>();
 
-	const open: MirrorHub["open"] = (socket, session, identity) => {
-		let closed = false;
+	const sendTo = (socket: AttachSocket, frame: MirrorServerFrame) => {
+		if (socket.readyState === socketOpen) socket.send(JSON.stringify(frame));
+	};
+
+	const watch = (session: Session): Watch => {
+		const viewers = new Set<AttachSocket>();
 		let target: CmuxSurface | null = null;
 		let checkedAt = 0;
 		let screen: string | null = null;
 		let lastError: string | null = null;
 		let timer: NodeJS.Timeout | undefined;
-		let sending = Promise.resolve();
 
-		const send = (frame: MirrorServerFrame) => {
-			if (!closed && socket.readyState === socketOpen) {
-				socket.send(JSON.stringify(frame));
-			}
+		const broadcast = (frame: MirrorServerFrame) => {
+			for (const viewer of viewers) sendTo(viewer, frame);
 		};
 		const report = (error: string) => {
 			if (error === lastError) return;
 			lastError = error;
-			send({ type: "error", error });
+			broadcast({ type: "error", error });
 		};
 		const stop = () => {
-			closed = true;
 			clearTimeout(timer);
+			if (watches.get(session.id) === self) watches.delete(session.id);
 		};
 		const end = (reason: string) => {
-			send({ type: "ended", reason });
+			broadcast({ type: "ended", reason });
 			stop();
-			socket.close(1000, "ended");
+			for (const viewer of viewers) viewer.close(1000, "ended");
+			viewers.clear();
 		};
+		const stopped = () => viewers.size === 0;
 
 		const tick = async () => {
-			if (closed) return;
+			if (stopped()) return;
 			if (target === null || Date.now() - checkedAt >= checkMs) {
 				const resolved = await deps.resolve(session);
-				if (closed) return;
+				if (stopped()) return;
 				if (!resolved.ok) return end(resolved.error);
 				target = resolved.value;
 				checkedAt = Date.now();
 			}
 			const read = await deps.cmux.readScreen(target);
-			if (closed) return;
+			if (stopped()) return;
 			if (!read.ok) report(read.error);
 			else {
 				lastError = null;
 				if (read.value !== screen) {
 					screen = read.value;
-					send({ type: "screen", text: read.value });
+					broadcast({ type: "screen", text: read.value });
 				}
 			}
 			timer = setTimeout(poll, pollMs);
@@ -108,6 +118,33 @@ export const createMirrorHub = (deps: MirrorDeps): MirrorHub => {
 				console.error("mirror poll failed", error);
 				end("The mirror stopped unexpectedly");
 			});
+		};
+
+		const self: Watch = {
+			join(socket) {
+				viewers.add(socket);
+				if (screen !== null) sendTo(socket, { type: "screen", text: screen });
+				if (viewers.size === 1) poll();
+			},
+			leave(socket) {
+				viewers.delete(socket);
+				if (stopped()) stop();
+			},
+			sent() {
+				lastError = null;
+			},
+		};
+		watches.set(session.id, self);
+		return self;
+	};
+
+	const open: MirrorHub["open"] = (socket, session, identity) => {
+		let closed = false;
+		let sending = Promise.resolve();
+		const shared = watches.get(session.id) ?? watch(session);
+
+		const send = (frame: MirrorServerFrame) => {
+			if (!closed) sendTo(socket, frame);
 		};
 
 		const deliver = async (frame: MirrorClientFrame) => {
@@ -130,7 +167,7 @@ export const createMirrorHub = (deps: MirrorDeps): MirrorHub => {
 				identity,
 				result: result.ok ? "sent" : `error: ${result.error}`,
 			});
-			if (result.ok) lastError = null;
+			if (result.ok) shared.sent();
 			else send({ type: "error", error: result.error });
 		};
 
@@ -145,8 +182,11 @@ export const createMirrorHub = (deps: MirrorDeps): MirrorHub => {
 					send({ type: "error", error: "Sending failed" });
 				});
 		});
-		socket.on("close", stop);
-		poll();
+		socket.on("close", () => {
+			closed = true;
+			shared.leave(socket);
+		});
+		shared.join(socket);
 	};
 
 	return { open };

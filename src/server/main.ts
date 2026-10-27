@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import type { Board } from "../shared/types.ts";
 import { createAnnotationStore, loadAnnotations } from "./annotations.ts";
 import { claudeAttachPty, createAttachHub } from "./attach.ts";
 import { fileAudit } from "./audit.ts";
@@ -51,6 +52,17 @@ const cmuxTargets = createCmuxTargets({
 const syncCmux = async () => {
 	if (await cmuxTargets.refresh()) source.refresh();
 };
+let interactivePids = "";
+const syncCmuxOnNewPids = (board: Board) => {
+	const pids = board.sessions
+		.filter((s) => s.kind === "interactive" && s.pid !== null)
+		.map((s) => s.pid)
+		.sort()
+		.join(",");
+	if (pids === interactivePids) return;
+	interactivePids = pids;
+	void syncCmux();
+};
 const previewer = createPreviewer({
 	transcript: (sessionId, limit) => source.transcript(sessionId, limit),
 	emit: (preview) => feed?.preview(preview),
@@ -63,7 +75,7 @@ const source = startBoard({
 		feed?.board(board);
 		layout.observe(board);
 		void previewer.update(board);
-		void syncCmux();
+		syncCmuxOnNewPids(board);
 	},
 });
 void syncCmux();

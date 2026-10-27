@@ -107,18 +107,23 @@ const harness = (opts: {
 	screens?: string[];
 	resolve?: () => CmuxResult<CmuxSurface>;
 	refuse?: string;
+	pollMs?: number;
 }) => {
 	const sent: string[] = [];
 	const events: AuditEvent[] = [];
+	let reads = 0;
 	const screens = [...(opts.screens ?? ["one"])];
 	const refused = (): CmuxResult<null> =>
 		opts.refuse ? { ok: false, error: opts.refuse } : { ok: true, value: null };
 	const cmux: Cmux = {
 		surfaces: async () => ({ ok: true, value: new Map() }),
-		readScreen: async () => ({
-			ok: true,
-			value: (screens.length > 1 ? screens.shift() : screens[0]) ?? "",
-		}),
+		readScreen: async () => {
+			reads += 1;
+			return {
+				ok: true,
+				value: (screens.length > 1 ? screens.shift() : screens[0]) ?? "",
+			};
+		},
 		paste: async (at, text, submit) => {
 			sent.push(`paste ${at.surface} ${text} ${submit}`);
 			return refused();
@@ -132,9 +137,9 @@ const harness = (opts: {
 		cmux,
 		resolve: async () => opts.resolve?.() ?? { ok: true, value: target },
 		audit: (event) => events.push(event),
-		pollMs: 1,
+		pollMs: opts.pollMs ?? 1,
 	});
-	return { hub, sent, events };
+	return { hub, sent, events, reads: () => reads };
 };
 
 describe("createMirrorHub", () => {
@@ -148,6 +153,32 @@ describe("createMirrorHub", () => {
 			{ type: "screen", text: "one" },
 			{ type: "screen", text: "two" },
 		]);
+	});
+
+	it("shares one poll between viewers of a session", async () => {
+		const { hub, reads } = harness({ screens: ["one"], pollMs: 60_000 });
+		const first = fakeSocket();
+		hub.open(first, session, null);
+		await settle(() => first.frames.length >= 1);
+		const second = fakeSocket();
+		hub.open(second, session, null);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		first.hangUp();
+		second.hangUp();
+		assert.equal(reads(), 1);
+		assert.deepEqual(second.frames, [{ type: "screen", text: "one" }]);
+	});
+
+	it("stops polling once every viewer has left", async () => {
+		const { hub, reads } = harness({ screens: ["one"] });
+		const socket = fakeSocket();
+		hub.open(socket, session, null);
+		await settle(() => reads() >= 3);
+		socket.hangUp();
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		const after = reads();
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		assert.equal(reads(), after);
 	});
 
 	it("types text and keys into the resolved surface and audits each", async () => {
