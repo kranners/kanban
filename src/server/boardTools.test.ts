@@ -43,6 +43,8 @@ const board: Board = {
 	sessions: [session("aaaaaaaa-1"), session("bbbbbbbb-2")],
 	subagents: [],
 	subagentCounts: {},
+	subagentStates: {},
+	workflowRuns: {},
 	links: [],
 	messages: [],
 	generatedAt: 0,

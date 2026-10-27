@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import {
 	type AskAnswer,
 	type AskQuestion,
@@ -8,10 +9,11 @@ import {
 	maxPromptText,
 	type ViewKey,
 } from "../shared/conversation.ts";
-import type { Session } from "../shared/types.ts";
+import type { NodeRef, Session } from "../shared/types.ts";
 import { answerQuestions, choosePermission, type Outcome } from "./answer.ts";
 import type { AttachSocket } from "./attach.ts";
 import type { Audit } from "./audit.ts";
+import type { CmuxResult } from "./cmux.ts";
 import {
 	advanceLog,
 	type ConversationLog,
@@ -20,11 +22,16 @@ import {
 	itemsSince,
 } from "./conversation.ts";
 import { asObject, asString } from "./ingest/json.ts";
-import { permissionMode, readDialog } from "./screen.ts";
+import {
+	type ChoiceScreen,
+	permissionMode,
+	readDialog,
+	type ScreenDialog,
+} from "./screen.ts";
 import type { SessionTty } from "./terminals.ts";
 
 export type ConversationTarget =
-	| { kind: "session"; session: Session; path: string }
+	| { kind: "session"; session: Session; path: string | null }
 	| { kind: "subagent"; id: string; path: string };
 
 export type Since = { epoch: string; rev: number } | null;
@@ -32,6 +39,7 @@ export type Since = { epoch: string; rev: number } | null;
 export type ConversationDeps = {
 	session(id: string): Session | null;
 	tty(session: Session): SessionTty | null;
+	transcriptPath(node: NodeRef): string | null;
 	audit: Audit;
 	pollMs?: number;
 	screenMs?: number;
@@ -46,6 +54,7 @@ export type ConversationHub = {
 		identity: string | null,
 	): void;
 	attached(): string[];
+	release(short: string): void;
 };
 
 const socketOpen = 1;
@@ -95,6 +104,24 @@ export const promptRefusal = (
 	if (awaiting) {
 		return "The session is waiting on a question or permission prompt. Answer it first.";
 	}
+	return null;
+};
+
+export const screenRefusal = (
+	shown: ScreenDialog | null,
+	key: ViewKey | null,
+	working: boolean,
+): string | null => {
+	if (shown?.kind === "menu") {
+		return key === "Escape"
+			? null
+			: `The session has a menu open (${shown.title}). Close it with Esc or use the terminal.`;
+	}
+	if (shown) {
+		return "The session is waiting on a question or permission prompt. Answer it first.";
+	}
+	if (key === "Escape" && !working)
+		return "Claude is not working, so there is nothing to interrupt";
 	return null;
 };
 
@@ -148,6 +175,48 @@ export const pendingTool = (
 	return item?.kind === "tool" && id ? { id, name: item.name } : null;
 };
 
+const compact = (text: string): string => text.replace(/\s+/g, "");
+
+export const promptMarker = (tool: {
+	name: string;
+	input: Record<string, unknown>;
+}): string | null => {
+	if (tool.name === "Bash") {
+		const command = compact(asString(tool.input.command) ?? "");
+		return command === "" ? null : command.slice(0, 40);
+	}
+	const path =
+		asString(tool.input.file_path) ?? asString(tool.input.notebook_path);
+	return path ? basename(path) : null;
+};
+
+export const shownTool = (
+	log: ConversationLog,
+	screen: ChoiceScreen,
+): { toolUseId: string | null; bound: boolean } => {
+	const pending = log.status.pendingTools.flatMap((id) => {
+		const index = log.tools.get(id);
+		const item = index === undefined ? undefined : log.items[index];
+		return item?.kind === "tool" ? [{ id, marker: promptMarker(item) }] : [];
+	});
+	if (pending.length === 0) return { toolUseId: null, bound: true };
+	const body = compact(`${screen.body}${screen.question}`);
+	const marked = pending.findLast(
+		({ marker }) => marker !== null && body.includes(marker),
+	);
+	const unmarked = pending.findLast(({ marker }) => marker === null);
+	const tool = marked ?? unmarked;
+	return tool
+		? { toolUseId: tool.id, bound: true }
+		: { toolUseId: null, bound: false };
+};
+
+const toolName = (log: ConversationLog, id: string | null): string | null => {
+	const index = id === null ? undefined : log.tools.get(id);
+	const item = index === undefined ? undefined : log.items[index];
+	return item?.kind === "tool" ? item.name : null;
+};
+
 export const dialogOf = (
 	log: ConversationLog,
 	session: Session | null,
@@ -164,17 +233,22 @@ export const dialogOf = (
 	}
 	const tool = pendingTool(log);
 	if (shown?.kind === "choice" && (waiting || tool)) {
+		const bound = shownTool(log, shown);
 		return {
 			dialog: {
 				kind: "permission",
-				toolUseId: tool?.id ?? null,
-				title: tool?.name ?? "Claude Code",
+				toolUseId: bound.toolUseId,
+				title: toolName(log, bound.toolUseId) ?? "Claude Code",
+				context: bound.toolUseId === null ? shown.body : null,
 				question: shown.question,
 				options: shown.options,
 				complete: shown.complete,
 			},
-			answerable: true,
+			answerable: bound.bound,
 		};
+	}
+	if (shown?.kind === "menu") {
+		return { dialog: { kind: "menu", title: shown.title }, answerable: true };
 	}
 	if (waiting && tool) {
 		return {
@@ -182,6 +256,7 @@ export const dialogOf = (
 				kind: "permission",
 				toolUseId: tool.id,
 				title: tool.name,
+				context: null,
 				question: "Waiting for permission",
 				options: [],
 				complete: false,
@@ -263,6 +338,7 @@ export const parseConversationFrame = (
 type Viewer = { socket: AttachSocket; first: number };
 
 type Watch = {
+	target: ConversationTarget;
 	log: ConversationLog;
 	viewers: Set<Viewer>;
 	join(viewer: Viewer, since: Since): void;
@@ -301,9 +377,10 @@ export const createConversationHub = (
 	};
 
 	const watch = (key: string, target: ConversationTarget): Watch => {
-		const log = createLog(target.path);
+		const log = createLog(target.path ?? "");
 		const viewers = new Set<Viewer>();
 		const sessionId = target.kind === "session" ? target.session.id : null;
+		let stopped = false;
 		let broadcastRev = 0;
 		let statusKey = "";
 		let dialogKey = "";
@@ -313,7 +390,14 @@ export const createConversationHub = (
 		let screenAt = 0;
 		let busy: Promise<unknown> = Promise.resolve();
 		let lastUse = 0;
-		let dialog: Dialog | null = null;
+
+		const advance = () => {
+			if (log.path === "" && sessionId) {
+				log.path =
+					deps.transcriptPath({ kind: "session", id: sessionId }) ?? "";
+			}
+			advanceLog(log);
+		};
 
 		const broadcast = (frame: ConversationServerFrame) => {
 			for (const viewer of viewers) sendTo(viewer.socket, frame);
@@ -380,13 +464,15 @@ export const createConversationHub = (
 				if (Date.now() - lastUse > 30_000) releaseTty(current.id);
 			}
 			const next = dialogOf(log, current, screen);
-			dialog = next.dialog;
 			const key = JSON.stringify(next);
 			if (key !== dialogKey) {
 				dialogKey = key;
 				broadcast({ type: "dialog", ...next });
 			}
-			const mode = screen === null ? modeKey : permissionMode(screen);
+			const mode =
+				screen === null || readDialog(screen) !== null
+					? modeKey
+					: permissionMode(screen);
 			if (mode !== modeKey) {
 				modeKey = mode;
 				broadcast({ type: "mode", mode });
@@ -394,8 +480,8 @@ export const createConversationHub = (
 		};
 
 		const tick = async () => {
-			if (viewers.size === 0) return;
-			advanceLog(log);
+			if (stopped) return;
+			advance();
 			if (log.rev !== broadcastRev) {
 				const items = itemsSince(log, broadcastRev);
 				broadcastRev = log.rev;
@@ -429,6 +515,7 @@ export const createConversationHub = (
 		};
 
 		const stop = () => {
+			stopped = true;
 			clearTimeout(timer);
 			if (sessionId) releaseTty(sessionId);
 			if (watches.get(key) === self) watches.delete(key);
@@ -445,6 +532,7 @@ export const createConversationHub = (
 		const perform = async (
 			frame: Exclude<ConversationClientFrame, { type: "more" }>,
 		): Promise<Outcome> => {
+			if (stopped) return { ok: false, error: "Nobody is viewing the session" };
 			const current = session();
 			if (!current)
 				return { ok: false, error: "The session has left the board" };
@@ -454,14 +542,26 @@ export const createConversationHub = (
 			if (!tty)
 				return { ok: false, error: "The session cannot be driven from here" };
 			lastUse = Date.now();
-			advanceLog(log);
+			advance();
+			const shownDialog = async (): Promise<
+				CmuxResult<ScreenDialog | null>
+			> => {
+				const screen = await tty.screen();
+				return screen.ok
+					? { ok: true, value: readDialog(screen.value) }
+					: screen;
+			};
 			switch (frame.type) {
 				case "prompt": {
 					const refused = promptRefusal(
 						frame.text,
 						awaitingAnswer(current, log),
 					);
-					return refused ? { ok: false, error: refused } : tty.send(frame.text);
+					if (refused) return { ok: false, error: refused };
+					const shown = await shownDialog();
+					if (!shown.ok) return shown;
+					const blocked = screenRefusal(shown.value, null, true);
+					return blocked ? { ok: false, error: blocked } : tty.send(frame.text);
 				}
 				case "key": {
 					if (awaitingAnswer(current, log)) {
@@ -470,18 +570,32 @@ export const createConversationHub = (
 							error: "The session is waiting on a prompt. Answer it first.",
 						};
 					}
+					const shown = await shownDialog();
+					if (!shown.ok) return shown;
+					const working =
+						current.activity === "working" ||
+						log.status.pendingTools.length > 0;
+					const blocked = screenRefusal(shown.value, frame.key, working);
+					if (blocked) return { ok: false, error: blocked };
 					const sent = await tty.keys([frame.key]);
 					screenAt = 0;
 					return sent;
 				}
 				case "permission": {
+					const screen = await tty.screen();
+					if (!screen.ok) return screen;
+					const fresh = dialogOf(log, current, screen.value);
 					if (
-						dialog?.kind !== "permission" ||
-						dialog.toolUseId !== frame.toolUseId
+						fresh.dialog?.kind !== "permission" ||
+						!fresh.answerable ||
+						fresh.dialog.toolUseId !== frame.toolUseId
 					) {
 						return { ok: false, error: "That prompt is no longer open" };
 					}
-					return choosePermission(tty, frame.choice, frame.label);
+					return choosePermission(tty, frame.choice, frame.label, (shown) => {
+						const bound = shownTool(log, shown);
+						return bound.bound && bound.toolUseId === frame.toolUseId;
+					});
 				}
 				case "answer": {
 					const question = pendingQuestion(log);
@@ -494,10 +608,11 @@ export const createConversationHub = (
 		};
 
 		const self: Watch = {
+			target,
 			log,
 			viewers,
 			join(viewer, since) {
-				advanceLog(log);
+				advance();
 				viewers.add(viewer);
 				sendTo(viewer.socket, itemsFrame(since, viewer));
 				sendTo(viewer.socket, { type: "status", status: log.status });
@@ -590,11 +705,28 @@ export const createConversationHub = (
 		shared.join(viewer, since);
 	};
 
+	const viewed = (): string[] =>
+		[...watches.values()].flatMap(({ target, viewers }) => {
+			if (target.kind !== "session" || viewers.size === 0) return [];
+			const short =
+				deps.session(target.session.id)?.short ?? target.session.short;
+			return short ? [short] : [];
+		});
+
 	return {
 		open,
-		attached: () =>
-			[...ttys.values()].flatMap(({ tty, short }) =>
-				short && tty.isOpen() ? [short] : [],
-			),
+		attached: () => [
+			...new Set([
+				...viewed(),
+				...[...ttys.values()].flatMap(({ tty, short }) =>
+					short && tty.isOpen() ? [short] : [],
+				),
+			]),
+		],
+		release(short) {
+			for (const [sessionId, entry] of ttys) {
+				if (entry.short === short) releaseTty(sessionId);
+			}
+		},
 	};
 };

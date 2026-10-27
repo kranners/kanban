@@ -232,21 +232,38 @@ describe("createCmuxTargets", () => {
 		);
 	});
 
-	it("reports a refusal once and drops cached surfaces", async () => {
+	it("rides out a failed or empty listing, then ages the surfaces out", async () => {
 		const errors: string[] = [];
-		let refuse = false;
+		let listing: "good" | "empty" | "refused" = "good";
+		let clock = 0;
 		const cmux = fakeCmux(parseSurfaces(topTsv));
 		const targets = createCmuxTargets({
 			cmux: {
 				...cmux,
 				surfaces: async () =>
-					refuse ? { ok: false, error: "refused" } : cmux.surfaces(),
+					listing === "good"
+						? cmux.surfaces()
+						: listing === "empty"
+							? { ok: true, value: new Map() }
+							: { ok: false, error: "refused" },
 			},
 			live: async () => true,
 			onError: (error) => errors.push(error),
+			keepMs: 1000,
+			now: () => clock,
 		});
 		await targets.refresh();
-		refuse = true;
+		listing = "empty";
+		clock = 500;
+		assert.equal(await targets.refresh(), false);
+		assert.equal(targets.has(202), true);
+		listing = "refused";
+		assert.equal(await targets.refresh(), false);
+		assert.deepEqual(await targets.resolve(session), {
+			ok: true,
+			value: target,
+		});
+		clock = 1500;
 		assert.equal(await targets.refresh(), true);
 		await targets.refresh();
 		assert.equal(targets.has(202), false);

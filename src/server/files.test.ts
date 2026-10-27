@@ -99,6 +99,18 @@ describe("listing a session's files", () => {
 		assert.deepEqual(listing, { ok: true, files: ["project.txt"] });
 		const inside = await listFiles({ cwd: claudeHome, query: "", claudeHome });
 		assert.equal(inside.ok, false);
+		const project = join(root, "with-links");
+		touch(join(project, "kept.txt"));
+		mkdirSync(join(project, "sub"), { recursive: true });
+		symlinkSync(claudeHome, join(project, "claude-home-link"));
+		symlinkSync(
+			join(claudeHome, "sessions"),
+			join(project, "sub", "sessions-link"),
+		);
+		assert.deepEqual(await listFiles({ cwd: project, query: "", claudeHome }), {
+			ok: true,
+			files: ["sub/", "kept.txt"],
+		});
 		const linked = join(root, "linked");
 		symlinkSync(claudeHome, linked);
 		assert.equal(

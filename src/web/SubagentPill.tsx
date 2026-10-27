@@ -67,7 +67,10 @@ export function OutstandingSubagentsCount(props: {
 			title={subagentSummary(counts)}
 		>
 			<Bot size={10} strokeWidth={2.5} aria-hidden="true" />
-			{outstanding}
+			<span aria-hidden="true">{outstanding}</span>
+			<span class="visually-hidden">
+				{`, ${outstanding} ${outstanding === 1 ? "subagent" : "subagents"} outstanding`}
+			</span>
 		</span>
 	);
 }

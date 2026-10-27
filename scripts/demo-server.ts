@@ -3,7 +3,10 @@ import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
-import { subagentCountsBySession } from "../src/shared/subagents.ts";
+import {
+	outstandingStates,
+	subagentCountsBySession,
+} from "../src/shared/subagents.ts";
 import type {
 	Board,
 	BoardFeed,
@@ -280,6 +283,8 @@ const board: Board = {
 	sessions,
 	subagents,
 	subagentCounts: subagentCountsBySession(subagents),
+	subagentStates: outstandingStates(subagents),
+	workflowRuns: {},
 	links,
 	messages,
 	generatedAt: start,
@@ -513,6 +518,8 @@ function snapshot(): Board {
 		sessions: [...sessions],
 		subagents: shown,
 		subagentCounts: subagentCountsBySession(shown),
+		subagentStates: outstandingStates(shown),
+		workflowRuns: {},
 		links: board.links.filter(connects),
 		messages: messages.filter(connects),
 		generatedAt: Date.now(),

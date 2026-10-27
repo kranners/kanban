@@ -3,9 +3,9 @@ import "./agent.css";
 import { Bot, MessagesSquare, SquareTerminal, X } from "lucide-preact";
 import type { JSX } from "preact";
 import {
-	useCallback,
 	useEffect,
 	useLayoutEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "preact/hooks";
@@ -13,11 +13,13 @@ import { subagentState } from "../../shared/subagents.ts";
 import type { Activity, Session, Subagent } from "../../shared/types.ts";
 import { ActivityBadge } from "../activity.tsx";
 import { ArtifactLink } from "../Card.tsx";
-import { openSubagent, subagentsById } from "../state.ts";
+import { plainText } from "../markdown.ts";
+import { board, openSubagent, subagentsById } from "../state.ts";
 import { AgentView } from "./AgentView.tsx";
 import { AttachedTerminal } from "./AttachedTerminal.tsx";
 import { MirroredTerminal } from "./MirroredTerminal.tsx";
 import { commandKey } from "./platform.ts";
+import type { LinkedSubagent, Links } from "./Transcript.tsx";
 
 export type FocusTarget =
 	| { kind: "session"; session: Session }
@@ -104,11 +106,28 @@ export function Focus(props: {
 		return () => window.removeEventListener("keydown", onKey, true);
 	}, []);
 
-	const subagentLink = useCallback((agentId: string) => {
-		const linked = subagentsById.value.get(agentId);
-		return linked
-			? { open: () => openSubagent(agentId), state: subagentState(linked) }
-			: null;
+	const links = useMemo((): Links => {
+		const subagent = (agentId: string): LinkedSubagent | null => {
+			const card = subagentsById.value.get(agentId);
+			if (card) {
+				return {
+					id: agentId,
+					label: card.description || card.type,
+					open: () => openSubagent(agentId),
+					state: subagentState(card),
+				};
+			}
+			const state = board.value?.subagentStates[agentId];
+			return state ? { id: agentId, label: agentId, open: null, state } : null;
+		};
+		return {
+			subagent,
+			run: (runId) =>
+				(board.value?.workflowRuns[runId] ?? []).flatMap((agentId) => {
+					const linked = subagent(agentId);
+					return linked ? [linked] : [];
+				}),
+		};
 	}, []);
 
 	const session = target.kind === "session" ? target.session : null;
@@ -117,9 +136,8 @@ export function Focus(props: {
 		? session.activity
 		: subagentState(subagent as Subagent);
 	const name = session?.name ?? subagent?.description ?? subagent?.type ?? "";
-	const doing = session
-		? (session.needs ?? session.doing)
-		: (subagent?.type ?? null);
+	const said = session ? (session.needs ?? session.doing) : null;
+	const doing = said ? plainText(said) : (subagent?.type ?? null);
 	const terminal = session && hasTerminal(session);
 
 	return (
@@ -219,7 +237,7 @@ export function Focus(props: {
 							session={session}
 							activity={activity}
 							onTerminal={terminal ? () => setRaw(true) : null}
-							subagent={subagentLink}
+							links={links}
 						/>
 					)}
 				</div>

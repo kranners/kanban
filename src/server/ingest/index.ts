@@ -1,6 +1,9 @@
 import { type FSWatcher, watch } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { subagentCountsBySession } from "../../shared/subagents.ts";
+import {
+	outstandingStates,
+	subagentCountsBySession,
+} from "../../shared/subagents.ts";
 import type {
 	Board,
 	Link,
@@ -33,6 +36,7 @@ import {
 	newestPerSession,
 	scanSubagents,
 	settleSubagents,
+	workflowRunsOf,
 } from "./subagents.ts";
 import { advanceTail, createTail, readFacts, type Tail } from "./tail.ts";
 
@@ -166,6 +170,10 @@ export function startBoard(opts: {
 			subagentCounts: subagentCountsBySession(
 				settled.map(({ subagent }) => subagent),
 			),
+			subagentStates: outstandingStates(
+				settled.map(({ subagent }) => subagent),
+			),
+			workflowRuns: workflowRunsOf(settled),
 			links: collectLinks(
 				owners,
 				shortsToSessions(jobs, registry),
@@ -534,6 +542,8 @@ function emptyBoard(): Board {
 		sessions: [],
 		subagents: [],
 		subagentCounts: {},
+		subagentStates: {},
+		workflowRuns: {},
 		links: [],
 		messages: [],
 		generatedAt: Date.now(),

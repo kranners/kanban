@@ -6,6 +6,13 @@ export type PatchHunk = {
 	lines: string[];
 };
 
+export type BackgroundTask = {
+	id: string;
+	runId: string | null;
+	summary: string | null;
+	status: string | null;
+};
+
 export type ToolResult = {
 	text: string;
 	isError: boolean;
@@ -16,6 +23,7 @@ export type ToolResult = {
 	answers: Record<string, string> | null;
 	interrupted: boolean;
 	artifact: Artifact | null;
+	task: BackgroundTask | null;
 	at: number;
 };
 
@@ -44,6 +52,7 @@ export type ConversationItem = Placed &
 		| { kind: "interrupted"; forTool: boolean }
 		| { kind: "peer"; from: string | null; text: string }
 		| { kind: "task"; status: string | null; summary: string }
+		| { kind: "rewound" }
 	);
 
 export type ConversationStatus = {
@@ -71,11 +80,13 @@ export type Dialog =
 			kind: "permission";
 			toolUseId: string | null;
 			title: string;
+			context: string | null;
 			question: string;
 			options: string[];
 			complete: boolean;
 	  }
-	| { kind: "question"; toolUseId: string; questions: AskQuestion[] };
+	| { kind: "question"; toolUseId: string; questions: AskQuestion[] }
+	| { kind: "menu"; title: string };
 
 export type AskAnswer = { selected: string[]; other: string | null };
 

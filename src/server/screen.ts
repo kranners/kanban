@@ -13,6 +13,7 @@ export type ChoiceScreen = {
 	options: string[];
 	cursor: number;
 	complete: boolean;
+	body: string;
 };
 
 export type AskScreen = {
@@ -23,7 +24,9 @@ export type AskScreen = {
 	review: boolean;
 };
 
-export type ScreenDialog = ChoiceScreen | AskScreen;
+export type MenuScreen = { kind: "menu"; title: string };
+
+export type ScreenDialog = ChoiceScreen | AskScreen | MenuScreen;
 
 const pointer = "❯";
 const rowPattern =
@@ -32,6 +35,10 @@ const numberedPattern = /^\s*(?:[❯↓↑]\s*)?\d+\.\s+\S/;
 const scrollPattern = /^\s*[↓↑]/;
 const tabBarPattern = /^\s*(?:←\s+)?[☐☒✔]\s+\S/;
 const separatorPattern = /^\s*[─━╌]{8,}\s*$/;
+const rulePattern = /^\s*[─━]{8,}\s*$/;
+const panelTopPattern = /^\s*[─━▔]{8,}/;
+const menuHintPattern =
+	/\b(?:esc to (?:cancel|close|exit|go back)|enter to (?:continue|select|confirm))\b/i;
 const modePattern = /(?:⏵⏵|⏸|⏵)\s+([a-z][a-z ]*?) on\b/i;
 
 export const normalise = (text: string): string =>
@@ -78,7 +85,24 @@ export function readDialog(screen: string): ScreenDialog | null {
 	const all = lines(screen);
 	const tabBar = all.findLastIndex((line) => tabBarPattern.test(line));
 	if (tabBar !== -1) return readAsk(all, tabBar);
-	return readChoice(all);
+	return readChoice(all) ?? readMenu(all);
+}
+
+function footer(all: string[]): string[] {
+	return all.filter((line) => line.trim() !== "").slice(-3);
+}
+
+function readMenu(all: string[]): MenuScreen | null {
+	const hint = all.findLastIndex((line) => menuHintPattern.test(line));
+	if (hint === -1 || !footer(all).includes(all[hint] ?? "")) return null;
+	const top = all
+		.slice(0, hint)
+		.findLastIndex((line) => panelTopPattern.test(line));
+	const title = all
+		.slice(top + 1, hint)
+		.find((line) => line.trim() !== "")
+		?.trim();
+	return { kind: "menu", title: title ?? "A menu" };
 }
 
 function readAsk(all: string[], tabBar: number): AskScreen | null {
@@ -125,6 +149,9 @@ function readAsk(all: string[], tabBar: number): AskScreen | null {
 function readChoice(all: string[]): ChoiceScreen | null {
 	const last = all.findLastIndex((line) => numberedPattern.test(line));
 	if (last === -1) return null;
+	const inputBoxBelow =
+		all.slice(last + 1).filter((line) => rulePattern.test(line)).length >= 2;
+	if (inputBoxBelow) return null;
 	const group: ScreenRow[] = [];
 	const continues = (line: string) =>
 		/^\s{2,}\S/.test(line) &&
@@ -165,17 +192,25 @@ function readChoice(all: string[]): ChoiceScreen | null {
 	if (!cursor?.number) return null;
 	const options: string[] = Array.from({ length: first - 1 }, () => "");
 	for (const row of group) options.push(row.label);
-	const question =
-		all
-			.slice(0, start)
-			.findLast((line) => line.trim() !== "" && !separatorPattern.test(line))
-			?.trim() ?? "";
+	const questionAt = all
+		.slice(0, start)
+		.findLastIndex(
+			(line) => line.trim() !== "" && !separatorPattern.test(line),
+		);
+	const top = all
+		.slice(0, Math.max(0, questionAt))
+		.findLastIndex((line) => rulePattern.test(line));
 	return {
 		kind: "choice",
-		question,
+		question: all[questionAt]?.trim() ?? "",
 		options,
 		cursor: cursor.number - 1,
 		complete: !clipped && first === 1,
+		body: all
+			.slice(top === -1 ? Math.max(0, questionAt - 12) : top + 1, questionAt)
+			.filter((line) => !separatorPattern.test(line))
+			.join("\n")
+			.trim(),
 	};
 }
 

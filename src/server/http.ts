@@ -401,9 +401,8 @@ const conversationTarget = (
 ): ConversationTarget | null => {
 	const board = source.board();
 	const path = source.transcriptPath(node);
-	if (!path) return null;
 	if (node.kind === "subagent") {
-		return board.subagents.some(({ id }) => id === node.id)
+		return path && board.subagents.some(({ id }) => id === node.id)
 			? { kind: "subagent", id: node.id, path }
 			: null;
 	}

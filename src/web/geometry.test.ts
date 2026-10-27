@@ -58,6 +58,8 @@ test("only the first row of a grid gets an edge, for nested subagents too", () =
 		sessions: [session("root")],
 		subagents,
 		subagentCounts: {},
+		subagentStates: {},
+		workflowRuns: {},
 		links,
 		messages: [],
 		generatedAt: 0,

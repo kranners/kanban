@@ -51,6 +51,8 @@ function boardOf(sessions: Session[], subagents: Subagent[] = []): Board {
 		sessions,
 		subagents,
 		subagentCounts: {},
+		subagentStates: {},
+		workflowRuns: {},
 		links: [],
 		messages: [],
 		generatedAt: 1,

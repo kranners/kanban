@@ -38,6 +38,20 @@ export function parseMarkdown(source: string): Root {
 	}
 }
 
+export function plainText(source: string): string {
+	const parts: string[] = [];
+	const walk = (node: Nodes) => {
+		if (node.type === "text" || node.type === "inlineCode") {
+			parts.push(node.value);
+		} else if ("children" in node) {
+			for (const child of node.children) walk(child);
+			parts.push(" ");
+		}
+	};
+	walk(parseMarkdown(source));
+	return parts.join("").replace(/\s+/g, " ").trim();
+}
+
 export function isPlain(root: Root): boolean {
 	return root.children.every((node) => node.type === "paragraph");
 }

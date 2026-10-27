@@ -193,6 +193,8 @@ const board: Board = {
 	],
 	subagents: [],
 	subagentCounts: {},
+	subagentStates: {},
+	workflowRuns: {},
 	links: [],
 	messages: [],
 	generatedAt: 1,
@@ -244,6 +246,7 @@ describe("createKanbanServer", () => {
 				socket.close(1000, "fake");
 			},
 			attached: () => [],
+			screen: () => null,
 		};
 		layoutFile = join(dist, "state", "layout.json");
 		let feed: ReturnType<typeof createFeed> | null = null;
@@ -357,6 +360,7 @@ describe("createKanbanServer", () => {
 					socket.close(1000, "fake");
 				},
 				attached: () => [],
+				release() {},
 			},
 			files: async (cwd, query) => ({ ok: true, files: [`${cwd}:${query}`] }),
 			commands: async (cwd) => [

@@ -51,7 +51,10 @@ export function NeedsYouCount(props: {
 			title={`${count} ${count === 1 ? "session needs" : "sessions need"} you`}
 		>
 			<TriangleAlert size={10} strokeWidth={2.5} aria-hidden="true" />
-			{count}
+			<span aria-hidden="true">{count}</span>
+			<span class="visually-hidden">
+				{`, ${count} ${count === 1 ? "session needs" : "sessions need"} you`}
+			</span>
 		</span>
 	);
 }

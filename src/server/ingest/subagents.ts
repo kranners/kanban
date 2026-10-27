@@ -11,10 +11,16 @@ export type MetaCache = Map<
 		description: string;
 		parentAgentId: string | null;
 		startedAt: number;
+		teammate: boolean;
 	}
 >;
 
-export type FoundSubagent = { subagent: Subagent; transcriptPath: string };
+export type FoundSubagent = {
+	subagent: Subagent;
+	transcriptPath: string;
+	teammate: boolean;
+	workflowRun: string | null;
+};
 
 export const subagentWindowMs = 30 * 60_000;
 export const subagentLiveMs = 120_000;
@@ -36,22 +42,48 @@ export function scanSubagents(opts: {
 	} catch {
 		return [];
 	}
-	const found: FoundSubagent[] = [];
-	const journals = new Map<string, Set<string>>();
-	for (const file of files) {
+	const candidates = files.flatMap((file) => {
 		const id = metaFile.exec(file)?.[1];
-		if (!id) continue;
+		if (!id) return [];
 		const metaPath = join(dir, file);
 		const transcriptPath = metaPath.replace(/\.meta\.json$/, ".jsonl");
 		const meta = cachedMeta(cache, metaPath);
-		if (!meta) continue;
+		if (!meta) return [];
 		const updatedAt = mtimeOf(transcriptPath) ?? meta.startedAt;
-		if (now - updatedAt > subagentWindowMs) continue;
+		return [{ id, file, metaPath, transcriptPath, meta, updatedAt }];
+	});
+	const byId = new Map(
+		candidates.map((candidate) => [candidate.id, candidate]),
+	);
+	const kept = new Set<string>();
+	for (const candidate of candidates) {
+		if (now - candidate.updatedAt > subagentWindowMs) continue;
+		for (
+			let at: (typeof candidates)[number] | undefined = candidate;
+			at && !kept.has(at.id);
+			at = byId.get(at.meta.parentAgentId ?? "")
+		) {
+			kept.add(at.id);
+		}
+	}
+	const found: FoundSubagent[] = [];
+	const journals = new Map<string, Set<string>>();
+	for (const {
+		id,
+		file,
+		metaPath,
+		transcriptPath,
+		meta,
+		updatedAt,
+	} of candidates) {
+		if (!kept.has(id)) continue;
 		const done =
 			returned(finishedTasks, id, file) ||
 			journalFinished(journals, dirname(metaPath)).has(id);
 		found.push({
 			transcriptPath,
+			teammate: meta.teammate,
+			workflowRun: workflowRun.exec(file)?.[1] ?? null,
 			subagent: {
 				id,
 				sessionId,
@@ -75,26 +107,34 @@ export function settleSubagents(
 	const finished = new Set(
 		[...factsOf.values()].flatMap((facts) => [...facts.finishedTasks]),
 	);
-	return found.map(({ subagent, transcriptPath }) => {
-		const done =
-			subagent.done || returned(finished, subagent.id, transcriptPath);
+	return found.map((entry) => {
+		const { subagent, transcriptPath, teammate } = entry;
 		const waitingOnTool = (factsOf.get(transcriptPath)?.tools.size ?? 0) > 0;
+		const busy = subagent.live || waitingOnTool;
+		const done =
+			subagent.done ||
+			returned(finished, subagent.id, transcriptPath) ||
+			(teammate && !busy);
 		return {
-			transcriptPath,
-			subagent: {
-				...subagent,
-				done,
-				live: !done && (subagent.live || waitingOnTool),
-			},
+			...entry,
+			subagent: { ...subagent, done, live: !done && busy },
 		};
 	});
 }
 
-export function abandoned({
-	subagent,
-	transcriptPath,
-}: FoundSubagent): FoundSubagent {
-	return { transcriptPath, subagent: { ...subagent, live: false, done: true } };
+export function workflowRunsOf(
+	found: readonly FoundSubagent[],
+): Record<string, string[]> {
+	const runs: Record<string, string[]> = {};
+	for (const { subagent, workflowRun } of found) {
+		if (workflowRun)
+			runs[workflowRun] = [...(runs[workflowRun] ?? []), subagent.id];
+	}
+	return runs;
+}
+
+export function abandoned(found: FoundSubagent): FoundSubagent {
+	return { ...found, subagent: { ...found.subagent, live: false, done: true } };
 }
 
 export function newestPerSession(
@@ -155,6 +195,7 @@ function cachedMeta(cache: MetaCache, path: string) {
 			description: asString(record.description) ?? "",
 			parentAgentId: asString(record.parentAgentId),
 			startedAt: Math.min(stat.birthtimeMs || stat.mtimeMs, stat.mtimeMs),
+			teammate: record.taskKind === "in_process_teammate",
 		};
 		cache.set(path, meta);
 		return meta;

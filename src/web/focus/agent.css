@@ -925,3 +925,41 @@
 		animation: none;
 	}
 }
+
+.av-status-background {
+	color: var(--accent);
+}
+
+.av-rejected {
+	min-width: 0;
+}
+
+.av-rejected .av-tool-detail {
+	flex: 1;
+}
+
+.av-run-summary {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin: 0;
+	font-size: 12.5px;
+}
+
+.av-run {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	font-size: 12.5px;
+}
+
+.av-run > li {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
