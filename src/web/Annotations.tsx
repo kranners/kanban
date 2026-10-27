@@ -37,10 +37,17 @@ import {
 } from "./annotations.ts";
 import { boardPointAt, view } from "./Canvas.tsx";
 import { commandKey } from "./focus/platform.ts";
+import {
+	isPlain,
+	parseMarkdown,
+	renderMarkdown,
+	toggledTask,
+} from "./markdown.ts";
 import { moveMenuFocus } from "./menuFocus.ts";
 import {
 	type AnnotationCommand,
 	annotationCommand,
+	documentFont,
 	gridStep,
 	matchingStickers,
 	moved,
@@ -68,8 +75,17 @@ function position(annotation: Annotation) {
 	};
 }
 
+function onNoteControl(event: MouseEvent): boolean {
+	const target = event.target as HTMLElement;
+	const onScrollbar =
+		target.classList.contains("note-text") &&
+		(event.offsetX > target.clientWidth || event.offsetY > target.clientHeight);
+	return onScrollbar || target.closest("a, input") !== null;
+}
+
 function grab(event: PointerEvent, annotation: Annotation): void {
 	if (event.button !== 0 || editing.peek() === annotation.id) return;
+	if (onNoteControl(event)) return;
 	const element = event.currentTarget as HTMLElement;
 	const resizing = (event.target as Element).closest("[data-resize]") !== null;
 	if (event.shiftKey && !resizing) {
@@ -123,10 +139,25 @@ function openMenu(event: MouseEvent, annotation: Annotation): void {
 	annotationMenu.value = { client: { x: event.clientX, y: event.clientY } };
 }
 
+function noteTextStyle(text: string, note: Note, plain: boolean) {
+	const size = noteFontSize(
+		text,
+		note.w,
+		note.h,
+		plain ? undefined : documentFont,
+	);
+	return { fontSize: `${size}px` };
+}
+
+function noteTextClass(plain: boolean): string {
+	return `note-text ${plain ? "plain" : "document"}`;
+}
+
 function NoteEditor(props: { note: Note }): JSX.Element {
 	const { note } = props;
 	const field = useRef<HTMLTextAreaElement>(null);
 	const [text, setText] = useState(note.text);
+	const plain = useMemo(() => isPlain(parseMarkdown(text)), [text]);
 
 	useEffect(() => {
 		const element = field.current;
@@ -143,12 +174,12 @@ function NoteEditor(props: { note: Note }): JSX.Element {
 	return (
 		<textarea
 			ref={field}
-			class="note-text note-editor"
+			class={`${noteTextClass(plain)} note-editor`}
 			value={text}
 			maxLength={noteTextLimit}
 			spellcheck={false}
 			aria-label="Note text"
-			style={{ fontSize: `${noteFontSize(text, note.w, note.h)}px` }}
+			style={noteTextStyle(text, note, plain)}
 			onInput={(event) => {
 				const next = event.currentTarget.value;
 				setText(next);
@@ -166,20 +197,41 @@ function NoteEditor(props: { note: Note }): JSX.Element {
 	);
 }
 
+function NoteMarkdown(props: { note: Note }): JSX.Element {
+	const { note } = props;
+	const root = useMemo(() => parseMarkdown(note.text), [note.text]);
+	const plain = isPlain(root);
+	return (
+		<div
+			class={`${noteTextClass(plain)} markdown`}
+			style={noteTextStyle(note.text, note, plain)}
+		>
+			{renderMarkdown(note.text, root, (marker) =>
+				saveText(note, toggledTask(note.text, marker)),
+			)}
+		</div>
+	);
+}
+
 function NoteBody(props: { note: Note; editing: boolean }): JSX.Element {
 	const { note } = props;
 	if (props.editing) return <NoteEditor note={note} />;
 	if (!note.text) {
 		return <div class="note-text empty">Double-click to write</div>;
 	}
-	return (
-		<div
-			class="note-text"
-			style={{ fontSize: `${noteFontSize(note.text, note.w, note.h)}px` }}
-		>
-			{note.text}
-		</div>
-	);
+	return <NoteMarkdown note={note} />;
+}
+
+function scrollNoteText(event: WheelEvent): void {
+	if (event.ctrlKey || event.metaKey) return;
+	const body = (event.currentTarget as Element).querySelector(".note-text");
+	if (
+		body &&
+		(body.scrollHeight > body.clientHeight ||
+			body.scrollWidth > body.clientWidth)
+	) {
+		event.stopPropagation();
+	}
 }
 
 function StickerBody(props: { sticker: Sticker }): JSX.Element {
@@ -195,6 +247,13 @@ function StickerBody(props: { sticker: Sticker }): JSX.Element {
 			}
 		/>
 	);
+}
+
+function annotationLabel(annotation: Annotation): string | undefined {
+	if (annotation.kind === "sticker") {
+		return stickerNames.get(annotation.sticker) ?? annotation.sticker;
+	}
+	return annotation.text ? undefined : "Empty note";
 }
 
 function AnnotationView(props: {
@@ -213,14 +272,11 @@ function AnnotationView(props: {
 			data-no-pan
 			role="note"
 			aria-roledescription={annotation.kind}
-			aria-label={
-				annotation.kind === "note"
-					? annotation.text || "Empty note"
-					: (stickerNames.get(annotation.sticker) ?? annotation.sticker)
-			}
+			aria-label={annotationLabel(annotation)}
 			onPointerDown={(event) => grab(event, annotation)}
-			onDblClick={() => {
-				if (annotation.kind !== "note") return;
+			onWheel={annotation.kind === "note" ? scrollNoteText : undefined}
+			onDblClick={(event) => {
+				if (annotation.kind !== "note" || onNoteControl(event)) return;
 				select([annotation.id]);
 				editing.value = annotation.id;
 			}}

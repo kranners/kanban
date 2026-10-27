@@ -16,6 +16,7 @@ import {
 	newSticker,
 	noteFontSize,
 	noteSize,
+	noteSizeFor,
 	recoloured,
 	resized,
 	retexted,
@@ -64,6 +65,23 @@ describe("new annotations", () => {
 		assert.equal(added.text, "");
 		const placed = newSticker("b", "fire", { x: 0, y: 0 }, 1);
 		assert.deepEqual([placed.x, placed.w], [-stickerSize / 2, stickerSize]);
+	});
+});
+
+describe("note sizes", () => {
+	it("keeps short notes square", () => {
+		assert.deepEqual(noteSizeFor("Ship it"), { w: noteSize, h: noteSize });
+	});
+
+	it("gives long notes room to read", () => {
+		const report = newNote("r", { x: 0, y: 0 }, 1, "blue", "line\n".repeat(30));
+		assert.ok(report.w > noteSize && report.h > noteSize);
+		assert.deepEqual(
+			[report.x, report.y],
+			[-report.w / 2, Math.round(-report.h / 2)],
+		);
+		const huge = noteSizeFor("word ".repeat(4000));
+		assert.ok(huge.h <= maxAnnotationSize && huge.w <= maxAnnotationSize);
 	});
 });
 
