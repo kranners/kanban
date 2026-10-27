@@ -30,6 +30,7 @@ function session(
 		activity: "idle",
 		doing: null,
 		needs: null,
+		goal: null,
 		startedAt,
 		updatedAt,
 		attachable: true,

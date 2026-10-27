@@ -230,4 +230,48 @@ describe("applyRecord", () => {
 		assert.equal(facts.doing, null);
 		assert.equal(facts.forkedChildren.size, 0);
 	});
+
+	test("keeps the latest ai title and last prompt, skipping empty ones", () => {
+		const facts = apply(
+			{ type: "ai-title", aiTitle: "First title" },
+			{ type: "last-prompt", lastPrompt: "fix the build" },
+			{ type: "ai-title", aiTitle: "  Latest title  " },
+			{ type: "ai-title", aiTitle: "" },
+			{ type: "last-prompt", leafUuid: "u1" },
+		);
+		assert.equal(facts.aiTitle, "Latest title");
+		assert.equal(facts.lastPrompt, "fix the build");
+	});
+
+	test("keeps the last human prompt over relayed and shell prompts", () => {
+		const facts = apply(
+			{
+				type: "last-prompt",
+				lastPrompt: "[Image #1] [Image #2] fix the build",
+			},
+			{ type: "last-prompt", lastPrompt: "! git status" },
+			{
+				type: "last-prompt",
+				lastPrompt: "Another Claude session sent a message: <teammate-message>",
+			},
+			{
+				type: "last-prompt",
+				lastPrompt: "[Artifact comment sent to Claude] hi",
+			},
+			{
+				type: "last-prompt",
+				lastPrompt: "<command-name>/clear</command-name>",
+			},
+		);
+		assert.equal(facts.lastPrompt, "fix the build");
+	});
+
+	test("ignores titles and prompts inherited from a fork parent", () => {
+		const facts = apply(
+			{ type: "ai-title", aiTitle: "Parent title", session_id: "p" },
+			{ type: "last-prompt", lastPrompt: "parent prompt", session_id: "p" },
+		);
+		assert.equal(facts.aiTitle, null);
+		assert.equal(facts.lastPrompt, null);
+	});
 });

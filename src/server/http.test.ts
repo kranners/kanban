@@ -154,6 +154,7 @@ const board: Board = {
 			activity: "idle",
 			doing: null,
 			needs: null,
+			goal: null,
 			startedAt: 0,
 			updatedAt: 0,
 			attachable: true,
@@ -170,6 +171,7 @@ const board: Board = {
 			activity: "idle",
 			doing: null,
 			needs: null,
+			goal: null,
 			startedAt: 0,
 			updatedAt: 0,
 			attachable: false,
@@ -271,13 +273,6 @@ describe("createKanbanServer", () => {
 			colours: colours.current,
 			regions: regions.current,
 			board: () => board,
-			previews: () => [
-				{
-					sessionId: board.sessions[0]?.id ?? "",
-					html: "<pre></pre>",
-					capturedAt: 1,
-				},
-			],
 		});
 		const server = createKanbanServer({
 			origins,
@@ -827,7 +822,7 @@ describe("createKanbanServer", () => {
 		assert.deepEqual(mirrored, [`${inCmux?.id} me@example.com`]);
 	});
 
-	it("sends the board and cached previews when a feed client connects", async () => {
+	it("sends the board when a feed client connects", async () => {
 		const frames = await new Promise<BoardFeed[]>((resolve) => {
 			const received: BoardFeed[] = [];
 			const socket = new WebSocket(`${base.replace("http", "ws")}/api/feed`, {
@@ -835,7 +830,7 @@ describe("createKanbanServer", () => {
 			});
 			socket.on("message", (data) => {
 				received.push(JSON.parse(String(data)));
-				if (received.length === 4) {
+				if (received.length === 6) {
 					socket.close();
 					resolve(received);
 				}
@@ -843,15 +838,7 @@ describe("createKanbanServer", () => {
 		});
 		assert.deepEqual(
 			frames.map((frame) => frame.type),
-			[
-				"layout",
-				"annotations",
-				"colours",
-				"regions",
-				"comments",
-				"board",
-				"preview",
-			],
+			["layout", "annotations", "colours", "regions", "comments", "board"],
 		);
 	});
 

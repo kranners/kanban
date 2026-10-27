@@ -4,7 +4,6 @@ import type {
 	Annotations,
 	Board,
 	Layout,
-	Preview,
 	Session,
 } from "../shared/types.ts";
 import { totalSubagentCounts } from "./subagentCounts.ts";
@@ -12,7 +11,6 @@ import { totalSubagentCounts } from "./subagentCounts.ts";
 export type Connection = "connecting" | "open" | "reconnecting" | "lost";
 
 export const board = signal<Board | null>(null);
-export const previews = signal<ReadonlyMap<string, Preview>>(new Map());
 export const connection = signal<Connection>("connecting");
 export const activityFilter = signal<ReadonlySet<Activity>>(new Set());
 export const workingSubagentsOnly = signal(false);

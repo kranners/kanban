@@ -31,7 +31,7 @@ Everything about sessions is read from `~/.claude`; kanban keeps no database. It
 | Spawned by `claude --bg`                | `backgrounded · <short>` in a parent's Bash tool result                                      |
 | Forked by `/bg`                         | `continued-in` record in the parent transcript                                               |
 | Messages                                | `SendMessage` tool results (`msg_id`) matched to recipients' `origin.kind == "peer"` records |
-| Card preview                            | last 12 transcript entries, rendered server-side when `updatedAt` changes                    |
+| Card goal                               | latest `ai-title` record, else the first line of the latest `last-prompt`, else job `intent` |
 
 Secrets that are never read or served: `sessions/*.key`, `daemon/control.key`, roster `ptyAuth`/`rvAuth`, `respawnFlags`, `providerEnv`.
 
@@ -58,29 +58,29 @@ The states that ask something of a person stand out across the board at any zoom
 
 One Node 24 process on `127.0.0.1:7420` serves the built page and these endpoints:
 
-| Endpoint                           | Purpose                                                                                                                                                                                                                 |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /`                            | the page                                                                                                                                                                                                                |
-| `WS /api/feed`                     | `BoardFeed` frames: `layout`, `annotations`, `colours`, `regions`, `comments` then a full `board` on connect, each again on change, `preview` thumbnails, `exit` outcomes, and one `comment` thread whenever it changes |
-| `GET /api/sessions/:id/transcript` | recent `TranscriptEntry`s for read-only cards                                                                                                                                                                           |
-| `POST /api/sessions`               | `NewSessionRequest` → `claude --bg`; without `name` Claude Code names it, with `at` the card spawns there                                                                                                               |
-| `POST /api/sessions/:id/exit`      | `ExitRequest` → 202 at once; the `ExitResult` arrives later as an `exit` feed frame, since asking can outlast the tunnel's ~100s limit                                                                                  |
-| `PUT /api/layout`                  | `LayoutUpdate` → 204: stores one node's placement and broadcasts the layout                                                                                                                                             |
-| `PUT /api/annotations/:id`         | `Annotation` → 204: creates or replaces one note or sticker and broadcasts the annotations                                                                                                                              |
-| `DELETE /api/annotations/:id`      | 204: removes one note or sticker and broadcasts the annotations                                                                                                                                                         |
-| `PUT /api/colours`                 | `RegionColourUpdate` → 204: sets one cwd's region colour, or `null` to return it to its default, and broadcasts the colours                                                                                             |
-| `POST /api/regions`                | `RegionDraft` → 201 `Region`: cwd must be an existing absolute directory, bounds finite and 96–20000 wide and tall; 409 at the cap                                                                                      |
-| `PATCH /api/regions/:id`           | `RegionPatch` → 200 `Region`: a new name (empty clears it) and/or all of x, y, w and h                                                                                                                                  |
-| `DELETE /api/regions/:id`          | → 204: removes the region and leaves its cards where they are                                                                                                                                                           |
-| `POST /api/comments`               | `CommentDraft` (x, y, text) → 201 `CommentThread`: pins a thread there and starts the board agent on the text; 409 at the cap                                                                                           |
-| `POST /api/comments/:id/messages`  | `{text}` → 202: continues the thread's agent conversation; 409 while it is still running                                                                                                                                |
-| `POST /api/comments/:id/cancel`    | → 204: stops the thread's running agent                                                                                                                                                                                 |
-| `PATCH /api/comments/:id`          | `CommentPatch` → 200: moves the pin (x and y together) and/or resolves or reopens the thread                                                                                                                            |
-| `DELETE /api/comments/:id`         | → 204: stops its agent and removes the thread                                                                                                                                                                           |
-| `POST /api/agent/tools/:tool`      | the board agent's MCP server only: runs one board tool for a live per-run token from loopback, see Ask the board                                                                                                        |
-| `WS /api/attach/:short`            | a `claude attach` pty: binary output down, `AttachClientFrame`s up                                                                                                                                                      |
-| `WS /api/mirror/:sessionId`        | a cmux pane: `MirrorServerFrame`s (screen text on change, errors, end) down, `MirrorClientFrame`s (text, allowlisted keys) up                                                                                           |
-| `GET /healthz`                     | liveness                                                                                                                                                                                                                |
+| Endpoint                           | Purpose                                                                                                                                                                                           |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /`                            | the page                                                                                                                                                                                          |
+| `WS /api/feed`                     | `BoardFeed` frames: `layout`, `annotations`, `colours`, `regions`, `comments` then a full `board` on connect, each again on change, `exit` outcomes, and one `comment` thread whenever it changes |
+| `GET /api/sessions/:id/transcript` | recent `TranscriptEntry`s for read-only cards                                                                                                                                                     |
+| `POST /api/sessions`               | `NewSessionRequest` → `claude --bg`; without `name` Claude Code names it, with `at` the card spawns there                                                                                         |
+| `POST /api/sessions/:id/exit`      | `ExitRequest` → 202 at once; the `ExitResult` arrives later as an `exit` feed frame, since asking can outlast the tunnel's ~100s limit                                                            |
+| `PUT /api/layout`                  | `LayoutUpdate` → 204: stores one node's placement and broadcasts the layout                                                                                                                       |
+| `PUT /api/annotations/:id`         | `Annotation` → 204: creates or replaces one note or sticker and broadcasts the annotations                                                                                                        |
+| `DELETE /api/annotations/:id`      | 204: removes one note or sticker and broadcasts the annotations                                                                                                                                   |
+| `PUT /api/colours`                 | `RegionColourUpdate` → 204: sets one cwd's region colour, or `null` to return it to its default, and broadcasts the colours                                                                       |
+| `POST /api/regions`                | `RegionDraft` → 201 `Region`: cwd must be an existing absolute directory, bounds finite and 96–20000 wide and tall; 409 at the cap                                                                |
+| `PATCH /api/regions/:id`           | `RegionPatch` → 200 `Region`: a new name (empty clears it) and/or all of x, y, w and h                                                                                                            |
+| `DELETE /api/regions/:id`          | → 204: removes the region and leaves its cards where they are                                                                                                                                     |
+| `POST /api/comments`               | `CommentDraft` (x, y, text) → 201 `CommentThread`: pins a thread there and starts the board agent on the text; 409 at the cap                                                                     |
+| `POST /api/comments/:id/messages`  | `{text}` → 202: continues the thread's agent conversation; 409 while it is still running                                                                                                          |
+| `POST /api/comments/:id/cancel`    | → 204: stops the thread's running agent                                                                                                                                                           |
+| `PATCH /api/comments/:id`          | `CommentPatch` → 200: moves the pin (x and y together) and/or resolves or reopens the thread                                                                                                      |
+| `DELETE /api/comments/:id`         | → 204: stops its agent and removes the thread                                                                                                                                                     |
+| `POST /api/agent/tools/:tool`      | the board agent's MCP server only: runs one board tool for a live per-run token from loopback, see Ask the board                                                                                  |
+| `WS /api/attach/:short`            | a `claude attach` pty: binary output down, `AttachClientFrame`s up                                                                                                                                |
+| `WS /api/mirror/:sessionId`        | a cmux pane: `MirrorServerFrame`s (screen text on change, errors, end) down, `MirrorClientFrame`s (text, allowlisted keys) up                                                                     |
+| `GET /healthz`                     | liveness                                                                                                                                                                                          |
 
 One attach per session: a second attach takes over and the first gets `taken-over`, because Claude Code redraws a shared session at the last attacher's size. Closing the socket kills the attach process, which detaches without stopping the session. If the attach drops into Claude's agent view (← on an empty prompt, recognised by its `claude agents` window title), kanban sends Enter to return, and Escape for a workspace trust dialog there. This guard is a convenience against stray keys, not a security boundary: whoever passes Cloudflare Access can already drive any background session, so Access is the boundary.
 
@@ -114,10 +114,10 @@ Security. The agent acts with the user's reach on the board but no further: it c
 
 ## User flows
 
-1. **Scan.** Open the board. Cards group into families (a session and everything it spawned), newest first by when they started, so cards stay put while sessions work. Each card shows its name and what it is doing above a live preview, with a state badge.
+1. **Scan.** Open the board. Cards group into families (a session and everything it spawned), newest first by when they started, so cards stay put while sessions work. Each card shows its name and what it is doing above its goal in large type, with a state badge.
 2. **Follow messages.** A message animates along a dashed arc from sender to recipient; the messages rail lists them newest first, and selecting one highlights both ends.
 3. **Focus.** Click a background card. It expands into a full-window terminal attached to the session, with focus in the prompt; type to send. Close returns to the board, and the session keeps running.
-4. **Drive a cmux pane.** Click an interactive card whose session runs in a cmux pane (its chip says "In cmux"). It opens a monospace mirror of the pane with a prompt box (Enter sends, Shift+Enter adds a line; ↑, ↓ and Esc go straight through on an empty prompt) and buttons for the allowlisted keys. cmux refusals, such as a draft in the terminal's prompt, appear above the prompt.
+4. **Drive a cmux pane.** Click an interactive card whose session runs in a cmux pane (its kind icon reads "Interactive · in cmux"). It opens a monospace mirror of the pane with a prompt box (Enter sends, Shift+Enter adds a line; ↑, ↓ and Esc go straight through on an empty prompt) and buttons for the allowlisted keys. cmux refusals, such as a draft in the terminal's prompt, appear above the prompt.
 5. **Read.** Click any other interactive card (started in a terminal outside cmux). It opens a live transcript, read-only.
 6. **Start.** New session: pick a directory (recent ones suggested), optionally name it, give a first prompt. It appears on the board and opens focused.
 7. **Start in place.** Right-click the board (or press A) and type just the prompt. It starts in the group's project under the pointer, or the most recently active one (Tab cycles); a ghost card holds the spot until the session lands there.
@@ -142,6 +142,6 @@ A web app instead of a desktop wrapper: the server must run as a long-lived loca
 
 ## Visual design
 
-Flat and quiet: a warm off-white canvas, white cards with hairline borders, no shadows except on the focused card, one accent colour. Inter for the interface, JetBrains Mono for terminals and previews, Lucide icons. Light and dark follow the system, with a toggle. State is always colour plus shape.
+Flat and quiet: a warm off-white canvas, white cards with hairline borders, no shadows except on the focused card, one accent colour. Inter for the interface, JetBrains Mono for terminals, Lucide icons. Light and dark follow the system, with a toggle. State is always colour plus shape.
 
 Project regions are tinted from an eight-colour palette (`src/web/regions.css`, `src/shared/colours.ts`): a faint fill, a stronger border and a label chip whose text keeps at least 4.5:1 contrast in both themes. Each cwd hashes to a stable default colour, so a project keeps its colour everywhere, though two neighbours can share one; a chosen colour overrides it.

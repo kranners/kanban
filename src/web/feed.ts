@@ -10,7 +10,6 @@ import {
 	connection,
 	layout,
 	openSession,
-	previews,
 } from "./state.ts";
 
 const attemptsBeforeLost = 4;
@@ -57,13 +56,7 @@ function receive(frame: BoardFeed): void {
 		receiveComments(frame.comments);
 		return;
 	}
-	if (frame.type === "comment") {
-		receiveComment(frame.comment);
-		return;
-	}
-	const next = new Map(previews.value);
-	next.set(frame.preview.sessionId, frame.preview);
-	previews.value = next;
+	receiveComment(frame.comment);
 }
 
 export function connectFeed(): void {

@@ -29,6 +29,7 @@ const job = (state: string, tempo: string | null = null): Job => ({
 	tempo,
 	detail: null,
 	needs: null,
+	intent: null,
 	createdAt: 0,
 	updatedAt: 0,
 });

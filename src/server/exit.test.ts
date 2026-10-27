@@ -22,6 +22,7 @@ const background: Session = {
 	activity: "idle",
 	doing: null,
 	needs: null,
+	goal: null,
 	startedAt: 0,
 	updatedAt: 0,
 	attachable: true,

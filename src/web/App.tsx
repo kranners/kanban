@@ -48,7 +48,6 @@ import {
 	newSessionOpen,
 	now,
 	openSession,
-	previews,
 	sessionMatches,
 	sessionsById,
 	subagentsById,
@@ -115,7 +114,6 @@ function sessionCards(
 function World(props: { board: Board; layout: Arrangement }) {
 	const visible = visibility();
 	const lit = litNodes(props.board);
-	const sessionPreviews = previews.value;
 	const t = now.value;
 	const frames = groups.value;
 	const regions = new Map(
@@ -133,7 +131,6 @@ function World(props: { board: Board; layout: Arrangement }) {
 			key={node.key}
 			node={node}
 			session={session}
-			preview={sessionPreviews.get(session.id)}
 			now={t}
 			emphasis={{
 				dimmed: !visible(node.key),

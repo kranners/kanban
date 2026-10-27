@@ -16,7 +16,7 @@ export type Bounds = Point & Size;
 
 export const sessionSize = defaultLayoutOptions.session;
 export const subagentSize = defaultLayoutOptions.subagent;
-export const minSessionSize = { w: 10 * gridSize, h: 7 * gridSize };
+export const minSessionSize = { w: 10 * gridSize, h: 9 * gridSize };
 export const maxSessionSize = { w: 40 * gridSize, h: 30 * gridSize };
 
 const clearance = gridSize;

@@ -29,7 +29,6 @@ import { createKanbanServer } from "./http.ts";
 import { startBoard } from "./ingest/index.ts";
 import { createLayoutStore, loadLayout } from "./layout.ts";
 import { createMirrorHub } from "./mirror.ts";
-import { createPreviewer } from "./preview.ts";
 import { createPromptSender } from "./prompts.ts";
 import { createRegionStore, loadRegions } from "./regions.ts";
 import { claudeLauncher } from "./sessions.ts";
@@ -102,10 +101,6 @@ const syncCmuxOnNewPids = (board: Board) => {
 	interactivePids = pids;
 	void syncCmux();
 };
-const previewer = createPreviewer({
-	transcript: (sessionId, limit) => source.transcript(sessionId, limit),
-	emit: (preview) => feed?.preview(preview),
-});
 const source = startBoard({
 	claudeHome: config.claudeHome,
 	ignore: (sessionId, cwd) =>
@@ -114,17 +109,14 @@ const source = startBoard({
 	onChange: (board) => {
 		feed?.board(board);
 		layout.observe(board);
-		void previewer.update(board);
 		syncCmuxOnNewPids(board);
 	},
 });
 void syncCmux();
 const cmuxPoll = setInterval(syncCmux, cmuxSyncMs);
-void previewer.update(source.board());
 layout.observe(source.board());
 feed = createFeed({
 	board: source.board,
-	previews: previewer.latest,
 	layout: layout.current,
 	annotations: annotations.current,
 	colours: colours.current,

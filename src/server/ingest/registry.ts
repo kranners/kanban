@@ -25,6 +25,7 @@ export type Job = {
 	tempo: string | null;
 	detail: string | null;
 	needs: string | null;
+	intent: string | null;
 	createdAt: number;
 	updatedAt: number;
 };
@@ -135,6 +136,7 @@ function toJob(short: string, value: unknown): Job | null {
 		tempo: asString(record.tempo),
 		detail: asString(record.detail) || null,
 		needs: asString(record.needs) || null,
+		intent: asString(record.intent) || null,
 		createdAt,
 		updatedAt: asTime(record.updatedAt) ?? createdAt,
 	};

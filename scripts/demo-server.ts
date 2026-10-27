@@ -3,10 +3,6 @@ import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
-import {
-	previewEntryCount,
-	renderTranscriptPreview,
-} from "../src/server/preview.ts";
 import { subagentCountsBySession } from "../src/shared/subagents.ts";
 import type {
 	Board,
@@ -19,7 +15,6 @@ import type {
 	Message,
 	NewSessionRequest,
 	NodeRef,
-	Preview,
 	Session,
 	Subagent,
 	TranscriptEntry,
@@ -55,6 +50,7 @@ function session(
 		activity: "idle",
 		doing: null,
 		needs: null,
+		goal: null,
 		startedAt: start - 90 * minute,
 		updatedAt: start - 2 * minute,
 		attachable: true,
@@ -80,6 +76,7 @@ function subagent(
 const sessions: Session[] = [
 	session({
 		id: "a1f0c2d4e5",
+		goal: "Expire stale auth sessions",
 		name: "acme-api",
 		project: "acme-api",
 		activity: "working",
@@ -88,6 +85,7 @@ const sessions: Session[] = [
 	}),
 	session({
 		id: "b2e1d3c4f6",
+		goal: "Migrate the orders table to the new schema",
 		name: "migrate orders table",
 		project: "acme-api",
 		activity: "needs-you",
@@ -97,6 +95,7 @@ const sessions: Session[] = [
 	}),
 	session({
 		id: "c3d2e4f5a7",
+		goal: "Fix the auth token refresh race",
 		name: "auth hotfix",
 		project: "acme-api",
 		activity: "done",
@@ -105,6 +104,7 @@ const sessions: Session[] = [
 	}),
 	session({
 		id: "d4c3f5a6b8",
+		goal: "Redesign the checkout summary",
 		name: "acme-web",
 		project: "acme-web",
 		kind: "interactive",
@@ -116,6 +116,7 @@ const sessions: Session[] = [
 	}),
 	session({
 		id: "e5b4a6c7d9",
+		goal: "Fix accessibility violations across the web app",
 		name: "a11y sweep",
 		project: "acme-web",
 		activity: "failed",
@@ -124,6 +125,7 @@ const sessions: Session[] = [
 	}),
 	session({
 		id: "f6a5b7d8e0",
+		goal: "Plan the staging network changes",
 		name: "acme-infra",
 		project: "acme-infra",
 		activity: "stopped",
@@ -140,6 +142,7 @@ const sessions: Session[] = [
 	}),
 	session({
 		id: "b8e7d9f0a2",
+		goal: "Draft release notes for 2.4 from the changelog",
 		name: "release notes",
 		project: "acme-docs",
 		kind: "interactive",
@@ -356,14 +359,6 @@ const transcripts: Record<string, TranscriptEntry[]> = {
 	],
 };
 
-const previews: Preview[] = Object.entries(transcripts).map(
-	([sessionId, entries]) => ({
-		sessionId,
-		html: renderTranscriptPreview(entries.slice(-previewEntryCount)),
-		capturedAt: Date.now(),
-	}),
-);
-
 const layout: Layout = {};
 
 const notReady: Record<string, string> = {
@@ -510,7 +505,6 @@ function broadcast(frame: BoardFeed): void {
 feed.on("connection", (ws) => {
 	send(ws, { type: "board", board: snapshot() });
 	send(ws, { type: "layout", layout });
-	for (const preview of previews) send(ws, { type: "preview", preview });
 });
 
 attach.on("connection", (ws) => {

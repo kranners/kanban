@@ -23,6 +23,7 @@ function session(id: string, activity: Activity): Session {
 		activity,
 		doing: null,
 		needs: null,
+		goal: null,
 		startedAt: 1,
 		updatedAt: 1,
 		attachable: true,

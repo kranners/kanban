@@ -22,6 +22,7 @@ export type Session = {
 	activity: Activity;
 	doing: string | null;
 	needs: string | null;
+	goal: string | null;
 	startedAt: number;
 	updatedAt: number;
 	attachable: boolean;
@@ -67,12 +68,6 @@ export type Board = {
 	links: Link[];
 	messages: Message[];
 	generatedAt: number;
-};
-
-export type Preview = {
-	sessionId: string;
-	html: string;
-	capturedAt: number;
 };
 
 export type TranscriptEntry = {
@@ -168,7 +163,6 @@ export type CommentPatch = { x?: number; y?: number; resolved?: boolean };
 
 export type BoardFeed =
 	| { type: "board"; board: Board }
-	| { type: "preview"; preview: Preview }
 	| { type: "layout"; layout: Layout }
 	| { type: "annotations"; annotations: Annotations }
 	| { type: "colours"; colours: RegionColours }

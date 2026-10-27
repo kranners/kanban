@@ -6,7 +6,6 @@ import type {
 	CommentThread,
 	ExitResult,
 	Layout,
-	Preview,
 	Region,
 } from "../shared/types.ts";
 
@@ -19,7 +18,6 @@ export type FeedSocket = {
 export type Feed = {
 	add(socket: FeedSocket): void;
 	board(board: Board): void;
-	preview(preview: Preview): void;
 	layout(layout: Layout): void;
 	annotations(annotations: Annotations): void;
 	colours(colours: RegionColours): void;
@@ -32,7 +30,6 @@ export type Feed = {
 
 export type FeedOptions = {
 	board: () => Board;
-	previews: () => Preview[];
 	layout: () => Layout;
 	annotations: () => Annotations;
 	colours: () => RegionColours;
@@ -44,7 +41,6 @@ const socketOpen = 1;
 
 export const createFeed = ({
 	board,
-	previews,
 	layout,
 	annotations,
 	colours,
@@ -73,11 +69,8 @@ export const createFeed = ({
 			send(socket, { type: "regions", regions: regions() });
 			send(socket, { type: "comments", comments: comments() });
 			send(socket, { type: "board", board: board() });
-			for (const preview of previews())
-				send(socket, { type: "preview", preview });
 		},
 		board: (next) => broadcast({ type: "board", board: next }),
-		preview: (preview) => broadcast({ type: "preview", preview }),
 		layout: (next) => broadcast({ type: "layout", layout: next }),
 		annotations: (next) =>
 			broadcast({ type: "annotations", annotations: next }),

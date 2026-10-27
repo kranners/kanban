@@ -10,6 +10,7 @@ import type {
 	Subagent,
 	TranscriptEntry,
 } from "../../shared/types.ts";
+import { firstLine, truncate } from "./json.ts";
 import { locateTranscript, projectSlug } from "./locate.ts";
 import {
 	entryLimit,
@@ -56,6 +57,7 @@ const debounceMs = 250;
 const locateRetryMs = 10_000;
 const stoppedJobWindowMs = 24 * 60 * 60_000;
 const messageLimit = 200;
+const goalLength = 100;
 
 export function startBoard(opts: {
 	claudeHome: string;
@@ -332,6 +334,7 @@ function toSession(item: Tracked, inCmux: (pid: number) => boolean): Session {
 				? (job?.detail ?? transcriptDoing)
 				: transcriptDoing,
 		needs: activity === "needs-you" ? (job?.needs ?? null) : null,
+		goal: goalOf(tail?.facts ?? null, job),
 		startedAt: entry?.startedAt ?? job?.createdAt ?? 0,
 		updatedAt: Math.max(
 			entry?.updatedAt ?? 0,
@@ -341,6 +344,17 @@ function toSession(item: Tracked, inCmux: (pid: number) => boolean): Session {
 		attachable: kind === "background" && job !== null,
 		cmux: kind === "interactive" && entry !== null && inCmux(entry.pid),
 	};
+}
+
+export function goalOf(
+	facts: TranscriptFacts | null,
+	job: Job | null,
+): string | null {
+	if (facts?.aiTitle) return facts.aiTitle;
+	const prompt = firstLine(facts?.lastPrompt ?? job?.intent ?? "");
+	return prompt === ""
+		? null
+		: truncate(prompt.replace(/\s+/g, " "), goalLength);
 }
 
 function collectLinks(

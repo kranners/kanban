@@ -23,6 +23,7 @@ const session = (id: string, short: string | null): Session => ({
 	activity: "idle",
 	doing: null,
 	needs: null,
+	goal: null,
 	startedAt: 0,
 	updatedAt: 0,
 	attachable: true,

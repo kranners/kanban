@@ -33,6 +33,7 @@ function session(id: string, startedAt: number): Session {
 		activity: "idle",
 		doing: null,
 		needs: null,
+		goal: null,
 		startedAt,
 		updatedAt: startedAt,
 		attachable: true,

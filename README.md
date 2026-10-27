@@ -1,6 +1,6 @@
 # kanban
 
-A board of the Claude Code sessions running on one Mac. Each card is a live session with what it is doing and a preview of its terminal; cards are linked when one session spawned, forked or delegated to another, and messages between sessions animate across the board. Click a background session to drive its real TUI in the browser, click one running in a cmux pane to mirror and type into it, or start a new one. Everything is read from `~/.claude`; there is no database.
+A board of the Claude Code sessions running on one Mac. Each card is a live session with its goal and what it is doing; cards are linked when one session spawned, forked or delegated to another, and messages between sessions animate across the board. Click a background session to drive its real TUI in the browser, click one running in a cmux pane to mirror and type into it, or start a new one. Everything is read from `~/.claude`; there is no database.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/board-dark.png">
