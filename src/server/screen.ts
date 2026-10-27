@@ -34,6 +34,7 @@ const rowPattern =
 const numberedPattern = /^\s*(?:[❯↓↑]\s*)?\d+\.\s+\S/;
 const scrollPattern = /^\s*[↓↑]/;
 const tabBarPattern = /^\s*(?:←\s+)?[☐☒✔]\s+\S/;
+const quotePattern = /^\s*│\s?/;
 const separatorPattern = /^\s*[─━╌]{8,}\s*$/;
 const rulePattern = /^\s*[─━]{8,}\s*$/;
 const panelTopPattern = /^\s*[─━▔]{8,}/;
@@ -45,8 +46,8 @@ export const normalise = (text: string): string =>
 	text.replace(/\s+/g, " ").replace(/…$/, "").trim().toLowerCase();
 
 export const sameLabel = (shown: string, wanted: string): boolean => {
-	const a = normalise(shown).replace(/ /g, "");
-	const b = normalise(wanted).replace(/ /g, "");
+	const a = normalise(shown).replace(/[\s`*]/g, "");
+	const b = normalise(wanted).replace(/[\s`*]/g, "");
 	if (a === "" || b === "") return false;
 	return (
 		a === b ||
@@ -54,6 +55,9 @@ export const sameLabel = (shown: string, wanted: string): boolean => {
 		(b.length >= 3 && a.startsWith(b))
 	);
 };
+
+export const isSubmitRow = (row: ScreenRow): boolean =>
+	row.number === null && ["submit", "next"].includes(normalise(row.label));
 
 const lines = (screen: string): string[] =>
 	screen.split("\n").map((line) => line.replace(/\s+$/, ""));
@@ -116,10 +120,16 @@ function readAsk(all: string[], tabBar: number): AskScreen | null {
 	const below = all.slice(tabBar + 1);
 	const questionAt = below.findIndex((line) => line.trim() !== "");
 	if (questionAt === -1) return null;
-	const question = below[questionAt]?.trim() ?? "";
+	const quoted = quotePattern.test(below[questionAt] ?? "");
+	let questionEnd = questionAt + 1;
+	while (quoted && quotePattern.test(below[questionEnd] ?? "")) questionEnd++;
+	const question = below
+		.slice(questionAt, questionEnd)
+		.map((line) => line.replace(quotePattern, "").trim())
+		.join(" ");
 	const rows: ScreenRow[] = [];
 	let afterSeparator = false;
-	for (const line of below.slice(questionAt + 1)) {
+	for (const line of below.slice(questionEnd)) {
 		if (separatorPattern.test(line)) {
 			afterSeparator = true;
 			continue;
@@ -128,8 +138,7 @@ function readAsk(all: string[], tabBar: number): AskScreen | null {
 		const row = parseRow(line);
 		if (!row) continue;
 		const numbered = row.number !== null;
-		const submit = row.number === null && normalise(row.label) === "submit";
-		if (numbered || submit) {
+		if (numbered || isSubmitRow(row)) {
 			if (afterSeparator && !numbered) continue;
 			rows.push(row);
 		}

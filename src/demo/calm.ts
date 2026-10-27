@@ -141,6 +141,7 @@ function world(start: number): World {
 	return {
 		sessions,
 		subagents,
+		workflows: [],
 		links: [
 			{ from: s("a1f0c2d4e5"), to: a("sa-explore"), kind: "subagent" },
 			{ from: s("a1f0c2d4e5"), to: a("sa-tests"), kind: "subagent" },

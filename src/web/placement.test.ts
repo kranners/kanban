@@ -69,6 +69,7 @@ function board(parts: Partial<Board>): Board {
 		subagentCounts: {},
 		subagentStates: {},
 		workflowRuns: {},
+		workflows: [],
 		links: [],
 		messages: [],
 		generatedAt: 0,

@@ -12,7 +12,6 @@ import { NeedsYouCount, needsYouClass } from "./NeedsYou.tsx";
 import { justDragged, projectGestures } from "./projectDrag.ts";
 import { deleteRegion, regionDialog, regionMenu } from "./regionState.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
-import { OutstandingSubagentsCount } from "./SubagentPill.tsx";
 
 export function openRegionMenu(group: Group, at: Point): void {
 	regionMenu.value =
@@ -69,7 +68,6 @@ export function GroupFrames(props: { groups: readonly Group[] }) {
 						<Folder size={12} aria-hidden="true" />
 						<span class="group-label-text">{group.project}</span>
 						<NeedsYouCount members={group.members} />
-						<OutstandingSubagentsCount members={group.members} />
 					</button>
 				</div>
 			))}

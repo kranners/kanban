@@ -32,9 +32,17 @@ export type Turn =
 			agentId?: string;
 	  };
 
+export type DemoWorkflow = {
+	runId: string;
+	sessionId: string;
+	name: string;
+	agents: string[];
+};
+
 export type World = {
 	sessions: Session[];
 	subagents: Subagent[];
+	workflows: DemoWorkflow[];
 	links: Link[];
 	messages: Message[];
 	layout: Layout;

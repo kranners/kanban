@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { Subagent } from "../../shared/types.ts";
+import type { Subagent, Workflow } from "../../shared/types.ts";
 import { asObject, asString, parseJson } from "./json.ts";
 import type { TranscriptFacts } from "./records.ts";
 
@@ -67,7 +67,7 @@ export function scanSubagents(opts: {
 		}
 	}
 	const found: FoundSubagent[] = [];
-	const journals = new Map<string, Set<string>>();
+	const journals = new Map<string, JournalProgress>();
 	for (const {
 		id,
 		file,
@@ -79,7 +79,7 @@ export function scanSubagents(opts: {
 		if (!kept.has(id)) continue;
 		const done =
 			returned(finishedTasks, id, file) ||
-			journalFinished(journals, dirname(metaPath)).has(id);
+			journalOf(journals, dirname(metaPath)).finished.has(id);
 		found.push({
 			transcriptPath,
 			teammate: meta.teammate,
@@ -159,28 +159,76 @@ function returned(
 	return finished.has(id) || (run !== undefined && finished.has(run));
 }
 
-function journalFinished(
-	journals: Map<string, Set<string>>,
+type JournalProgress = {
+	finished: Set<string>;
+	startedSteps: Set<string>;
+	finishedSteps: Set<string>;
+};
+
+function journalOf(
+	journals: Map<string, JournalProgress>,
 	dir: string,
-): Set<string> {
+): JournalProgress {
 	const known = journals.get(dir);
 	if (known) return known;
-	const finished = new Set<string>();
-	journals.set(dir, finished);
+	const progress = readJournal(dir);
+	journals.set(dir, progress);
+	return progress;
+}
+
+function readJournal(dir: string): JournalProgress {
+	const progress: JournalProgress = {
+		finished: new Set(),
+		startedSteps: new Set(),
+		finishedSteps: new Set(),
+	};
 	let text: string;
 	try {
 		text = readFileSync(join(dir, "journal.jsonl"), "utf8");
 	} catch {
-		return finished;
+		return progress;
 	}
 	for (const line of text.split("\n")) {
 		const record = asObject(parseJson(line));
 		const agentId = asString(record?.agentId);
-		if (agentId && (record?.type === "result" || record?.type === "failed")) {
-			finished.add(agentId);
+		if (!agentId) continue;
+		const step = asString(record?.key) ?? agentId;
+		if (record?.type === "started") progress.startedSteps.add(step);
+		if (record?.type === "result" || record?.type === "failed") {
+			progress.finished.add(agentId);
+			progress.finishedSteps.add(step);
 		}
 	}
-	return finished;
+	return progress;
+}
+
+export function runningWorkflows(
+	found: readonly FoundSubagent[],
+	liveParentFacts: (sessionId: string) => TranscriptFacts | null,
+): Workflow[] {
+	const runs = new Map<string, { sessionId: string; dir: string }>();
+	for (const { subagent, transcriptPath, workflowRun } of found) {
+		if (workflowRun) {
+			runs.set(workflowRun, {
+				sessionId: subagent.sessionId,
+				dir: dirname(transcriptPath),
+			});
+		}
+	}
+	return [...runs].flatMap(([runId, { sessionId, dir }]) => {
+		const facts = liveParentFacts(sessionId);
+		if (!facts || facts.finishedTasks.has(runId)) return [];
+		const { startedSteps, finishedSteps } = readJournal(dir);
+		return [
+			{
+				runId,
+				sessionId,
+				name: facts.workflowNames.get(runId) ?? runId,
+				done: finishedSteps.size,
+				total: new Set([...startedSteps, ...finishedSteps]).size,
+			},
+		];
+	});
 }
 
 function cachedMeta(cache: MetaCache, path: string) {

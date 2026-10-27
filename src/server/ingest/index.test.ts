@@ -216,7 +216,22 @@ function buildFixture() {
 		result(-547_000, "t-flow", {
 			status: "async_launched",
 			taskId: "wflowtask",
+			workflowName: "audit",
 			runId: "wf_2",
+		}),
+		assistant(-547_500, [
+			{
+				type: "tool_use",
+				id: "t-review",
+				name: "Workflow",
+				input: { script: "review.js" },
+			},
+		]),
+		result(-547_400, "t-review", {
+			status: "async_launched",
+			taskId: "wreviewtask",
+			workflowName: "review-changes",
+			runId: "wf_1",
 		}),
 		assistant(-546_000, [
 			{
@@ -540,6 +555,15 @@ describe("startBoard", () => {
 			[lead]: { working: 3, idle: 1, done: 4 },
 			[fork]: { working: 0, idle: 0, done: 1 },
 		});
+		assert.deepEqual(board.workflows, [
+			{
+				runId: "wf_1",
+				sessionId: lead,
+				name: "review-changes",
+				done: 1,
+				total: 2,
+			},
+		]);
 		const nested = board.subagents.find((item) => item.id === "agentnested");
 		assert.equal(nested?.parentAgentId, "agentlive");
 		assert.equal(nested?.sessionId, lead);

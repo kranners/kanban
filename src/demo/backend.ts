@@ -211,7 +211,25 @@ export function createBackend(scenario: Scenario): Backend {
 			subagents,
 			subagentCounts: subagentCountsBySession(subagents),
 			subagentStates: outstandingStates(subagents),
-			workflowRuns: {},
+			workflowRuns: Object.fromEntries(
+				world.workflows.map((run) => [run.runId, run.agents]),
+			),
+			workflows: world.workflows.flatMap((run) => {
+				const started = subagents.filter((agent) =>
+					run.agents.includes(agent.id),
+				);
+				const done = started.filter((agent) => agent.done).length;
+				if (!live.has(run.sessionId) || done === started.length) return [];
+				return [
+					{
+						runId: run.runId,
+						sessionId: run.sessionId,
+						name: run.name,
+						done,
+						total: started.length,
+					},
+				];
+			}),
 			links: world.links.filter(connects),
 			messages: world.messages.filter(connects),
 			generatedAt: Date.now(),

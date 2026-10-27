@@ -1,10 +1,8 @@
 import { Bot, Hourglass } from "lucide-preact";
-import type { JSX } from "preact";
 import { outstandingSubagents } from "../shared/subagents.ts";
 import { ActivityIcon } from "./activity.tsx";
-import type { NodeKey } from "./layout.ts";
-import { board, subagentTotals, workingSubagentsOnly } from "./state.ts";
-import { memberSubagentCounts, subagentSummary } from "./subagentCounts.ts";
+import { subagentTotals, workingSubagentsOnly } from "./state.ts";
+import { subagentSummary } from "./subagentCounts.ts";
 
 export function SubagentPill() {
 	const counts = subagentTotals.value;
@@ -49,28 +47,5 @@ export function SubagentPill() {
 				)}
 			</button>
 		</>
-	);
-}
-
-export function OutstandingSubagentsCount(props: {
-	members: readonly NodeKey[];
-}): JSX.Element | null {
-	const counts = memberSubagentCounts(
-		props.members,
-		board.value?.subagentCounts ?? {},
-	);
-	const outstanding = outstandingSubagents(counts);
-	if (outstanding === 0) return null;
-	return (
-		<span
-			class={`group-subagents num${counts.working > 0 ? " running" : ""}`}
-			title={subagentSummary(counts)}
-		>
-			<Bot size={10} strokeWidth={2.5} aria-hidden="true" />
-			<span aria-hidden="true">{outstanding}</span>
-			<span class="visually-hidden">
-				{`, ${outstanding} ${outstanding === 1 ? "subagent" : "subagents"} outstanding`}
-			</span>
-		</span>
 	);
 }

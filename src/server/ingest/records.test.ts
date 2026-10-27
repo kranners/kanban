@@ -244,6 +244,32 @@ describe("applyRecord", () => {
 		]);
 	});
 
+	test("a resumed workflow run is running again, under its name", () => {
+		const facts = apply(
+			toolUse("t1", "Workflow", { script: "a.js" }),
+			toolResult("t1", {
+				status: "async_launched",
+				taskId: "w1",
+				workflowName: "audit",
+				runId: "wf_a",
+			}),
+			toolUse("t2", "TaskStop", { task_id: "w1" }),
+			toolResult("t2", { message: "Stopped", task_id: "w1" }),
+			toolUse("t3", "Workflow", {
+				scriptPath: "a.js",
+				resumeFromRunId: "wf_a",
+			}),
+			toolResult("t3", {
+				status: "async_launched",
+				taskId: "w2",
+				workflowName: "audit",
+				runId: "wf_a",
+			}),
+		);
+		assert.deepEqual([...facts.finishedTasks], ["w1"]);
+		assert.equal(facts.workflowNames.get("wf_a"), "audit");
+	});
+
 	test("keeps typed user text and skips meta, tool results and notifications", () => {
 		const facts = apply(
 			{ type: "user", message: { content: "fix the build" } },

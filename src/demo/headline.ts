@@ -708,6 +708,14 @@ function world(start: number): World {
 	return {
 		sessions,
 		subagents,
+		workflows: [
+			{
+				runId: "wf_contracts",
+				sessionId: sid("worker: contracts"),
+				name: "contract-tests",
+				agents: ["sa-contract-orders", "sa-contract-pay", "sa-contract-verify"],
+			},
+		],
 		links: [
 			...subagents.map(
 				(agent): Link => ({
