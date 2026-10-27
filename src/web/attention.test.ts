@@ -28,6 +28,7 @@ function session(id: string, activity: Activity): Session {
 		updatedAt: 1,
 		attachable: true,
 		cmux: false,
+		artifacts: [],
 	};
 }
 

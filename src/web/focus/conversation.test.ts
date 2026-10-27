@@ -36,6 +36,7 @@ const result = (changes: Partial<ToolResult> = {}): ToolResult => ({
 	agentId: null,
 	answers: null,
 	interrupted: false,
+	artifact: null,
 	at: 0,
 	...changes,
 });

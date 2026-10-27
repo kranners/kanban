@@ -21,6 +21,7 @@ function session(id: string): Session {
 		updatedAt: 0,
 		attachable: true,
 		cmux: false,
+		artifacts: [],
 	};
 }
 

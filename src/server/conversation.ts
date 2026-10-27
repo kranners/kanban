@@ -7,6 +7,7 @@ import type {
 	ToolResult,
 } from "../shared/conversation.ts";
 import { stripAnsi } from "./ansi.ts";
+import { publishedArtifact } from "./artifacts.ts";
 import {
 	asNumber,
 	asObject,
@@ -381,7 +382,7 @@ function applyToolResults(
 		const item = index === undefined ? undefined : log.items[index];
 		if (!id || item?.kind !== "tool") continue;
 		finished.push(id);
-		replace(log, { ...item, result: toolResult(block, extra, at) });
+		replace(log, { ...item, result: toolResult(item, block, extra, at) });
 	}
 	if (finished.length > 0) {
 		setStatus(log, {
@@ -392,7 +393,12 @@ function applyToolResults(
 	}
 }
 
-function toolResult(block: Json, extra: Json | null, at: number): ToolResult {
+function toolResult(
+	item: { name: string; input: Json },
+	block: Json,
+	extra: Json | null,
+	at: number,
+): ToolResult {
 	const parts = Array.isArray(block.content)
 		? block.content.map(asObject)
 		: [{ type: "text", text: asString(block.content) ?? "" }];
@@ -409,6 +415,10 @@ function toolResult(block: Json, extra: Json | null, at: number): ToolResult {
 		agentId: asString(extra?.agentId) ?? agentIdIn(text),
 		answers: answersOf(extra?.answers),
 		interrupted: extra?.interrupted === true,
+		artifact:
+			item.name === "Artifact"
+				? publishedArtifact(item.input, extra, at)
+				: null,
 		at,
 	};
 }

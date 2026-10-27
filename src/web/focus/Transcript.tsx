@@ -1,4 +1,5 @@
 import {
+	AppWindow,
 	Bot,
 	Brain,
 	CircleAlert,
@@ -61,6 +62,7 @@ const toolIcons: Record<string, typeof Wrench> = {
 	WebFetch: Globe,
 	WebSearch: Globe,
 	AskUserQuestion: MessageCircleQuestion,
+	Artifact: AppWindow,
 };
 
 function iconFor(name: string): typeof Wrench {
@@ -207,6 +209,24 @@ function ToolBody(props: { item: ToolItem; linked: LinkedSubagent | null }) {
 				</>
 			);
 		}
+		case "Artifact":
+			return (
+				<>
+					{result?.artifact && (
+						<a
+							class="av-link"
+							href={result.artifact.url}
+							target="_blank"
+							rel="noopener noreferrer"
+						>
+							<AppWindow size={13} aria-hidden="true" />
+							Open {result.artifact.title}
+						</a>
+					)}
+					<Json value={input} />
+					<Output label="Result" text={resultText} error={error} />
+				</>
+			);
 		case "Read":
 		case "Grep":
 		case "Glob":

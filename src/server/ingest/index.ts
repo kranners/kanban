@@ -363,6 +363,7 @@ function toSession(item: Tracked, inCmux: (pid: number) => boolean): Session {
 		),
 		attachable: kind === "background" && job !== null,
 		cmux: kind === "interactive" && entry !== null && inCmux(entry.pid),
+		artifacts: [...(tail?.facts.artifacts.values() ?? [])].reverse(),
 	};
 }
 

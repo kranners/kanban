@@ -38,6 +38,7 @@ function session(id: string, startedAt: number): Session {
 		updatedAt: startedAt,
 		attachable: true,
 		cmux: false,
+		artifacts: [],
 	};
 }
 

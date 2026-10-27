@@ -124,6 +124,11 @@ export function toolDetail(item: ToolItem): string {
 			return text(input.skill) || text(input.command);
 		case "SendMessage":
 			return text(input.summary) || text(input.to);
+		case "Artifact":
+			return (
+				item.result?.artifact?.title ??
+				(text(input.title) || text(input.action) || "publish")
+			);
 		default: {
 			const value = Object.values(input).find(
 				(entry): entry is string => typeof entry === "string" && entry !== "",
