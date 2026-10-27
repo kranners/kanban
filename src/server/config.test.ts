@@ -20,6 +20,10 @@ describe("loadConfig", () => {
 		});
 		assert.deepEqual(config.origins, ["https://kanban.example.com"]);
 		assert.equal(config.claudeBin, "/opt/homebrew/bin/claude");
+		assert.equal(
+			config.cmuxBin,
+			"/Applications/cmux.app/Contents/Resources/bin/cmux",
+		);
 		assert.match(config.claudeHome, /\/\.claude$/);
 		assert.match(config.dist, /\/dist$/);
 		assert.match(config.stateDir, /\/\.local\/state\/kanban$/);
@@ -84,11 +88,13 @@ describe("loadConfig", () => {
 			KANBAN_AUTH: "off",
 			KANBAN_HOST: "::1",
 			CLAUDE_BIN: "/usr/local/bin/claude",
+			CMUX_BIN: "/usr/local/bin/cmux",
 			CLAUDE_HOME: "/Users/me/.claude-test",
 			KANBAN_DIST: "/Users/me/dev/acme-api/dist",
 		});
 		assert.equal(config.host, "::1");
 		assert.equal(config.claudeBin, "/usr/local/bin/claude");
+		assert.equal(config.cmuxBin, "/usr/local/bin/cmux");
 		assert.equal(config.claudeHome, "/Users/me/.claude-test");
 		assert.equal(config.dist, "/Users/me/dev/acme-api/dist");
 	});

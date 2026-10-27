@@ -22,6 +22,7 @@ export type Session = {
 	startedAt: number;
 	updatedAt: number;
 	attachable: boolean;
+	cmux: boolean;
 };
 
 export type Subagent = {
@@ -114,3 +115,27 @@ export type AttachClientFrame =
 export type AttachServerNotice =
 	| { t: "taken-over" }
 	| { t: "exited"; code: number };
+
+export const mirrorKeys = [
+	"Enter",
+	"Escape",
+	"Tab",
+	"Shift+Tab",
+	"Up",
+	"Down",
+	"Left",
+	"Right",
+	"Backspace",
+	"Ctrl+C",
+] as const;
+
+export type MirrorKey = (typeof mirrorKeys)[number];
+
+export type MirrorClientFrame =
+	| { type: "text"; text: string; submit: boolean }
+	| { type: "key"; key: MirrorKey };
+
+export type MirrorServerFrame =
+	| { type: "screen"; text: string }
+	| { type: "error"; error: string }
+	| { type: "ended"; reason: string };

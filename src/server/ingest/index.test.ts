@@ -369,6 +369,7 @@ describe("startBoard", () => {
 			claudeHome: home,
 			onChange: (next) => changes.push(next),
 			ignore: (id) => id === probe,
+			inCmux: (pid) => pid === process.pid,
 		});
 		board = handle.board();
 	});
@@ -406,6 +407,7 @@ describe("startBoard", () => {
 			startedAt: now - 3_600_000,
 			updatedAt: now - 60_000,
 			attachable: false,
+			cmux: true,
 		});
 	});
 

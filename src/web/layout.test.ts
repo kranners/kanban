@@ -33,6 +33,7 @@ function session(
 		startedAt,
 		updatedAt,
 		attachable: true,
+		cmux: false,
 	};
 }
 

@@ -75,6 +75,7 @@ function session(id: string): Session {
 		startedAt: 1,
 		updatedAt: 1,
 		attachable: true,
+		cmux: false,
 	};
 }
 

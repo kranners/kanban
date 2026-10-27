@@ -19,7 +19,7 @@ The MVP is the board, relationships, messages, focused TUI for background sessio
 
 ## Interactive sessions
 
-- Mirror cmux panes (`cmux read-screen`) and send to them (`cmux paste --submit`), which needs cmux's socket in password mode.
+- ~~Mirror cmux panes (`cmux read-screen`) and send to them (`cmux paste --submit`).~~ Done; a server started outside cmux still needs cmux's socket in password mode.
 - One-click "hand to board" guidance for `/bg`.
 
 ## Tickets and async work

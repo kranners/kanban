@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { ExitResult, Session } from "../shared/types.ts";
-import { stripAnsi } from "./ansi.ts";
+import { lastLine } from "./ansi.ts";
 import {
 	isAlive,
 	type RegistryEntry,
@@ -66,9 +66,6 @@ export const readinessArgs = (sessionId: string, forkId: string): string[] => [
 	"--",
 	readinessPrompt,
 ];
-
-const lastLine = (text: string): string =>
-	stripAnsi(text).trim().split("\n").at(-1)?.trim() ?? "";
 
 export const parseReadiness = (stdout: string, stderr = ""): Readiness => {
 	let result: unknown;
@@ -189,6 +186,22 @@ const inspectProcess = (pid: number): Promise<ProcessInfo | null> =>
 		);
 	});
 
+export const liveInteractiveEntry = async (
+	claudeHome: string,
+	session: Pick<Session, "id" | "pid">,
+): Promise<RegistryEntry | null> => {
+	const entry = readRegistry(claudeHome).find(
+		(entry) => entry.pid === session.pid,
+	);
+	return entry &&
+		entry.sessionId === session.id &&
+		entry.kind === "interactive" &&
+		isAlive(entry.pid) &&
+		sameProcess(entry, await inspectProcess(entry.pid))
+		? entry
+		: null;
+};
+
 const askTimeoutMs = 5 * 60_000;
 const commandTimeoutMs = 2 * 60_000;
 const probeForgetMs = 60_000;
@@ -224,16 +237,8 @@ export const claudeExitDeps = (opts: {
 		stop: (short) => command(["stop", short]),
 		remove: (short) => command(["rm", short]),
 		async terminate(session) {
-			const entry = readRegistry(opts.claudeHome).find(
-				(entry) => entry.pid === session.pid,
-			);
-			if (
-				!entry ||
-				entry.sessionId !== session.id ||
-				entry.kind !== "interactive" ||
-				!isAlive(entry.pid) ||
-				!sameProcess(entry, await inspectProcess(entry.pid))
-			) {
+			const entry = await liveInteractiveEntry(opts.claudeHome, session);
+			if (!entry) {
 				return {
 					ok: false,
 					output: "The session's process is no longer the one on the board",

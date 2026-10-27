@@ -36,6 +36,7 @@ function session(id: string, startedAt: number): Session {
 		startedAt,
 		updatedAt: startedAt,
 		attachable: true,
+		cmux: false,
 	};
 }
 

@@ -12,3 +12,6 @@ const ansiSequence = new RegExp(
 
 export const stripAnsi = (text: string): string =>
 	text.replace(ansiSequence, "");
+
+export const lastLine = (text: string): string =>
+	stripAnsi(text).trim().split("\n").at(-1)?.trim() ?? "";
