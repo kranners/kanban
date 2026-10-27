@@ -115,6 +115,24 @@ export function nearestFree(
 	return null;
 }
 
+export function clearSpot(rect: Rect, taken: readonly Rect[]): Point {
+	const fits = (at: Point) =>
+		taken.every((r) => !near({ ...rect, ...at }, r, clearance));
+	return (
+		nearestFree({ x: rect.x, y: rect.y }, fits) ?? { x: rect.x, y: rect.y }
+	);
+}
+
+export function clearShift(
+	rects: readonly Rect[],
+	taken: readonly Rect[],
+	from: Point = { x: 0, y: 0 },
+): Point {
+	const { x, y, width: w, height: h } = boundsOf(rects);
+	const spot = clearSpot({ x: x + from.x, y: y + from.y, w, h }, taken);
+	return { x: spot.x - x, y: spot.y - y };
+}
+
 function sessionParents(board: Board): Map<NodeKey, NodeKey> {
 	const ownerOf = new Map(board.subagents.map((a) => [a.id, a.sessionId]));
 	const sessionOf = (ref: NodeRef) =>
@@ -203,7 +221,7 @@ export function arrange(
 		const key = nodeKey(ref);
 		const rect = sessionRect(key, savedSpot(key));
 		put(key, ref, rect);
-		occupied.push(...footprint(key, rect));
+		occupied.push(rect);
 	}
 	for (const a of board.subagents) {
 		const ref: NodeRef = { kind: "subagent", id: a.id };
@@ -213,6 +231,26 @@ export function arrange(
 		const rect = { x: placement.x, y: placement.y, ...subagentSize };
 		put(key, ref, rect);
 		occupied.push(rect);
+	}
+	const nudged = new Map<NodeKey, Rect>();
+	for (const s of savedSessions.filter(pinned)) {
+		const key = nodeKey({ kind: "session", id: s.id });
+		const session = nodes.get(key);
+		if (!session) continue;
+		const natural = (followersOf.get(key) ?? []).flatMap((follower) => {
+			const offset = seeds.offsets.get(follower);
+			return offset ? [[follower, followerRect(session, offset)] as const] : [];
+		});
+		if (natural.length === 0) continue;
+		const shift = clearShift(
+			natural.map(([, rect]) => rect),
+			[...occupied, ...reserved],
+		);
+		for (const [follower, rect] of natural) {
+			const moved = { ...rect, x: rect.x + shift.x, y: rect.y + shift.y };
+			nudged.set(follower, moved);
+			occupied.push(moved);
+		}
 	}
 
 	const parents = sessionParents(board);
@@ -274,7 +312,8 @@ export function arrange(
 		const offset = seeds.offsets.get(key);
 		const session = offset ? nodes.get(offset.session) : undefined;
 		if (offset && session) {
-			put(key, ref, followerRect(session, offset), offset.session);
+			const rect = nudged.get(key) ?? followerRect(session, offset);
+			put(key, ref, rect, offset.session);
 			continue;
 		}
 		const point = treePoint(key);

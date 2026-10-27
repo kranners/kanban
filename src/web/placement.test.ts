@@ -12,6 +12,7 @@ import { gridSize } from "./grid.ts";
 import type { NodeKey, PlacedNode } from "./layout.ts";
 import {
 	arrange,
+	clearSpot,
 	near,
 	nearestFree,
 	seedsOf,
@@ -279,4 +280,86 @@ test("a pinned session stays put and the unpinned neighbour gives way", () => {
 		[0, 480],
 	);
 	assertApart(nodes.values());
+});
+
+test("a pinned session's new subagent steps aside for a pinned neighbour", () => {
+	const b = board({
+		sessions: [session("a", 1), session("b", 2)],
+		subagents: [subagent("x", "a")],
+	});
+	const saved: Layout = {
+		"session:a": { x: 0, y: 0, pinned: true },
+		"session:b": { x: 0, y: sessionSize.h + gridSize, pinned: true },
+	};
+	const { nodes } = place(b, saved);
+	assert.deepEqual(
+		[nodes.get("session:b")?.x, nodes.get("session:b")?.y],
+		[0, sessionSize.h + gridSize],
+	);
+	assert.equal(nodes.get("subagent:x")?.follows, "session:a");
+	assertApart(nodes.values());
+});
+
+test("a pinned session's subagents stay where the tree puts them when there is room", () => {
+	const b = board({
+		sessions: [session("a", 1)],
+		subagents: [subagent("x", "a"), subagent("y", "a", 2)],
+	});
+	const loose = place(b).nodes;
+	const saved: Layout = { "session:a": { x: 0, y: 0, pinned: true } };
+	const pinned = place(b, saved).nodes;
+	const offset = (nodes: Map<NodeKey, PlacedNode>, key: NodeKey) => {
+		const node = nodes.get(key);
+		const root = nodes.get("session:a");
+		return node && root ? [node.x - root.x, node.y - root.y] : null;
+	};
+	for (const key of ["subagent:x", "subagent:y"] as const)
+		assert.deepEqual(offset(pinned, key), offset(loose, key));
+});
+
+test("the nearest clear spot leaves a rect alone when nothing is in the way", () => {
+	const rect = { x: 10, y: 20, w: 100, h: 100 };
+	assert.deepEqual(clearSpot(rect, [{ x: 500, y: 500, w: 10, h: 10 }]), {
+		x: 10,
+		y: 20,
+	});
+});
+
+test("the nearest clear spot moves a rect off what it would cover", () => {
+	const card = { x: 0, y: 0, ...sessionSize };
+	const rect = { x: 48, y: 48, w: 96, h: 96 };
+	const spot = clearSpot(rect, [card]);
+	assert.ok(!near({ ...rect, ...spot }, card, 0));
+	assert.ok((spot.x - rect.x) % gridSize === 0);
+	assert.ok((spot.y - rect.y) % gridSize === 0);
+});
+
+test("a pinned session's subagents step aside together, off notes too", () => {
+	const b = board({
+		sessions: [session("a", 1)],
+		subagents: [
+			subagent("x", "a"),
+			subagent("y", "a", 2),
+			subagent("z", "a", 3),
+		],
+	});
+	const saved: Layout = { "session:a": { x: 0, y: 0, pinned: true } };
+	const loose = place(b, saved).nodes;
+	const first = loose.get("subagent:x");
+	assert.ok(first);
+	const note = { x: first.x, y: first.y, w: 96, h: 96 };
+	const { nodes } = arrange(b, saved, seedsOf(b), new Map(), [note]);
+	const followers = ["subagent:x", "subagent:y", "subagent:z"] as const;
+	for (const key of followers) {
+		const node = nodes.get(key);
+		assert.ok(node);
+		assert.ok(!near(node, note, 0), `${key} covers the note`);
+	}
+	const rows = (n: Map<NodeKey, PlacedNode>) =>
+		followers.map((key) => n.get(key)?.y);
+	const shift = (nodes.get("subagent:x")?.y ?? 0) - first.y;
+	assert.deepEqual(
+		rows(nodes),
+		rows(loose).map((y) => (y ?? 0) + shift),
+	);
 });

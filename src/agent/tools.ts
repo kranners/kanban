@@ -181,7 +181,7 @@ export const toolDefinitions: ToolDefinition[] = [
 	{
 		name: "start_session",
 		description:
-			"Start a new background Claude Code session in a directory with a first prompt. x and y place its card's top-left corner.",
+			"Start a new background Claude Code session in a directory with a first prompt. x and y place its card's top-left corner, moved to the nearest free spot if it would cover something.",
 		inputSchema: object(
 			{
 				cwd: { type: "string", description: "Absolute directory" },
@@ -195,7 +195,7 @@ export const toolDefinitions: ToolDefinition[] = [
 	},
 	{
 		name: "put_note",
-		description: `Create a sticky note (omit id; text, x and y required) or change one (give its id and only the fields to change). Text is GitHub-flavoured markdown, at most ${maxNoteText} characters. x and y are the top-left corner; omit w and h on a new note to size it to its text.`,
+		description: `Create a sticky note (omit id; text, x and y required) or change one (give its id and only the fields to change). Text is GitHub-flavoured markdown, at most ${maxNoteText} characters. x and y are the top-left corner, moved to the nearest free spot if a new note would cover something; omit w and h on a new note to size it to its text.`,
 		inputSchema: object({
 			id: { type: "string" },
 			text: { type: "string", maxLength: maxNoteText },
@@ -209,7 +209,7 @@ export const toolDefinitions: ToolDefinition[] = [
 	{
 		name: "put_sticker",
 		description:
-			"Place a sticker (omit id; sticker, x and y required) or change one (give its id). Sticker ids come from find_stickers. size is the square side, default 96.",
+			"Place a sticker (omit id; sticker, x and y required) or change one (give its id). Sticker ids come from find_stickers. size is the square side, default 96. A new sticker moves to the nearest free spot if it would cover something.",
 		inputSchema: object({
 			id: { type: "string" },
 			sticker: { type: "string" },
