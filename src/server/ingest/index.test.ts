@@ -14,6 +14,7 @@ import type { Board } from "../../shared/types.ts";
 import { goalOf, startBoard } from "./index.ts";
 import { createFacts } from "./records.ts";
 import type { Job } from "./registry.ts";
+import { subagentLimit } from "./subagents.ts";
 
 const now = Date.now();
 const iso = (offsetMs: number) => new Date(now + offsetMs).toISOString();
@@ -204,6 +205,31 @@ function buildFixture() {
 			content:
 				"<task-notification>\n<task-id>agentdone</task-id>\n<status>completed</status>\n</task-notification>",
 		},
+		assistant(-548_000, [
+			{
+				type: "tool_use",
+				id: "t-flow",
+				name: "Workflow",
+				input: { script: "audit.js" },
+			},
+		]),
+		result(-547_000, "t-flow", {
+			status: "async_launched",
+			taskId: "wflowtask",
+			runId: "wf_2",
+		}),
+		assistant(-546_000, [
+			{
+				type: "tool_use",
+				id: "t-stop",
+				name: "TaskStop",
+				input: { task_id: "wflowtask" },
+			},
+		]),
+		result(-545_000, "t-stop", {
+			message: "Successfully stopped task: wflowtask",
+			task_id: "wflowtask",
+		}),
 		assistant(-540_000, [{ type: "text", text: "Now editing.\n" }]),
 		assistant(-530_000, [
 			{
@@ -316,6 +342,20 @@ function buildFixture() {
 			]),
 		],
 	);
+	agent(
+		"workflows/wf_2/agent-agentflowstopped",
+		{ agentType: "workflow-subagent", description: "Stopped step" },
+		300_000,
+	);
+	jsonl(`${subagents}/workflows/wf_2/journal.jsonl`, [
+		{ type: "started", agentId: "agentflowstopped" },
+	]);
+	write(`projects/${leadDir}/${fork}/subagents/agent-agentorphan.meta.json`, {
+		agentType: "general-purpose",
+		description: "Orphaned",
+	});
+	jsonl(`projects/${leadDir}/${fork}/subagents/agent-agentorphan.jsonl`, []);
+	touch(`projects/${leadDir}/${fork}/subagents/agent-agentorphan.jsonl`, 5_000);
 	agent(
 		"agent-agentold",
 		{ agentType: "general-purpose", description: "Old one" },
@@ -492,9 +532,12 @@ describe("startBoard", () => {
 			agentidle: [false, false],
 			agentinner: [false, true],
 			agentblocked: [true, false],
+			agentflowstopped: [false, true],
+			agentorphan: [false, true],
 		});
 		assert.deepEqual(board.subagentCounts, {
-			[lead]: { working: 3, idle: 1, done: 3 },
+			[lead]: { working: 3, idle: 1, done: 4 },
+			[fork]: { working: 0, idle: 0, done: 1 },
 		});
 		const nested = board.subagents.find((item) => item.id === "agentnested");
 		assert.equal(nested?.parentAgentId, "agentlive");
@@ -517,6 +560,8 @@ describe("startBoard", () => {
 				`subagent:${lead}>agentidle`,
 				`subagent:${lead}>agentflowdone`,
 				`subagent:${lead}>agentblocked`,
+				`subagent:${lead}>agentflowstopped`,
+				`subagent:${fork}>agentorphan`,
 				"subagent:agentlive>agentnested",
 				"subagent:agentidle>agentinner",
 			].sort(),
@@ -552,7 +597,7 @@ describe("startBoard", () => {
 		assert.deepEqual(
 			entries.map((entry) => [entry.role, entry.text]),
 			[
-				["tool", "SendMessage"],
+				["tool", "TaskStop"],
 				["assistant", "Now editing."],
 				["tool", "Edit: /Users/me/dev/acme-api/src/a.ts"],
 			],
@@ -658,5 +703,81 @@ describe("goalOf", () => {
 	test("is null without a title, prompt or intent", () => {
 		assert.equal(goalOf(facts(null, "   \n "), job(null)), null);
 		assert.equal(goalOf(null, null), null);
+	});
+});
+
+describe("startBoard with more subagents than the board shows", () => {
+	const swarm = "5a5a5a5a-0000-4000-8000-000000000007";
+	const swarmDir = "-Users-me-dev-acme-swarm";
+	const subagents = `projects/${swarmDir}/${swarm}/subagents`;
+	const extra = 12;
+	let board: Board;
+	let handle: ReturnType<typeof startBoard>;
+
+	before(() => {
+		home = mkdtempSync(join(tmpdir(), "kanban-swarm-"));
+		write(`sessions/${process.pid}.json`, {
+			pid: process.pid,
+			sessionId: swarm,
+			cwd: "/Users/me/dev/acme-swarm",
+			startedAt: now - 3_600_000,
+			kind: "interactive",
+			status: "busy",
+			updatedAt: now - 1000,
+		});
+		jsonl(`projects/${swarmDir}/${swarm}.jsonl`, []);
+		const steps = Array.from(
+			{ length: subagentLimit + extra },
+			(_, i) => `agentstep${i}`,
+		);
+		jsonl(`${subagents}/workflows/wf_9/journal.jsonl`, [
+			...steps.map((agentId) => ({ type: "started", agentId })),
+			...steps
+				.filter((_, i) => i % 2 === 0)
+				.map((agentId) => ({ type: "result", agentId, result: "ok" })),
+		]);
+		steps.forEach((id, i) => {
+			const path = `${subagents}/workflows/wf_9/agent-${id}`;
+			write(`${path}.meta.json`, {
+				agentType: "workflow-subagent",
+				description: id,
+			});
+			jsonl(`${path}.jsonl`, []);
+			touch(`${path}.jsonl`, i < 5 ? 5_000 : 600_000 + i * 1000);
+		});
+		write(`${subagents}/agent-agentlead.meta.json`, {
+			agentType: "general-purpose",
+			description: "Lead",
+		});
+		jsonl(`${subagents}/agent-agentlead.jsonl`, [
+			result(-1000, "n-agent", {
+				agentId: "agentchilddone",
+				status: "completed",
+			}),
+		]);
+		touch(`${subagents}/agent-agentlead.jsonl`, 1000);
+		for (const child of ["agentchilddone", "agentchildwaiting"]) {
+			write(`${subagents}/agent-${child}.meta.json`, {
+				agentType: "general-purpose",
+				description: child,
+				parentAgentId: "agentlead",
+			});
+			jsonl(`${subagents}/agent-${child}.jsonl`, []);
+			touch(`${subagents}/agent-${child}.jsonl`, 900_000);
+		}
+		handle = startBoard({ claudeHome: home, onChange: () => {} });
+		board = handle.board();
+	});
+
+	after(() => {
+		handle.stop();
+		rmSync(home, { recursive: true, force: true });
+	});
+
+	test("counts every recent subagent, nested and in workflows, not only the cards shown", () => {
+		assert.equal(board.subagents.length, subagentLimit);
+		assert.deepEqual(board.subagentCounts, {
+			[swarm]: { working: 3, idle: 25, done: 27 },
+		});
 	});
 });

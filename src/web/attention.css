@@ -221,6 +221,47 @@
 	padding: 0 4px;
 }
 
+.ribbon.subagent-ribbon {
+	--ribbon-edge: var(--idle-edge);
+	--ribbon-fill: color-mix(in srgb, var(--idle-edge) 14%, var(--surface));
+	--ribbon-ink: var(--idle-ink);
+	right: auto;
+	left: 22px;
+	overflow: hidden;
+	border-style: dashed;
+	transform-origin: 0 50%;
+}
+
+.ribbon.subagent-ribbon.running {
+	--ribbon-edge: var(--busy-edge);
+	--ribbon-fill: color-mix(in srgb, var(--busy-edge) 12%, var(--surface));
+	--ribbon-ink: var(--busy-edge);
+	border-style: solid;
+}
+
+.subagent-ribbon.running::after {
+	content: "";
+	position: absolute;
+	inset: 0 auto 0 0;
+	width: 45%;
+	background: linear-gradient(
+		90deg,
+		transparent,
+		color-mix(in srgb, var(--busy-edge) 28%, transparent) 50%,
+		transparent
+	);
+	translate: -100% 0;
+	animation: busy-sweep 1.9s cubic-bezier(0.45, 0, 0.35, 1) infinite;
+}
+
+.subagent-ribbon .ribbon-count {
+	display: none;
+}
+
+.world[data-far] .subagent-ribbon .ribbon-count {
+	display: inline;
+}
+
 .ribbon:is(.act-done, .act-idle) .ribbon-text {
 	display: none;
 }
@@ -362,7 +403,9 @@
 	border-color: var(--needs-edge);
 }
 
-.world[data-far] .group-frame.wants-you .group-label {
+.world[data-far]
+	.group-frame:is(.wants-you, :has(.group-subagents))
+	.group-label {
 	max-width: calc((100% - 20px) / var(--unzoom));
 	transform-origin: 0 0;
 	scale: var(--unzoom);
@@ -382,6 +425,29 @@
 	font-size: 10.5px;
 	font-weight: 650;
 	line-height: 16px;
+}
+
+.group-subagents {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	height: 16px;
+	margin-left: 2px;
+	padding: 0 5px;
+	border: 1px dashed var(--idle-edge);
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--idle-edge) 14%, var(--surface));
+	color: var(--idle-ink);
+	font-size: 10.5px;
+	font-weight: 650;
+	line-height: 14px;
+}
+
+.group-subagents.running {
+	border: 1px solid var(--busy-edge);
+	background: color-mix(in srgb, var(--busy-edge) 12%, var(--surface));
+	color: var(--busy-edge);
 }
 
 .next-needing-you {
@@ -431,7 +497,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.busy-edge::after {
+	.busy-edge::after,
+	.subagent-ribbon.running::after {
 		width: 100%;
 		translate: 0 0;
 		opacity: 0.55;

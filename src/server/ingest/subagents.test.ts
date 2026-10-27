@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { Subagent } from "../../shared/types.ts";
 import { createFacts } from "./records.ts";
 import {
+	abandoned,
 	type FoundSubagent,
 	newestPerSession,
 	settleSubagents,
@@ -70,4 +71,29 @@ test("a subagent waiting on a tool is working; one any transcript finished is do
 			["finished", false, true],
 		],
 	);
+});
+
+test("a subagent of a workflow run that ended has returned", () => {
+	const lead = createFacts();
+	lead.finishedTasks.add("wf_ended");
+	const inRun = (id: string, run: string): FoundSubagent => ({
+		...found(id, "s", Date.now(), { live: true }),
+		transcriptPath: `/s/subagents/workflows/${run}/agent-${id}.jsonl`,
+	});
+	const settled = settleSubagents(
+		[inRun("stopped", "wf_ended"), inRun("running", "wf_live")],
+		new Map([["/lead.jsonl", lead]]),
+	);
+	assert.deepEqual(
+		settled.map(({ subagent }) => [subagent.id, subagent.live, subagent.done]),
+		[
+			["stopped", false, true],
+			["running", true, false],
+		],
+	);
+});
+
+test("an abandoned subagent is no longer awaited", () => {
+	const { subagent } = abandoned(found("orphan", "s", 1, { live: true }));
+	assert.deepEqual([subagent.live, subagent.done], [false, true]);
 });

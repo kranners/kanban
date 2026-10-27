@@ -27,6 +27,7 @@ import {
 	readRegistry,
 } from "./registry.ts";
 import {
+	abandoned,
 	type FoundSubagent,
 	type MetaCache,
 	newestPerSession,
@@ -218,7 +219,8 @@ export function startBoard(opts: {
 					seen.set(found.subagent.id, found);
 				}
 			}
-			return [...seen.values()];
+			const agents = [...seen.values()];
+			return item.entry ? agents : agents.map(abandoned);
 		});
 	}
 

@@ -20,6 +20,7 @@ export const subagentWindowMs = 30 * 60_000;
 export const subagentLiveMs = 120_000;
 export const subagentLimit = 40;
 const metaFile = /(?:^|\/)agent-([^/]+)\.meta\.json$/;
+const workflowRun = /(?:^|\/)workflows\/([^/]+)\/agent-[^/]+$/;
 
 export function scanSubagents(opts: {
 	dir: string;
@@ -47,7 +48,7 @@ export function scanSubagents(opts: {
 		const updatedAt = mtimeOf(transcriptPath) ?? meta.startedAt;
 		if (now - updatedAt > subagentWindowMs) continue;
 		const done =
-			finishedTasks.has(id) ||
+			returned(finishedTasks, id, file) ||
 			journalFinished(journals, dirname(metaPath)).has(id);
 		found.push({
 			transcriptPath,
@@ -75,7 +76,8 @@ export function settleSubagents(
 		[...factsOf.values()].flatMap((facts) => [...facts.finishedTasks]),
 	);
 	return found.map(({ subagent, transcriptPath }) => {
-		const done = subagent.done || finished.has(subagent.id);
+		const done =
+			subagent.done || returned(finished, subagent.id, transcriptPath);
 		const waitingOnTool = (factsOf.get(transcriptPath)?.tools.size ?? 0) > 0;
 		return {
 			transcriptPath,
@@ -86,6 +88,13 @@ export function settleSubagents(
 			},
 		};
 	});
+}
+
+export function abandoned({
+	subagent,
+	transcriptPath,
+}: FoundSubagent): FoundSubagent {
+	return { transcriptPath, subagent: { ...subagent, live: false, done: true } };
 }
 
 export function newestPerSession(
@@ -99,6 +108,15 @@ export function newestPerSession(
 			kept.set(subagent.sessionId, count + 1);
 			return count < subagentLimit;
 		});
+}
+
+function returned(
+	finished: ReadonlySet<string>,
+	id: string,
+	path: string,
+): boolean {
+	const run = workflowRun.exec(path)?.[1];
+	return finished.has(id) || (run !== undefined && finished.has(run));
 }
 
 function journalFinished(
