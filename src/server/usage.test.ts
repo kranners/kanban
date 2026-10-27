@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import type { Usage, UsageSample } from "../shared/types.ts";
 import {
 	createUsageMonitor,
+	keychainService,
 	loadUsageSamples,
 	parseSamples,
 	parseUsageResponse,
@@ -135,6 +136,16 @@ describe("createUsageMonitor", () => {
 		assert.equal(monitor.current().samples.length, 2);
 	});
 
+	it("shows a partial reading without inventing a sample for it", async () => {
+		const { monitor } = await setup(() =>
+			Response.json({ ...body, five_hour: null }),
+		);
+		await monitor.check();
+		assert.equal(monitor.current().session, null);
+		assert.equal(monitor.current().week?.percent, 58.5);
+		assert.deepEqual(monitor.current().samples, []);
+	});
+
 	it("reports a missing sign-in without calling the API", async () => {
 		const { monitor, requests } = await setup(() => Response.json(body), {
 			token: null,
@@ -155,6 +166,22 @@ describe("createUsageMonitor", () => {
 		assert.equal(
 			odd.monitor.current().error,
 			"Usage API sent an unexpected response",
+		);
+	});
+});
+
+describe("keychainService", () => {
+	it("uses Claude Code's own item for the default config dir", () => {
+		assert.equal(
+			keychainService(join(homedir(), ".claude")),
+			"Claude Code-credentials",
+		);
+	});
+
+	it("suffixes another config dir's item with its hash, as Claude Code does", () => {
+		assert.equal(
+			keychainService("/Users/me/.claude-work"),
+			"Claude Code-credentials-1e91dd84",
 		);
 	});
 });

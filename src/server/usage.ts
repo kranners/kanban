@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Usage, UsageSample, UsageWindow } from "../shared/types.ts";
 import { createStateFile, readState } from "./stateFile.ts";
@@ -102,16 +104,16 @@ export const createUsageMonitor = ({
 		const parsed = parseUsageResponse(await response.json());
 		if (!parsed) return { error: "Usage API sent an unexpected response" };
 		const at = now();
-		const samples = [
-			...usage.samples.filter((sample) => sample.at > at - sampleWindowMs),
-			{
-				at,
-				session: parsed.session?.percent ?? 0,
-				week: parsed.week?.percent ?? 0,
-			},
-		];
+		const recent = usage.samples.filter(
+			(sample) => sample.at > at - sampleWindowMs,
+		);
+		const { session, week } = parsed;
+		const samples =
+			session && week
+				? [...recent, { at, session: session.percent, week: week.percent }]
+				: recent;
 		stored.write(samples);
-		return { ...parsed, samples, error: null };
+		return { session, week, samples, error: null };
 	};
 
 	return {
@@ -137,12 +139,17 @@ const credentialsOf = (text: string | null): string | null => {
 	}
 };
 
-const keychainCredentials = (): Promise<string | null> =>
+export const keychainService = (claudeHome: string): string =>
+	claudeHome === join(homedir(), ".claude")
+		? "Claude Code-credentials"
+		: `Claude Code-credentials-${createHash("sha256").update(claudeHome.normalize("NFC")).digest("hex").slice(0, 8)}`;
+
+const keychainCredentials = (service: string): Promise<string | null> =>
 	new Promise((resolve) => {
 		if (process.platform !== "darwin") return resolve(null);
 		execFile(
 			"security",
-			["find-generic-password", "-s", "Claude Code-credentials", "-w"],
+			["find-generic-password", "-s", service, "-w"],
 			{ timeout: 10_000 },
 			(error, stdout) => resolve(error ? null : stdout.trim()),
 		);
@@ -150,7 +157,7 @@ const keychainCredentials = (): Promise<string | null> =>
 
 export const claudeCodeToken =
 	(claudeHome: string) => async (): Promise<string | null> =>
-		credentialsOf(await keychainCredentials()) ??
+		credentialsOf(await keychainCredentials(keychainService(claudeHome))) ??
 		credentialsOf(
 			await readFile(join(claudeHome, ".credentials.json"), "utf8").catch(
 				() => null,

@@ -31,9 +31,8 @@ export function linePath(
 	for (const sample of samples) {
 		if (sample.at < frame.from || sample.at > frame.to) continue;
 		const move = previous === null || sample.at - previous > gapMs;
-		commands.push(
-			`${move ? "M" : "L"}${round(xOf(sample.at, frame))} ${round(yOf(sample[series], frame))}`,
-		);
+		const point = `${round(xOf(sample.at, frame))} ${round(yOf(sample[series], frame))}`;
+		commands.push(move ? `M${point} h0` : `L${point}`);
 		previous = sample.at;
 	}
 	return commands.join(" ");
@@ -42,9 +41,11 @@ export function linePath(
 export function nearestSample(
 	samples: readonly UsageSample[],
 	at: number,
+	frame: Frame,
 ): UsageSample | null {
 	let best: UsageSample | null = null;
 	for (const sample of samples) {
+		if (sample.at < frame.from || sample.at > frame.to) continue;
 		if (!best || Math.abs(sample.at - at) < Math.abs(best.at - at)) {
 			best = sample;
 		}

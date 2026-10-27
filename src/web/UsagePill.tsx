@@ -144,7 +144,7 @@ function UsageChart(props: {
 		const x = ((event.clientX - box.left) / box.width) * chart.width;
 		const at =
 			frame.from + ((x - chart.left) / frame.width) * (frame.to - frame.from);
-		setHovered(nearestSample(props.samples, at));
+		setHovered(nearestSample(props.samples, at, frame));
 	};
 	return (
 		<figure class="usage-chart">
