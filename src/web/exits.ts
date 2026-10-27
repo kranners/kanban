@@ -15,17 +15,17 @@ const answerMs = 10 * 60_000;
 const answers = new Map<string, (result: ExitResult) => void>();
 
 export const exitAsk = signal<ExitAsk | null>(null);
-export const shiftHeld = signal(false);
+export const held = signal({ shift: false, option: false });
 
-addEventListener("keydown", (event) => {
-	if (event.key === "Shift") shiftHeld.value = true;
-});
-addEventListener("keyup", (event) => {
-	if (event.key === "Shift") shiftHeld.value = false;
-});
-addEventListener("blur", () => {
-	shiftHeld.value = false;
-});
+function hold(shift: boolean, option: boolean): void {
+	const now = held.peek();
+	if (now.shift !== shift || now.option !== option)
+		held.value = { shift, option };
+}
+
+addEventListener("keydown", (event) => hold(event.shiftKey, event.altKey));
+addEventListener("keyup", (event) => hold(event.shiftKey, event.altKey));
+addEventListener("blur", () => hold(false, false));
 
 function setExit(id: string, state: ExitState | null): void {
 	const next = new Map(exits.peek());

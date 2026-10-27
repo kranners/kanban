@@ -144,6 +144,41 @@ describe("answering questions", () => {
 		});
 	});
 
+	it("passes a multi-select question that is not the last with Next", async () => {
+		const tui = fakeTui({ questions: [toppings, colour] });
+		const outcome = await answerQuestions(
+			tui,
+			[toppings, colour],
+			[
+				{ selected: ["Olives"], other: null },
+				{ selected: ["Red"], other: null },
+			],
+			timing,
+		);
+		assert.deepEqual(outcome, { ok: true, value: null });
+		assert.deepEqual(tui.submitted, {
+			"Pick toppings": "Olives",
+			"Pick a colour": "Red",
+		});
+	});
+
+	it("answers a long question the TUI quotes over several lines", async () => {
+		const long: AskQuestion = {
+			...colour,
+			question:
+				"The build needs `docker run`, and the daemon has stopped answering after its VM ran out of memory. Which colour should the restart banner be?",
+		};
+		const tui = fakeTui({ questions: [long] });
+		const outcome = await answerQuestions(
+			tui,
+			[long],
+			[{ selected: ["Green"], other: null }],
+			timing,
+		);
+		assert.deepEqual(outcome, { ok: true, value: null });
+		assert.deepEqual(tui.submitted, { [long.question]: "Green" });
+	});
+
 	it("refuses when the screen shows a different question", async () => {
 		const tui = fakeTui({ questions: [toppings] });
 		const outcome = await answerQuestions(
