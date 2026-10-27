@@ -36,6 +36,7 @@ const scrollPattern = /^\s*[↓↑]/;
 const tabBarPattern = /^\s*(?:←\s+)?[☐☒✔]\s+\S/;
 const separatorPattern = /^\s*[─━╌]{8,}\s*$/;
 const rulePattern = /^\s*[─━]{8,}\s*$/;
+const panelTopPattern = /^\s*[─━▔]{8,}/;
 const menuHintPattern =
 	/\b(?:esc to (?:cancel|close|exit|go back)|enter to (?:continue|select|confirm))\b/i;
 const modePattern = /(?:⏵⏵|⏸|⏵)\s+([a-z][a-z ]*?) on\b/i;
@@ -96,7 +97,7 @@ function readMenu(all: string[]): MenuScreen | null {
 	if (hint === -1 || !footer(all).includes(all[hint] ?? "")) return null;
 	const top = all
 		.slice(0, hint)
-		.findLastIndex((line) => rulePattern.test(line));
+		.findLastIndex((line) => panelTopPattern.test(line));
 	const title = all
 		.slice(top + 1, hint)
 		.find((line) => line.trim() !== "")

@@ -204,8 +204,9 @@ describe("reading the TUI's screen", () => {
 	it("reads a menu that is not a numbered prompt, such as Rewind", () => {
 		const rewind = [
 			"⏺ Done.",
-			rule,
-			" Rewind",
+			"✻ Worked for 4s · done 5:19 pm",
+			`${"▔".repeat(70)} Image in clipboard · ctrl+v to paste ▔`,
+			"   Rewind",
 			"",
 			" Restore the code and/or conversation to the point before…",
 			"",
