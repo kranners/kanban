@@ -16,8 +16,23 @@ export function mirrorUrl(location: PageLocation, sessionId: string): string {
 	return `${scheme}://${location.host}/api/mirror/${encodeURIComponent(sessionId)}`;
 }
 
-export function transcriptUrl(id: string, limit: number): string {
-	return `/api/sessions/${encodeURIComponent(id)}/transcript?limit=${limit}`;
+export function conversationUrl(
+	location: PageLocation,
+	node: { kind: "session" | "subagent"; id: string },
+	since: string | null,
+): string {
+	const scheme = location.protocol === "https:" ? "wss" : "ws";
+	const collection = node.kind === "session" ? "sessions" : "subagents";
+	const query = since ? `?${new URLSearchParams({ since })}` : "";
+	return `${scheme}://${location.host}/api/${collection}/${encodeURIComponent(node.id)}/conversation${query}`;
+}
+
+export function filesUrl(id: string, query: string): string {
+	return `/api/sessions/${encodeURIComponent(id)}/files?${new URLSearchParams({ q: query })}`;
+}
+
+export function commandsUrl(id: string): string {
+	return `/api/sessions/${encodeURIComponent(id)}/commands`;
 }
 
 export function directoryName(cwd: string): string {

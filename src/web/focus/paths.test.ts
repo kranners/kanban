@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
 	attachUrl,
+	commandsUrl,
+	conversationUrl,
 	directoryName,
+	filesUrl,
 	isAbsoluteDirectory,
 	mirrorUrl,
 	needsTrust,
-	transcriptUrl,
 } from "./paths.ts";
 
 test("attachUrl uses ws on http and wss on https", () => {
@@ -31,11 +33,31 @@ test("mirrorUrl follows the page's scheme", () => {
 	);
 });
 
-test("transcriptUrl encodes the session id", () => {
+test("conversationUrl names the node and resumes from a revision", () => {
 	assert.equal(
-		transcriptUrl("abc/def", 200),
-		"/api/sessions/abc%2Fdef/transcript?limit=200",
+		conversationUrl(
+			{ protocol: "https:", host: "board.example" },
+			{ kind: "session", id: "abc/def" },
+			"e1:42",
+		),
+		"wss://board.example/api/sessions/abc%2Fdef/conversation?since=e1%3A42",
 	);
+	assert.equal(
+		conversationUrl(
+			{ protocol: "http:", host: "127.0.0.1:7420" },
+			{ kind: "subagent", id: "a1" },
+			null,
+		),
+		"ws://127.0.0.1:7420/api/subagents/a1/conversation",
+	);
+});
+
+test("composer lookups encode the session and query", () => {
+	assert.equal(
+		filesUrl("s/1", "src app"),
+		"/api/sessions/s%2F1/files?q=src+app",
+	);
+	assert.equal(commandsUrl("s/1"), "/api/sessions/s%2F1/commands");
 });
 
 test("directoryName takes the last path segment", () => {

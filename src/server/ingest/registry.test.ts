@@ -15,6 +15,7 @@ const entry = (status: string): RegistryEntry => ({
 	jobId: "0a1b2c3d",
 	name: "acme-api",
 	status,
+	waitingFor: null,
 	socket: null,
 	startedAt: 0,
 	updatedAt: 0,

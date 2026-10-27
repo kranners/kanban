@@ -210,6 +210,7 @@ export function SubagentCard(props: {
 	subagent: Subagent;
 	now: number;
 	emphasis: Emphasis;
+	onOpen: (id: string, origin: DOMRect) => void;
 }) {
 	const { subagent } = props;
 	return (
@@ -238,6 +239,19 @@ export function SubagentCard(props: {
 				{relativeTime(subagent.updatedAt, props.now)}
 			</time>
 			{subagent.live && <BusyEdge />}
+			<button
+				type="button"
+				class="sub-open"
+				aria-label={`Open ${subagent.description || subagent.type}`}
+				onClick={(event) =>
+					props.onOpen(
+						subagent.id,
+						(
+							event.currentTarget.parentElement ?? event.currentTarget
+						).getBoundingClientRect(),
+					)
+				}
+			/>
 		</div>
 	);
 }

@@ -15,8 +15,10 @@ import {
 import { createBoardTools } from "./boardTools.ts";
 import { cmuxCli, createCmuxTargets } from "./cmux.ts";
 import { createColourStore, loadColours } from "./colours.ts";
+import { listCommands } from "./commands.ts";
 import { createCommentStore, loadComments } from "./comments.ts";
 import { type Config, isLoopback, loadConfig } from "./config.ts";
+import { createConversationHub } from "./conversationHub.ts";
 import {
 	claudeAsker,
 	claudeExitDeps,
@@ -25,6 +27,7 @@ import {
 	liveInteractiveEntry,
 } from "./exit.ts";
 import { createFeed, type Feed } from "./feed.ts";
+import { listFiles } from "./files.ts";
 import { createKanbanServer } from "./http.ts";
 import { startBoard } from "./ingest/index.ts";
 import { createLayoutStore, loadLayout } from "./layout.ts";
@@ -32,6 +35,7 @@ import { createMirrorHub } from "./mirror.ts";
 import { createPromptSender } from "./prompts.ts";
 import { createRegionStore, loadRegions } from "./regions.ts";
 import { claudeLauncher } from "./sessions.ts";
+import { attachTty, cmuxTty } from "./terminals.ts";
 
 const configOrExit = (): Config => {
 	try {
@@ -137,6 +141,27 @@ const runExit = createExitRunner({
 const launch = claudeLauncher(config.claudeBin);
 const attachPty = claudeAttachPty(config.claudeBin);
 const attach = createAttachHub(attachPty, audit);
+const conversation = createConversationHub({
+	session: (id) =>
+		source.board().sessions.find((session) => session.id === id) ?? null,
+	tty: (session) => {
+		if (session.kind === "background" && session.attachable && session.short) {
+			return attachTty({
+				spawnPty: attachPty,
+				short: session.short,
+				cwd: session.cwd,
+			});
+		}
+		return session.cmux
+			? cmuxTty({ cmux, resolve: cmuxTargets.resolve, session })
+			: null;
+	},
+	audit,
+});
+const attachedAnywhere = () => [
+	...attach.attached(),
+	...conversation.attached(),
+];
 const agentTokens = createAgentTokens(agentTimeoutMs);
 const agentDir = join(config.stateDir, "agent");
 await mkdir(agentDir, { recursive: true });
@@ -163,7 +188,7 @@ const tools = createBoardTools({
 	ask: claudeAsker({ claudeBin: config.claudeBin, probes }),
 	prompt: createPromptSender({
 		spawnPty: attachPty,
-		attached: attach.attached,
+		attached: attachedAnywhere,
 		cmux,
 		resolve: cmuxTargets.resolve,
 	}),
@@ -187,6 +212,10 @@ const server = createKanbanServer({
 	tools,
 	attach,
 	mirror: createMirrorHub({ cmux, resolve: cmuxTargets.resolve, audit }),
+	conversation,
+	files: (cwd, query) =>
+		listFiles({ cwd, query, claudeHome: config.claudeHome }),
+	commands: (cwd) => listCommands({ claudeHome: config.claudeHome, cwd }),
 	feed,
 	audit,
 });

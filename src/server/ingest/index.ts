@@ -39,6 +39,7 @@ import { advanceTail, createTail, readFacts, type Tail } from "./tail.ts";
 export type BoardHandle = {
 	board(): Board;
 	transcript(sessionId: string, limit: number): Promise<TranscriptEntry[]>;
+	transcriptPath(node: NodeRef): string | null;
 	recentCwds(): string[];
 	refresh(): void;
 	stop(): void;
@@ -79,6 +80,7 @@ export function startBoard(opts: {
 	const byPid = new Map<number, string>();
 	const bySocket = new Map<string, string>();
 	const byName = new Map<string, string>();
+	const subagentPaths = new Map<string, string>();
 	let cwds: string[] = [];
 
 	const resolve: ResolvePeer = (ref: PeerRef) =>
@@ -134,6 +136,10 @@ export function startBoard(opts: {
 		const settled = settleSubagents(found, agentFacts);
 		const shown = newestPerSession(settled);
 		const subagents = shown.map(({ subagent }) => subagent);
+		subagentPaths.clear();
+		for (const { subagent, transcriptPath } of shown) {
+			subagentPaths.set(subagent.id, transcriptPath);
+		}
 		const owners: Owner[] = [
 			...[...tracked.values()].sort(byStartedAt).flatMap((item) =>
 				item.tail
@@ -273,6 +279,15 @@ export function startBoard(opts: {
 			if (!path) return [];
 			return (await readFacts(path, resolve)).entries.slice(-count);
 		},
+		transcriptPath(node) {
+			if (node.kind === "subagent") return subagentPaths.get(node.id) ?? null;
+			const session = current.sessions.find(({ id }) => id === node.id);
+			if (!session) return null;
+			return (
+				tails.get(node.id)?.path ??
+				locateTranscript(claudeHome, node.id, session.cwd)
+			);
+		},
 		recentCwds: () => cwds,
 		refresh: schedule,
 		stop() {
@@ -335,7 +350,10 @@ function toSession(item: Tracked, inCmux: (pid: number) => boolean): Session {
 			kind === "background"
 				? (job?.detail ?? transcriptDoing)
 				: transcriptDoing,
-		needs: activity === "needs-you" ? (job?.needs ?? null) : null,
+		needs:
+			activity === "needs-you"
+				? (job?.needs ?? entry?.waitingFor ?? null)
+				: null,
 		goal: goalOf(tail?.facts ?? null, job),
 		startedAt: entry?.startedAt ?? job?.createdAt ?? 0,
 		updatedAt: Math.max(

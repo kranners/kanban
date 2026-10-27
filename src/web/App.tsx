@@ -1,5 +1,5 @@
 import { Plus } from "lucide-preact";
-import type { Board, Session } from "../shared/types.ts";
+import type { Board, Session, Subagent } from "../shared/types.ts";
 import {
 	AnnotationLayer,
 	AnnotationMenu,
@@ -40,14 +40,16 @@ import { BoardMenu, SpawnLayer, useBoardGestures } from "./Spawning.tsx";
 import {
 	awaitingShort,
 	board,
+	closeFocus,
 	focusedSession,
-	focusedSessionId,
+	focusedSubagent,
 	focusOrigin,
 	knownCwds,
 	litMessage,
 	newSessionOpen,
 	now,
 	openSession,
+	openSubagent,
 	sessionMatches,
 	sessionsById,
 	subagentsById,
@@ -171,6 +173,7 @@ function World(props: { board: Board; layout: Arrangement }) {
 							lit: lit.nodes.has(node.key),
 							arrived: landed.has(node.key),
 						}}
+						onOpen={openSubagent}
 					/>
 				);
 			})}
@@ -270,6 +273,7 @@ export function App() {
 	useNeedsYouShortcut();
 	useCommentGestures();
 	const session = focusedSession.value;
+	const subagent = focusedSubagent.value;
 	return (
 		<div class="app">
 			<TopBar />
@@ -277,13 +281,16 @@ export function App() {
 				<Stage />
 				<Rail />
 			</main>
-			{session && (
+			{(session || subagent) && (
 				<Focus
-					session={session}
+					key={session ? `session:${session.id}` : `subagent:${subagent?.id}`}
+					target={
+						session
+							? { kind: "session", session }
+							: { kind: "subagent", subagent: subagent as Subagent }
+					}
 					origin={focusOrigin.value}
-					onClose={() => {
-						focusedSessionId.value = null;
-					}}
+					onClose={closeFocus}
 				/>
 			)}
 			{newSessionOpen.value && (

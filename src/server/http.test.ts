@@ -126,6 +126,17 @@ describe("matchRoute", () => {
 		});
 		assert.equal(upgrade("/api/mirror/abc/x"), null);
 		assert.equal(upgrade("/api/mirror/a%2Fb"), null);
+		assert.deepEqual(upgrade("/api/subagents/a1b2/conversation"), {
+			kind: "conversation",
+			node: { kind: "subagent", id: "a1b2" },
+			since: null,
+		});
+		assert.deepEqual(upgrade("/api/sessions/s-1/conversation?since=ep:12"), {
+			kind: "conversation",
+			node: { kind: "session", id: "s-1" },
+			since: { epoch: "ep", rev: 12 },
+		});
+		assert.equal(upgrade("/api/sessions/a%2Fb/conversation"), null);
 		assert.equal(upgrade("/api/other"), null);
 	});
 
@@ -207,6 +218,7 @@ describe("createKanbanServer", () => {
 	let coloursSaved = () => Promise.resolve();
 	const attached: string[] = [];
 	const mirrored: string[] = [];
+	const conversed: string[] = [];
 	const events: AuditEvent[] = [];
 	const origins: string[] = [];
 	const asked: [string, string][] = [];
@@ -283,6 +295,8 @@ describe("createKanbanServer", () => {
 				transcript: async (_id, limit) => [
 					{ at: 1, role: "user", text: `limit ${limit}` },
 				],
+				transcriptPath: (node) =>
+					node.kind === "session" ? `/transcripts/${node.id}.jsonl` : null,
 			},
 			launch: async (request) => {
 				launched.push(request);
@@ -333,6 +347,19 @@ describe("createKanbanServer", () => {
 					socket.close(1000, "fake");
 				},
 			},
+			conversation: {
+				open: (socket, target, since, identity) => {
+					conversed.push(
+						`${target.kind}:${target.path} ${since?.rev ?? "-"} ${identity}`,
+					);
+					socket.close(1000, "fake");
+				},
+				attached: () => [],
+			},
+			files: async (cwd, query) => ({ ok: true, files: [`${cwd}:${query}`] }),
+			commands: async (cwd) => [
+				{ name: "compact", description: cwd, source: "built-in" },
+			],
 			feed,
 			audit: (event) => events.push(event),
 		});
@@ -408,6 +435,34 @@ describe("createKanbanServer", () => {
 			{ at: 1, role: "user", text: "limit 5" },
 		]);
 		const missing = await fetch(`${base}/api/sessions/nope/transcript`, {
+			headers: authed,
+		});
+		assert.equal(missing.status, 404);
+	});
+
+	it("lists a session's files and commands for the composer", async () => {
+		const session = board.sessions[0];
+		const files = await fetch(
+			`${base}/api/sessions/${session?.id}/files?q=src`,
+			{ headers: authed },
+		);
+		assert.equal(files.status, 200);
+		assert.deepEqual(await files.json(), {
+			ok: true,
+			files: [`${session?.cwd}:src`],
+		});
+		const commands = await fetch(
+			`${base}/api/sessions/${session?.id}/commands`,
+			{ headers: authed },
+		);
+		assert.deepEqual(await commands.json(), [
+			{ name: "compact", description: session?.cwd, source: "built-in" },
+		]);
+		const unauthenticated = await fetch(
+			`${base}/api/sessions/${session?.id}/files`,
+		);
+		assert.equal(unauthenticated.status, 401);
+		const missing = await fetch(`${base}/api/sessions/nope/commands`, {
 			headers: authed,
 		});
 		assert.equal(missing.status, 404);
@@ -820,6 +875,41 @@ describe("createKanbanServer", () => {
 			"open",
 		);
 		assert.deepEqual(mirrored, [`${inCmux?.id} me@example.com`]);
+	});
+
+	it("opens conversations for sessions on the board only", async () => {
+		const id = board.sessions[0]?.id;
+		assert.equal(
+			await upgradeStatus(`/api/sessions/${id}/conversation?since=e1:7`, {
+				...authed,
+				origin: "https://evil.example",
+			}),
+			403,
+		);
+		assert.equal(
+			await upgradeStatus(`/api/sessions/nope/conversation`, {
+				...authed,
+				origin,
+			}),
+			404,
+		);
+		assert.equal(
+			await upgradeStatus(`/api/subagents/nope/conversation`, {
+				...authed,
+				origin,
+			}),
+			404,
+		);
+		assert.equal(
+			await upgradeStatus(`/api/sessions/${id}/conversation?since=e1:7`, {
+				...authed,
+				origin,
+			}),
+			"open",
+		);
+		assert.deepEqual(conversed, [
+			`session:/transcripts/${id}.jsonl 7 me@example.com`,
+		]);
 	});
 
 	it("sends the board when a feed client connects", async () => {

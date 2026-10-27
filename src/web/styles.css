@@ -810,6 +810,25 @@ button.reconnecting {
 	cursor: default;
 }
 
+.sub-open {
+	position: absolute;
+	inset: 0;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius);
+	background: transparent;
+	cursor: pointer;
+}
+
+.sub-open:focus-visible {
+	outline: none;
+	box-shadow: var(--focus-ring);
+}
+
+.node.subagent:has(.sub-open:hover) {
+	border-color: var(--accent);
+}
+
 .node.subagent.lit {
 	border-color: var(--accent);
 	box-shadow: 0 0 0 3px var(--accent-soft);

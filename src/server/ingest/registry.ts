@@ -11,6 +11,7 @@ export type RegistryEntry = {
 	jobId: string | null;
 	name: string | null;
 	status: string | null;
+	waitingFor: string | null;
 	socket: string | null;
 	startedAt: number;
 	updatedAt: number;
@@ -110,6 +111,7 @@ function toRegistryEntry(value: unknown): RegistryEntry | null {
 		jobId: asString(record.jobId),
 		name: asString(record.name),
 		status: asString(record.status),
+		waitingFor: asString(record.waitingFor) || null,
 		socket: asString(record.messagingSocketPath),
 		startedAt,
 		updatedAt: Math.max(
