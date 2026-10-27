@@ -3,7 +3,7 @@ import { mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import type { Annotation, Annotations } from "../shared/types.ts";
+import type { Annotation, Annotations, Note } from "../shared/types.ts";
 import {
 	createAnnotationStore,
 	loadAnnotations,
@@ -49,6 +49,12 @@ describe("parseAnnotation", () => {
 			...sticker,
 			rotation: -12,
 		});
+	});
+
+	it("holds a long report in one note", () => {
+		assert.ok(maxNoteText >= 20_000);
+		const text = "## Report\n\n".padEnd(maxNoteText, "x");
+		assert.equal((parseAnnotation("r", { ...note, text }) as Note).text, text);
 	});
 
 	it("takes the id from the path, not the body", () => {

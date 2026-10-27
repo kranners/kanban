@@ -15,7 +15,7 @@ export const stickerSize = 96;
 export const minNoteSize = 96;
 export const minStickerSize = 32;
 export const maxAnnotationSize = 1200;
-export const noteTextLimit = 2000;
+export const noteTextLimit = 20_000;
 export const defaultNoteColor: NoteColor = "yellow";
 
 const notePadding = 14;
@@ -23,6 +23,9 @@ const lineHeight = 1.3;
 const glyphWidth = 0.55;
 const largestFont = 40;
 const smallestFont = 11;
+export const documentFont = 15;
+const longNoteWidth = 480;
+const longNoteHeight = 720;
 
 export function stacked(annotations: Annotations): Annotation[] {
 	return Object.values(annotations).sort(
@@ -45,10 +48,10 @@ export function topZ(annotations: Annotations): number {
 	return Math.max(0, ...Object.values(annotations).map((a) => a.z));
 }
 
-export function centredAt(point: Point, size: number): Point {
+export function centredAt(point: Point, w: number, h = w): Point {
 	return {
-		x: Math.round(point.x - size / 2),
-		y: Math.round(point.y - size / 2),
+		x: Math.round(point.x - w / 2),
+		y: Math.round(point.y - h / 2),
 	};
 }
 
@@ -57,17 +60,10 @@ export function newNote(
 	at: Point,
 	z: number,
 	color: NoteColor = defaultNoteColor,
+	text = "",
 ): Note {
-	return {
-		id,
-		kind: "note",
-		...centredAt(at, noteSize),
-		w: noteSize,
-		h: noteSize,
-		z,
-		text: "",
-		color,
-	};
+	const { w, h } = noteSizeFor(text);
+	return { id, kind: "note", ...centredAt(at, w, h), w, h, z, text, color };
 }
 
 export function newSticker(
@@ -97,14 +93,34 @@ function linesFor(text: string, charsPerLine: number): number {
 		);
 }
 
-export function noteFontSize(text: string, w: number, h: number): number {
+export function noteFontSize(
+	text: string,
+	w: number,
+	h: number,
+	largest = largestFont,
+): number {
 	const width = Math.max(1, w - notePadding * 2);
 	const height = Math.max(1, h - notePadding * 2);
-	for (let size = largestFont; size > smallestFont; size -= 1) {
+	for (let size = largest; size > smallestFont; size -= 1) {
 		const charsPerLine = Math.max(1, Math.floor(width / (size * glyphWidth)));
 		if (linesFor(text, charsPerLine) * size * lineHeight <= height) return size;
 	}
 	return smallestFont;
+}
+
+export function noteSizeFor(text: string): { w: number; h: number } {
+	if (noteFontSize(text, noteSize, noteSize) >= documentFont) {
+		return { w: noteSize, h: noteSize };
+	}
+	const charsPerLine = Math.floor(
+		(longNoteWidth - notePadding * 2) / (documentFont * glyphWidth),
+	);
+	const height =
+		linesFor(text, charsPerLine) * documentFont * lineHeight + notePadding * 2;
+	return {
+		w: longNoteWidth,
+		h: Math.round(Math.min(longNoteHeight, Math.max(noteSize, height))),
+	};
 }
 
 const clampSize = (value: number, min: number) =>

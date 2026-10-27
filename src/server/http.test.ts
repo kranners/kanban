@@ -13,7 +13,7 @@ import type {
 	NewSessionRequest,
 	Point,
 } from "../shared/types.ts";
-import { createAnnotationStore } from "./annotations.ts";
+import { createAnnotationStore, maxNoteText } from "./annotations.ts";
 import type { AttachHub } from "./attach.ts";
 import type { AuditEvent } from "./audit.ts";
 import type { Authenticate } from "./auth.ts";
@@ -611,6 +611,28 @@ describe("createKanbanServer", () => {
 		socket.close();
 		await annotationsSaved();
 		assert.deepEqual(JSON.parse(await readFile(annotationsFile, "utf8")), {});
+	});
+
+	it("accepts a note of the longest text however it escapes", async () => {
+		const report = {
+			kind: "note",
+			x: 0,
+			y: 0,
+			w: 480,
+			h: 720,
+			z: 1,
+			text: "\u0001".repeat(maxNoteText),
+			color: "blue",
+		};
+		const put = (text: string) =>
+			send("PUT", "/api/annotations/report", { ...report, text });
+		assert.equal((await put(report.text)).status, 204);
+		assert.equal((await put(`${report.text}x`)).status, 400);
+		const removed = await fetch(`${base}/api/annotations/report`, {
+			method: "DELETE",
+			headers: { ...authed, origin },
+		});
+		assert.equal(removed.status, 204);
 	});
 
 	it("stores region colours by cwd and broadcasts them", async () => {

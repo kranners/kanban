@@ -83,7 +83,7 @@ export type UpgradeRoute =
 	| { kind: "attach"; short: string; size: TerminalSize }
 	| { kind: "mirror"; sessionId: string };
 
-const maxBodyBytes = 64 * 1024;
+const maxBodyBytes = 128 * 1024;
 const defaultTranscriptLimit = 200;
 const maxTranscriptLimit = 1000;
 
