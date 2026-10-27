@@ -3,17 +3,27 @@ import type { ComponentChildren } from "preact";
 import { useLayoutEffect, useRef } from "preact/hooks";
 import type { RegionColour } from "../shared/colours.ts";
 import type { Preview, Session, Subagent } from "../shared/types.ts";
-import { ActivityBadge, activityLabel } from "./activity.tsx";
+import "./attention.css";
+import { subagentState } from "../shared/subagents.ts";
+import { ActivityBadge, ActivityIcon, activityLabel } from "./activity.tsx";
 import type { PlacedNode } from "./layout.ts";
-import { relativeTime } from "./time.ts";
+import { ago, relativeTime } from "./time.ts";
 
-type Emphasis = { dimmed: boolean; lit: boolean; region?: RegionColour };
+type Emphasis = {
+	dimmed: boolean;
+	lit: boolean;
+	region?: RegionColour;
+	arrived?: boolean;
+	beckoned?: boolean;
+};
 
 function nodeClass(base: string, emphasis: Emphasis): string {
 	return [
 		base,
 		emphasis.dimmed && "dimmed",
 		emphasis.lit && "lit",
+		emphasis.arrived && "arrived",
+		emphasis.beckoned && "beckoned",
 		emphasis.region && `grouped region region-${emphasis.region}`,
 	]
 		.filter(Boolean)
@@ -87,6 +97,26 @@ function BackgroundBody(props: { preview: Preview | undefined }) {
 				<div class="term-line term-dim">Waiting for output…</div>
 			</div>
 		</div>
+	);
+}
+
+function BusyEdge() {
+	return <span class="busy-edge" aria-hidden="true" />;
+}
+
+function Ribbon(props: { session: Session; now: number }) {
+	const { activity } = props.session;
+	if (activity !== "needs-you" && activity !== "done" && activity !== "failed")
+		return null;
+	return (
+		<span class={`ribbon act-${activity}`} aria-hidden="true">
+			<ActivityIcon activity={activity} size={13} />
+			<span class="ribbon-text">
+				{activity === "done"
+					? `Finished · ${ago(props.session.updatedAt, props.now)}`
+					: activityLabel[activity]}
+			</span>
+		</span>
 	);
 }
 
@@ -166,6 +196,8 @@ export function SessionCard(props: {
 					</span>
 				</div>
 			</button>
+			{session.activity === "working" && <BusyEdge />}
+			<Ribbon session={session} now={props.now} />
 			{props.notice}
 			<span class="resize-handle" data-resize aria-hidden="true" />
 			{props.corner && <div class="node-corner">{props.corner}</div>}
@@ -200,7 +232,7 @@ export function SubagentCard(props: {
 	return (
 		<div
 			class={nodeClass(
-				`node subagent${subagent.live ? " live" : ""}`,
+				`node subagent act-${subagentState(subagent)}${subagent.live ? " live" : ""}`,
 				props.emphasis,
 			)}
 			style={position(props.node)}
@@ -222,6 +254,7 @@ export function SubagentCard(props: {
 			<time class="sub-time num">
 				{relativeTime(subagent.updatedAt, props.now)}
 			</time>
+			{subagent.live && <BusyEdge />}
 		</div>
 	);
 }

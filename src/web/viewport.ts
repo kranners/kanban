@@ -95,3 +95,16 @@ export function fitZoom(content: Size, available: Size): number {
 		available.height / Math.max(1, content.height),
 	);
 }
+
+export function centredOn(
+	rect: Point & { w: number; h: number },
+	box: Size,
+	k: number,
+): View {
+	const zoom = clampZoom(Math.max(k, legibleZoom));
+	return {
+		k: zoom,
+		x: box.width / 2 - (rect.x + rect.w / 2) * zoom,
+		y: box.height / 2 - (rect.y + rect.h / 2) * zoom,
+	};
+}

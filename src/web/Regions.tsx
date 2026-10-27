@@ -23,6 +23,7 @@ import {
 } from "./Groups.tsx";
 import type { Group } from "./groups.ts";
 import type { NodeKey } from "./layout.ts";
+import { NeedsYouCount, needsYouClass } from "./NeedsYou.tsx";
 import { moved } from "./notes.ts";
 import type { Rect } from "./placement.ts";
 import {
@@ -184,7 +185,7 @@ function RegionFrame(props: { group: Group }): JSX.Element | null {
 	if (!region) return null;
 	return (
 		<div
-			class={`group-frame region-frame region region-${colourOf(region.cwd)}`}
+			class={`group-frame region-frame region region-${colourOf(region.cwd)}${needsYouClass(group.members)}`}
 			data-region={region.id}
 			style={{
 				transform: `translate(${group.frame.x}px, ${group.frame.y}px)`,
@@ -205,6 +206,7 @@ function RegionFrame(props: { group: Group }): JSX.Element | null {
 			>
 				<Folder size={12} aria-hidden="true" />
 				<span class="group-label-text">{group.project}</span>
+				<NeedsYouCount members={group.members} />
 			</button>
 			{regionEdges.map((edge) => (
 				<div
