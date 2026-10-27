@@ -29,7 +29,7 @@ const maxSize = 100_000;
 const pendingSpawnMs = 10 * 60_000;
 export const pruneAfterMs = 24 * 60 * 60_000;
 
-const isCoordinate = (value: unknown): value is number =>
+export const isCoordinate = (value: unknown): value is number =>
 	typeof value === "number" &&
 	Number.isFinite(value) &&
 	Math.abs(value) <= maxCoordinate;
@@ -97,7 +97,7 @@ export const loadLayout = async (file: string): Promise<Layout> => {
 	}
 };
 
-const writeAtomically = async (file: string, text: string) => {
+export const writeAtomically = async (file: string, text: string) => {
 	await mkdir(dirname(file), { recursive: true });
 	const temporary = `${file}.${process.pid}.tmp`;
 	await writeFile(temporary, text);

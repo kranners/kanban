@@ -1,6 +1,15 @@
-import { Moon, Plus, RotateCw, Search, Sun, SunMoon } from "lucide-preact";
+import {
+	Moon,
+	Plus,
+	RotateCw,
+	Search,
+	SquareDashed,
+	Sun,
+	SunMoon,
+} from "lucide-preact";
 import { ActivityIcon, activityLabel, activityOrder } from "./activity.tsx";
 import { Mark } from "./Mark.tsx";
+import { startRegion } from "./Regions.tsx";
 import {
 	activityCounts,
 	activityFilter,
@@ -84,6 +93,15 @@ export function TopBar() {
 					title={themeName[theme.value]}
 				>
 					<ThemeIcon size={16} />
+				</button>
+				<button
+					type="button"
+					class="icon-button"
+					onClick={startRegion}
+					aria-label="New project region"
+					title="New project region (R)"
+				>
+					<SquareDashed size={16} />
 				</button>
 				<button
 					type="button"

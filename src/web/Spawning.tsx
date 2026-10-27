@@ -1,12 +1,20 @@
 import "./actions.css";
-import { CircleAlert, Folder, LoaderCircle, Plus } from "lucide-preact";
+import {
+	CircleAlert,
+	Folder,
+	LoaderCircle,
+	Plus,
+	SquareDashed,
+} from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import type { Point } from "../shared/types.ts";
 import { cycle, isQuickPromptKey } from "./actions.ts";
 import { boardPointAt, view } from "./Canvas.tsx";
 import { exitAsk } from "./exits.ts";
 import { directoryName } from "./focus/paths.ts";
 import { sessionSize } from "./placement.ts";
+import { regionDialog } from "./regionState.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 import type { QuickPrompt } from "./spawns.ts";
 import { focusedSessionId, newSessionOpen } from "./state.ts";
@@ -45,10 +53,13 @@ function promptPoint(stage: Element) {
 	return boardPointAt(client.x, client.y);
 }
 
-function startFromKeyboard(): void {
-	const menu = boardMenu.peek();
+export function keyboardPoint(): Point | null {
 	const stage = document.querySelector(".viewport");
-	const point = menu?.board ?? (stage ? promptPoint(stage) : null);
+	return boardMenu.peek()?.board ?? (stage ? promptPoint(stage) : null);
+}
+
+function startFromKeyboard(): void {
+	const point = keyboardPoint();
 	if (!point || !openQuickPrompt(point)) newSessionOpen.value = true;
 }
 
@@ -128,7 +139,7 @@ export function BoardMenu(): JSX.Element | null {
 
 	if (!menu) return null;
 	const left = Math.min(menu.client.x, innerWidth - 240);
-	const top = Math.min(menu.client.y, innerHeight - 56);
+	const top = Math.min(menu.client.y, innerHeight - 92);
 	return (
 		<div
 			class="board-menu"
@@ -148,6 +159,19 @@ export function BoardMenu(): JSX.Element | null {
 					{menu.group ? `New session in ${menu.group.project}` : "New session"}
 				</span>
 				<kbd>A</kbd>
+			</button>
+			<button
+				type="button"
+				role="menuitem"
+				class="board-menu-item"
+				onClick={() => {
+					boardMenu.value = null;
+					regionDialog.value = { mode: "create", at: menu.board };
+				}}
+			>
+				<SquareDashed size={14} aria-hidden="true" />
+				<span class="board-menu-label">New project region here</span>
+				<kbd>R</kbd>
 			</button>
 		</div>
 	);

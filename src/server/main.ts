@@ -9,6 +9,7 @@ import { createKanbanServer } from "./http.ts";
 import { startBoard } from "./ingest/index.ts";
 import { createLayoutStore, loadLayout } from "./layout.ts";
 import { createPreviewer } from "./preview.ts";
+import { createRegionStore, loadRegions } from "./regions.ts";
 import { claudeLauncher } from "./sessions.ts";
 
 const configOrExit = (): Config => {
@@ -30,6 +31,12 @@ const layout = createLayoutStore({
 	initial: await loadLayout(layoutFile),
 	onChange: (next) => feed?.layout(next),
 });
+const regionsFile = join(config.stateDir, "regions.json");
+const regions = createRegionStore({
+	file: regionsFile,
+	initial: await loadRegions(regionsFile),
+	onChange: (next) => feed?.regions(next),
+});
 const probes = new Set<string>();
 const previewer = createPreviewer({
 	transcript: (sessionId, limit) => source.transcript(sessionId, limit),
@@ -50,6 +57,7 @@ feed = createFeed({
 	board: source.board,
 	previews: previewer.latest,
 	layout: layout.current,
+	regions: regions.current,
 });
 
 const exitDeps = claudeExitDeps({
@@ -66,6 +74,7 @@ const server = createKanbanServer({
 	launch: claudeLauncher(config.claudeBin),
 	exit: (session, force) => exitSession(exitDeps, session, force),
 	layout,
+	regions,
 	attach: createAttachHub(claudeAttachPty(config.claudeBin), audit),
 	feed,
 	audit,

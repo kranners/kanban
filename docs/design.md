@@ -18,7 +18,7 @@ kanban builds on Claude Code's own primitives instead: the session registry, bac
 
 ## Sources of truth
 
-Everything about sessions is read from `~/.claude`; kanban keeps no database. The one thing it stores is where people put cards: `layout.json` in `KANBAN_STATE` (default `~/.local/state/kanban`, or `~/.local/state/kanban-<port>` off the default port so dev servers never share the board's file), written atomically, with placements pruned a day after their node leaves the board.
+Everything about sessions is read from `~/.claude`; kanban keeps no database. The one thing it stores is how people arrange the board, in `KANBAN_STATE` (default `~/.local/state/kanban`, or `~/.local/state/kanban-<port>` off the default port so dev servers never share the board's files), each written atomically: `layout.json` holds where cards are, with placements pruned a day after their node leaves the board, and `regions.json` holds the project regions people drew, at most 100.
 
 | Need                                    | Source                                                                                       |
 | --------------------------------------- | -------------------------------------------------------------------------------------------- |
@@ -57,11 +57,14 @@ One Node 24 process on `127.0.0.1:7420` serves the built page and these endpoint
 | Endpoint                           | Purpose                                                                                                                                |
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /`                            | the page                                                                                                                               |
-| `WS /api/feed`                     | `BoardFeed` frames: `layout` then a full `board` on connect, each again on change, `preview` thumbnails, `exit` outcomes               |
+| `WS /api/feed`                     | `BoardFeed` frames: `layout`, `regions`, then a full `board` on connect, each again on change, `preview` thumbnails, `exit` outcomes   |
 | `GET /api/sessions/:id/transcript` | recent `TranscriptEntry`s for read-only cards                                                                                          |
 | `POST /api/sessions`               | `NewSessionRequest` → `claude --bg`; without `name` Claude Code names it, with `at` the card spawns there                              |
 | `POST /api/sessions/:id/exit`      | `ExitRequest` → 202 at once; the `ExitResult` arrives later as an `exit` feed frame, since asking can outlast the tunnel's ~100s limit |
 | `PUT /api/layout`                  | `LayoutUpdate` → 204: stores one node's placement and broadcasts the layout                                                            |
+| `POST /api/regions`                | `RegionDraft` → 201 `Region`: cwd must be an existing absolute directory, bounds finite and 96–20000 wide and tall; 409 at the cap     |
+| `PATCH /api/regions/:id`           | `RegionPatch` → 200 `Region`: a new name (empty clears it) and/or all of x, y, w and h                                                 |
+| `DELETE /api/regions/:id`          | → 204: removes the region and leaves its cards where they are                                                                          |
 | `WS /api/attach/:short`            | a `claude attach` pty: binary output down, `AttachClientFrame`s up                                                                     |
 | `GET /healthz`                     | liveness                                                                                                                               |
 
@@ -79,7 +82,8 @@ Exiting asks the agent itself without touching the real session: `claude -p --re
 4. **Read.** Click an interactive card (started in a terminal). It opens a live transcript, read-only, with a note that sessions started from the board are the ones you can drive.
 5. **Start.** New session: pick a directory (recent ones suggested), optionally name it, give a first prompt. It appears on the board and opens focused.
 6. **Start in place.** Right-click the board (or press A) and type just the prompt. It starts in the group's project under the pointer, or the most recently active one (Tab cycles); a ghost card holds the spot until the session lands there.
-7. **Exit.** Hover a card and click its corner ×, then confirm. The agent is asked whether it is safe to exit: if so the card leaves, otherwise it shakes and shows why. Hold Shift for a red × that force-exits without asking.
+7. **Draw a project region.** Right-click the board and pick New project region here, press R, or use the top bar's region button. Pick a directory (recent ones suggested) and optionally a name. The region is a dashed frame that moves by its label and resizes from any edge or corner, snapping to the grid. Sessions under its directory whose card centre lies inside belong to it, as do cards dropped there; the frame grows to hold them, and a project group touching it is adopted so one frame shows. Moving the region carries its cards. The quick prompt over a region starts the session in its directory and places the card inside. Click or right-click the label to rename or delete it; deleting leaves the cards alone.
+8. **Exit.** Hover a card and click its corner ×, then confirm. The agent is asked whether it is safe to exit: if so the card leaves, otherwise it shakes and shows why. Hold Shift for a red × that force-exits without asking.
 
 ## Infrastructure
 

@@ -1,5 +1,6 @@
 import type { BoardFeed } from "../shared/types.ts";
 import { receiveExit } from "./exits.ts";
+import { regions } from "./regionState.ts";
 import {
 	awaitingShort,
 	board,
@@ -31,6 +32,10 @@ function receive(frame: BoardFeed): void {
 	}
 	if (frame.type === "layout") {
 		layout.value = frame.layout;
+		return;
+	}
+	if (frame.type === "regions") {
+		regions.value = frame.regions;
 		return;
 	}
 	if (frame.type === "exit") {

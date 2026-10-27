@@ -20,6 +20,7 @@ import type { NodeKey, PlacedNode } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import type { Arrangement } from "./placement.ts";
 import { Rail } from "./Rail.tsx";
+import { RegionFrames, RegionLayer } from "./Regions.tsx";
 import { BoardMenu, SpawnLayer, useBoardGestures } from "./Spawning.tsx";
 import {
 	awaitingShort,
@@ -118,7 +119,8 @@ function World(props: { board: Board; layout: Arrangement }) {
 	);
 	return (
 		<>
-			<GroupFrames groups={frames} />
+			<GroupFrames groups={frames.filter((g) => !g.region)} />
+			<RegionFrames groups={frames} />
 			<Links board={props.board} layout={props.layout} visible={visible} />
 			{sessionCards(props.board, props.layout).map(({ session, node }) =>
 				card(session, node, exiting.get(session.id)),
@@ -259,6 +261,7 @@ export function App() {
 			)}
 			<ExitDialog />
 			<BoardMenu />
+			<RegionLayer />
 		</div>
 	);
 }

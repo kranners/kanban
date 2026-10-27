@@ -23,6 +23,13 @@ import { type Authenticate, originAllowed } from "./auth.ts";
 import type { SessionExiter } from "./exit.ts";
 import type { Feed } from "./feed.ts";
 import { boardKeys, type LayoutStore, parseLayoutUpdate } from "./layout.ts";
+import {
+	isRegionId,
+	maxRegions,
+	parseRegionDraft,
+	parseRegionPatch,
+	type RegionStore,
+} from "./regions.ts";
 import { type SessionLauncher, validateNewSession } from "./sessions.ts";
 
 export type BoardSource = {
@@ -38,6 +45,7 @@ export type ServerDeps = {
 	launch: SessionLauncher;
 	exit: SessionExiter;
 	layout: LayoutStore;
+	regions: RegionStore;
 	attach: AttachHub;
 	feed: Feed;
 	audit: Audit;
@@ -49,6 +57,9 @@ export type Route =
 	| { kind: "create-session" }
 	| { kind: "exit-session"; sessionId: string }
 	| { kind: "update-layout" }
+	| { kind: "create-region" }
+	| { kind: "update-region"; regionId: string }
+	| { kind: "delete-region"; regionId: string }
 	| { kind: "static"; path: string }
 	| { kind: "not-found" }
 	| { kind: "method-not-allowed" };
@@ -120,6 +131,19 @@ export const matchRoute = (method: string, url: URL): Route => {
 		return method === "PUT"
 			? { kind: "update-layout" }
 			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/regions") {
+		return method === "POST"
+			? { kind: "create-region" }
+			: { kind: "method-not-allowed" };
+	}
+	const region = path.match(/^\/api\/regions\/([^/]+)$/);
+	if (region?.[1] && isRegionId(region[1])) {
+		if (method === "PATCH")
+			return { kind: "update-region", regionId: region[1] };
+		if (method === "DELETE")
+			return { kind: "delete-region", regionId: region[1] };
+		return { kind: "method-not-allowed" };
 	}
 	if (path === "/api" || path.startsWith("/api/")) return { kind: "not-found" };
 	if (method !== "GET" && method !== "HEAD")
@@ -363,6 +387,50 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res.end();
 	};
 
+	const createRegion = async (req: IncomingMessage, res: ServerResponse) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const draft = await parseRegionDraft(read.body);
+		if ("error" in draft) {
+			return sendJson(res, 400, { ok: false, error: draft.error });
+		}
+		const region = deps.regions.create(draft);
+		if (!region) {
+			return sendJson(res, 409, {
+				ok: false,
+				error: `The board holds at most ${maxRegions} project regions`,
+			});
+		}
+		sendJson(res, 201, region);
+	};
+
+	const updateRegion = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+		regionId: string,
+	) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const patch = parseRegionPatch(read.body);
+		if ("error" in patch) {
+			return sendJson(res, 400, { ok: false, error: patch.error });
+		}
+		const region = deps.regions.update(regionId, patch);
+		if (!region) return sendError(res, 404);
+		sendJson(res, 200, region);
+	};
+
+	const deleteRegion = (
+		req: IncomingMessage,
+		res: ServerResponse,
+		regionId: string,
+	) => {
+		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		if (!deps.regions.remove(regionId)) return sendError(res, 404);
+		res.writeHead(204, { "cache-control": "no-store" });
+		res.end();
+	};
+
 	const handle = async (req: IncomingMessage, res: ServerResponse) => {
 		const route = matchRoute(req.method ?? "GET", requestUrl(req));
 		if (route.kind === "healthz") return sendJson(res, 200, { ok: true });
@@ -390,6 +458,12 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return exitSession(req, res, route.sessionId, auth.identity);
 			case "update-layout":
 				return updateLayout(req, res);
+			case "create-region":
+				return createRegion(req, res);
+			case "update-region":
+				return updateRegion(req, res, route.regionId);
+			case "delete-region":
+				return deleteRegion(req, res, route.regionId);
 			case "static":
 				return serveStatic(res, deps.dist, route.path, req.method === "HEAD");
 		}
