@@ -558,7 +558,7 @@ button.reconnecting {
 
 .label {
 	height: var(--label-height);
-	padding: 0 0 6px;
+	padding: 0 0 10px;
 	display: flex;
 	flex-direction: column;
 	justify-content: flex-end;

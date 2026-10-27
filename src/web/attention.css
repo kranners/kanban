@@ -173,7 +173,7 @@
 
 .ribbon {
 	position: absolute;
-	top: calc(var(--label-height) - 11px);
+	top: calc(var(--label-height) - 10px);
 	right: 22px;
 	z-index: 1;
 	display: inline-flex;
@@ -189,10 +189,18 @@
 	font-weight: 600;
 	white-space: nowrap;
 	pointer-events: none;
-	transform-origin: 100% 50%;
+	transform-origin: 100% 0;
 	scale: min(var(--unzoom), 3);
 	transition: translate calc(180ms * var(--motion))
 		cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.node.session:has(> .ribbon) .goal {
+	padding-top: max(12px, calc(22px * min(var(--unzoom), 3) - 14px));
+}
+
+.world[data-far] .node.session:has(> .ribbon) .goal {
+	padding-top: calc(22px * var(--unzoom) - 14px);
 }
 
 .ribbon.act-needs-you {
@@ -229,7 +237,7 @@
 	left: 22px;
 	overflow: hidden;
 	border-style: dashed;
-	transform-origin: 0 50%;
+	transform-origin: 0 0;
 }
 
 .ribbon.subagent-ribbon.running {
@@ -258,7 +266,8 @@
 	display: none;
 }
 
-.world[data-far] .subagent-ribbon .ribbon-count {
+.world[data-far] .subagent-ribbon .ribbon-count,
+.node:has(> .ribbon:not(.subagent-ribbon)) .subagent-ribbon .ribbon-count {
 	display: inline;
 }
 
@@ -272,6 +281,10 @@
 }
 
 .world[data-far] .ribbon .ribbon-text {
+	display: none;
+}
+
+.node:has(> .ribbon:not(.subagent-ribbon)) .subagent-ribbon .ribbon-text {
 	display: none;
 }
 
