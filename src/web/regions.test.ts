@@ -10,6 +10,7 @@ import {
 	belongsTo,
 	centredIn,
 	clearOfProjects,
+	framesBesideNew,
 	isRegionKey,
 	minRegionSize,
 	regionGroups,
@@ -280,6 +281,33 @@ test("a resize ignores a project it already overlapped", () => {
 	const tangled = { x: 400, y: 0, w: 240, h: 240 };
 	const grown = { ...origin, w: 1080 };
 	assert.deepEqual(resizedClear(origin, grown, "e", [tangled]), grown);
+});
+
+test("a neighbour already within a grid step holds the edge where it is", () => {
+	const origin = { x: 0, y: 0, w: 480, h: 336 };
+	const close = { x: 496, y: -100, w: 400, h: 600 };
+	assert.deepEqual(
+		resizedClear(origin, { ...origin, w: 1200 }, "e", [close]),
+		origin,
+	);
+});
+
+test("a new region with nowhere clear nearby goes below every project", () => {
+	const huge = { x: -5000, y: -5000, w: 10_000, h: 10_000 };
+	const draft = { x: 0, y: 0, w: 480, h: 336 };
+	const placed = clearOfProjects(draft, [huge]);
+	assert.ok(!near(placed, huge, gridSize));
+	assert.equal(placed.x, 0);
+});
+
+test("a new region may cover its own directory's grouped cards to adopt them", () => {
+	const frame = { x: 0, y: 0, w: 480, h: 336 };
+	const grouped = { key: "g", project: "api", members: [], frame };
+	const own = { ...grouped, cwd: "/dev/api/server" };
+	const other = { ...grouped, cwd: "/dev/web" };
+	const drawn = { ...own, region: region("r", 0, 0, "/dev/api") };
+	assert.deepEqual(framesBesideNew("/dev/api", [own]), []);
+	assert.deepEqual(framesBesideNew("/dev/api", [other, drawn]), [frame, frame]);
 });
 
 test("a new region lands clear of other project frames", () => {

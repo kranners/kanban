@@ -1,9 +1,8 @@
 import type { Point, Region, Session } from "../shared/types.ts";
-import { gridSize } from "./grid.ts";
 import type { NodeKey, PlacedNode } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import type { Rect } from "./placement.ts";
-import { boundsOf } from "./placement.ts";
+import { boundsOf, framedArea, groupReach, within } from "./placement.ts";
 
 export type Group = {
 	key: string;
@@ -13,19 +12,6 @@ export type Group = {
 	frame: Rect;
 	region?: Region;
 };
-
-export const groupReach = 4 * gridSize;
-export const groupPadding = gridSize;
-export const groupLabelSpace = gridSize + 8;
-
-function within(a: Rect, b: Rect, reach: number): boolean {
-	return (
-		a.x <= b.x + b.w + reach &&
-		b.x <= a.x + a.w + reach &&
-		a.y <= b.y + b.h + reach &&
-		b.y <= a.y + a.h + reach
-	);
-}
 
 function mostCommon(values: string[]): string {
 	const counts = new Map<string, number>();
@@ -96,12 +82,12 @@ export function groupsOf(
 				project: ordered[0]?.session.project ?? "",
 				cwd: mostCommon(ordered.map((m) => m.session.cwd)),
 				members: keys,
-				frame: {
-					x: area.x - groupPadding,
-					y: area.y - groupLabelSpace,
-					w: area.width + groupPadding * 2,
-					h: area.height + groupPadding + groupLabelSpace,
-				},
+				frame: framedArea({
+					x: area.x,
+					y: area.y,
+					w: area.width,
+					h: area.height,
+				}),
 			};
 		});
 }

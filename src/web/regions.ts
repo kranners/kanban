@@ -3,13 +3,12 @@ import type { KeyPress } from "./actions.ts";
 import { directoryName } from "./focus/paths.ts";
 import { gridSize, snap, snapPoint } from "./grid.ts";
 import type { Group } from "./groups.ts";
-import { groupLabelSpace, groupPadding } from "./groups.ts";
 import type { NodeKey, PlacedNode } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import type { Rect } from "./placement.ts";
 import {
 	boundsOf,
-	clearSpot,
+	framedArea,
 	near,
 	nearestFree,
 	sessionSize,
@@ -170,7 +169,7 @@ export function resizedClear(
 	others: readonly Rect[],
 ): Rect {
 	return others
-		.filter((other) => !near(origin, other, gridSize))
+		.filter((other) => !near(origin, other, 0))
 		.reduce((resized, other) => {
 			if (!near(resized, other, gridSize)) return resized;
 			return stoppedShort(origin, resized, handle, other).reduce<Rect>(
@@ -184,7 +183,23 @@ export function clearOfProjects<T extends Rect>(
 	rect: T,
 	frames: readonly Rect[],
 ): T {
-	return { ...rect, ...clearSpot(rect, frames) };
+	const fits = (at: Point) =>
+		frames.every((frame) => !near({ ...rect, ...at }, frame, gridSize));
+	const lowest = boundsOf(frames);
+	const spot = nearestFree(rect, fits) ?? {
+		x: rect.x,
+		y: ceilToGrid(lowest.y + lowest.height + gridSize),
+	};
+	return { ...rect, x: spot.x, y: spot.y };
+}
+
+export function framesBesideNew(
+	cwd: string,
+	projects: readonly Group[],
+): Rect[] {
+	return projects
+		.filter((project) => project.region || !belongsTo({ cwd }, project.cwd))
+		.map((project) => project.frame);
 }
 
 export function storableRegion(rect: Rect): Rect {
@@ -237,12 +252,12 @@ function footprintOf(
 function framed(region: Region, members: Rect[]): Rect {
 	if (members.length === 0) return rectOf(region);
 	const held = boundsOf(members);
-	const padded = {
-		x: held.x - groupPadding,
-		y: held.y - groupLabelSpace,
-		w: held.width + groupPadding * 2,
-		h: held.height + groupPadding + groupLabelSpace,
-	};
+	const padded = framedArea({
+		x: held.x,
+		y: held.y,
+		w: held.width,
+		h: held.height,
+	});
 	const all = boundsOf([rectOf(region), padded]);
 	return { x: all.x, y: all.y, w: all.width, h: all.height };
 }

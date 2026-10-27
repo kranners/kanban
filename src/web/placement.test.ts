@@ -9,10 +9,13 @@ import type {
 	Subagent,
 } from "../shared/types.ts";
 import { gridSize } from "./grid.ts";
+import { groupsOf } from "./groups.ts";
 import type { NodeKey, PlacedNode } from "./layout.ts";
 import {
 	arrange,
+	clearMove,
 	clearSpot,
+	framedArea,
 	near,
 	nearestFree,
 	seedsOf,
@@ -365,4 +368,52 @@ test("a pinned session's subagents step aside together, off notes too", () => {
 		rows(nodes),
 		rows(loose).map((y) => (y ?? 0) + shift),
 	);
+});
+
+test("an auto placed session keeps its frame clear of another project's frame", () => {
+	const api = (id: string, at: number) => ({
+		...session(id, at),
+		cwd: "/dev/api",
+		project: "api",
+	});
+	const b = board({
+		sessions: [api("a1", 1), api("a2", 2), session("web", 3)],
+	});
+	const saved: Layout = {
+		"session:a1": { x: 0, y: 0, pinned: true },
+		"session:a2": { x: 408, y: 312, pinned: true },
+		"session:web": { x: 0, y: 336 },
+	};
+	const { nodes } = place(b, saved);
+	const [frame] = groupsOf(b.sessions, nodes).map((group) => group.frame);
+	const web = nodes.get("session:web");
+	assert.ok(frame && web);
+	assert.ok(!near(framedArea(web), frame, 0), "web's frame overlaps api's");
+});
+
+test("a load moves where asked, or to the nearest spot where none of it lands on something", () => {
+	const load = [
+		{ x: 0, y: 0, w: 96, h: 96 },
+		{ x: 0, y: 480, w: 96, h: 96 },
+	];
+	const taken = [{ x: 240, y: 480, w: 96, h: 96 }];
+	assert.deepEqual(clearMove(load, taken, { x: 0, y: 48 }, { x: 0, y: 0 }), {
+		x: 0,
+		y: 48,
+	});
+	const by = clearMove(load, taken, { x: 240, y: 0 }, { x: 0, y: 0 });
+	assert.notDeepEqual(by, { x: 240, y: 0 });
+	for (const rect of load) {
+		const moved = { ...rect, x: rect.x + by.x, y: rect.y + by.y };
+		for (const other of taken) assert.ok(!near(moved, other, gridSize));
+	}
+});
+
+test("a load can always go back where it started, and stays put when nothing is clear", () => {
+	const load = [{ x: 0, y: 0, w: 96, h: 96 }];
+	const everywhere = [{ x: -100_000, y: -100_000, w: 200_000, h: 200_000 }];
+	const still = { x: 0, y: 0 };
+	assert.deepEqual(clearMove(load, everywhere, still, { x: 9, y: 9 }), still);
+	const last = { x: 24, y: 0 };
+	assert.deepEqual(clearMove(load, everywhere, { x: 4800, y: 0 }, last), last);
 });

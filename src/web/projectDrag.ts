@@ -3,11 +3,17 @@ import { current as shownAnnotations } from "./annotations.ts";
 import { groups } from "./arrangement.ts";
 import { view } from "./Canvas.tsx";
 import type { Load } from "./carrying.ts";
-import { cancelLoad, commitLoad, loadOf, previewLoad } from "./carrying.ts";
+import {
+	cancelLoad,
+	commitLoad,
+	footprintOf,
+	loadOf,
+	previewLoad,
+} from "./carrying.ts";
 import { snap } from "./grid.ts";
 import type { Group } from "./groups.ts";
 import type { Rect } from "./placement.ts";
-import { clearShift } from "./placement.ts";
+import { clearMove } from "./placement.ts";
 import { cancelRegion, commitRegion, previewRegion } from "./regionState.ts";
 import type { RegionHandle } from "./regions.ts";
 import {
@@ -30,6 +36,7 @@ type Drag = {
 	rect: Rect;
 	by: Point;
 	load: Load;
+	moving: Rect[];
 	moved: boolean;
 };
 
@@ -44,16 +51,29 @@ function setArranging(on: boolean): void {
 	document.querySelector(".viewport")?.classList.toggle("arranging", on);
 }
 
+function follow(on: boolean): void {
+	const toggle = on ? addEventListener : removeEventListener;
+	toggle("pointermove", continueDrag);
+	toggle("pointerup", endDrag);
+	toggle("pointercancel", endDrag);
+}
+
 function beginDrag(
 	event: PointerEvent,
 	project: Group,
 	handle: RegionHandle,
 ): void {
-	if (event.button !== 0) return;
+	if (event.button !== 0 || drag) return;
 	if (handle !== "move" && !project.region) return;
 	(event.currentTarget as Element).setPointerCapture(event.pointerId);
 	const origin = project.region ? rectOf(project.region) : project.frame;
-	const moving = handle === "move";
+	const load =
+		handle === "move"
+			? loadOf(
+					project.members,
+					centredIn(project.frame, Object.values(shownAnnotations.peek())),
+				)
+			: { nodes: [], notes: [] };
 	drag = {
 		pointerId: event.pointerId,
 		project,
@@ -66,24 +86,23 @@ function beginDrag(
 		start: { x: event.clientX, y: event.clientY },
 		rect: origin,
 		by: { x: 0, y: 0 },
-		load: moving
-			? loadOf(
-					project.members,
-					centredIn(project.frame, Object.values(shownAnnotations.peek())),
-				)
-			: { nodes: [], notes: [] },
+		load,
+		moving: [project.frame, ...footprintOf(load)],
 		moved: false,
 	};
+	follow(true);
 }
 
 function movedBy(current: Drag, dx: number, dy: number): Point {
 	const wanted = current.project.region
 		? arrangedRegion(current.origin, "move", dx, dy)
 		: { x: current.origin.x + snap(dx), y: current.origin.y + snap(dy) };
-	return clearShift([current.project.frame], current.others, {
-		x: wanted.x - current.origin.x,
-		y: wanted.y - current.origin.y,
-	});
+	return clearMove(
+		current.moving,
+		current.others,
+		{ x: wanted.x - current.origin.x, y: wanted.y - current.origin.y },
+		current.by,
+	);
 }
 
 function continueDrag(event: PointerEvent): void {
@@ -117,6 +136,7 @@ function endDrag(event: PointerEvent): void {
 	if (!drag || event.pointerId !== drag.pointerId) return;
 	const ended = drag;
 	drag = null;
+	follow(false);
 	if (!ended.moved) return;
 	setArranging(false);
 	dragged = true;
@@ -137,8 +157,5 @@ export function projectGestures(project: Group, handle: RegionHandle) {
 	return {
 		"data-no-pan": true,
 		onPointerDown: (event: PointerEvent) => beginDrag(event, project, handle),
-		onPointerMove: continueDrag,
-		onPointerUp: endDrag,
-		onPointerCancel: endDrag,
 	};
 }

@@ -13,9 +13,17 @@ import {
 import { carriedWith } from "./carry.ts";
 import type { NodeKey } from "./layout.ts";
 import { moved } from "./notes.ts";
+import type { Rect } from "./placement.ts";
+import { clearMove, framedArea } from "./placement.ts";
+import { belongsTo } from "./regions.ts";
 import { board } from "./state.ts";
 
-type Passenger = { key: NodeKey; at: Point; size: Partial<Placement> };
+type Passenger = {
+	key: NodeKey;
+	rect: Rect;
+	size: Partial<Placement>;
+	pinned: boolean;
+};
 
 export type Load = { nodes: Passenger[]; notes: Annotation[] };
 
@@ -42,9 +50,10 @@ export function loadOf(
 	);
 	const passengers = [...roots, ...carried.nodes].flatMap((key) => {
 		const node = placed.get(key);
-		return node
-			? [{ key, at: { x: node.x, y: node.y }, size: sizeOf(key) }]
-			: [];
+		if (!node) return [];
+		const { x, y, w, h } = node;
+		const pinned = roots.includes(key) || savedPlacement(key)?.pinned === true;
+		return [{ key, rect: { x, y, w, h }, size: sizeOf(key), pinned }];
 	});
 	const listed = new Set(notes.map((note) => note.id));
 	return {
@@ -53,12 +62,20 @@ export function loadOf(
 	};
 }
 
+export function footprintOf(load: Load): Rect[] {
+	const carried = new Set(load.nodes.map((passenger) => passenger.key));
+	const followers = [...(arrangement.peek()?.nodes.values() ?? [])].filter(
+		(node) => node.follows !== undefined && carried.has(node.follows),
+	);
+	return [...load.nodes.map((passenger) => passenger.rect), ...followers];
+}
+
 function placementOf(passenger: Passenger, by: Point): Placement {
 	return {
-		x: passenger.at.x + by.x,
-		y: passenger.at.y + by.y,
+		x: passenger.rect.x + by.x,
+		y: passenger.rect.y + by.y,
 		...passenger.size,
-		pinned: true,
+		...(passenger.pinned ? { pinned: true as const } : {}),
 	};
 }
 
@@ -83,30 +100,81 @@ export function cancelLoad(load: Load): void {
 	if (load.notes.length > 0) save(load.notes);
 }
 
-let carrying: { key: NodeKey; origin: Point; load: Load } | null = null;
+function otherProjectsThan(key: NodeKey): Rect[] {
+	const current = board.peek();
+	const id = key.slice(key.indexOf(":") + 1);
+	const sessionId = key.startsWith("subagent:")
+		? current?.subagents.find((agent) => agent.id === id)?.sessionId
+		: id;
+	const session = current?.sessions.find((s) => s.id === sessionId);
+	if (!session) return [];
+	return groups
+		.peek()
+		.filter((group) =>
+			group.region
+				? !belongsTo(group.region, session.cwd)
+				: group.project !== session.project,
+		)
+		.map((group) => group.frame);
+}
 
-function carryingFor(key: NodeKey) {
-	if (carrying?.key === key) return carrying;
+type Carrying = {
+	key: NodeKey;
+	origin: Point;
+	load: Load;
+	framed: Rect[];
+	others: Rect[];
+	by: Point;
+};
+
+let carrying: Carrying | null = null;
+
+function startCarrying(key: NodeKey): Carrying | null {
 	const load = loadOf([key]);
-	const origin = load.nodes.find((passenger) => passenger.key === key)?.at;
-	carrying = origin ? { key, origin, load } : null;
-	return carrying;
+	const root = load.nodes.find((passenger) => passenger.key === key);
+	if (!root) return null;
+	return {
+		key,
+		origin: { x: root.rect.x, y: root.rect.y },
+		load,
+		framed: footprintOf(load).map(framedArea),
+		others: otherProjectsThan(key),
+		by: { x: 0, y: 0 },
+	};
 }
 
 export function arrangeCard(gesture: Arranging): void {
-	const carried = gesture.mode === "move" ? carryingFor(gesture.key) : null;
+	if (gesture.mode === "move" && gesture.phase === "move")
+		if (carrying?.key !== gesture.key) carrying = startCarrying(gesture.key);
+	const carried =
+		gesture.mode === "move" && carrying?.key === gesture.key ? carrying : null;
 	if (!carried) {
 		arrangeNode(gesture);
 		return;
 	}
-	const by = {
-		x: gesture.rect.x - carried.origin.x,
-		y: gesture.rect.y - carried.origin.y,
-	};
-	if (gesture.phase === "move") previewLoad(carried.load, by);
-	else {
+	if (gesture.phase === "cancel") {
 		carrying = null;
-		if (gesture.phase === "drop") commitLoad(carried.load, by);
-		else cancelLoad(carried.load);
+		cancelLoad(carried.load);
+		return;
 	}
+	carried.by = clearMove(
+		carried.framed,
+		carried.others,
+		{
+			x: gesture.rect.x - carried.origin.x,
+			y: gesture.rect.y - carried.origin.y,
+		},
+		carried.by,
+	);
+	if (gesture.phase === "move") {
+		previewLoad(carried.load, carried.by);
+		return;
+	}
+	carrying = null;
+	if (carried.by.x !== 0 || carried.by.y !== 0) {
+		commitLoad(carried.load, carried.by);
+		return;
+	}
+	cancelLoad(carried.load);
+	arrangeNode({ ...gesture, rect: { ...gesture.rect, ...carried.origin } });
 }

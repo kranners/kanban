@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -50,7 +50,7 @@ const board: Board = {
 	generatedAt: 0,
 };
 
-const setup = async () => {
+const setup = async (shown: Board = board) => {
 	const dir = await mkdtemp(join(tmpdir(), "kanban-tools-"));
 	const events: AuditEvent[] = [];
 	const exits: [string, boolean, string | null][] = [];
@@ -84,7 +84,7 @@ const setup = async () => {
 	let ids = 0;
 	const tools = createBoardTools({
 		source: {
-			board: () => board,
+			board: () => shown,
 			transcript: async () => [
 				{ at: 0, role: "assistant", text: "Fixed the bug" },
 			],
@@ -289,6 +289,31 @@ describe("board tools", () => {
 		const view = JSON.parse(snapshot.text.split("\n")[1] ?? "{}");
 		const frame = view.regions[0].frame;
 		assert.ok(!near(placed, frame, 24));
+	});
+
+	it("draws a region over its own directory's sessions where asked", async () => {
+		const cwd = await realpath("/tmp");
+		const { tools, regions, layout } = await setup({
+			...board,
+			sessions: board.sessions.map((s) => ({ ...s, cwd })),
+		});
+		layout.setMany([
+			{ key: "session:aaaaaaaa-1", placement: { x: 0, y: 0, pinned: true } },
+			{ key: "session:bbbbbbbb-2", placement: { x: 336, y: 0, pinned: true } },
+		]);
+		const created = await tools("t", {
+			tool: "create_region",
+			cwd: "/tmp",
+			x: -48,
+			y: -48,
+			w: 768,
+			h: 384,
+		});
+		assert.ok(created.ok);
+		assert.deepEqual(
+			{ x: regions.current()[0]?.x, y: regions.current()[0]?.y },
+			{ x: -48, y: -48 },
+		);
 	});
 
 	it("records what the agent typed, asked or started in the audit log", async () => {

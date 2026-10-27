@@ -24,6 +24,7 @@ import {
 import type { RegionHandle } from "./regions.ts";
 import {
 	clearOfProjects,
+	framesBesideNew,
 	isRegionKey,
 	newRegionAt,
 	regionEdges,
@@ -140,7 +141,7 @@ function RegionDialogView(props: {
 						...(name.trim() ? { name: name.trim() } : {}),
 						...clearOfProjects(
 							storableRegion(newRegionAt(open.at)),
-							groups.peek().map((group) => group.frame),
+							framesBesideNew(cwd.trim(), groups.peek()),
 						),
 					})
 				: null;

@@ -21,7 +21,11 @@ import {
 	sessionSize,
 	subagentSize,
 } from "../web/placement.ts";
-import { clearOfProjects, regionGroups } from "../web/regions.ts";
+import {
+	clearOfProjects,
+	framesBesideNew,
+	regionGroups,
+} from "../web/regions.ts";
 import { stickerManifest } from "../web/stickers/manifest.ts";
 import { type AnnotationStore, parseAnnotation } from "./annotations.ts";
 import type { Audit } from "./audit.ts";
@@ -477,8 +481,9 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				h: snap(fields.h),
 			});
 			if ("error" in draft) return refused(draft.error);
-			const frames = projectsOf(deps.source.board(), deps).map(
-				(project) => project.frame,
+			const frames = framesBesideNew(
+				draft.cwd,
+				projectsOf(deps.source.board(), deps),
 			);
 			const region = deps.regions.create(clearOfProjects(draft, frames));
 			if (!region) return refused("The board is full of regions");

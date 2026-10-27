@@ -19,6 +19,10 @@ export const subagentSize = defaultLayoutOptions.subagent;
 export const minSessionSize = { w: 10 * gridSize, h: 9 * gridSize };
 export const maxSessionSize = { w: 40 * gridSize, h: 30 * gridSize };
 
+export const groupReach = 4 * gridSize;
+export const groupPadding = gridSize;
+export const groupLabelSpace = gridSize + 8;
+
 const clearance = gridSize;
 const searchRings = 64;
 
@@ -66,6 +70,31 @@ export function near(a: Rect, b: Rect, gap: number): boolean {
 		b.x < a.x + a.w + gap &&
 		a.y < b.y + b.h + gap &&
 		b.y < a.y + a.h + gap
+	);
+}
+
+type Project = { name: string; area: Rect };
+
+function areaOf(rects: Iterable<Rect>): Rect {
+	const { x, y, width, height } = boundsOf(rects);
+	return { x, y, w: width, h: height };
+}
+
+export function framedArea(area: Rect): Rect {
+	return {
+		x: area.x - groupPadding,
+		y: area.y - groupLabelSpace,
+		w: area.w + groupPadding * 2,
+		h: area.h + groupPadding + groupLabelSpace,
+	};
+}
+
+export function within(a: Rect, b: Rect, reach: number): boolean {
+	return (
+		a.x <= b.x + b.w + reach &&
+		b.x <= a.x + a.w + reach &&
+		a.y <= b.y + b.h + reach &&
+		b.y <= a.y + a.h + reach
 	);
 }
 
@@ -133,6 +162,21 @@ export function clearShift(
 	return { x: spot.x - x, y: spot.y - y };
 }
 
+export function clearMove(
+	rects: readonly Rect[],
+	taken: readonly Rect[],
+	wanted: Point,
+	fallback: Point,
+): Point {
+	const fits = (by: Point) =>
+		(by.x === 0 && by.y === 0) ||
+		rects.every((rect) => {
+			const moved = { ...rect, x: rect.x + by.x, y: rect.y + by.y };
+			return taken.every((other) => !near(moved, other, clearance));
+		});
+	return nearestFree(wanted, fits) ?? fallback;
+}
+
 function sessionParents(board: Board): Map<NodeKey, NodeKey> {
 	const ownerOf = new Map(board.subagents.map((a) => [a.id, a.sessionId]));
 	const sessionOf = (ref: NodeRef) =>
@@ -158,7 +202,34 @@ export function arrange(
 ): Arrangement {
 	const nodes = new Map<NodeKey, PlacedNode>();
 	const occupied: Rect[] = [];
+	const projects: Project[] = [];
 	const auto = new Map<NodeKey, Point>();
+	const sessionProject = new Map(board.sessions.map((s) => [s.id, s.project]));
+	const joining = (name: string, area: Rect) =>
+		projects.filter(
+			(project) =>
+				project.name === name && within(project.area, area, groupReach),
+		);
+	const claim = (name: string | undefined, rects: Rect[]) => {
+		occupied.push(...rects);
+		if (name === undefined || rects.length === 0) return;
+		const area = areaOf(rects);
+		const joined = joining(name, area);
+		for (const project of joined) projects.splice(projects.indexOf(project), 1);
+		projects.push({ name, area: areaOf([area, ...joined.map((p) => p.area)]) });
+	};
+	const apart = (name: string, rects: Rect[]) => {
+		const area = areaOf(rects);
+		const joined = joining(name, area).map((project) => project.area);
+		const before = joined.length > 0 ? framedArea(areaOf(joined)) : null;
+		const after = framedArea(areaOf([area, ...joined]));
+		return projects.every((other) => {
+			if (other.name === name) return true;
+			const theirs = framedArea(other.area);
+			if (before && near(before, theirs, clearance)) return true;
+			return !near(after, theirs, clearance);
+		});
+	};
 
 	const followersOf = new Map<NodeKey, NodeKey[]>();
 	for (const a of board.subagents) {
@@ -183,8 +254,9 @@ export function arrange(
 			return offset ? [followerRect(rect, offset)] : [];
 		}),
 	];
-	const free = (rects: Rect[]) =>
-		rects.every((r) => occupied.every((o) => !near(r, o, clearance)));
+	const free = (rects: Rect[], project: string) =>
+		rects.every((r) => occupied.every((o) => !near(r, o, clearance))) &&
+		apart(project, rects);
 	const put = (key: NodeKey, ref: NodeRef, rect: Rect, follows?: NodeKey) => {
 		nodes.set(key, {
 			key,
@@ -221,7 +293,7 @@ export function arrange(
 		const key = nodeKey(ref);
 		const rect = sessionRect(key, savedSpot(key));
 		put(key, ref, rect);
-		occupied.push(rect);
+		claim(s.project, [rect]);
 	}
 	for (const a of board.subagents) {
 		const ref: NodeRef = { kind: "subagent", id: a.id };
@@ -230,7 +302,7 @@ export function arrange(
 		if (!placement) continue;
 		const rect = { x: placement.x, y: placement.y, ...subagentSize };
 		put(key, ref, rect);
-		occupied.push(rect);
+		claim(sessionProject.get(a.sessionId), [rect]);
 	}
 	const nudged = new Map<NodeKey, Rect>();
 	for (const s of savedSessions.filter(pinned)) {
@@ -246,11 +318,16 @@ export function arrange(
 			natural.map(([, rect]) => rect),
 			[...occupied, ...reserved],
 		);
-		for (const [follower, rect] of natural) {
-			const moved = { ...rect, x: rect.x + shift.x, y: rect.y + shift.y };
-			nudged.set(follower, moved);
-			occupied.push(moved);
-		}
+		for (const [follower, rect] of natural)
+			nudged.set(follower, {
+				...rect,
+				x: rect.x + shift.x,
+				y: rect.y + shift.y,
+			});
+		claim(
+			s.project,
+			natural.flatMap(([follower]) => nudged.get(follower) ?? []),
+		);
 	}
 
 	const parents = sessionParents(board);
@@ -271,17 +348,18 @@ export function arrange(
 
 	const below = (start: Point): Point => {
 		const taken = boundsOf(occupied);
-		return { x: start.x, y: snap(taken.y + taken.height + clearance) };
+		const gap = groupPadding + groupLabelSpace + clearance;
+		return { x: start.x, y: snap(taken.y + taken.height + gap) };
 	};
 
 	for (const s of savedSessions.filter((s) => !pinned(s))) {
 		const ref: NodeRef = { kind: "session", id: s.id };
 		const key = nodeKey(ref);
 		const fits = (point: Point) =>
-			free(footprint(key, sessionRect(key, point)));
+			free(footprint(key, sessionRect(key, point)), s.project);
 		const spot = nearestFree(savedSpot(key), fits) ?? below(savedSpot(key));
 		put(key, ref, sessionRect(key, spot));
-		occupied.push(...footprint(key, sessionRect(key, spot)));
+		claim(s.project, footprint(key, sessionRect(key, spot)));
 	}
 
 	occupied.push(...reserved);
@@ -293,7 +371,7 @@ export function arrange(
 		const ref: NodeRef = { kind: "session", id: s.id };
 		const key = nodeKey(ref);
 		const at = (point: Point): Rect => ({ ...point, ...sessionSize });
-		const fits = (point: Point) => free(footprint(key, at(point)));
+		const fits = (point: Point) => free(footprint(key, at(point)), s.project);
 		const previous = remembered.get(key);
 		const start = seedFor(key);
 		const spot =
@@ -301,7 +379,7 @@ export function arrange(
 			nearestFree(start, fits) ??
 			below(start);
 		put(key, ref, at(spot));
-		occupied.push(...footprint(key, at(spot)));
+		claim(s.project, footprint(key, at(spot)));
 		auto.set(key, spot);
 	}
 
