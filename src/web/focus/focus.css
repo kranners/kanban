@@ -53,6 +53,14 @@
 		0 24px 64px -16px rgb(0 0 0 / 0.28);
 }
 
+.focus-docked:focus {
+	outline: none;
+}
+
+.focus-docked .focus-scrim {
+	display: none;
+}
+
 .focus-docked .focus-panel {
 	border: 0;
 	border-radius: 0;

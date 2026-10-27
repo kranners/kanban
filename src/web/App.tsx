@@ -324,9 +324,8 @@ export function App() {
 			<main class="main">
 				<Stage />
 				<Rail />
-				{beside && focus}
+				{focus}
 			</main>
-			{!beside && focus}
 			{newSessionOpen.value && (
 				<NewSession
 					cwds={knownCwds.value}

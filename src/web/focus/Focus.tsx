@@ -17,7 +17,13 @@ import { keepInView } from "../Canvas.tsx";
 import { ArtifactLink } from "../Card.tsx";
 import { nodeKey } from "../layout.ts";
 import { plainText } from "../markdown.ts";
-import { board, openSubagent, subagentsById } from "../state.ts";
+import {
+	board,
+	focusedSessionId,
+	focusedSubagentId,
+	openSubagent,
+	subagentsById,
+} from "../state.ts";
 import { AgentView } from "./AgentView.tsx";
 import { AttachedTerminal } from "./AttachedTerminal.tsx";
 import { MirroredTerminal } from "./MirroredTerminal.tsx";
@@ -50,6 +56,19 @@ function growFrom(panel: HTMLElement, origin: DOMRect): void {
 		],
 		{ duration: 240, easing: "cubic-bezier(0.2, 0, 0, 1)" },
 	);
+}
+
+function outside(own: HTMLElement | null): HTMLElement[] {
+	const app = own?.closest(".app");
+	const behind: HTMLElement[] = [];
+	for (let node = own; node && node !== app; node = node.parentElement) {
+		for (const sibling of node.parentElement?.children ?? []) {
+			if (sibling !== node && sibling instanceof HTMLElement) {
+				behind.push(sibling);
+			}
+		}
+	}
+	return behind;
 }
 
 function hasTerminal(session: Session): boolean {
@@ -91,24 +110,28 @@ export function Focus(props: {
 				: { kind: "subagent", id: target.subagent.id },
 		);
 		const node = arrangement.peek()?.nodes.get(key);
-		if (node) keepInView(key, node);
+		if (node) keepInView(node);
+	}, [docked]);
+
+	useEffect(() => {
+		const opener = document.activeElement;
+		return () => {
+			const switching =
+				focusedSessionId.peek() !== null || focusedSubagentId.peek() !== null;
+			if (switching) return;
+			if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+		};
 	}, []);
 
 	useEffect(() => {
 		if (docked) return;
-		const opener = document.activeElement;
-		const own = backdrop.current;
-		const behind = [...(own?.parentElement?.children ?? [])].filter(
-			(element): element is HTMLElement =>
-				element !== own && element instanceof HTMLElement,
-		);
+		const behind = outside(backdrop.current);
 		for (const element of behind) element.inert = true;
 		if (target.kind === "subagent") closeButton.current?.focus();
 		return () => {
 			for (const element of behind) element.inert = false;
-			if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
 		};
-	}, []);
+	}, [docked]);
 
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
@@ -246,21 +269,14 @@ export function Focus(props: {
 		</div>
 	);
 
-	if (docked) {
-		return (
-			<aside class="focus focus-docked" aria-label={name}>
-				{contents}
-			</aside>
-		);
-	}
-
 	return (
 		<div
 			ref={backdrop}
-			class="focus focus-backdrop"
+			class={docked ? "focus focus-docked" : "focus focus-backdrop"}
 			role="dialog"
-			aria-modal="true"
+			aria-modal={!docked}
 			aria-label={name}
+			tabIndex={docked ? -1 : undefined}
 		>
 			<button
 				type="button"
