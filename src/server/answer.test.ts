@@ -5,6 +5,7 @@ import {
 	answerQuestions,
 	choosePermission,
 	notShowing,
+	notSubmitted,
 	validAnswers,
 } from "./answer.ts";
 import { fakeTui } from "./fakeTui.ts";
@@ -177,6 +178,61 @@ describe("answering questions", () => {
 		);
 		assert.deepEqual(outcome, { ok: true, value: null });
 		assert.deepEqual(tui.submitted, { [long.question]: "Green" });
+	});
+
+	it("answers beside Claude Code's diff panel", async () => {
+		const long: AskQuestion = {
+			...colour,
+			question:
+				"The banner shows while the daemon restarts after its VM ran out of memory. Which colour should it be?",
+		};
+		const questions = [colour, long, toppings];
+		const tui = fakeTui({
+			questions,
+			sidePanel: [
+				"──────────────────────────────",
+				"New file not yet staged.",
+				"Run `git add :/data/delta.tsv` to see line counts.",
+				"",
+				"data/delta.tsv (untracked)",
+			],
+		});
+		const outcome = await answerQuestions(
+			tui,
+			questions,
+			[
+				{ selected: ["Red"], other: null },
+				{ selected: [], other: "Teal, then grey once it is back" },
+				{ selected: ["Olives"], other: null },
+			],
+			timing,
+		);
+		assert.deepEqual(outcome, { ok: true, value: null });
+		assert.deepEqual(tui.submitted, {
+			"Pick a colour": "Red",
+			[long.question]: "Teal, then grey once it is back",
+			"Pick toppings": "Olives",
+		});
+	});
+
+	it("refuses rather than reporting success when the review does not submit", async () => {
+		const tui = fakeTui({ questions: [colour, toppings] });
+		const press = tui.keys;
+		tui.keys = (keys) =>
+			tui.state?.kind === "ask" && tui.state.review
+				? Promise.resolve({ ok: true, value: null })
+				: press(keys);
+		const outcome = await answerQuestions(
+			tui,
+			[colour, toppings],
+			[
+				{ selected: ["Green"], other: null },
+				{ selected: ["Cheese"], other: null },
+			],
+			timing,
+		);
+		assert.deepEqual(outcome, { ok: false, error: notSubmitted });
+		assert.equal(tui.submitted, null);
 	});
 
 	it("refuses when the screen shows a different question", async () => {

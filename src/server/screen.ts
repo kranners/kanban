@@ -59,8 +59,49 @@ export const sameLabel = (shown: string, wanted: string): boolean => {
 export const isSubmitRow = (row: ScreenRow): boolean =>
 	row.number === null && ["submit", "next"].includes(normalise(row.label));
 
-const lines = (screen: string): string[] =>
-	screen.split("\n").map((line) => line.replace(/\s+$/, ""));
+const wideCell =
+	/[\p{Emoji_Presentation}ᄀ-ᅟ⺀-〾ぁ-㏿㐀-䶿一-鿿ꀀ-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦\u{20000}-\u{3fffd}]/u;
+
+type Border = { cell: number; index: number };
+
+const borders = (row: string): { borders: Border[]; cells: number } => {
+	const found: Border[] = [];
+	let cell = 0;
+	let index = 0;
+	for (const char of row) {
+		if (char === "│") found.push({ cell, index });
+		cell += wideCell.test(char) ? 2 : 1;
+		index += char.length;
+	}
+	return { borders: found, cells: cell };
+};
+
+const sidePanelCell = (rows: ReturnType<typeof borders>[]): number | null => {
+	const counts = new Map<number, number>();
+	for (const row of rows) {
+		for (const { cell } of row.borders) {
+			counts.set(cell, (counts.get(cell) ?? 0) + 1);
+		}
+	}
+	const [cell, count] = [...counts].sort(([, a], [, b]) => b - a)[0] ?? [];
+	const width = Math.max(0, ...rows.map((row) => row.cells));
+	return cell !== undefined &&
+		count !== undefined &&
+		count >= rows.length / 2 &&
+		cell > width / 2
+		? cell
+		: null;
+};
+
+const lines = (screen: string): string[] => {
+	const rows = screen.split("\n");
+	const measured = rows.map(borders);
+	const panel = sidePanelCell(measured);
+	return rows.map((row, at) => {
+		const border = measured[at]?.borders.find(({ cell }) => cell === panel);
+		return (border ? row.slice(0, border.index) : row).replace(/\s+$/, "");
+	});
+};
 
 const parseRow = (line: string): ScreenRow | null => {
 	const match = rowPattern.exec(line);

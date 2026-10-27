@@ -179,15 +179,24 @@ const answerOne = async (
 	);
 };
 
+export const notSubmitted =
+	"The answers were filled in but the prompt did not take them, so it was left open. Open the terminal to check it.";
+
+const isReview = (dialog: ScreenDialog | null) =>
+	isAsk(dialog, (ask) => ask.review);
+
 const submitReview = async (drive: Driver): Promise<void> => {
-	const screen = await drive.read();
-	if (screen?.kind !== "ask" || !screen.review) return;
+	const screen = await drive.until(isReview);
+	if (screen?.kind !== "ask" || !screen.review) throw new Refusal(notSubmitted);
 	const submit = screen.rows.findIndex(
 		(row) => normalise(row.label) === "submit answers",
 	);
-	if (submit === -1) throw new Refusal(notShowing);
+	if (submit === -1) throw new Refusal(notSubmitted);
 	await moveTo(drive, screen, submit);
 	await drive.press(["Enter"]);
+	if (isReview(await drive.until((dialog) => !isReview(dialog)))) {
+		throw new Refusal(notSubmitted);
+	}
 };
 
 const run = async (task: () => Promise<void>): Promise<Outcome> => {
@@ -239,7 +248,7 @@ export const answerQuestions = (
 			const answer = answers[at];
 			if (answer) await answerOne(drive, question, answer);
 		}
-		await submitReview(drive);
+		if (questions.length > 1) await submitReview(drive);
 	});
 };
 
