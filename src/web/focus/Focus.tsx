@@ -12,7 +12,10 @@ import {
 import { subagentState } from "../../shared/subagents.ts";
 import type { Activity, Session, Subagent } from "../../shared/types.ts";
 import { ActivityBadge } from "../activity.tsx";
+import { arrangement } from "../arrangement.ts";
+import { keepInView } from "../Canvas.tsx";
 import { ArtifactLink } from "../Card.tsx";
+import { nodeKey } from "../layout.ts";
 import { plainText } from "../markdown.ts";
 import { board, openSubagent, subagentsById } from "../state.ts";
 import { AgentView } from "./AgentView.tsx";
@@ -66,8 +69,9 @@ export function Focus(props: {
 	target: FocusTarget;
 	onClose: () => void;
 	origin?: DOMRect;
+	docked: boolean;
 }): JSX.Element {
-	const { target, onClose } = props;
+	const { target, onClose, docked } = props;
 	const backdrop = useRef<HTMLDivElement>(null);
 	const panel = useRef<HTMLDivElement>(null);
 	const closeButton = useRef<HTMLButtonElement>(null);
@@ -79,7 +83,19 @@ export function Focus(props: {
 		if (panel.current && props.origin) growFrom(panel.current, props.origin);
 	}, []);
 
+	useLayoutEffect(() => {
+		if (!docked) return;
+		const key = nodeKey(
+			target.kind === "session"
+				? { kind: "session", id: target.session.id }
+				: { kind: "subagent", id: target.subagent.id },
+		);
+		const node = arrangement.peek()?.nodes.get(key);
+		if (node) keepInView(key, node);
+	}, []);
+
 	useEffect(() => {
+		if (docked) return;
 		const opener = document.activeElement;
 		const own = backdrop.current;
 		const behind = [...(own?.parentElement?.children ?? [])].filter(
@@ -140,10 +156,108 @@ export function Focus(props: {
 	const doing = said ? plainText(said) : (subagent?.type ?? null);
 	const terminal = session && hasTerminal(session);
 
+	const contents = (
+		<div class="focus-panel" ref={panel}>
+			<header class="focus-header">
+				<ActivityBadge activity={activity} />
+				<div class="focus-titles">
+					<div class="focus-title-row">
+						<h2 class="focus-name">{name}</h2>
+						{doing && <span class="focus-doing">{doing}</span>}
+					</div>
+					<div class="focus-meta">
+						{session ? (
+							<>
+								<span
+									class="focus-cwd"
+									title={`${session.project} · ${session.cwd}`}
+								>
+									<bdi>{session.cwd}</bdi>
+								</span>
+								<span class="focus-kind">{kindLabels[session.kind]}</span>
+							</>
+						) : (
+							<span class="focus-kind">
+								<Bot size={11} aria-hidden="true" /> Subagent
+							</span>
+						)}
+					</div>
+					{session && session.artifacts.length > 0 && (
+						<div class="focus-artifacts">
+							{session.artifacts.map((artifact) => (
+								<ArtifactLink key={artifact.url} artifact={artifact} />
+							))}
+						</div>
+					)}
+				</div>
+				{terminal && (
+					<div class="av-toggle">
+						<button
+							type="button"
+							class="focus-button"
+							aria-pressed={!raw}
+							onClick={() => setRaw(false)}
+							title="Conversation"
+						>
+							<MessagesSquare size={15} aria-hidden="true" />
+							<span class="av-toggle-label">Conversation</span>
+						</button>
+						<button
+							type="button"
+							class="focus-button"
+							aria-pressed={raw}
+							onClick={() => setRaw(true)}
+							title="The session's own terminal"
+						>
+							<SquareTerminal size={15} aria-hidden="true" />
+							<span class="av-toggle-label">Terminal</span>
+						</button>
+					</div>
+				)}
+				<button
+					ref={closeButton}
+					type="button"
+					class="focus-button focus-close"
+					onClick={onClose}
+					title={`Close (${closeShortcut})`}
+					aria-label="Close"
+				>
+					<X size={16} />
+					<kbd>{closeShortcut}</kbd>
+				</button>
+			</header>
+			<div class="focus-body">
+				{session && raw ? (
+					<RawTerminal session={session} />
+				) : (
+					<AgentView
+						node={
+							session
+								? { kind: "session", id: session.id }
+								: { kind: "subagent", id: subagent?.id ?? "" }
+						}
+						session={session}
+						activity={activity}
+						onTerminal={terminal ? () => setRaw(true) : null}
+						links={links}
+					/>
+				)}
+			</div>
+		</div>
+	);
+
+	if (docked) {
+		return (
+			<aside class="focus focus-docked" aria-label={name}>
+				{contents}
+			</aside>
+		);
+	}
+
 	return (
 		<div
 			ref={backdrop}
-			class="focus-backdrop"
+			class="focus focus-backdrop"
 			role="dialog"
 			aria-modal="true"
 			aria-label={name}
@@ -155,93 +269,7 @@ export function Focus(props: {
 				aria-hidden="true"
 				onClick={onClose}
 			/>
-			<div class="focus-panel" ref={panel}>
-				<header class="focus-header">
-					<ActivityBadge activity={activity} />
-					<div class="focus-titles">
-						<div class="focus-title-row">
-							<h2 class="focus-name">{name}</h2>
-							{doing && <span class="focus-doing">{doing}</span>}
-						</div>
-						<div class="focus-meta">
-							{session ? (
-								<>
-									<span
-										class="focus-cwd"
-										title={`${session.project} · ${session.cwd}`}
-									>
-										<bdi>{session.cwd}</bdi>
-									</span>
-									<span class="focus-kind">{kindLabels[session.kind]}</span>
-								</>
-							) : (
-								<span class="focus-kind">
-									<Bot size={11} aria-hidden="true" /> Subagent
-								</span>
-							)}
-						</div>
-						{session && session.artifacts.length > 0 && (
-							<div class="focus-artifacts">
-								{session.artifacts.map((artifact) => (
-									<ArtifactLink key={artifact.url} artifact={artifact} />
-								))}
-							</div>
-						)}
-					</div>
-					{terminal && (
-						<div class="av-toggle">
-							<button
-								type="button"
-								class="focus-button"
-								aria-pressed={!raw}
-								onClick={() => setRaw(false)}
-								title="Conversation"
-							>
-								<MessagesSquare size={15} aria-hidden="true" />
-								<span class="av-toggle-label">Conversation</span>
-							</button>
-							<button
-								type="button"
-								class="focus-button"
-								aria-pressed={raw}
-								onClick={() => setRaw(true)}
-								title="The session's own terminal"
-							>
-								<SquareTerminal size={15} aria-hidden="true" />
-								<span class="av-toggle-label">Terminal</span>
-							</button>
-						</div>
-					)}
-					<button
-						ref={closeButton}
-						type="button"
-						class="focus-button focus-close"
-						onClick={onClose}
-						title={`Close (${closeShortcut})`}
-						aria-label="Close"
-					>
-						<X size={16} />
-						<kbd>{closeShortcut}</kbd>
-					</button>
-				</header>
-				<div class="focus-body">
-					{session && raw ? (
-						<RawTerminal session={session} />
-					) : (
-						<AgentView
-							node={
-								session
-									? { kind: "session", id: session.id }
-									: { kind: "subagent", id: subagent?.id ?? "" }
-							}
-							session={session}
-							activity={activity}
-							onTerminal={terminal ? () => setRaw(true) : null}
-							links={links}
-						/>
-					)}
-				</div>
-			</div>
+			{contents}
 		</div>
 	);
 }

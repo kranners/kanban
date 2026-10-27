@@ -23,6 +23,7 @@ import { regionDialog, regionMenu } from "./regionState.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 import type { QuickPrompt } from "./spawns.ts";
 import {
+	docked,
 	focusedSessionId,
 	focusedSubagentId,
 	newSessionOpen,
@@ -39,10 +40,16 @@ export function isTyping(target: EventTarget | null): boolean {
 	);
 }
 
+function focusCovers(): boolean {
+	const open =
+		focusedSessionId.peek() !== null || focusedSubagentId.peek() !== null;
+	if (!open) return false;
+	return !docked.peek() || document.activeElement?.closest(".focus") != null;
+}
+
 export function blocked(): boolean {
 	return (
-		focusedSessionId.peek() !== null ||
-		focusedSubagentId.peek() !== null ||
+		focusCovers() ||
 		newSessionOpen.peek() ||
 		exitAsk.peek() !== null ||
 		quickPrompt.peek() !== null ||

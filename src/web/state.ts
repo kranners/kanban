@@ -25,6 +25,11 @@ export const focusedSubagentId = signal<string | null>(null);
 export const newSessionOpen = signal(false);
 export const awaitingShort = signal<string | null>(null);
 export const railOpen = signal(innerWidth > 720);
+const wide = matchMedia("(min-width: 1280px)");
+export const docked = signal(wide.matches);
+wide.addEventListener("change", () => {
+	docked.value = wide.matches;
+});
 export const now = signal(Date.now());
 
 setInterval(() => {

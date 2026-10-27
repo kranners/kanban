@@ -48,6 +48,19 @@ export function centreOn(rect: Rect): void {
 	);
 }
 
+export function keepInView(key: NodeKey, rect: Rect): void {
+	const card = stage?.querySelector(`[data-node="${CSS.escape(key)}"]`);
+	if (!stage || !card) return;
+	const box = stage.getBoundingClientRect();
+	const shown = card.getBoundingClientRect();
+	const inside =
+		shown.left >= box.left &&
+		shown.right <= box.right &&
+		shown.top >= box.top &&
+		shown.bottom <= box.bottom;
+	if (!inside) centreOn(rect);
+}
+
 export function clientPointOf(point: Point): Point | null {
 	if (!stage) return null;
 	const box = stage.getBoundingClientRect();

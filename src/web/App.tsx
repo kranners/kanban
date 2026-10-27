@@ -46,6 +46,7 @@ import {
 	awaitingShort,
 	board,
 	closeFocus,
+	docked,
 	focusedSession,
 	focusedSubagent,
 	focusOrigin,
@@ -303,25 +304,29 @@ export function App() {
 	useCommentGestures();
 	const session = focusedSession.value;
 	const subagent = focusedSubagent.value;
+	const beside = docked.value;
+	const focus = (session || subagent) && (
+		<Focus
+			key={session ? `session:${session.id}` : `subagent:${subagent?.id}`}
+			target={
+				session
+					? { kind: "session", session }
+					: { kind: "subagent", subagent: subagent as Subagent }
+			}
+			origin={focusOrigin.value}
+			onClose={closeFocus}
+			docked={beside}
+		/>
+	);
 	return (
 		<div class="app">
 			<TopBar />
 			<main class="main">
 				<Stage />
 				<Rail />
+				{beside && focus}
 			</main>
-			{(session || subagent) && (
-				<Focus
-					key={session ? `session:${session.id}` : `subagent:${subagent?.id}`}
-					target={
-						session
-							? { kind: "session", session }
-							: { kind: "subagent", subagent: subagent as Subagent }
-					}
-					origin={focusOrigin.value}
-					onClose={closeFocus}
-				/>
-			)}
+			{!beside && focus}
 			{newSessionOpen.value && (
 				<NewSession
 					cwds={knownCwds.value}
