@@ -24,8 +24,8 @@ The MVP is the board, relationships, messages, focused TUI for background sessio
 
 ## Tickets and async work
 
-- Model tickets after Backlogic: states derived from events (ready, blocked, claimed, waiting, scheduled, review, done), `needs` and `after` edges, requests to an owner, claims with heartbeats.
-- Either read a Backlogic instance's feed or grow the same model here; a session card gains a ticket and claim.
+- Tickets as an append-only event log: each ticket's state (ready, blocked, claimed, waiting, scheduled, review, done) is derived from its events, `needs` and `after` edges order the work, requests go to an owner, and a session claims a ticket with heartbeats so a dead claim lapses.
+- A session card gains its ticket and claim.
 - Columns by ticket state, with session cards living under their ticket.
 
 ## Platform
