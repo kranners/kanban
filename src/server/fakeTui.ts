@@ -31,6 +31,22 @@ export type FakeTui = Tty & {
 
 const wrap = (value: number, count: number) => (value + count) % count;
 
+const quoteWidth = 60;
+
+const shownQuestion = (question: string): string[] => {
+	const plain = question.replace(/`/g, "");
+	if (plain.length <= quoteWidth) return [plain];
+	const quoted: string[] = [];
+	let line = "";
+	for (const word of plain.split(" ")) {
+		if (line && line.length + word.length + 1 > quoteWidth) {
+			quoted.push(`│ ${line}`);
+			line = word;
+		} else line = line ? `${line} ${word}` : word;
+	}
+	return [...quoted, `│ ${line}`];
+};
+
 export function fakeTui(opts: {
 	permission?: string[];
 	questions?: AskQuestion[];
@@ -105,17 +121,18 @@ export function fakeTui(opts: {
 			const mark = (row: number) => (state.cursor === row ? "❯" : " ");
 			const box = (on: boolean) => (multi ? `[${on ? "✔" : " "}] ` : "");
 			const count = question.options.length;
+			const last = state.tab === state.questions.length - 1;
 			return [
 				...head,
 				rule,
 				bar,
-				question.question,
+				...shownQuestion(question.question),
 				...question.options.flatMap((option, at) => [
 					`${mark(at)} ${at + 1}. ${box(picked.includes(option.label))}${option.label}`,
 					`     ${option.description}`,
 				]),
 				`${mark(count)} ${count + 1}. ${box(typed !== null)}${typed ?? (multi ? "Type something" : "Type something.")}`,
-				...(multi ? [`${mark(count + 1)}    Submit`] : []),
+				...(multi ? [`${mark(count + 1)}    ${last ? "Submit" : "Next"}`] : []),
 				rule,
 				`${mark(count + (multi ? 2 : 1))} ${count + 2}. Chat about this`,
 				"Enter to select · Tab/Arrow keys to navigate · Esc to cancel",

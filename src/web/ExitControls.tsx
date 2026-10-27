@@ -4,16 +4,18 @@ import type { JSX } from "preact";
 import type { Session } from "../shared/types.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import type { ExitState } from "./exitState.ts";
-import {
-	askToExit,
-	dismissExit,
-	exitAsk,
-	exitSession,
-	shiftHeld,
-} from "./exits.ts";
+import { askToExit, dismissExit, exitAsk, exitSession, held } from "./exits.ts";
+import { optionKey } from "./focus/platform.ts";
 
 export function exitStateClass(state: ExitState | undefined): string {
 	return state ? `exit-${state.phase}` : "";
+}
+
+function title(force: boolean, skipAsking: boolean): string {
+	if (force && skipAsking) return "Force exit now";
+	if (force) return "Force exit";
+	if (skipAsking) return "Exit session now";
+	return `Exit session (hold Shift to force, ${optionKey} to skip confirming)`;
 }
 
 export function CloseButton(props: {
@@ -21,21 +23,25 @@ export function CloseButton(props: {
 	state: ExitState | undefined;
 }): JSX.Element {
 	const checking = props.state?.phase === "checking";
-	const force = shiftHeld.value;
+	const { shift: force, option: skipAsking } = held.value;
 	const label = force
 		? `Force exit ${props.session.name}`
 		: `Exit ${props.session.name}`;
+	const exit = (event: MouseEvent) => {
+		const now = held.peek();
+		const forced = event.shiftKey || now.shift;
+		if (event.altKey || now.option) void exitSession(props.session, forced);
+		else askToExit(props.session, forced);
+	};
 	return (
 		<button
 			type="button"
 			class={`close-bubble${force ? " force" : ""}`}
 			aria-label={checking ? `Exiting ${props.session.name}` : label}
-			title={force ? "Force exit" : "Exit session (hold Shift to force)"}
+			title={title(force, skipAsking)}
 			disabled={checking}
 			data-no-pan
-			onClick={(event) =>
-				askToExit(props.session, event.shiftKey || shiftHeld.peek())
-			}
+			onClick={exit}
 		>
 			{checking ? (
 				<LoaderCircle size={13} class="focus-spin" aria-hidden="true" />
