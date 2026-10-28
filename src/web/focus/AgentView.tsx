@@ -59,8 +59,21 @@ const updateOutbox = (
 
 const noOutbox: Outgoing[] = [];
 
+const editable = (entry: Outgoing): boolean =>
+	entry.state === "queued" || entry.state === "held";
+
+const undelivered = (): boolean =>
+	Object.values(outboxes.value).some((outbox) =>
+		outbox.some((entry) => entry.state !== "echoed"),
+	);
+
+addEventListener("beforeunload", (event) => {
+	if (undelivered()) event.preventDefault();
+});
+
 const queuedLabels: Record<Outgoing["state"], string> = {
 	queued: "Queued",
+	held: "Held",
 	sending: "Sending…",
 	sent: "Sent",
 	echoed: "Sent",
@@ -178,7 +191,6 @@ export function AgentView(props: {
 	const [atBottom, setAtBottom] = useState(true);
 	const [problem, setProblem] = useState<string | null>(null);
 	const [recalled, setRecalled] = useState<{ text: string } | null>(null);
-	const [paused, setPaused] = useState(false);
 	const sessionId = props.node.kind === "session" ? props.node.id : null;
 	const outbox = (sessionId && outboxes.value[sessionId]) || noOutbox;
 	const items = view.window.items;
@@ -192,19 +204,21 @@ export function AgentView(props: {
 	const background = useMemo(() => backgroundTools(items), [items]);
 
 	useEffect(() => {
-		if (!sessionId || !outbox.some((entry) => entry.state === "sent")) return;
-		const unechoed = stillQueued(
-			outbox.filter((entry) => entry.state === "sent"),
-			items,
-		);
+		if (!sessionId) return;
+		const sent = outbox.filter((entry) => entry.state === "sent");
+		const unechoed = stillQueued(sent, items);
+		const echoed = sent
+			.filter((entry) => !unechoed.includes(entry))
+			.map((entry) => entry.id);
+		if (echoed.length === 0) return;
 		updateOutbox(sessionId, (current) =>
 			current.map((entry) =>
-				entry.state === "sent" && !unechoed.includes(entry)
+				entry.state === "sent" && echoed.includes(entry.id)
 					? { ...entry, state: "echoed" }
 					: entry,
 			),
 		);
-	}, [items]);
+	}, [items, outbox]);
 
 	useLayoutEffect(() => {
 		const element = scroller.current;
@@ -271,10 +285,6 @@ export function AgentView(props: {
 		!waiting;
 
 	useEffect(() => {
-		if (!deliverable) setPaused(false);
-	}, [deliverable]);
-
-	useEffect(() => {
 		if (!sessionId || !working) return;
 		if (!outbox.some((entry) => entry.state === "echoed")) return;
 		updateOutbox(sessionId, (current) =>
@@ -283,7 +293,7 @@ export function AgentView(props: {
 	}, [working, outbox]);
 
 	useEffect(() => {
-		if (!sessionId || !deliverable || paused) return;
+		if (!sessionId || !deliverable) return;
 		const batch = nextBatch(outbox, maxPromptText);
 		const head = batch[0];
 		if (!head) return;
@@ -299,29 +309,23 @@ export function AgentView(props: {
 			...current.filter((entry) => !batch.includes(entry)),
 		]);
 		void request({ type: "prompt", text }).then((outcome) => {
-			const settled: Outgoing["state"] = outcome.ok
-				? "sent"
-				: outcome.error === connectionDropped
-					? "sent"
-					: "queued";
+			const settled: Outgoing["state"] =
+				outcome.ok || outcome.error === connectionDropped ? "sent" : "held";
 			updateOutbox(sessionId, (current) =>
 				current.map((entry) =>
 					entry.id === sending.id ? { ...entry, state: settled } : entry,
 				),
 			);
-			if (settled === "queued") {
-				setPaused(true);
-				setProblem(outcome.error);
-			}
+			if (settled === "held") setProblem(outcome.error);
 		});
-	}, [deliverable, paused, outbox]);
+	}, [deliverable, outbox]);
 
 	useEffect(() => {
 		if (!sessionId) return;
 		const delivered = outbox.filter(
 			(entry) => entry.state === "sent" || entry.state === "echoed",
 		);
-		if (delivered.length === 0) return;
+		if (delivered.length === 0 || view.status === null) return;
 		const due =
 			Math.min(...delivered.map((entry) => entry.sentAt)) + echoWaitMs;
 		const timer = setTimeout(
@@ -338,26 +342,24 @@ export function AgentView(props: {
 							: entry.state === "echoed"
 								? []
 								: entry.state === "sent"
-									? [{ ...entry, state: "queued" as const }]
+									? [{ ...entry, state: "held" as const }]
 									: [entry],
 					),
 				);
 				if (lost) {
-					setPaused(true);
 					setProblem(
-						"Claude never showed that message, so it is queued again. Send it again or edit it.",
+						"Claude never showed a message, so it is held. Check the transcript, then send, edit or remove it.",
 					);
 				}
 			},
 			Math.max(0, due - Date.now()),
 		);
 		return () => clearTimeout(timer);
-	}, [outbox]);
+	}, [outbox, view.status === null]);
 
 	const send = (text: string) => {
 		if (!sessionId) return;
 		setProblem(null);
-		setPaused(false);
 		pinned.current = true;
 		const now = Date.now();
 		updateOutbox(sessionId, (current) => [
@@ -369,10 +371,10 @@ export function AgentView(props: {
 	const edit = (ids: string[]) => {
 		if (!sessionId) return;
 		const picked = outbox.filter(
-			(entry) => entry.state === "queued" && ids.includes(entry.id),
+			(entry) => editable(entry) && ids.includes(entry.id),
 		);
 		if (picked.length === 0) return;
-		setPaused(false);
+		setProblem(null);
 		updateOutbox(sessionId, (current) =>
 			current.filter((entry) => !picked.includes(entry)),
 		);
@@ -381,15 +383,27 @@ export function AgentView(props: {
 
 	const discard = (id: string) => {
 		if (!sessionId) return;
-		setPaused(false);
+		setProblem(null);
 		updateOutbox(sessionId, (current) =>
-			current.filter((entry) => entry.id !== id || entry.state !== "queued"),
+			current.filter((entry) => entry.id !== id || !editable(entry)),
 		);
 	};
 
-	const queuedIds = outbox
-		.filter((entry) => entry.state === "queued")
-		.map((entry) => entry.id);
+	const release = (id: string) => {
+		if (!sessionId) return;
+		setProblem(null);
+		updateOutbox(sessionId, (current) =>
+			current.map((entry) =>
+				entry.id === id && entry.state === "held"
+					? { ...entry, state: "queued" }
+					: entry,
+			),
+		);
+	};
+
+	const composing = props.node.kind === "session" && readOnly === null;
+
+	const queuedIds = outbox.filter(editable).map((entry) => entry.id);
 
 	const press = async (key: "Escape" | "Shift+Tab") => {
 		setProblem(null);
@@ -444,8 +458,17 @@ export function AgentView(props: {
 										<span class="av-queued-label">
 											{queuedLabels[entry.state]}
 										</span>
-										{entry.state === "queued" && (
+										{composing && editable(entry) && (
 											<>
+												{entry.state === "held" && (
+													<button
+														type="button"
+														class="av-queued-action"
+														onClick={() => release(entry.id)}
+													>
+														Send
+													</button>
+												)}
 												<button
 													type="button"
 													class="av-queued-action"
@@ -511,7 +534,7 @@ export function AgentView(props: {
 					<span>{problem}</span>
 				</div>
 			)}
-			{props.node.kind === "session" && readOnly === null && (
+			{composing && (
 				<div class="av-composer-slot" hidden={view.dialog !== null}>
 					<Composer
 						sessionId={props.node.id}

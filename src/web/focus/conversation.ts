@@ -333,7 +333,7 @@ export type Queued = { id: string; text: string; sentAt: number };
 const comparable = (value: string): string => value.replace(/\s+/g, " ").trim();
 
 export type Outgoing = Queued & {
-	state: "queued" | "sending" | "sent" | "echoed";
+	state: "queued" | "held" | "sending" | "sent" | "echoed";
 };
 
 const isCommand = (text: string): boolean => /^[/!]/.test(text.trimStart());
