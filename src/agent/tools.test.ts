@@ -27,6 +27,7 @@ describe("tool definitions", () => {
 			read_transcript: { session: "abcd1234" },
 			ask_session: { session: "abcd1234", question: "What changed?" },
 			send_prompt: { session: "abcd1234", text: "carry on" },
+			answer_prompt: { session: "abcd1234" },
 			finish_session: { session: "abcd1234" },
 			start_session: { cwd: "/tmp", prompt: "hi" },
 			put_note: { text: "# Hi", x: 0, y: 0 },
@@ -125,6 +126,68 @@ describe("parseToolCall", () => {
 		assert.match(
 			error("update_region", { id: "r" }) ?? "",
 			/Nothing to change/,
+		);
+	});
+
+	it("reads a prompt without answers and answers it with labels or free text", () => {
+		assert.deepEqual(parseToolCall("answer_prompt", { session: "a" }), {
+			tool: "answer_prompt",
+			session: "a",
+			reply: null,
+		});
+		assert.deepEqual(
+			parseToolCall("answer_prompt", {
+				session: "a",
+				prompt: "0123abcd4567",
+				answers: [{ selected: ["Yes, test then full"] }, { other: "Blue" }],
+			}),
+			{
+				tool: "answer_prompt",
+				session: "a",
+				reply: {
+					prompt: "0123abcd4567",
+					answers: [
+						{ selected: ["Yes, test then full"], other: null },
+						{ selected: [], other: "Blue" },
+					],
+				},
+			},
+		);
+		assert.match(
+			error("answer_prompt", {
+				session: "a",
+				answers: [{ selected: ["Yes"] }],
+			}) ?? "",
+			/read the prompt first/,
+		);
+		assert.match(
+			error("answer_prompt", { session: "a", prompt: "0123abcd4567" }) ?? "",
+			/go together/,
+		);
+		assert.match(
+			error("answer_prompt", { session: "a", prompt: "p", answers: [] }) ?? "",
+			/1 to 8/,
+		);
+		assert.match(
+			error("answer_prompt", { session: "a", prompt: "p", answers: [{}] }) ??
+				"",
+			/selected or other/,
+		);
+		assert.match(
+			error("answer_prompt", {
+				session: "a",
+				prompt: "p",
+				answers: [{ selected: "Yes" }],
+			}) ?? "",
+			/option labels/,
+		);
+		assert.match(
+			error("answer_prompt", {
+				session: "a",
+				prompt: "p",
+				answers: [{ selected: ["Yes"], force: true }],
+			}) ?? "",
+			/Unknown answer field force/,
 		);
 	});
 

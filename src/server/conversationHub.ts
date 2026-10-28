@@ -8,6 +8,7 @@ import {
 	type Dialog,
 	type Drive,
 	maxPromptText,
+	type PromptReply,
 	type ViewKey,
 } from "../shared/conversation.ts";
 import type { NodeRef, Session } from "../shared/types.ts";
@@ -25,6 +26,7 @@ import {
 import { asObject, asString } from "./ingest/json.ts";
 import {
 	type ChoiceScreen,
+	normalise,
 	permissionMode,
 	readDialog,
 	type ScreenDialog,
@@ -55,6 +57,10 @@ export type ConversationHub = {
 		since: Since,
 		identity: string | null,
 	): void;
+	respond(
+		session: Session,
+		reply: PromptReply | null,
+	): Promise<CmuxResult<string>>;
 	attached(): string[];
 	release(short: string): void;
 };
@@ -230,6 +236,86 @@ export const shownTool = (
 		: { toolUseId: null, bound: false };
 };
 
+const promptFor =
+	(log: ConversationLog, toolUseId: string | null) =>
+	(shown: ChoiceScreen): boolean => {
+		const bound = shownTool(log, shown);
+		return bound.bound && bound.toolUseId === toolUseId;
+	};
+
+const quoted = (label: string) => `"${label}"`;
+
+type OpenDialog = Exclude<Dialog, { kind: "menu" }>;
+
+const shownPrompt = (name: string, dialog: OpenDialog): string[] => {
+	if (dialog.kind === "permission") {
+		return [
+			`${name} asks permission for ${dialog.title}:`,
+			...(dialog.context ? [dialog.context] : []),
+			dialog.question,
+			...dialog.options.map((option) => `- ${quoted(option)}`),
+		];
+	}
+	return [
+		`${name} asks:`,
+		...dialog.questions.flatMap((question, at) => [
+			`${at + 1}. ${question.header ? `[${question.header}] ` : ""}${question.question} (${question.multiSelect ? "any of" : "one of"}, or a free-text answer)`,
+			...question.options.map(
+				(option) =>
+					`   - ${quoted(option.label)}${option.description ? `: ${option.description}` : ""}`,
+			),
+		]),
+	];
+};
+
+export const promptId = (name: string, dialog: OpenDialog): string =>
+	createHash("sha256")
+		.update(JSON.stringify([dialog.toolUseId, shownPrompt(name, dialog)]))
+		.digest("hex")
+		.slice(0, 12);
+
+export const describeDialog = (name: string, dialog: OpenDialog): string =>
+	[...shownPrompt(name, dialog), `Prompt id: ${promptId(name, dialog)}`].join(
+		"\n",
+	);
+
+const answered = (answers: AskAnswer[]): string =>
+	answers
+		.map((answer) =>
+			[...answer.selected, ...(answer.other?.trim() ? [answer.other] : [])]
+				.map(quoted)
+				.join(", "),
+		)
+		.join("; ");
+
+const choosePermissionLabel = (
+	tty: SessionTty,
+	log: ConversationLog,
+	dialog: Extract<Dialog, { kind: "permission" }>,
+	answers: AskAnswer[],
+): Promise<Outcome> => {
+	const [answer] = answers;
+	const label = answer?.selected[0];
+	if (
+		answers.length !== 1 ||
+		answer?.selected.length !== 1 ||
+		answer.other?.trim() ||
+		label === undefined
+	) {
+		return Promise.resolve({
+			ok: false,
+			error: "A permission prompt takes exactly one of its choices",
+		});
+	}
+	const choice = dialog.options.findIndex(
+		(option) => normalise(option) === normalise(label),
+	);
+	const option = dialog.options[choice];
+	return option === undefined
+		? Promise.resolve({ ok: false, error: "That is not one of the choices" })
+		: choosePermission(tty, choice, option, promptFor(log, dialog.toolUseId));
+};
+
 const toolName = (log: ConversationLog, id: string | null): string | null => {
 	const index = id === null ? undefined : log.tools.get(id);
 	const item = index === undefined ? undefined : log.items[index];
@@ -363,6 +449,7 @@ type Watch = {
 	viewers: Set<Viewer>;
 	join(viewer: Viewer, since: Since): void;
 	leave(viewer: Viewer): void;
+	respond(reply: PromptReply | null): Promise<CmuxResult<string>>;
 	request(
 		viewer: Viewer,
 		frame: ConversationClientFrame,
@@ -410,6 +497,7 @@ export const createConversationHub = (
 		let screenAt = 0;
 		let busy: Promise<unknown> = Promise.resolve();
 		let lastUse = 0;
+		let held = 0;
 
 		const advance = () => {
 			if (log.path === "" && sessionId) {
@@ -540,8 +628,8 @@ export const createConversationHub = (
 		const stop = () => {
 			stopped = true;
 			clearTimeout(timer);
-			if (sessionId) releaseTty(sessionId);
 			if (watches.get(key) === self) watches.delete(key);
+			if (sessionId && held === 0 && !watches.has(key)) releaseTty(sessionId);
 		};
 
 		const reply = (viewer: Viewer, id: string, outcome: Outcome) =>
@@ -615,10 +703,12 @@ export const createConversationHub = (
 					) {
 						return { ok: false, error: "That prompt is no longer open" };
 					}
-					return choosePermission(tty, frame.choice, frame.label, (shown) => {
-						const bound = shownTool(log, shown);
-						return bound.bound && bound.toolUseId === frame.toolUseId;
-					});
+					return choosePermission(
+						tty,
+						frame.choice,
+						frame.label,
+						promptFor(log, frame.toolUseId),
+					);
 				}
 				case "answer": {
 					const question = pendingQuestion(log, block());
@@ -628,6 +718,60 @@ export const createConversationHub = (
 					return answerQuestions(tty, question.questions, frame.answers);
 				}
 			}
+		};
+
+		const respondNow = async (
+			reply: PromptReply | null,
+		): Promise<CmuxResult<string>> => {
+			const current = session();
+			if (!current)
+				return { ok: false, error: "The session has left the board" };
+			const drive = driveOf(current);
+			if (drive.mode === "read") return { ok: false, error: drive.reason };
+			const tty = ttyFor(current);
+			if (!tty)
+				return { ok: false, error: "The session cannot be driven from here" };
+			lastUse = Date.now();
+			advance();
+			const screen = await tty.screen();
+			if (!screen.ok) return screen;
+			const { dialog, answerable } = dialogOf(
+				log,
+				current,
+				screen.value,
+				block(),
+			);
+			if (!dialog || dialog.kind === "menu") {
+				return {
+					ok: false,
+					error: `${current.name} is not waiting on a question or permission prompt`,
+				};
+			}
+			const shown = describeDialog(current.name, dialog);
+			if (!reply) return { ok: true, value: shown };
+			if (reply.prompt !== promptId(current.name, dialog)) {
+				return {
+					ok: false,
+					error: `The open prompt is not the one you read, so nothing was answered. Check it with the user before answering.\n${shown}`,
+				};
+			}
+			const { answers } = reply;
+			if (!answerable) {
+				return {
+					ok: false,
+					error: `The prompt is not on ${current.name}'s screen, so it cannot be answered from the board yet.\n${shown}`,
+				};
+			}
+			const outcome =
+				dialog.kind === "question"
+					? await answerQuestions(tty, dialog.questions, answers)
+					: await choosePermissionLabel(tty, log, dialog, answers);
+			return outcome.ok
+				? {
+						ok: true,
+						value: `Answered ${current.name}'s prompt with ${answered(answers)}`,
+					}
+				: { ok: false, error: `${outcome.error}\n${shown}` };
 		};
 
 		const self: Watch = {
@@ -657,6 +801,16 @@ export const createConversationHub = (
 			leave(viewer) {
 				viewers.delete(viewer);
 				if (viewers.size === 0) stop();
+			},
+			respond(reply) {
+				held += 1;
+				const task = busy.then(() => respondNow(reply));
+				busy = task.catch(() => null);
+				return task.finally(() => {
+					held -= 1;
+					screenAt = 0;
+					if (viewers.size === 0) stop();
+				});
 			},
 			request(viewer, frame, identity) {
 				if (frame.type === "more") {
@@ -700,9 +854,13 @@ export const createConversationHub = (
 		return self;
 	};
 
-	const open: ConversationHub["open"] = (socket, target, since, identity) => {
+	const watchOf = (target: ConversationTarget): Watch => {
 		const key = `${target.kind}:${target.kind === "session" ? target.session.id : target.id}`;
-		const shared = watches.get(key) ?? watch(key, target);
+		return watches.get(key) ?? watch(key, target);
+	};
+
+	const open: ConversationHub["open"] = (socket, target, since, identity) => {
+		const shared = watchOf(target);
 		const viewer: Viewer = { socket, first: 0 };
 		if (target.kind === "session") {
 			deps.audit({
@@ -738,6 +896,8 @@ export const createConversationHub = (
 
 	return {
 		open,
+		respond: (session, reply) =>
+			watchOf({ kind: "session", session, path: null }).respond(reply),
 		attached: () => [
 			...new Set([
 				...viewed(),

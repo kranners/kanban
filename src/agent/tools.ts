@@ -1,4 +1,5 @@
 import { isRegionColour, type RegionColour } from "../shared/colours.ts";
+import type { AskAnswer, PromptReply } from "../shared/conversation.ts";
 import { maxNoteText, type NoteColor, noteColors } from "../shared/types.ts";
 
 export type Placed = {
@@ -16,6 +17,7 @@ export type ToolCall =
 	| { tool: "read_transcript"; session: string; limit: number }
 	| { tool: "ask_session"; session: string; question: string }
 	| { tool: "send_prompt"; session: string; text: string }
+	| { tool: "answer_prompt"; session: string; reply: PromptReply | null }
 	| { tool: "finish_session"; session: string }
 	| {
 			tool: "start_session";
@@ -82,6 +84,9 @@ export type ToolDefinition = {
 export const maxTranscriptEntries = 80;
 export const maxQuestion = 2000;
 export const maxPromptText = 8000;
+export const maxAnswers = 8;
+export const maxSelected = 16;
+export const maxAnswerText = 4000;
 export const maxArranged = 300;
 export const maxCoordinate = 10_000_000;
 
@@ -170,6 +175,34 @@ export const toolDefinitions: ToolDefinition[] = [
 				text: { type: "string", maxLength: maxPromptText },
 			},
 			["session", "text"],
+		),
+	},
+	{
+		name: "answer_prompt",
+		description:
+			"Read or answer the question or permission prompt a session is waiting on. Without answers it returns the prompt and its id: each question with its options, or the permission request with its choices. With answers and that prompt id it picks them, as if the user did: one entry per question in order, selected holding exact option labels (one unless the question takes several) and other holding a free-text answer instead. A permission prompt takes one entry selecting one choice. It refuses if the open prompt is no longer the one with that id. Answer only with what the user chose.",
+		inputSchema: object(
+			{
+				session: sessionRef,
+				prompt: {
+					type: "string",
+					description: "The prompt id a read returned; required with answers",
+				},
+				answers: {
+					type: "array",
+					minItems: 1,
+					maxItems: maxAnswers,
+					items: object({
+						selected: {
+							type: "array",
+							items: { type: "string" },
+							maxItems: maxSelected,
+						},
+						other: { type: "string", maxLength: maxAnswerText },
+					}),
+				},
+			},
+			["session"],
 		),
 	},
 	{
@@ -366,6 +399,27 @@ const placedItem = (fields: Fields, min: number, max: number): Placed => ({
 	...sized(fields, min, max),
 });
 
+const askAnswer = (fields: Fields): AskAnswer => {
+	const unknown = Object.keys(fields).find(
+		(key) => key !== "selected" && key !== "other",
+	);
+	if (unknown) return fail(`Unknown answer field ${unknown}`);
+	const selected = fields.selected ?? [];
+	if (
+		!Array.isArray(selected) ||
+		selected.length > maxSelected ||
+		!selected.every((label) => typeof label === "string")
+	) {
+		return fail(`selected must be at most ${maxSelected} option labels`);
+	}
+	const other =
+		optional(fields, "other", (f, k) => string(f, k, maxAnswerText)) ?? null;
+	if (selected.length === 0 && other === null) {
+		return fail("Each answer needs selected or other");
+	}
+	return { selected, other };
+};
+
 const regionColour = (fields: Fields, key: string): RegionColour =>
 	isRegionColour(fields[key])
 		? fields[key]
@@ -412,6 +466,25 @@ const readers: { [K in ToolName]: (fields: Fields) => ToolCall } = {
 		session: string(fields, "session", 128),
 		text: string(fields, "text", maxPromptText),
 	}),
+	answer_prompt: (fields) => {
+		const session = string(fields, "session", 128);
+		const prompt = optional(fields, "prompt", (f, k) => string(f, k, 64));
+		const answers = optional(fields, "answers", (f, k) => {
+			const answers = records(f, k);
+			if (answers.length === 0 || answers.length > maxAnswers) {
+				return fail(`${k} must hold 1 to ${maxAnswers} answers`);
+			}
+			return answers.map(askAnswer);
+		});
+		if ((prompt === undefined) !== (answers === undefined)) {
+			return fail("prompt and answers go together; read the prompt first");
+		}
+		return {
+			tool: "answer_prompt",
+			session,
+			reply: prompt && answers ? { prompt, answers } : null,
+		};
+	},
 	finish_session: (fields) => ({
 		tool: "finish_session",
 		session: string(fields, "session", 128),

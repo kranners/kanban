@@ -68,7 +68,7 @@ export const blockedReason = (
 	attached: string[],
 ): string | null => {
 	if (session.activity === "needs-you") {
-		return "The session is waiting on a question or permission prompt, so typing would answer it. Ask the user to look at it.";
+		return "The session is waiting on a question or permission prompt, so typing would answer it. Read and answer it with answer_prompt instead.";
 	}
 	if (session.kind === "background") {
 		if (!session.attachable || session.short === null) {

@@ -429,6 +429,7 @@ describe("createKanbanServer", () => {
 					);
 					socket.close(1000, "fake");
 				},
+				respond: async () => ({ ok: false, error: "fake" }),
 				attached: () => [],
 				release() {},
 			},

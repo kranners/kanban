@@ -243,6 +243,7 @@ const tools = createBoardTools({
 		cmux,
 		resolve: cmuxTargets.resolve,
 	}),
+	answer: conversation.respond,
 	audit,
 });
 

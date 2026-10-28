@@ -3,6 +3,7 @@ import { mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
+import type { PromptReply } from "../shared/conversation.ts";
 import type { Board, Session } from "../shared/types.ts";
 import { noteSizeFor } from "../web/notes.ts";
 import { arrange, near, seedsOf, sessionSize } from "../web/placement.ts";
@@ -82,6 +83,7 @@ const setup = async (shown: Board = board) => {
 		onChange: () => {},
 		onRemove: () => {},
 	});
+	const answered: [string, PromptReply | null][] = [];
 	let ids = 0;
 	const tools = createBoardTools({
 		source: {
@@ -107,10 +109,25 @@ const setup = async (shown: Board = board) => {
 		},
 		ask: async () => ({ ok: true, answer: "12" }),
 		prompt: async () => ({ ok: true, via: "claude attach" }),
+		answer: async (s, reply) => {
+			answered.push([s.id, reply]);
+			return reply
+				? { ok: true, value: `Answered ${s.name}'s prompt` }
+				: { ok: false, error: `${s.name} is not waiting on a question` };
+		},
 		audit: (event) => events.push(event),
 		newId: () => `n-${++ids}`,
 	});
-	return { tools, layout, annotations, regions, colours, events, exits };
+	return {
+		tools,
+		layout,
+		annotations,
+		regions,
+		colours,
+		events,
+		exits,
+		answered,
+	};
 };
 
 describe("board tools", () => {
@@ -317,6 +334,36 @@ describe("board tools", () => {
 		);
 	});
 
+	it("answers a session's prompt by its short id and audits the answers", async () => {
+		const { tools, events, answered } = await setup();
+		const reply = {
+			prompt: "0123abcd4567",
+			answers: [{ selected: ["Yes, test then full"], other: null }],
+		};
+		assert.deepEqual(
+			await tools("t", { tool: "answer_prompt", session: "aaaaaaa0", reply }),
+			{ ok: true, text: "Answered acme-aaa's prompt" },
+		);
+		assert.deepEqual(
+			await tools("t", {
+				tool: "answer_prompt",
+				session: "bbbbbbbb-2",
+				reply: null,
+			}),
+			{ ok: false, error: "acme-bbb is not waiting on a question" },
+		);
+		assert.deepEqual(answered, [
+			["aaaaaaaa-1", reply],
+			["bbbbbbbb-2", null],
+		]);
+		assert.deepEqual(
+			events.map((event) =>
+				event.action === "board-agent" ? event.input : null,
+			),
+			[JSON.stringify(reply), "null"],
+		);
+	});
+
 	it("records what the agent typed, asked or started in the audit log", async () => {
 		const { tools, events } = await setup();
 		await tools("t", {
@@ -345,7 +392,7 @@ describe("prompt safety", () => {
 	it("never types into a prompt waiting on the user, an attached session, or an unreachable one", () => {
 		assert.match(
 			blockedReason(session("a", { activity: "needs-you" }), []) ?? "",
-			/question or permission/,
+			/question or permission prompt.*answer_prompt/,
 		);
 		assert.match(
 			blockedReason(session("aaaaaaaa"), ["aaaaaaa0"]) ?? "",

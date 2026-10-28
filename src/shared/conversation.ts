@@ -90,6 +90,8 @@ export type Dialog =
 
 export type AskAnswer = { selected: string[]; other: string | null };
 
+export type PromptReply = { prompt: string; answers: AskAnswer[] };
+
 export type ViewKey = "Escape" | "Shift+Tab";
 
 export type Drive =

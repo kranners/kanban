@@ -3,19 +3,26 @@ import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
-import type { ConversationServerFrame } from "../shared/conversation.ts";
+import type {
+	AskAnswer,
+	AskQuestion,
+	ConversationServerFrame,
+} from "../shared/conversation.ts";
 import type { Session } from "../shared/types.ts";
 import type { AttachSocket } from "./attach.ts";
 import type { AuditEvent } from "./audit.ts";
 import { applyConversationRecord, createLog } from "./conversation.ts";
 import {
 	createConversationHub,
+	describeDialog,
 	dialogOf,
 	driveOf,
 	parseConversationFrame,
 	parseSince,
+	promptId,
 	promptRefusal,
 } from "./conversationHub.ts";
+import { type FakeTui, fakeTui } from "./fakeTui.ts";
 import type { SessionTty } from "./terminals.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "kanban-hub-"));
@@ -796,5 +803,302 @@ describe("conversation rules", () => {
 		assert.equal(dialogOf(bash, waiting, "❯ ").dialog?.kind, "permission");
 		assert.equal(dialogOf(bash, session(), "❯ ").dialog, null);
 		assert.equal(dialogOf(createLog("/x"), session(), prompt).dialog, null);
+	});
+});
+
+const betfair: AskQuestion = {
+	question: "Run against Betfair?",
+	header: "Betfair",
+	multiSelect: false,
+	options: [
+		{ label: "Yes, test then full", description: "recommended" },
+		{ label: "Test call only", description: "" },
+		{ label: "No Betfair calls", description: "" },
+	],
+};
+
+const askCall = (id: string, questions: AskQuestion[]) =>
+	line({
+		type: "assistant",
+		message: {
+			id: `m-${id}`,
+			content: [
+				{ type: "tool_use", id, name: "AskUserQuestion", input: { questions } },
+			],
+		},
+	});
+
+const drivable = (tui: FakeTui) => {
+	const tty = Object.assign(tui, {
+		closed: 0,
+		send: async () => ({ ok: true as const, value: null }),
+		isOpen: () => true,
+		close() {
+			tty.closed += 1;
+		},
+	});
+	return tty;
+};
+
+const answering = (
+	tui: FakeTui,
+	path: string | null,
+	current: Session,
+	block: Record<string, unknown> | null = null,
+) => {
+	const tty = drivable(tui);
+	const conversations = createConversationHub({
+		session: () => current,
+		tty: () => tty,
+		transcriptPath: () => path,
+		block: () => (tui.state ? block : null),
+		audit: () => {},
+		pollMs: 5,
+		screenMs: 0,
+	});
+	return { conversations, tty };
+};
+
+const idOf = (
+	read: { ok: true; value: string } | { ok: false; error: string },
+) => (read.ok ? read.value : read.error).match(/Prompt id: (\w+)/)?.[1] ?? "";
+
+const readAndAnswer = async (
+	conversations: ReturnType<typeof createConversationHub>,
+	current: Session,
+	answers: AskAnswer[],
+) => {
+	const prompt = idOf(await conversations.respond(current, null));
+	return conversations.respond(current, { prompt, answers });
+};
+
+describe("answering a prompt for the board agent", () => {
+	const waiting = session({ activity: "needs-you" });
+
+	it("reads the open question with its options, then picks the one asked for", async () => {
+		const path = join(dir, "agent-question.jsonl");
+		writeFileSync(path, prompt("check betfair") + askCall("q1", [betfair]));
+		const tui = fakeTui({ questions: [betfair] });
+		const { conversations, tty } = answering(tui, path, waiting);
+		const read = await conversations.respond(waiting, null);
+		const question = {
+			kind: "question" as const,
+			toolUseId: "q1",
+			questions: [betfair],
+		};
+		assert.deepEqual(read, {
+			ok: true,
+			value: describeDialog("demo", question),
+		});
+		assert.match(
+			read.ok ? read.value : "",
+			/"Yes, test then full": recommended/,
+		);
+		assert.equal(tui.submitted, null, "reading answers nothing");
+		const picked = await conversations.respond(waiting, {
+			prompt: promptId("demo", question),
+			answers: [{ selected: ["Yes, test then full"], other: null }],
+		});
+		assert.deepEqual(picked, {
+			ok: true,
+			value: `Answered demo's prompt with "Yes, test then full"`,
+		});
+		assert.deepEqual(tui.submitted, {
+			"Run against Betfair?": "Yes, test then full",
+		});
+		assert.equal(tty.closed, 2, "the terminal is let go after each call");
+		assert.deepEqual(conversations.attached(), []);
+	});
+
+	it("answers a background question that only the job state holds so far", async () => {
+		const path = join(dir, "agent-block.jsonl");
+		writeFileSync(path, prompt("check betfair"));
+		const background = session({
+			kind: "background",
+			short: "f8afa14b",
+			attachable: true,
+			cmux: false,
+			activity: "needs-you",
+		});
+		const tui = fakeTui({ questions: [betfair] });
+		const { conversations } = answering(tui, path, background, {
+			questions: [betfair],
+		});
+		const picked = await readAndAnswer(conversations, background, [
+			{ selected: ["Yes, test then full"], other: null },
+		]);
+		assert.equal(picked.ok, true);
+		assert.deepEqual(tui.submitted, {
+			"Run against Betfair?": "Yes, test then full",
+		});
+	});
+
+	it("types a free-text answer where the question takes one", async () => {
+		const path = join(dir, "agent-other.jsonl");
+		writeFileSync(path, prompt("check") + askCall("q1", [betfair]));
+		const tui = fakeTui({ questions: [betfair] });
+		const { conversations } = answering(tui, path, waiting);
+		const typed = await readAndAnswer(conversations, waiting, [
+			{ selected: [], other: "Only the read-only endpoints" },
+		]);
+		assert.equal(typed.ok, true);
+		assert.deepEqual(tui.submitted, {
+			"Run against Betfair?": "Only the read-only endpoints",
+		});
+	});
+
+	it("refuses an answer that is not one of the options and shows the options again", async () => {
+		const path = join(dir, "agent-wrong.jsonl");
+		writeFileSync(path, prompt("check") + askCall("q1", [betfair]));
+		const tui = fakeTui({ questions: [betfair] });
+		const { conversations } = answering(tui, path, waiting);
+		const wrong = await readAndAnswer(conversations, waiting, [
+			{ selected: ["Yes"], other: null },
+		]);
+		assert.equal(wrong.ok, false);
+		assert.match(wrong.ok ? "" : wrong.error, /not one of the choices/);
+		assert.match(wrong.ok ? "" : wrong.error, /"Test call only"/);
+		assert.equal(tui.submitted, null);
+		assert.equal(tui.state?.kind, "ask");
+	});
+
+	it("chooses a permission prompt's option by its exact label", async () => {
+		const options = ["Yes, and auto-accept edits", "Yes", "No"];
+		const tui = fakeTui({ permission: options });
+		const { conversations } = answering(tui, null, waiting);
+		const read = await conversations.respond(waiting, null);
+		assert.equal(
+			read.ok ? read.value : read.error,
+			[
+				"demo asks permission for Claude Code:",
+				"Bash command",
+				" echo hi > out.txt",
+				"Do you want to proceed?",
+				...options.map((option) => `- "${option}"`),
+				`Prompt id: ${idOf(read)}`,
+			].join("\n"),
+		);
+		const answer = (selected: string[]) =>
+			conversations.respond(waiting, {
+				prompt: idOf(read),
+				answers: [{ selected, other: null }],
+			});
+		const twice = await answer(["Yes", "No"]);
+		assert.match(twice.ok ? "" : twice.error, /exactly one of its choices/);
+		const partial = await answer(["Yes, and"]);
+		assert.match(partial.ok ? "" : partial.error, /not one of the choices/);
+		assert.equal((await answer(["yes"])).ok, true);
+		assert.equal(tui.chosen, "Yes");
+	});
+
+	it("declines with No", async () => {
+		const tui = fakeTui({ permission: ["Yes", "No"] });
+		const { conversations } = answering(tui, null, waiting);
+		const declined = await readAndAnswer(conversations, waiting, [
+			{ selected: ["No"], other: null },
+		]);
+		assert.equal(declined.ok, true);
+		assert.equal(tui.chosen, "No");
+	});
+
+	it("refuses to answer a prompt other than the one it read", async () => {
+		const tui = fakeTui({ permission: ["Yes", "No"] });
+		const { conversations } = answering(tui, null, waiting);
+		const read = await conversations.respond(waiting, null);
+		tui.state = {
+			kind: "permission",
+			options: ["Yes", "Yes, allow all edits", "No"],
+			cursor: 0,
+		};
+		const changed = await conversations.respond(waiting, {
+			prompt: idOf(read),
+			answers: [{ selected: ["Yes"], other: null }],
+		});
+		assert.match(
+			changed.ok ? "" : changed.error,
+			/not the one you read[\s\S]*"Yes, allow all edits"/,
+		);
+		assert.equal(tui.chosen, null);
+		assert.notEqual(idOf(changed), idOf(read));
+	});
+
+	it("refuses when nothing is waiting or the session cannot be driven", async () => {
+		const idle = fakeTui({});
+		const { conversations } = answering(idle, null, session());
+		const nothing = await conversations.respond(session(), null);
+		assert.match(nothing.ok ? "" : nothing.error, /not waiting on a question/);
+		const outside = session({ activity: "needs-you", cmux: false });
+		const { conversations: unreachable } = answering(
+			fakeTui({ permission: ["Yes"] }),
+			null,
+			outside,
+		);
+		const refused = await unreachable.respond(outside, null);
+		assert.match(refused.ok ? "" : refused.error, /outside cmux/);
+	});
+
+	it("shares the terminal and the queue with someone viewing the session", async () => {
+		const path = join(dir, "agent-viewed.jsonl");
+		writeFileSync(path, prompt("check") + askCall("q1", [betfair]));
+		const tui = fakeTui({ questions: [betfair] });
+		const { conversations, tty } = answering(tui, path, waiting);
+		const socket = fakeSocket();
+		conversations.open(
+			socket,
+			{ kind: "session", session: waiting, path },
+			null,
+			null,
+		);
+		const picked = await readAndAnswer(conversations, waiting, [
+			{ selected: ["Test call only"], other: null },
+		]);
+		assert.equal(picked.ok, true);
+		assert.equal(tty.closed, 0, "the viewer keeps the terminal");
+		socket.hangUp();
+		await until(() => tty.closed === 1);
+	});
+
+	it("hands a viewer who reloads mid-answer a fresh view, and keeps the terminal", async () => {
+		const path = join(dir, "agent-reload.jsonl");
+		writeFileSync(path, prompt("check") + askCall("q1", [betfair]));
+		const tui = fakeTui({ questions: [betfair] });
+		const { conversations, tty } = answering(tui, path, waiting);
+		let release = () => {};
+		const pressing = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const keys = tui.keys;
+		tui.keys = async (pressed) => {
+			await pressing;
+			return keys(pressed);
+		};
+		const target = { kind: "session" as const, session: waiting, path };
+		const first = fakeSocket();
+		const second = fakeSocket();
+		try {
+			conversations.open(first, target, null, null);
+			await until(() => first.frames.some((frame) => frame.type === "dialog"));
+			const read = idOf(await conversations.respond(waiting, null));
+			const answered = conversations.respond(waiting, {
+				prompt: read,
+				answers: [{ selected: ["No Betfair calls"], other: null }],
+			});
+			first.hangUp();
+			conversations.open(second, target, null, null);
+			await until(() =>
+				second.frames.some(
+					(frame) =>
+						frame.type === "dialog" && frame.dialog?.kind === "question",
+				),
+			);
+			release();
+			assert.equal((await answered).ok, true);
+			assert.equal(tty.closed, 0, "the reloaded view still holds the terminal");
+		} finally {
+			release();
+			first.hangUp();
+			second.hangUp();
+		}
+		await until(() => tty.closed === 1);
 	});
 });

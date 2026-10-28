@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Placed, ToolCall } from "../agent/tools.ts";
 import { defaultRegionColour } from "../shared/colours.ts";
+import type { PromptReply } from "../shared/conversation.ts";
 import type {
 	Annotation,
 	Board,
@@ -29,6 +30,7 @@ import {
 import { stickerManifest } from "../web/stickers/manifest.ts";
 import { type AnnotationStore, parseAnnotation } from "./annotations.ts";
 import type { Audit } from "./audit.ts";
+import type { CmuxResult } from "./cmux.ts";
 import type { ColourStore } from "./colours.ts";
 import type { CommentStore } from "./comments.ts";
 import type { ExitRunner, SessionAsker } from "./exit.ts";
@@ -63,9 +65,15 @@ export type BoardToolDeps = {
 	exit: ExitRunner;
 	ask: SessionAsker;
 	prompt: PromptSender;
+	answer: PromptAnswerer;
 	audit: Audit;
 	newId?: () => string;
 };
+
+export type PromptAnswerer = (
+	session: Session,
+	reply: PromptReply | null,
+) => Promise<CmuxResult<string>>;
 
 export const agentIdentity = "board-agent";
 
@@ -324,6 +332,12 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				? done(`Sent a prompt to ${session.name} through ${sent.via}`)
 				: refused(sent.error);
 		},
+		answer_prompt: async ({ session: ref, reply }) => {
+			const session = sessionFor(ref);
+			if ("ok" in session) return session;
+			const result = await deps.answer(session, reply);
+			return result.ok ? done(result.value) : refused(result.error);
+		},
 		finish_session: async ({ session: ref }) => {
 			const session = sessionFor(ref);
 			if ("ok" in session) return session;
@@ -560,6 +574,7 @@ const targetOf = (call: ToolCall): string | null => {
 const inputOf = (call: ToolCall): string | null => {
 	if (call.tool === "send_prompt") return call.text;
 	if (call.tool === "ask_session") return call.question;
+	if (call.tool === "answer_prompt") return JSON.stringify(call.reply);
 	if (call.tool === "start_session") return call.prompt;
 	return null;
 };
