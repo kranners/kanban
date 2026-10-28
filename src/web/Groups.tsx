@@ -1,19 +1,52 @@
 import "./regions.css";
-import { Check, Folder, Pencil, Trash2 } from "lucide-preact";
+import {
+	Check,
+	Folder,
+	LogOut,
+	Pencil,
+	Plus,
+	Sticker,
+	StickyNote,
+	Trash2,
+} from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import { type RegionColour, regionColours } from "../shared/colours.ts";
 import type { Point } from "../shared/types.ts";
 import { cycle } from "./actions.ts";
-import { view } from "./Canvas.tsx";
+import { addNote, stickerPicker } from "./annotations.ts";
+import { groups } from "./arrangement.ts";
+import { boardPointAt, view } from "./Canvas.tsx";
 import { colourOf, setRegionColour } from "./colours.ts";
+import { askToExitProject } from "./exits.ts";
 import type { Group } from "./groups.ts";
+import { topGroupAt } from "./groups.ts";
 import { NeedsYouCount, needsYouClass } from "./NeedsYou.tsx";
 import { justDragged, projectGestures } from "./projectDrag.ts";
-import { deleteRegion, regionDialog, regionMenu } from "./regionState.ts";
+import { sessionsIn } from "./RegionControls.tsx";
+import {
+	deleteRegion,
+	frontGroup,
+	regionDialog,
+	regionMenu,
+} from "./regionState.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
+import { openQuickPrompt } from "./spawns.ts";
 
-export function openRegionMenu(group: Group, at: Point): void {
+export function groupUnder(event: MouseEvent): Group | null {
+	const all = groups.peek();
+	const key = (event.target as Element)
+		.closest("[data-group]")
+		?.getAttribute("data-group");
+	const point = boardPointAt(event.clientX, event.clientY);
+	return (
+		all.find((group) => group.key === key) ??
+		(point ? topGroupAt(all, frontGroup.peek(), point) : null)
+	);
+}
+
+export function openRegionMenu(group: Group, at: Point, board?: Point): void {
+	frontGroup.value = group.key;
 	regionMenu.value =
 		regionMenu.peek()?.key === group.key
 			? null
@@ -22,6 +55,7 @@ export function openRegionMenu(group: Group, at: Point): void {
 					cwd: group.cwd,
 					project: group.project,
 					at,
+					...(board ? { board } : {}),
 					...(group.region ? { region: group.region } : {}),
 				};
 }
@@ -31,21 +65,27 @@ export function belowLabel(label: Element): Point {
 	return { x: box.left, y: box.bottom + 6 };
 }
 
-export function openRegionMenuAtPointer(group: Group, event: MouseEvent): void {
+export function openRegionMenuAtPointer(
+	group: Group,
+	event: MouseEvent,
+	board?: Point,
+): void {
 	event.preventDefault();
 	event.stopPropagation();
 	regionMenu.value = null;
-	openRegionMenu(group, { x: event.clientX, y: event.clientY });
+	openRegionMenu(group, { x: event.clientX, y: event.clientY }, board);
 }
 
 export function GroupFrames(props: { groups: readonly Group[] }) {
 	const open = regionMenu.value?.key;
+	const front = frontGroup.value;
 	return (
 		<>
 			{props.groups.map((group) => (
 				<div
 					key={group.key}
-					class={`group-frame region region-${colourOf(group.cwd)}${needsYouClass(group.members)}`}
+					class={`group-frame region region-${colourOf(group.cwd)}${needsYouClass(group.members)}${group.key === front ? " front" : ""}`}
+					data-group={group.key}
 					style={{
 						transform: `translate(${group.frame.x}px, ${group.frame.y}px)`,
 						width: `${group.frame.w}px`,
@@ -75,9 +115,10 @@ export function GroupFrames(props: { groups: readonly Group[] }) {
 	);
 }
 
-const menuWidth = 160;
+const menuWidth = 180;
 const swatchesHeight = 90;
-const actionsHeight = 80;
+const itemHeight = 32;
+const separatorHeight = 9;
 const swatchColumns = 4;
 const swatchSteps: Record<string, number> = {
 	ArrowRight: 1,
@@ -85,31 +126,30 @@ const swatchSteps: Record<string, number> = {
 };
 
 function nextItem(
-	swatches: HTMLElement[],
-	actions: HTMLElement[],
+	items: HTMLElement[],
 	focused: HTMLElement | null,
 	key: string,
 ): HTMLElement | undefined {
-	const items = [...swatches, ...actions];
 	if (key === "Home") return items[0];
 	if (key === "End") return items.at(-1);
+	const swatches = items.filter((item) => item.role === "menuitemradio");
+	const at = focused ? items.indexOf(focused) : -1;
 	const swatch = focused ? swatches.indexOf(focused) : -1;
-	const action = focused ? actions.indexOf(focused) : -1;
-	const down = key === "ArrowDown";
 	if (key !== "ArrowDown" && key !== "ArrowUp") {
 		const step = swatchSteps[key];
-		if (step === undefined || action >= 0) return undefined;
+		if (step === undefined || (at >= 0 && swatch < 0)) return undefined;
 		return cycle(swatches, swatches[swatch] ?? swatches[0], step);
 	}
-	if (action >= 0) {
-		const index = items.indexOf(actions[action] as HTMLElement);
-		return items[(index + (down ? 1 : -1) + items.length) % items.length];
-	}
-	const from = Math.max(swatch, 0);
-	const row = from + (down ? swatchColumns : -swatchColumns);
+	const down = key === "ArrowDown";
+	const step = down ? 1 : -1;
+	const wrap = (index: number) => items[(index + items.length) % items.length];
+	if (swatch < 0) return wrap((at < 0 && !down ? 0 : at) + step);
+	const row = swatch + (down ? swatchColumns : -swatchColumns);
 	if (row >= 0 && row < swatches.length) return swatches[row];
-	if (actions.length > 0) return down ? actions[0] : actions.at(-1);
-	return swatches[(row + swatches.length) % swatches.length];
+	if (swatches.length === items.length)
+		return swatches[(row + swatches.length) % swatches.length];
+	const edge = down ? swatches.at(-1) : swatches[0];
+	return wrap(items.indexOf(edge as HTMLElement) + step);
 }
 
 export function RegionMenu(): JSX.Element | null {
@@ -153,7 +193,9 @@ export function RegionMenu(): JSX.Element | null {
 	}, [menu]);
 
 	if (!menu || !current) return null;
-	const { region } = menu;
+	const { region, board } = menu;
+	const group = groups.value.find((shown) => shown.key === menu.key);
+	const sessions = group ? sessionsIn(group) : [];
 
 	const close = () => {
 		regionMenu.value = null;
@@ -164,12 +206,13 @@ export function RegionMenu(): JSX.Element | null {
 	};
 
 	const onKeyDown = (event: KeyboardEvent) => {
-		const within = (selector: string) => [
-			...(list.current?.querySelectorAll<HTMLElement>(selector) ?? []),
+		const items = [
+			...(list.current?.querySelectorAll<HTMLElement>(
+				"[role=menuitem]:not(:disabled), [role=menuitemradio]",
+			) ?? []),
 		];
 		const target = nextItem(
-			within("[role=menuitemradio]"),
-			within("[role=menuitem]"),
+			items,
 			document.activeElement as HTMLElement | null,
 			event.key,
 		);
@@ -178,7 +221,10 @@ export function RegionMenu(): JSX.Element | null {
 		target.focus();
 	};
 
-	const height = swatchesHeight + (region ? actionsHeight : 0);
+	const height =
+		swatchesHeight +
+		(board ? 3 * itemHeight + separatorHeight : 0) +
+		(region ? 3 * itemHeight + separatorHeight : 0);
 	return (
 		<div
 			class="colour-menu"
@@ -198,6 +244,53 @@ export function RegionMenu(): JSX.Element | null {
 			}}
 			onContextMenu={(event) => event.preventDefault()}
 		>
+			{board && (
+				<>
+					<button
+						type="button"
+						role="menuitem"
+						tabIndex={-1}
+						class="board-menu-item"
+						onClick={() => {
+							close();
+							openQuickPrompt(board, group);
+						}}
+					>
+						<Plus size={14} aria-hidden="true" />
+						<span class="board-menu-label">New session here</span>
+						<kbd>A</kbd>
+					</button>
+					<button
+						type="button"
+						role="menuitem"
+						tabIndex={-1}
+						class="board-menu-item"
+						onClick={() => {
+							close();
+							addNote(board);
+						}}
+					>
+						<StickyNote size={14} aria-hidden="true" />
+						<span class="board-menu-label">Add note here</span>
+						<kbd>N</kbd>
+					</button>
+					<button
+						type="button"
+						role="menuitem"
+						tabIndex={-1}
+						class="board-menu-item"
+						onClick={() => {
+							close();
+							stickerPicker.value = { client: menu.at, board };
+						}}
+					>
+						<Sticker size={14} aria-hidden="true" />
+						<span class="board-menu-label">Add sticker here</span>
+						<kbd>S</kbd>
+					</button>
+					<span class="board-menu-sep" aria-hidden="true" />
+				</>
+			)}
 			<div class="colour-swatches">
 				{regionColours.map((colour) => (
 					<button
@@ -232,6 +325,20 @@ export function RegionMenu(): JSX.Element | null {
 					>
 						<Pencil size={14} aria-hidden="true" />
 						<span class="board-menu-label">Rename</span>
+					</button>
+					<button
+						type="button"
+						role="menuitem"
+						tabIndex={-1}
+						class="board-menu-item danger"
+						disabled={sessions.length === 0}
+						onClick={(event) => {
+							close();
+							askToExitProject(menu.project, sessions, event.shiftKey);
+						}}
+					>
+						<LogOut size={14} aria-hidden="true" />
+						<span class="board-menu-label">Exit every session</span>
 					</button>
 					<button
 						type="button"

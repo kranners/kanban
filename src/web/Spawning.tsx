@@ -17,6 +17,7 @@ import { boardPointAt, clientPointOf, view } from "./Canvas.tsx";
 import { composer, threadMenu } from "./comments.ts";
 import { exitAsk } from "./exits.ts";
 import { FolderPicker } from "./FolderPicker.tsx";
+import { groupUnder, openRegionMenuAtPointer } from "./Groups.tsx";
 import { moveMenuFocus } from "./menuFocus.ts";
 import { sessionSize } from "./placement.ts";
 import { admit, dataUrl, imageFiles, readImages } from "./promptImages.ts";
@@ -116,8 +117,12 @@ export function useBoardGestures(): void {
 				return;
 			const point = boardPointAt(event.clientX, event.clientY);
 			if (!point) return;
-			event.preventDefault();
-			openBoardMenu({ x: event.clientX, y: event.clientY }, point);
+			const group = groupUnder(event);
+			if (group?.region) openRegionMenuAtPointer(group, event, point);
+			else {
+				event.preventDefault();
+				openBoardMenu({ x: event.clientX, y: event.clientY }, point);
+			}
 		};
 		addEventListener("pointermove", track, { passive: true });
 		addEventListener("keydown", onKeyDown);

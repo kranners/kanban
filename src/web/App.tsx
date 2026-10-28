@@ -176,8 +176,10 @@ function World(props: { board: Board; layout: Arrangement }) {
 	);
 	return (
 		<>
-			<GroupFrames groups={frames.filter((g) => !g.region)} />
-			<RegionFrames groups={frames} />
+			<div class="group-frames">
+				<GroupFrames groups={frames.filter((g) => !g.region)} />
+				<RegionFrames groups={frames} />
+			</div>
 			<AnnotationLayer />
 			<Tethers
 				layout={props.layout}

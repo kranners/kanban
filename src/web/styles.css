@@ -510,6 +510,17 @@ button.reconnecting {
 	gap: 6px;
 }
 
+.group-frames {
+	position: absolute;
+	left: 0;
+	top: 0;
+	z-index: 0;
+}
+
+.group-frame.front {
+	z-index: 1;
+}
+
 .group-frame {
 	position: absolute;
 	left: 0;

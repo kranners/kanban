@@ -311,6 +311,15 @@
 	color: var(--red);
 }
 
+.board-menu-item:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+.board-menu-item:disabled:hover {
+	background: transparent;
+}
+
 .swatches {
 	display: flex;
 	gap: 6px;

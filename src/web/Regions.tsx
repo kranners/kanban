@@ -5,10 +5,12 @@ import { CircleAlert, Folder, LoaderCircle, X } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
 import { groups } from "./arrangement.ts";
+import { boardPointAt } from "./Canvas.tsx";
 import { colourOf } from "./colours.ts";
 import { FolderPicker } from "./FolderPicker.tsx";
 import {
 	belowLabel,
+	groupUnder,
 	openRegionMenu,
 	openRegionMenuAtPointer,
 } from "./Groups.tsx";
@@ -18,6 +20,7 @@ import { justDragged, projectGestures } from "./projectDrag.ts";
 import { RegionControls } from "./RegionControls.tsx";
 import {
 	createRegion,
+	frontGroup,
 	regionDialog,
 	regionMenu,
 	renameRegion,
@@ -38,7 +41,12 @@ import { knownCwds } from "./state.ts";
 function gestures(group: Group, handle: RegionHandle) {
 	return {
 		...projectGestures(group, handle),
-		onContextMenu: (event: MouseEvent) => openRegionMenuAtPointer(group, event),
+		onContextMenu: (event: MouseEvent) =>
+			openRegionMenuAtPointer(
+				group,
+				event,
+				boardPointAt(event.clientX, event.clientY) ?? undefined,
+			),
 	};
 }
 
@@ -48,8 +56,9 @@ function RegionFrame(props: { group: Group }): JSX.Element | null {
 	if (!region) return null;
 	return (
 		<div
-			class={`group-frame region-frame region region-${colourOf(region.cwd)}${needsYouClass(group.members)}`}
+			class={`group-frame region-frame region region-${colourOf(region.cwd)}${needsYouClass(group.members)}${frontGroup.value === group.key ? " front" : ""}`}
 			data-region={region.id}
+			data-group={group.key}
 			style={{
 				transform: `translate(${group.frame.x}px, ${group.frame.y}px)`,
 				width: `${group.frame.w}px`,
@@ -253,8 +262,21 @@ export function RegionLayer(): JSX.Element | null {
 			event.preventDefault();
 			startRegion();
 		};
+		const bringForward = (event: MouseEvent) => {
+			const target = event.target as Element;
+			const onBoard =
+				target.closest("[data-group]") ??
+				!target.closest("[data-node], [data-no-pan]");
+			if (!target.closest(".viewport") || !onBoard) return;
+			const group = groupUnder(event);
+			if (group) frontGroup.value = group.key;
+		};
 		addEventListener("keydown", onKeyDown);
-		return () => removeEventListener("keydown", onKeyDown);
+		addEventListener("click", bringForward);
+		return () => {
+			removeEventListener("keydown", onKeyDown);
+			removeEventListener("click", bringForward);
+		};
 	}, []);
 	const open = regionDialog.value;
 	return open ? <RegionDialogView open={open} /> : null;

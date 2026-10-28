@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Session } from "../shared/types.ts";
 import { gridSize } from "./grid.ts";
-import { groupAt, groupsOf } from "./groups.ts";
+import type { Group } from "./groups.ts";
+import { groupAt, groupsOf, topGroupAt } from "./groups.ts";
 import type { PlacedNode } from "./layout.ts";
 
 function session(
@@ -109,4 +110,44 @@ test("a point inside a group's frame finds it and its most common cwd", () => {
 	assert.equal(found?.cwd, "/dev/api");
 	assert.equal(found?.project, "api");
 	assert.equal(groupAt(groups, { x: 5000, y: 100 }), null);
+});
+
+function frame(key: string, x: number, region = false): Group {
+	const rect = { x, y: 0, w: 400, h: 400 };
+	const cwd = `/dev/${key}`;
+	return {
+		key,
+		project: key,
+		cwd,
+		members: [],
+		frame: rect,
+		...(region ? { region: { id: key, cwd, name: null, ...rect } } : {}),
+	};
+}
+
+test("the topmost frame under a point is the one painted last", () => {
+	const groups = [
+		frame("group", 0),
+		frame("left", 100, true),
+		frame("right", 200, true),
+	];
+	assert.equal(topGroupAt(groups, null, { x: 250, y: 10 })?.key, "right");
+	assert.equal(topGroupAt(groups, null, { x: 50, y: 10 })?.key, "group");
+	assert.equal(topGroupAt(groups, null, { x: 900, y: 10 }), null);
+});
+
+test("regions paint over plain groups whatever their order", () => {
+	const groups = [frame("left", 100, true), frame("group", 0)];
+	assert.equal(topGroupAt(groups, null, { x: 150, y: 10 })?.key, "left");
+});
+
+test("the frame brought forward wins wherever it covers the point", () => {
+	const groups = [
+		frame("group", 0),
+		frame("left", 100, true),
+		frame("right", 200, true),
+	];
+	assert.equal(topGroupAt(groups, "left", { x: 250, y: 10 })?.key, "left");
+	assert.equal(topGroupAt(groups, "group", { x: 250, y: 10 })?.key, "group");
+	assert.equal(topGroupAt(groups, "left", { x: 550, y: 10 })?.key, "right");
 });

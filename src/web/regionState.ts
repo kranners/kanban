@@ -16,6 +16,7 @@ export type RegionMenu = {
 	cwd: string;
 	project: string;
 	at: Point;
+	board?: Point;
 	region?: Region;
 };
 
@@ -25,6 +26,7 @@ export const regions = signal<readonly Region[]>([]);
 export const regionOverrides = signal<ReadonlyMap<string, Rect>>(new Map());
 export const regionDialog = signal<RegionDialog | null>(null);
 export const regionMenu = signal<RegionMenu | null>(null);
+export const frontGroup = signal<string | null>(null);
 
 export const shownRegions = computed(() => {
 	const local = regionOverrides.value;

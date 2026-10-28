@@ -293,6 +293,7 @@
 }
 
 .board-menu kbd,
+.colour-menu kbd,
 .quick-prompt kbd {
 	font-family: inherit;
 	font-size: 11px;

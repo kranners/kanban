@@ -112,3 +112,17 @@ export function groupAt(groups: readonly Group[], point: Point): Group | null {
 			null,
 		);
 }
+
+export function topGroupAt(
+	groups: readonly Group[],
+	front: string | null,
+	point: Point,
+): Group | null {
+	const hits = groups.filter((g) => contains(g.frame, point));
+	return (
+		hits.find((g) => g.key === front) ??
+		hits.findLast((g) => g.region) ??
+		hits.at(-1) ??
+		null
+	);
+}

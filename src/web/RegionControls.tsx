@@ -17,7 +17,7 @@ import {
 } from "./reports.ts";
 import { board } from "./state.ts";
 
-function sessionsIn(group: Group): Session[] {
+export function sessionsIn(group: Group): Session[] {
 	const members = new Set(group.members);
 	const gone = departing.value;
 	return (board.value?.sessions ?? []).filter(

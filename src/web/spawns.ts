@@ -88,8 +88,10 @@ export function openBoardMenu(client: Point, point: Point): void {
 	};
 }
 
-export function openQuickPrompt(point: Point): boolean {
-	const group = groupAt(groups.peek(), point);
+export function openQuickPrompt(
+	point: Point,
+	group = groupAt(groups.peek(), point),
+): boolean {
 	const cwds = cwdChoices(group?.cwd ?? null, knownCwds.peek());
 	const cwd = cwds[0];
 	if (!cwd) return false;
