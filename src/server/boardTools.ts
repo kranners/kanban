@@ -345,6 +345,15 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 					: {}),
 			});
 			if ("error" in request) return refused(request.error);
+			const settle =
+				request.at &&
+				deps.layout.expect(
+					request.cwd,
+					clearSpot(
+						{ ...request.at, ...sessionSize },
+						occupied(deps.source.board(), deps),
+					),
+				);
 			const result = await deps.launch(request);
 			deps.audit({
 				action: "session-create",
@@ -353,15 +362,11 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				identity: agentIdentity,
 				result: result.ok ? result.short : result.error,
 			});
-			if (!result.ok) return refused(result.error);
-			if (request.at) {
-				const at = clearSpot(
-					{ ...request.at, ...sessionSize },
-					occupied(deps.source.board(), deps),
-				);
-				deps.layout.expect(result.short, at);
+			if (settle) {
+				settle(result.ok ? result.short : null);
 				deps.layout.observe(deps.source.board());
 			}
+			if (!result.ok) return refused(result.error);
 			return done(
 				`Started a session in ${request.cwd} (short id ${result.short})`,
 			);

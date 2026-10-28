@@ -11,10 +11,12 @@ export type LayoutStore = {
 	current(): Layout;
 	set(update: LayoutUpdate): void;
 	setMany(updates: LayoutUpdate[]): void;
-	expect(short: string, at: Point): void;
+	expect(cwd: string, at: Point): (short: string | null) => void;
 	observe(board: Board): void;
 	saved(): Promise<void>;
 };
+
+type Spawn = { cwd: string; at: Point; since: number; short?: string };
 
 export type LayoutStoreOptions = {
 	file: string;
@@ -101,7 +103,7 @@ export const createLayoutStore = ({
 	now = Date.now,
 }: LayoutStoreOptions): LayoutStore => {
 	let layout: Layout = { ...initial };
-	const pending = new Map<string, { at: Point; since: number }>();
+	const pending = new Set<Spawn>();
 	const missingSince = new Map<string, number>();
 	const stored = createStateFile<Layout>(file);
 
@@ -124,22 +126,33 @@ export const createLayoutStore = ({
 		current: () => layout,
 		set: (update) => setMany([update]),
 		setMany,
-		expect(short, at) {
-			pending.set(short, { at, since: now() });
+		expect(cwd, at) {
+			const spawn: Spawn = { cwd, at, since: now() };
+			pending.add(spawn);
+			return (short) => {
+				if (short) spawn.short = short;
+				else pending.delete(spawn);
+			};
 		},
 		observe(board) {
 			const time = now();
 			const next = { ...layout };
 			let changed = false;
-			for (const [short, spawn] of pending) {
-				const session = board.sessions.find((s) => s.short === short);
+			for (const spawn of pending) {
+				const session = board.sessions.find((s) =>
+					spawn.short
+						? s.short === spawn.short
+						: s.cwd === spawn.cwd &&
+							s.startedAt >= spawn.since &&
+							!next[`session:${s.id}`],
+				);
 				if (session) {
 					next[`session:${session.id}`] = spawn.at;
 					missingSince.delete(`session:${session.id}`);
-					pending.delete(short);
+					pending.delete(spawn);
 					changed = true;
 				} else if (time - spawn.since > pendingSpawnMs) {
-					pending.delete(short);
+					pending.delete(spawn);
 				}
 			}
 			const live = boardKeys(board);

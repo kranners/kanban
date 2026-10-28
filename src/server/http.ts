@@ -471,6 +471,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if ("error" in request) {
 			return sendJson(res, 400, { ok: false, error: request.error });
 		}
+		const settle = request.at && deps.layout.expect(request.cwd, request.at);
 		const result = await deps.launch(request);
 		deps.audit({
 			action: "session-create",
@@ -480,8 +481,8 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			identity,
 			result: result.ok ? result.short : result.error,
 		});
-		if (result.ok && request.at) {
-			deps.layout.expect(result.short, request.at);
+		if (settle) {
+			settle(result.ok ? result.short : null);
 			deps.layout.observe(deps.source.board());
 		}
 		sendJson(res, result.ok ? 201 : 422, result);

@@ -12,12 +12,14 @@ import {
 	pruneAfterMs,
 } from "./layout.ts";
 
+const cwd = "/Users/me/dev/acme-api";
+
 const session = (id: string, short: string | null): Session => ({
 	id,
 	short,
 	pid: null,
 	name: id,
-	cwd: "/Users/me/dev/acme-api",
+	cwd,
 	project: "acme-api",
 	kind: "background",
 	activity: "idle",
@@ -145,7 +147,7 @@ describe("createLayoutStore", () => {
 
 	it("places a spawned session where its prompt was opened", async () => {
 		const { store, changes, file } = await setup();
-		store.expect("feedbeef", { x: 96, y: 144 });
+		store.expect(cwd, { x: 96, y: 144 })("feedbeef");
 		store.observe(boardOf(session("other", "0000aaaa")));
 		assert.equal(changes.length, 0);
 		store.observe(boardOf(session("new-one", "feedbeef")));
@@ -158,10 +160,36 @@ describe("createLayoutStore", () => {
 
 	it("forgets a spawn that never appears", async () => {
 		const { store, advance } = await setup();
-		store.expect("feedbeef", { x: 1, y: 1 });
+		store.expect(cwd, { x: 1, y: 1 })("feedbeef");
 		advance(11 * 60_000);
 		store.observe(boardOf());
 		store.observe(boardOf(session("late", "feedbeef")));
+		assert.deepEqual(store.current(), {});
+	});
+
+	it("places a spawned session that appears before its launch returns", async () => {
+		const { store, advance } = await setup();
+		const settle = store.expect(cwd, { x: 96, y: 144 });
+		advance(70);
+		store.observe(
+			boardOf(
+				{ ...session("older", null), startedAt: 900 },
+				{ ...session("other-repo", null), cwd: "/elsewhere", startedAt: 1_070 },
+				{ ...session("early", null), startedAt: 1_070 },
+			),
+		);
+		assert.deepEqual(store.current(), { "session:early": { x: 96, y: 144 } });
+		settle("feedbeef");
+		store.observe(
+			boardOf({ ...session("early", "feedbeef"), startedAt: 1_070 }),
+		);
+		assert.deepEqual(store.current(), { "session:early": { x: 96, y: 144 } });
+	});
+
+	it("drops a spawn whose launch failed", async () => {
+		const { store } = await setup();
+		store.expect(cwd, { x: 1, y: 1 })(null);
+		store.observe(boardOf({ ...session("unrelated", null), startedAt: 2_000 }));
 		assert.deepEqual(store.current(), {});
 	});
 

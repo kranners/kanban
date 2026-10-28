@@ -134,8 +134,8 @@ const source = startBoard({
 		probes.has(sessionId) || comments.owns(sessionId) || isAgentDir(cwd),
 	inCmux: cmuxTargets.has,
 	onChange: (board) => {
-		feed?.board(board);
 		layout.observe(board);
+		feed?.board(board);
 		syncCmuxOnNewPids(board);
 	},
 });

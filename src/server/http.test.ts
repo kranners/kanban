@@ -385,9 +385,12 @@ describe("createKanbanServer", () => {
 			}),
 			layout: {
 				...store,
-				expect: (short, at) => {
-					expected.push([short, at]);
-					store.expect(short, at);
+				expect: (cwd, at) => {
+					const settle = store.expect(cwd, at);
+					return (short) => {
+						if (short) expected.push([short, at]);
+						settle(short);
+					};
 				},
 			},
 			annotations,
