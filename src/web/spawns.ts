@@ -24,6 +24,7 @@ export type QuickPrompt = { at: Point; cwd: string; cwds: string[] };
 export type Ghost = { short: string; at: Point; prompt: string };
 
 const ghostMs = 5 * 60_000;
+const restartRetryDelaysMs = [500, 1000, 2000, 4000];
 
 export const boardMenu = signal<BoardMenu | null>(null);
 export const quickPrompt = signal<QuickPrompt | null>(null);
@@ -33,11 +34,7 @@ export async function createSession(
 	request: NewSessionRequest,
 ): Promise<NewSessionResult> {
 	try {
-		const response = await fetch("/api/sessions", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(request),
-		});
+		const response = await postSurvivingRestart(JSON.stringify(request));
 		const text = await response.text();
 		try {
 			return JSON.parse(text) as NewSessionResult;
@@ -50,6 +47,25 @@ export async function createSession(
 	} catch (caught) {
 		return { ok: false, error: `Couldn't reach the board server (${caught})` };
 	}
+}
+
+async function postSurvivingRestart(body: string): Promise<Response> {
+	for (const delayMs of restartRetryDelaysMs) {
+		try {
+			return await postSession(body);
+		} catch {
+			await new Promise((resolve) => setTimeout(resolve, delayMs));
+		}
+	}
+	return postSession(body);
+}
+
+function postSession(body: string): Promise<Response> {
+	return fetch("/api/sessions", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body,
+	});
 }
 
 export function openBoardMenu(client: Point, point: Point): void {
