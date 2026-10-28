@@ -211,8 +211,11 @@ export type NewSessionRequest = {
 	cwd: string;
 	name?: string;
 	prompt: string;
+	images?: PromptImage[];
 	at?: Point;
 };
+
+export type PromptImage = { type: string; data: string };
 
 export type ExitRequest = { force: boolean };
 

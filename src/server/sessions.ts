@@ -1,7 +1,16 @@
 import { execFile } from "node:child_process";
-import { stat } from "node:fs/promises";
-import { isAbsolute } from "node:path";
-import type { NewSessionRequest, NewSessionResult } from "../shared/types.ts";
+import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
+import {
+	imageExtensions,
+	maxImageBytes,
+	maxPromptImages,
+} from "../shared/promptImages.ts";
+import type {
+	NewSessionRequest,
+	NewSessionResult,
+	PromptImage,
+} from "../shared/types.ts";
 import { stripAnsi } from "./ansi.ts";
 import { parsePoint } from "./layout.ts";
 
@@ -20,13 +29,46 @@ export const isDirectory = async (path: string): Promise<boolean> => {
 	}
 };
 
+const isBase64 = (data: string): boolean =>
+	data.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(data);
+
+const decodedBytes = (data: string): number =>
+	(data.length / 4) * 3 - (data.match(/=*$/)?.[0].length ?? 0);
+
+const isPromptImage = (image: unknown): image is PromptImage => {
+	if (typeof image !== "object" || image === null) return false;
+	const { type, data } = image as Record<string, unknown>;
+	return (
+		typeof type === "string" &&
+		Object.hasOwn(imageExtensions, type) &&
+		typeof data === "string" &&
+		data !== "" &&
+		isBase64(data)
+	);
+};
+
+const validateImages = (images: unknown): PromptImage[] | { error: string } => {
+	if (!Array.isArray(images) || !images.every(isPromptImage)) {
+		return { error: "images must be base64 PNG, JPEG, GIF or WebP images" };
+	}
+	if (images.length > maxPromptImages) {
+		return { error: `Attach at most ${maxPromptImages} images` };
+	}
+	if (images.some((image) => decodedBytes(image.data) > maxImageBytes)) {
+		return {
+			error: `Each image must be at most ${maxImageBytes / 1024 / 1024} MB`,
+		};
+	}
+	return images.map(({ type, data }) => ({ type, data }));
+};
+
 export const validateNewSession = async (
 	body: unknown,
 ): Promise<NewSessionRequest | { error: string }> => {
 	if (typeof body !== "object" || body === null) {
 		return { error: "Expected a JSON object with cwd and prompt" };
 	}
-	const { cwd, name, prompt, at } = body as Record<string, unknown>;
+	const { cwd, name, prompt, images, at } = body as Record<string, unknown>;
 	if (typeof cwd !== "string" || !isAbsolute(cwd)) {
 		return { error: "cwd must be an absolute path" };
 	}
@@ -45,6 +87,8 @@ export const validateNewSession = async (
 	if (typeof prompt !== "string" || prompt.trim() === "") {
 		return { error: "prompt is required" };
 	}
+	const attached = images === undefined ? [] : validateImages(images);
+	if ("error" in attached) return attached;
 	const point = at === undefined ? undefined : parsePoint(at);
 	if (point === null) {
 		return { error: "at must be a point with finite x and y" };
@@ -53,6 +97,7 @@ export const validateNewSession = async (
 		cwd,
 		prompt,
 		...(trimmed ? { name: trimmed } : {}),
+		...(attached.length ? { images: attached } : {}),
 		...(point ? { at: point } : {}),
 	};
 };
@@ -81,22 +126,49 @@ export const launchResult = (
 	};
 };
 
-export const launchArgs = (request: NewSessionRequest): string[] => [
+export type SavedImages = { folder: string; paths: string[] };
+
+export const saveImages = async (
+	imagesDir: string,
+	images: PromptImage[],
+): Promise<SavedImages> => {
+	await mkdir(imagesDir, { recursive: true });
+	const folder = await mkdtemp(join(imagesDir, "prompt-"));
+	const paths = images.map((image, index) =>
+		join(folder, `image-${index + 1}.${imageExtensions[image.type]}`),
+	);
+	await Promise.all(
+		images.map((image, index) =>
+			writeFile(paths[index] as string, Buffer.from(image.data, "base64")),
+		),
+	);
+	return { folder, paths };
+};
+
+export const launchArgs = (
+	request: NewSessionRequest,
+	saved: SavedImages | null = null,
+): string[] => [
 	"--bg",
 	...(request.name ? [`--name=${request.name}`] : []),
+	...(saved ? [`--add-dir=${saved.folder}`] : []),
 	"--",
-	request.prompt,
+	saved ? [request.prompt, ...saved.paths].join("\n\n") : request.prompt,
 ];
 
 export const claudeLauncher =
-	(claudeBin: string): SessionLauncher =>
-	(request) =>
-		new Promise((resolve) => {
+	(claudeBin: string, imagesDir: string): SessionLauncher =>
+	async (request) => {
+		const saved = request.images
+			? await saveImages(imagesDir, request.images)
+			: null;
+		return new Promise((resolve) => {
 			execFile(
 				claudeBin,
-				launchArgs(request),
+				launchArgs(request, saved),
 				{ cwd: request.cwd, timeout: 60_000, maxBuffer: 1024 * 1024 },
 				(_error, stdout, stderr) =>
 					resolve(launchResult(request.cwd, stdout, stderr)),
 			);
 		});
+	};

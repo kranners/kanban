@@ -183,7 +183,10 @@ const runRegionReport = createRegionReportRunner({
 	audit,
 	announce: (regionId, result) => feed?.regionReport(regionId, result),
 });
-const launch = claudeLauncher(config.claudeBin);
+const launch = claudeLauncher(
+	config.claudeBin,
+	join(config.stateDir, "images"),
+);
 const attachPty = claudeAttachPty(config.claudeBin);
 const attach = createAttachHub(attachPty, audit, (short) =>
 	conversation.release(short),

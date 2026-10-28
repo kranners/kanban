@@ -7,10 +7,12 @@ import {
 	SquareDashed,
 	Sticker,
 	StickyNote,
+	X,
 } from "lucide-preact";
 import type { JSX } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
-import type { Point } from "../shared/types.ts";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { maxPromptImages } from "../shared/promptImages.ts";
+import type { Point, PromptImage } from "../shared/types.ts";
 import { cycle, isQuickPromptKey } from "./actions.ts";
 import { addNote, annotationMenu, stickerPicker } from "./annotations.ts";
 import { boardPointAt, clientPointOf, view } from "./Canvas.tsx";
@@ -19,6 +21,7 @@ import { exitAsk } from "./exits.ts";
 import { directoryName } from "./focus/paths.ts";
 import { moveMenuFocus } from "./menuFocus.ts";
 import { sessionSize } from "./placement.ts";
+import { admit, dataUrl, imageFiles, readImages } from "./promptImages.ts";
 import { regionDialog, regionMenu } from "./regionState.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 import type { QuickPrompt } from "./spawns.ts";
@@ -238,8 +241,11 @@ export function BoardMenu(): JSX.Element | null {
 
 function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 	const { open } = props;
-	const input = useRef<HTMLInputElement>(null);
+	const card = useRef<HTMLFormElement>(null);
+	const input = useRef<HTMLTextAreaElement>(null);
 	const [prompt, setPrompt] = useState("");
+	const [images, setImages] = useState<PromptImage[]>([]);
+	const [dropping, setDropping] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const { k } = view.value;
@@ -250,8 +256,23 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 		input.current?.focus({ preventScroll: true });
 	}, []);
 
+	useLayoutEffect(() => {
+		const element = input.current;
+		if (!element) return;
+		element.style.height = "auto";
+		element.style.height = `${element.scrollHeight}px`;
+	}, [prompt]);
+
 	const cancel = () => {
 		if (!busy) quickPrompt.value = null;
+	};
+
+	const addImages = async (files: File[]) => {
+		const { accepted, error } = admit(images.length, files);
+		setError(error);
+		const read = await readImages(accepted).catch(() => null);
+		if (!read) return setError("Couldn't read that image");
+		setImages((held) => [...held, ...read].slice(0, maxPromptImages));
 	};
 
 	const submit = async () => {
@@ -259,7 +280,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 		if (!text || busy) return;
 		setBusy(true);
 		setError(null);
-		const failure = await spawnFromPrompt(text);
+		const failure = await spawnFromPrompt(text, images);
 		setBusy(false);
 		if (failure) {
 			setError(failure);
@@ -272,7 +293,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 		if (event.key === "Escape") {
 			event.preventDefault();
 			cancel();
-		} else if (event.key === "Enter") {
+		} else if (event.key === "Enter" && !event.shiftKey) {
 			event.preventDefault();
 			void submit();
 		} else if (event.key === "Tab" && open.cwds.length > 1) {
@@ -282,26 +303,66 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 		}
 	};
 
+	const carriesFiles = (event: DragEvent) =>
+		event.dataTransfer?.types.includes("Files") ?? false;
+
+	const onDragOver = (event: DragEvent) => {
+		if (!carriesFiles(event) || busy) return;
+		event.preventDefault();
+		setDropping(true);
+	};
+
+	const onDrop = (event: DragEvent) => {
+		if (!carriesFiles(event)) return;
+		event.preventDefault();
+		setDropping(false);
+		if (!busy) void addImages(imageFiles(event.dataTransfer?.files));
+		input.current?.focus();
+	};
+
+	const onPaste = (event: ClipboardEvent) => {
+		const files = imageFiles(event.clipboardData?.files);
+		if (files.length === 0) return;
+		event.preventDefault();
+		void addImages(files);
+	};
+
+	const closeIfEmpty = (event: FocusEvent) => {
+		const stayed = card.current?.contains(event.relatedTarget as Node | null);
+		const empty = !prompt.trim() && images.length === 0;
+		if (empty && !stayed && !busy && document.hasFocus())
+			quickPrompt.value = null;
+	};
+
 	return (
-		<div
+		<form
+			ref={card}
 			class="quick-prompt"
+			aria-label="New session"
 			data-no-pan
 			style={{
 				transform: `translate(${open.at.x}px, ${open.at.y}px) scale(${legible})`,
 				width: `min(${sessionSize.w}px, calc((100vw - 32px) / ${legible * k}))`,
 			}}
+			onDragOver={onDragOver}
+			onDragLeave={(event) => {
+				if (!card.current?.contains(event.relatedTarget as Node | null))
+					setDropping(false);
+			}}
+			onDrop={onDrop}
 		>
-			<div class={`quick-prompt-field${busy ? " busy" : ""}`}>
-				<input
+			<div
+				class={`quick-prompt-field${busy ? " busy" : ""}${dropping ? " dropping" : ""}`}
+			>
+				<textarea
 					ref={input}
-					type="text"
+					rows={1}
 					value={prompt}
 					onInput={(event) => setPrompt(event.currentTarget.value)}
 					onKeyDown={onKeyDown}
-					onBlur={() => {
-						if (!prompt.trim() && !busy) quickPrompt.value = null;
-					}}
-					placeholder="What should Claude work on?"
+					onPaste={onPaste}
+					onBlur={closeIfEmpty}
+					placeholder="What should Claude work on? Shift+Enter for a new line; paste or drop images"
 					aria-label="Prompt for a new session"
 					disabled={busy}
 					spellcheck={false}
@@ -309,6 +370,26 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 				/>
 				{busy && (
 					<LoaderCircle size={14} class="focus-spin" aria-hidden="true" />
+				)}
+				{images.length > 0 && (
+					<ul class="quick-prompt-images" aria-label="Attached images">
+						{images.map((image, at) => (
+							<li key={image.data.slice(-32) + at}>
+								<img src={dataUrl(image)} alt={`Attachment ${at + 1}`} />
+								<button
+									type="button"
+									aria-label={`Remove image ${at + 1}`}
+									disabled={busy}
+									onClick={() => {
+										setImages((held) => held.filter((_, i) => i !== at));
+										input.current?.focus();
+									}}
+								>
+									<X size={11} aria-hidden="true" />
+								</button>
+							</li>
+						))}
+					</ul>
 				)}
 			</div>
 			<div class="quick-prompt-meta">
@@ -331,7 +412,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 					<p>{error}</p>
 				</div>
 			)}
-		</div>
+		</form>
 	);
 }
 

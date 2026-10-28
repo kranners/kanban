@@ -11,6 +11,7 @@ import { extname, join, normalize, sep } from "node:path";
 import { type Duplex, pipeline } from "node:stream";
 import { WebSocketServer } from "ws";
 import { parseToolCall } from "../agent/tools.ts";
+import { maxImageBytes, maxPromptImages } from "../shared/promptImages.ts";
 import type {
 	Board,
 	NodeRef,
@@ -126,6 +127,8 @@ export type UpgradeRoute =
 	| { kind: "conversation"; node: NodeRef; since: Since };
 
 const maxBodyBytes = 128 * 1024;
+const maxSessionBodyBytes =
+	maxBodyBytes + maxPromptImages * Math.ceil((maxImageBytes * 4) / 3);
 const defaultTranscriptLimit = 200;
 const maxTranscriptLimit = 1000;
 
@@ -332,13 +335,16 @@ const sendJson = (res: ServerResponse, status: number, body: unknown) => {
 const sendError = (res: ServerResponse, status: number) =>
 	sendJson(res, status, { error: STATUS_CODES[status] });
 
-const readJson = (req: IncomingMessage): Promise<unknown> =>
+const readJson = (
+	req: IncomingMessage,
+	limit = maxBodyBytes,
+): Promise<unknown> =>
 	new Promise((resolve, reject) => {
 		const chunks: Buffer[] = [];
 		let size = 0;
 		req.on("data", (chunk: Buffer) => {
 			size += chunk.length;
-			if (size > maxBodyBytes) {
+			if (size > limit) {
 				reject(new Error("body too large"));
 				req.destroy();
 				return;
@@ -436,6 +442,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 	const readBody = async (
 		req: IncomingMessage,
 		res: ServerResponse,
+		limit = maxBodyBytes,
 	): Promise<{ body: unknown } | null> => {
 		if (!originAllowed(req, deps.origins)) {
 			sendError(res, 403);
@@ -446,7 +453,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			return null;
 		}
 		try {
-			return { body: await readJson(req) };
+			return { body: await readJson(req, limit) };
 		} catch {
 			sendJson(res, 400, { ok: false, error: "Invalid JSON body" });
 			return null;
@@ -458,7 +465,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res: ServerResponse,
 		identity: string | null,
 	) => {
-		const read = await readBody(req, res);
+		const read = await readBody(req, res, maxSessionBodyBytes);
 		if (!read) return;
 		const request = await validateNewSession(read.body);
 		if ("error" in request) {
@@ -469,6 +476,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			action: "session-create",
 			cwd: request.cwd,
 			name: request.name ?? null,
+			images: request.images?.length ?? 0,
 			identity,
 			result: result.ok ? result.short : result.error,
 		});

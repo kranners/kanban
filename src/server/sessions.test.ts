@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { join, relative } from "node:path";
 import { describe, it } from "node:test";
+import { maxImageBytes, maxPromptImages } from "../shared/promptImages.ts";
 import {
 	launchArgs,
 	launchResult,
 	parseBackgrounded,
+	saveImages,
 	validateNewSession,
 } from "./sessions.ts";
 
@@ -95,5 +99,64 @@ describe("launchResult", () => {
 			ok: false,
 			error: "claude --bg failed: boom",
 		});
+	});
+});
+
+describe("prompt images", () => {
+	const png = {
+		type: "image/png",
+		data: Buffer.from("png bytes").toString("base64"),
+	};
+
+	it("keeps attached images", async () => {
+		assert.deepEqual(await validateNewSession({ ...valid, images: [png] }), {
+			...valid,
+			images: [png],
+		});
+		assert.deepEqual(await validateNewSession({ ...valid, images: [] }), valid);
+	});
+
+	it("rejects images it can't hand to Claude", async () => {
+		const tooBig = "AAAA".repeat(Math.ceil(maxImageBytes / 3) + 1);
+		const cases: [unknown, RegExp][] = [
+			["png", /images must be/],
+			[[{ ...png, type: "image/svg+xml" }], /images must be/],
+			[[{ ...png, data: "not base64!" }], /images must be/],
+			[[{ ...png, data: "" }], /images must be/],
+			[Array(maxPromptImages + 1).fill(png), /at most 8 images/],
+			[[{ ...png, data: tooBig }], /at most 5 MB/],
+		];
+		for (const [images, reason] of cases) {
+			const result = await validateNewSession({ ...valid, images });
+			assert.ok("error" in result, JSON.stringify(images).slice(0, 80));
+			assert.match(result.error, reason);
+		}
+	});
+
+	it("saves images where the session may read them", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-images-"));
+		try {
+			const saved = await saveImages(join(dir, "images"), [
+				png,
+				{ type: "image/jpeg", data: png.data },
+			]);
+			assert.deepEqual(
+				saved.paths.map((path) => relative(saved.folder, path)),
+				["image-1.png", "image-2.jpg"],
+			);
+			assert.equal(
+				await readFile(saved.paths[0] as string, "utf8"),
+				"png bytes",
+			);
+			assert.deepEqual(launchArgs({ ...valid, images: [png] }, saved), [
+				"--bg",
+				"--name=acme-api fix",
+				`--add-dir=${saved.folder}`,
+				"--",
+				`say hi\n\n${saved.paths[0]}\n\n${saved.paths[1]}`,
+			]);
+		} finally {
+			await rm(dir, { recursive: true });
+		}
 	});
 });

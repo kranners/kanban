@@ -3,6 +3,7 @@ import type {
 	NewSessionRequest,
 	NewSessionResult,
 	Point,
+	PromptImage,
 } from "../shared/types.ts";
 import { cwdChoices, freeSpotNear } from "./actions.ts";
 import {
@@ -89,10 +90,18 @@ function land(ghost: Ghost): boolean {
 	return true;
 }
 
-export async function spawnFromPrompt(prompt: string): Promise<string | null> {
+export async function spawnFromPrompt(
+	prompt: string,
+	images: PromptImage[],
+): Promise<string | null> {
 	const open = quickPrompt.peek();
 	if (!open) return null;
-	const result = await createSession({ cwd: open.cwd, prompt, at: open.at });
+	const result = await createSession({
+		cwd: open.cwd,
+		prompt,
+		...(images.length ? { images } : {}),
+		at: open.at,
+	});
 	if (!result.ok) return result.error;
 	const ghost = { short: result.short, at: open.at, prompt };
 	ghosts.value = [...ghosts.peek(), ghost];

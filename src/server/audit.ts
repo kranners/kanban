@@ -14,6 +14,7 @@ export type AuditEvent =
 			action: "session-create";
 			cwd: string;
 			name: string | null;
+			images?: number;
 			identity: string | null;
 			result: string;
 	  }
