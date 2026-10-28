@@ -4,6 +4,7 @@ import type { Region, Session } from "../shared/types.ts";
 import { gridSize } from "./grid.ts";
 import { groupAt, groupsOf } from "./groups.ts";
 import type { PlacedNode } from "./layout.ts";
+import type { Rect } from "./placement.ts";
 import { belongsTo, near, sessionSize } from "./placement.ts";
 import {
 	arrangedRegion,
@@ -12,8 +13,11 @@ import {
 	framesBesideNew,
 	isRegionKey,
 	minRegionSize,
+	pushedApart,
 	regionGroups,
+	regionHolding,
 	resizedClear,
+	spotBelowRegion,
 	spotInRegion,
 	storableRegion,
 } from "./regions.ts";
@@ -317,4 +321,58 @@ test("a new region lands clear of other project frames", () => {
 	assert.equal(placed.w, draft.w);
 	assert.ok(!near(placed, frame, gridSize));
 	assert.deepEqual(clearOfProjects(draft, []), draft);
+});
+
+function apart(projects: { key: string; frame: Rect }[]): Rect[] {
+	const pushes = pushedApart(projects);
+	return projects.map(({ key, frame }) => {
+		const by = pushes.get(key) ?? { x: 0, y: 0 };
+		return { ...frame, x: frame.x + by.x, y: frame.y + by.y };
+	});
+}
+
+test("projects already apart stay where they are", () => {
+	const projects = [
+		{ key: "a", frame: { x: 0, y: 0, w: 480, h: 336 } },
+		{ key: "b", frame: { x: 0, y: 360, w: 480, h: 336 } },
+	];
+	assert.equal(pushedApart(projects).size, 0);
+});
+
+test("a project grown into the one below pushes it down, which pushes the next", () => {
+	const projects = [
+		{ key: "grown", frame: { x: 0, y: 0, w: 480, h: 600 } },
+		{ key: "below", frame: { x: 0, y: 384, w: 480, h: 336 } },
+		{ key: "under", frame: { x: 0, y: 744, w: 480, h: 336 } },
+		{ key: "aside", frame: { x: 2400, y: 744, w: 480, h: 336 } },
+	];
+	const pushes = pushedApart(projects);
+	assert.deepEqual([...pushes.keys()].sort(), ["below", "under"]);
+	const moved = apart(projects);
+	for (const [i, a] of moved.entries())
+		for (const b of moved.slice(i + 1)) assert.ok(!near(a, b, gridSize));
+	for (const by of pushes.values()) {
+		assert.equal(by.x, 0);
+		assert.equal(by.y % gridSize, 0);
+	}
+});
+
+test("a project grown sideways into its neighbour pushes it right", () => {
+	const projects = [
+		{ key: "grown", frame: { x: 0, y: 0, w: 720, h: 336 } },
+		{ key: "beside", frame: { x: 504, y: 24, w: 480, h: 336 } },
+	];
+	assert.deepEqual(pushedApart(projects).get("beside"), { x: 240, y: 0 });
+});
+
+test("a card that can't fit in a full region goes just below it, and the region grows to hold it", () => {
+	const r = region("r", 0, 0);
+	const full = [{ x: 0, y: 0, w: 480, h: 336 }];
+	const at = spotBelowRegion({ x: 100, y: 100 }, r, full);
+	assert.ok(at.y >= 336 && at.y < 336 + 3 * gridSize, `y ${at.y}`);
+	const card = { ...at, ...sessionSize };
+	const grown = regionHolding(r, card);
+	assert.ok(grown.x <= r.x && grown.y <= r.y);
+	assert.ok(grown.x + grown.w >= r.x + r.w);
+	assert.ok(grown.y + grown.h >= card.y + card.h + gridSize);
 });

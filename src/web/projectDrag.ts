@@ -1,6 +1,7 @@
+import { batch, effect } from "@preact/signals";
 import type { Annotation, Point } from "../shared/types.ts";
 import { current as shownAnnotations } from "./annotations.ts";
-import { groups } from "./arrangement.ts";
+import { groups, savedPlacement } from "./arrangement.ts";
 import { view } from "./Canvas.tsx";
 import type { Load } from "./carrying.ts";
 import {
@@ -19,12 +20,15 @@ import type { RegionHandle } from "./regions.ts";
 import {
 	arrangedRegion,
 	centredIn,
+	pushedApart,
 	rectOf,
 	resizedClear,
 	storableRegion,
 } from "./regions.ts";
+import { quickPrompt } from "./spawns.ts";
 
 const dragThreshold = 4;
+const settleMs = 600;
 
 type Drag = {
 	pointerId: number;
@@ -168,3 +172,61 @@ export function projectGestures(project: Group, handle: RegionHandle) {
 		onPointerDown: (event: PointerEvent) => beginDrag(event, project, handle),
 	};
 }
+
+let settling: ReturnType<typeof setTimeout> | undefined;
+
+function arranging(): boolean {
+	return (
+		drag !== null ||
+		quickPrompt.peek() !== null ||
+		document.querySelector(".viewport.arranging") !== null
+	);
+}
+
+function makeRoom(): void {
+	settling = undefined;
+	if (arranging()) {
+		settling = setTimeout(makeRoom, settleMs);
+		return;
+	}
+	const projects = groups.peek();
+	const pushes = pushedApart(projects);
+	const movedNodes = new Set<string>();
+	const movedNotes = new Set<string>();
+	batch(() => {
+		for (const project of projects) {
+			const by = pushes.get(project.key);
+			if (!by) continue;
+			const load = loadOf(project.members, notesOf(project));
+			const unmoved = {
+				nodes: load.nodes
+					.filter((passenger) => !movedNodes.has(passenger.key))
+					.map((passenger) => ({
+						...passenger,
+						pinned: savedPlacement(passenger.key)?.pinned === true,
+					})),
+				notes: load.notes.filter((note) => !movedNotes.has(note.id)),
+			};
+			for (const passenger of unmoved.nodes) movedNodes.add(passenger.key);
+			for (const note of unmoved.notes) movedNotes.add(note.id);
+			const region = project.region;
+			if (region)
+				void commitRegion(
+					region.id,
+					storableRegion({
+						...rectOf(region),
+						x: region.x + by.x,
+						y: region.y + by.y,
+					}),
+				);
+			commitLoad(unmoved, by);
+		}
+	});
+}
+
+effect(() => {
+	if (pushedApart(groups.value).size === 0) {
+		clearTimeout(settling);
+		settling = undefined;
+	} else if (settling === undefined) settling = setTimeout(makeRoom, settleMs);
+});

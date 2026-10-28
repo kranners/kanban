@@ -7,9 +7,14 @@ import type { NodeKey, PlacedNode } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import type { Rect } from "./placement.ts";
 import {
+	areaOf,
 	belongsTo,
 	boundsOf,
+	centreOf,
+	clearSpot,
 	framedArea,
+	housedBy,
+	inside,
 	near,
 	nearestFree,
 	sessionSize,
@@ -212,19 +217,6 @@ export function storableRegion(rect: Rect): Rect {
 	};
 }
 
-function centreOf(rect: Rect): Point {
-	return { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 };
-}
-
-function inside(rect: Rect, point: Point): boolean {
-	return (
-		point.x > rect.x &&
-		point.x < rect.x + rect.w &&
-		point.y > rect.y &&
-		point.y < rect.y + rect.h
-	);
-}
-
 export function centredIn<T extends Rect>(
 	frame: Rect,
 	items: Iterable<T>,
@@ -269,12 +261,8 @@ export function regionGroups(
 		const key = nodeKey({ kind: "session", id: session.id });
 		const node = nodes.get(key);
 		if (!node) continue;
-		const centre = centreOf(node);
 		const home = regions
-			.filter(
-				(region) =>
-					belongsTo(region, session.cwd) && inside(rectOf(region), centre),
-			)
+			.filter((region) => housedBy(region, session.cwd, node))
 			.reduce<Region | null>(
 				(best, region) =>
 					best === null || area(region) < area(best) ? region : best,
@@ -345,4 +333,65 @@ export function spotInRegion(
 			inside(region, centreOf(card(at))) &&
 			taken.every((r) => !near(card(at), r, gridSize)),
 	);
+}
+
+export function spotBelowRegion(
+	point: Point,
+	region: Rect,
+	taken: readonly Rect[],
+): Point {
+	const x = Math.min(
+		Math.max(point.x, region.x),
+		region.x + region.w - sessionSize.w,
+	);
+	return clearSpot(
+		{ ...snapPoint({ x, y: region.y + region.h }), ...sessionSize },
+		taken,
+	);
+}
+
+export function regionHolding(region: Rect, card: Rect): Rect {
+	return areaOf([
+		region,
+		{
+			x: card.x - gridSize,
+			y: card.y - gridSize,
+			w: card.w + 2 * gridSize,
+			h: card.h + 2 * gridSize,
+		},
+	]);
+}
+
+function stepPast(rect: Rect, other: Rect): Point {
+	const right = ceilToGrid(other.x + other.w + gridSize - rect.x);
+	const down = ceilToGrid(other.y + other.h + gridSize - rect.y);
+	return right < down ? { x: right, y: 0 } : { x: 0, y: down };
+}
+
+export function pushedApart(
+	projects: readonly Pick<Group, "key" | "frame">[],
+): Map<string, Point> {
+	const settled: Rect[] = [];
+	const pushes = new Map<string, Point>();
+	const order = [...projects].sort(
+		(a, b) =>
+			a.frame.y - b.frame.y ||
+			a.frame.x - b.frame.x ||
+			a.key.localeCompare(b.key),
+	);
+	for (const { key, frame } of order) {
+		let rect = frame;
+		for (
+			let blocker = settled.find((other) => near(rect, other, gridSize));
+			blocker;
+			blocker = settled.find((other) => near(rect, other, gridSize))
+		) {
+			const step = stepPast(rect, blocker);
+			rect = { ...rect, x: rect.x + step.x, y: rect.y + step.y };
+		}
+		settled.push(rect);
+		if (rect !== frame)
+			pushes.set(key, { x: rect.x - frame.x, y: rect.y - frame.y });
+	}
+	return pushes;
 }

@@ -5,6 +5,7 @@ import type {
 	Layout,
 	NodeRef,
 	Point,
+	Region,
 	Session,
 	Subagent,
 } from "../shared/types.ts";
@@ -474,4 +475,76 @@ test("a card joining its project's group may not grow the frame into another pro
 	assert.ok(!growsApart({ x: 408, y: 288, ...card }, [group], [other]));
 	assert.ok(growsApart({ x: 408, y: 0, ...card }, [group], []));
 	assert.ok(growsApart({ x: 2000, y: 288, ...card }, [group], [other]));
+});
+
+test("a card in its own region holds its spot when its subagents grow toward another region", () => {
+	const crowd = Array.from({ length: 6 }, (_, i) =>
+		subagent(`sa${i}`, "busy", i + 1),
+	);
+	const b = board({
+		sessions: [inProject("busy", 1, "api")],
+		subagents: crowd,
+	});
+	const home = {
+		id: "h",
+		cwd: "/dev/api",
+		name: null,
+		x: 0,
+		y: 0,
+		w: 480,
+		h: 336,
+	};
+	const below = { ...home, id: "b", cwd: "/dev/web", y: 384 };
+	const saved: Layout = { "session:busy": { x: 48, y: 48 } };
+	const spot = (regions: Region[]) => {
+		const card = arrange(b, saved, seedsOf(b), new Map(), [], regions).nodes;
+		return [card.get("session:busy")?.x, card.get("session:busy")?.y];
+	};
+	assert.deepEqual(spot([home, below]), [48, 48]);
+	assert.notDeepEqual(spot([below]), [48, 48]);
+
+	const withNeighbour = board({
+		sessions: [inProject("busy", 1, "api"), inProject("web", 2, "web")],
+		subagents: crowd,
+	});
+	const followers = (layout: Layout) => {
+		const placed = arrange(
+			withNeighbour,
+			layout,
+			seedsOf(withNeighbour),
+			new Map(),
+			[],
+			[home, below],
+		).nodes;
+		return crowd.map((c) => {
+			const node = placed.get(`subagent:${c.id}`);
+			return [node?.x, node?.y];
+		});
+	};
+	assert.deepEqual(
+		followers({ ...saved, "session:web": { x: 48, y: 432 } }),
+		followers({ ...saved, "session:web": { x: 1200, y: 432 } }),
+	);
+});
+
+test("a card in its own region still gives way to a card dropped on it", () => {
+	const b = board({
+		sessions: [inProject("held", 1, "api"), inProject("dropped", 2, "api")],
+	});
+	const home = {
+		id: "h",
+		cwd: "/dev/api",
+		name: null,
+		x: 0,
+		y: 0,
+		w: 960,
+		h: 672,
+	};
+	const saved: Layout = {
+		"session:held": { x: 48, y: 48 },
+		"session:dropped": { x: 72, y: 72, pinned: true },
+	};
+	assertApart(
+		arrange(b, saved, seedsOf(b), new Map(), [], [home]).nodes.values(),
+	);
 });

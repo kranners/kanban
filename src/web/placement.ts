@@ -85,6 +85,23 @@ export function belongsTo(region: { cwd: string }, cwd: string): boolean {
 	return cwd === region.cwd || cwd.startsWith(`${root}/`);
 }
 
+export function centreOf(rect: Rect): Point {
+	return { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 };
+}
+
+export function inside(rect: Rect, point: Point): boolean {
+	return (
+		point.x > rect.x &&
+		point.x < rect.x + rect.w &&
+		point.y > rect.y &&
+		point.y < rect.y + rect.h
+	);
+}
+
+export function housedBy(region: Region, cwd: string, rect: Rect): boolean {
+	return belongsTo(region, cwd) && inside(region, centreOf(rect));
+}
+
 export function areaOf(rects: Iterable<Rect>): Rect {
 	const { x, y, width, height } = boundsOf(rects);
 	return { x, y, w: width, h: height };
@@ -348,10 +365,18 @@ export function arrange(
 	const savedSessions = board.sessions
 		.filter((s) => saved[nodeKey({ kind: "session", id: s.id })])
 		.sort(byStart);
-	const pinned = (s: Session) =>
+	const homeOf = (s: Session) => {
+		const key = nodeKey({ kind: "session", id: s.id });
+		const rect = sessionRect(key, savedSpot(key));
+		return regions.find((region) => housedBy(region, s.cwd, rect));
+	};
+	const placedByHand = (s: Session) =>
 		saved[nodeKey({ kind: "session", id: s.id })]?.pinned === true;
+	const inRegionBesides = (home: Region | undefined) => (rect: Rect) =>
+		home !== undefined &&
+		regions.some((region) => region !== home && inside(region, centreOf(rect)));
 
-	for (const s of savedSessions.filter(pinned)) {
+	for (const s of savedSessions.filter(placedByHand)) {
 		const ref: NodeRef = { kind: "session", id: s.id };
 		const key = nodeKey(ref);
 		const rect = sessionRect(key, savedSpot(key));
@@ -367,6 +392,18 @@ export function arrange(
 		put(key, ref, rect);
 		occupied.push(rect);
 	}
+	const held = new Set<string>();
+	for (const s of savedSessions) {
+		if (placedByHand(s) || !homeOf(s)) continue;
+		const ref: NodeRef = { kind: "session", id: s.id };
+		const key = nodeKey(ref);
+		const rect = sessionRect(key, savedSpot(key));
+		if (occupied.some((other) => near(rect, other, clearance))) continue;
+		put(key, ref, rect);
+		occupied.push(rect);
+		held.add(s.id);
+	}
+	const pinned = (s: Session) => placedByHand(s) || held.has(s.id);
 	const nudged = new Map<NodeKey, Rect>();
 	for (const s of savedSessions.filter(pinned)) {
 		const key = nodeKey({ kind: "session", id: s.id });
@@ -377,9 +414,10 @@ export function arrange(
 			return offset ? [[follower, followerRect(session, offset)] as const] : [];
 		});
 		if (natural.length === 0) continue;
+		const movesAside = inRegionBesides(homeOf(s));
 		const shift = clearShift(
 			natural.map(([, rect]) => rect),
-			[...occupied, ...reserved],
+			[...occupied, ...reserved].filter((rect) => !movesAside(rect)),
 		);
 		for (const [follower, rect] of natural)
 			nudged.set(follower, {
