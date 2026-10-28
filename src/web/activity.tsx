@@ -2,6 +2,7 @@ import {
 	Circle,
 	CircleCheck,
 	CircleX,
+	Eye,
 	Square,
 	TriangleAlert,
 } from "lucide-preact";
@@ -10,6 +11,7 @@ import type { Activity } from "../shared/types.ts";
 export const activityOrder: Activity[] = [
 	"needs-you",
 	"working",
+	"watching",
 	"idle",
 	"done",
 	"failed",
@@ -19,6 +21,7 @@ export const activityOrder: Activity[] = [
 export const activityLabel: Record<Activity, string> = {
 	working: "Working",
 	"needs-you": "Needs you",
+	watching: "Watching",
 	idle: "Idle",
 	done: "Done",
 	failed: "Failed",
@@ -39,6 +42,8 @@ export function ActivityIcon(props: { activity: Activity; size?: number }) {
 			);
 		case "needs-you":
 			return <TriangleAlert {...common} />;
+		case "watching":
+			return <Eye {...common} />;
 		case "idle":
 			return <Circle {...common} />;
 		case "done":

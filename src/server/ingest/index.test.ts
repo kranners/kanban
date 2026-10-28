@@ -793,6 +793,7 @@ describe("goalOf", () => {
 
 describe("startBoard with more subagents than the board shows", () => {
 	const swarm = "5a5a5a5a-0000-4000-8000-000000000007";
+	const resumed = "5a5a5a5a-0000-4000-8000-000000000008";
 	const swarmDir = "-Users-me-dev-acme-swarm";
 	const subagents = `projects/${swarmDir}/${swarm}/subagents`;
 	const extra = 12;
@@ -807,10 +808,23 @@ describe("startBoard with more subagents than the board shows", () => {
 			cwd: "/Users/me/dev/acme-swarm",
 			startedAt: now - 3_600_000,
 			kind: "interactive",
-			status: "busy",
+			status: "idle",
 			updatedAt: now - 1000,
 		});
 		jsonl(`projects/${swarmDir}/${swarm}.jsonl`, []);
+		write(`sessions/${process.ppid}.json`, {
+			pid: process.ppid,
+			sessionId: resumed,
+			cwd: "/Users/me/dev/acme-swarm",
+			startedAt: now - 60_000,
+			kind: "interactive",
+			status: "idle",
+			updatedAt: now - 1000,
+		});
+		jsonl(
+			`projects/${swarmDir}/${resumed}.jsonl`,
+			backgroundShell(-600_000, "t-orphan", "borphan", "Serve before exit"),
+		);
 		const steps = Array.from(
 			{ length: subagentLimit + extra },
 			(_, i) => `agentstep${i}`,
@@ -860,9 +874,23 @@ describe("startBoard with more subagents than the board shows", () => {
 	});
 
 	test("counts every recent subagent, nested and in workflows, not only the cards shown", () => {
-		assert.equal(board.subagents.length, subagentLimit);
+		assert.equal(
+			board.subagents.filter((item) => item.kind === "agent").length,
+			subagentLimit,
+		);
 		assert.deepEqual(board.subagentCounts, {
 			[swarm]: { working: 3, idle: 25, done: 27 },
 		});
+	});
+
+	const activityOf = (id: string) =>
+		board.sessions.find((session) => session.id === id)?.activity;
+
+	test("shows a session whose turn ended as watching while its subagents run", () => {
+		assert.equal(activityOf(swarm), "watching");
+	});
+
+	test("leaves the registry to say whether a session's own shells still run", () => {
+		assert.equal(activityOf(resumed), "idle");
 	});
 });

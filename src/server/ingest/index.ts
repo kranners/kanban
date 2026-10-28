@@ -141,17 +141,28 @@ export function startBoard(opts: {
 			if (!tracked.has(id)) locateAttempts.delete(id);
 		}
 
-		const sessions = [...tracked.values()]
-			.map((item) => toSession(item, inCmux))
-			.sort((a, b) => b.updatedAt - a.updatedAt);
 		const found = collectSubagents(tracked, now);
 		const agentFacts = advanceSubagentTails(found);
 		const settled = settleSubagents(found, agentFacts);
 		const shown = newestPerSession(settled);
-		const subagents = [
-			...shown.map(({ subagent }) => subagent),
-			...collectShells(tracked, shown, agentFacts, now),
-		];
+		const shells = collectShells(tracked, shown, agentFacts, now);
+		const subagents = [...shown.map(({ subagent }) => subagent), ...shells];
+		const workflows = runningWorkflows(settled, (id) => {
+			const item = tracked.get(id);
+			return item?.entry ? (item.tail?.facts ?? null) : null;
+		});
+		const subagentShells = shells.filter(
+			(shell) => shell.parentAgentId !== null,
+		);
+		const watched = new Set([
+			...[...settled.map(({ subagent }) => subagent), ...subagentShells]
+				.filter((subagent) => subagent.live)
+				.map((subagent) => subagent.sessionId),
+			...workflows.map((workflow) => workflow.sessionId),
+		]);
+		const sessions = [...tracked.values()]
+			.map((item) => toSession(item, inCmux, watched.has(item.id)))
+			.sort((a, b) => b.updatedAt - a.updatedAt);
 		subagentPaths.clear();
 		for (const { subagent, transcriptPath } of shown) {
 			subagentPaths.set(subagent.id, transcriptPath);
@@ -186,10 +197,7 @@ export function startBoard(opts: {
 				settled.map(({ subagent }) => subagent),
 			),
 			workflowRuns: workflowRunsOf(settled),
-			workflows: runningWorkflows(settled, (id) => {
-				const item = tracked.get(id);
-				return item?.entry ? (item.tail?.facts ?? null) : null;
-			}),
+			workflows,
 			links: collectLinks(
 				owners,
 				shortsToSessions(jobs, registry),
@@ -391,12 +399,16 @@ function collectTracked(
 	return tracked;
 }
 
-function toSession(item: Tracked, inCmux: (pid: number) => boolean): Session {
+function toSession(
+	item: Tracked,
+	inCmux: (pid: number) => boolean,
+	watching: boolean,
+): Session {
 	const { entry, job, tail } = item;
 	const cwd = entry?.cwd ?? job?.cwd ?? "";
 	const project = basename(cwd);
 	const kind = entry?.kind === "interactive" ? "interactive" : "background";
-	const activity = activityOf(entry, job);
+	const activity = activityOf(entry, job, watching);
 	const transcriptDoing = tail?.facts.doing ?? null;
 	return {
 		id: item.id,

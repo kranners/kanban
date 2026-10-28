@@ -67,6 +67,7 @@ export function readJobs(claudeHome: string): Job[] {
 export function activityOf(
 	entry: RegistryEntry | null,
 	job: Job | null,
+	watching = false,
 ): Activity {
 	const state = job?.state ?? null;
 	if (!entry) {
@@ -76,9 +77,10 @@ export function activityOf(
 	}
 	if (entry.status === "busy") return "working";
 	if (entry.status === "waiting") return "needs-you";
+	const resting = watching || entry.status === "shell" ? "watching" : "idle";
 	switch (state) {
 		case null:
-			return "idle";
+			return resting;
 		case "blocked":
 			return "needs-you";
 		case "done":
@@ -90,7 +92,7 @@ export function activityOf(
 			return "idle";
 		default:
 			if (entry.status !== "idle" && entry.status !== "shell") return "working";
-			return job?.tempo === "blocked" ? "needs-you" : "idle";
+			return job?.tempo === "blocked" ? "needs-you" : resting;
 	}
 }
 

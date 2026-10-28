@@ -279,6 +279,8 @@ export function closing(session: Session): Turn[] {
 			return [{ notice: "Interrupted by the user", level: "warning" }];
 		case "done":
 			return [{ assistant: `Done. ${doing}.` }];
+		case "watching":
+			return [{ assistant: `${doing}. I will check back once it finishes.` }];
 		case "idle":
 			return [{ assistant: `${doing}. What would you like next?` }];
 	}

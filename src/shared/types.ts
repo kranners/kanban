@@ -6,6 +6,7 @@ export type SessionKind = "interactive" | "background";
 export type Activity =
 	| "working"
 	| "needs-you"
+	| "watching"
 	| "idle"
 	| "done"
 	| "failed"

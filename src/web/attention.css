@@ -70,7 +70,7 @@
 		translate calc(180ms * var(--motion)) cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
-.node.session.act-working .frame {
+.node.session:is(.act-working, .act-watching) .frame {
 	border-color: var(--busy-rest);
 }
 

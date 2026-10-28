@@ -55,7 +55,12 @@ function BusyEdge() {
 
 function Ribbon(props: { session: Session; now: number }) {
 	const { activity } = props.session;
-	if (activity === "working" || activity === "stopped") return null;
+	if (
+		activity === "working" ||
+		activity === "watching" ||
+		activity === "stopped"
+	)
+		return null;
 	return (
 		<span class={`ribbon act-${activity}`} aria-hidden="true">
 			<ActivityIcon activity={activity} size={13} />
@@ -254,6 +259,8 @@ export function SessionCard(props: {
 
 function activityHint(session: Session): string {
 	switch (session.activity) {
+		case "watching":
+			return "Watching background work";
 		case "idle":
 			return "Waiting for a prompt";
 		case "done":

@@ -39,13 +39,23 @@ const job = (state: string, tempo: string | null = null): Job => ({
 describe("activityOf", () => {
 	test("maps interactive status", () => {
 		assert.equal(activityOf(entry("busy"), null), "working");
-		assert.equal(activityOf(entry("shell"), null), "idle");
+		assert.equal(activityOf(entry("shell"), null), "watching");
 		assert.equal(activityOf(entry("waiting"), null), "needs-you");
 		assert.equal(activityOf(entry("idle"), null), "idle");
 	});
 
-	test("a turn that ended with only background shells left is idle", () => {
-		assert.equal(activityOf(entry("shell"), job("working")), "idle");
+	test("a turn that ended with background shells left running is watching", () => {
+		assert.equal(activityOf(entry("shell"), job("working")), "watching");
+		assert.equal(activityOf(entry("shell"), job("blocked")), "needs-you");
+	});
+
+	test("a resting session with live subagents or shells is watching", () => {
+		assert.equal(activityOf(entry("idle"), null, true), "watching");
+		assert.equal(activityOf(entry("idle"), job("working"), true), "watching");
+		assert.equal(activityOf(entry("busy"), null, true), "working");
+		assert.equal(activityOf(entry("waiting"), null, true), "needs-you");
+		assert.equal(activityOf(entry("idle"), job("done"), true), "done");
+		assert.equal(activityOf(null, job("working"), true), "stopped");
 	});
 
 	test("folds job state into an idle live session", () => {

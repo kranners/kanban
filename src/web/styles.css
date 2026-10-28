@@ -801,6 +801,9 @@ button.reconnecting {
 .act-needs-you {
 	--act: var(--amber);
 }
+.act-watching {
+	--act: var(--accent);
+}
 .act-idle {
 	--act: var(--idle-edge);
 }
@@ -829,7 +832,7 @@ button.reconnecting {
 	color: var(--amber);
 }
 
-.badge.act-working {
+.badge:is(.act-working, .act-watching) {
 	background: var(--accent-soft);
 }
 
