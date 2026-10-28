@@ -1,3 +1,4 @@
+import { signal } from "@preact/signals";
 import {
 	ArrowDown,
 	BookOpen,
@@ -21,8 +22,9 @@ import {
 	formatElapsed,
 	formatTokens,
 	modeLabel,
+	nextBatch,
+	type Outgoing,
 	promptHistory,
-	type Queued,
 	stillQueued,
 	type ToolItem,
 	toolDetail,
@@ -37,6 +39,25 @@ import {
 
 const bottomSlackPx = 64;
 const loadAheadPx = 400;
+const echoWaitMs = 8000;
+
+const outboxes = signal<Record<string, Outgoing[]>>({});
+
+const updateOutbox = (
+	sessionId: string,
+	update: (outbox: Outgoing[]) => Outgoing[],
+) => {
+	outboxes.value = {
+		...outboxes.value,
+		[sessionId]: update(outboxes.value[sessionId] ?? []),
+	};
+};
+
+const queuedLabels: Record<Outgoing["state"], string> = {
+	queued: "Queued",
+	sending: "Sending…",
+	sent: "Sent",
+};
 
 function useTicking(active: boolean): number {
 	const [now, setNow] = useState(Date.now());
@@ -148,8 +169,12 @@ export function AgentView(props: {
 	const previous = useRef({ first: 0, height: 0 });
 	const [seen, setSeen] = useState(0);
 	const [atBottom, setAtBottom] = useState(true);
-	const [queued, setQueued] = useState<Queued[]>([]);
 	const [problem, setProblem] = useState<string | null>(null);
+	const [recalled, setRecalled] = useState<{ text: string } | null>(null);
+	const viewed = useRef(props.node.id);
+	viewed.current = props.node.id;
+	const sessionId = props.node.kind === "session" ? props.node.id : null;
+	const outbox = (sessionId && outboxes.value[sessionId]) || [];
 	const items = view.window.items;
 	const lastIndex = items.at(-1)?.index ?? 0;
 
@@ -161,8 +186,15 @@ export function AgentView(props: {
 	const background = useMemo(() => backgroundTools(items), [items]);
 
 	useEffect(() => {
-		setQueued((current) =>
-			current.length === 0 ? current : stillQueued(current, items),
+		if (!sessionId || !outbox.some((entry) => entry.state === "sent")) return;
+		const unechoed = stillQueued(
+			outbox.filter((entry) => entry.state === "sent"),
+			items,
+		);
+		updateOutbox(sessionId, (current) =>
+			current.filter(
+				(entry) => entry.state !== "sent" || unechoed.includes(entry),
+			),
 		);
 	}, [items]);
 
@@ -179,7 +211,7 @@ export function AgentView(props: {
 			first: view.window.first,
 			height: element.scrollHeight,
 		};
-	}, [view.window, queued, view.dialog]);
+	}, [view.window, outbox, view.dialog]);
 
 	useEffect(() => {
 		const element = scroller.current;
@@ -223,17 +255,106 @@ export function AgentView(props: {
 	const working = props.activity === "working";
 	const waiting = view.dialog !== null;
 
-	const send = async (text: string): Promise<boolean> => {
+	const deliverable =
+		sessionId !== null &&
+		drive?.mode === "drive" &&
+		view.connection === "open" &&
+		!working &&
+		!waiting;
+
+	useEffect(() => {
+		if (!sessionId || !deliverable) return;
+		const batch = nextBatch(outbox);
+		const head = batch[0];
+		if (!head) return;
+		const text = batch.map((entry) => entry.text).join("\n");
+		const sending: Outgoing = {
+			id: head.id,
+			text,
+			state: "sending",
+			sentAt: Date.now(),
+		};
+		updateOutbox(sessionId, (current) => [
+			sending,
+			...current.filter((entry) => !batch.includes(entry)),
+		]);
+		void request({ type: "prompt", text }).then((outcome) => {
+			if (outcome.ok) {
+				updateOutbox(sessionId, (current) =>
+					current.map((entry) =>
+						entry.id === sending.id ? { ...entry, state: "sent" } : entry,
+					),
+				);
+				return;
+			}
+			const shown = viewed.current === sessionId;
+			updateOutbox(sessionId, (current) =>
+				current.flatMap((entry) =>
+					entry.id !== sending.id
+						? [entry]
+						: shown
+							? []
+							: [{ ...entry, state: "queued" as const }],
+				),
+			);
+			if (shown) {
+				setProblem(outcome.error);
+				setRecalled({ text });
+			}
+		});
+	}, [deliverable, outbox]);
+
+	useEffect(() => {
+		if (!sessionId) return;
+		const sent = outbox.filter((entry) => entry.state === "sent");
+		if (sent.length === 0) return;
+		const due = Math.min(...sent.map((entry) => entry.sentAt)) + echoWaitMs;
+		const timer = setTimeout(
+			() =>
+				updateOutbox(sessionId, (current) =>
+					current.filter(
+						(entry) =>
+							entry.state !== "sent" || Date.now() - entry.sentAt < echoWaitMs,
+					),
+				),
+			Math.max(0, due - Date.now()),
+		);
+		return () => clearTimeout(timer);
+	}, [outbox]);
+
+	const send = (text: string) => {
+		if (!sessionId) return;
 		setProblem(null);
-		const entry = { id: `${Date.now()}`, text, sentAt: Date.now() };
-		if (working) setQueued((current) => [...current, entry]);
 		pinned.current = true;
-		const outcome = await request({ type: "prompt", text });
-		if (outcome.ok) return true;
-		setQueued((current) => current.filter(({ id }) => id !== entry.id));
-		setProblem(outcome.error);
-		return false;
+		const now = Date.now();
+		updateOutbox(sessionId, (current) => [
+			...current,
+			{ id: `${now}-${current.length}`, text, state: "queued", sentAt: now },
+		]);
 	};
+
+	const edit = (ids: string[]) => {
+		if (!sessionId) return;
+		const picked = outbox.filter(
+			(entry) => entry.state === "queued" && ids.includes(entry.id),
+		);
+		if (picked.length === 0) return;
+		updateOutbox(sessionId, (current) =>
+			current.filter((entry) => !picked.includes(entry)),
+		);
+		setRecalled({ text: picked.map((entry) => entry.text).join("\n") });
+	};
+
+	const discard = (id: string) => {
+		if (!sessionId) return;
+		updateOutbox(sessionId, (current) =>
+			current.filter((entry) => entry.id !== id || entry.state !== "queued"),
+		);
+	};
+
+	const queuedIds = outbox
+		.filter((entry) => entry.state === "queued")
+		.map((entry) => entry.id);
 
 	const press = async (key: "Escape" | "Shift+Tab") => {
 		setProblem(null);
@@ -279,10 +400,33 @@ export function AgentView(props: {
 								<TranscriptItem item={item} links={props.links} />
 							</div>
 						))}
-						{queued.map((entry) => (
+						{outbox.map((entry) => (
 							<div key={entry.id} class="av-user av-user-pending">
 								<div class="av-user-text">{entry.text}</div>
-								<span class="av-queued-label">Queued</span>
+								<div class="av-queued-foot">
+									<span class="av-queued-label">
+										{queuedLabels[entry.state]}
+									</span>
+									{entry.state === "queued" && (
+										<>
+											<button
+												type="button"
+												class="av-queued-action"
+												onClick={() => edit([entry.id])}
+												title="Move back into the message box to edit"
+											>
+												Edit
+											</button>
+											<button
+												type="button"
+												class="av-queued-action"
+												onClick={() => discard(entry.id)}
+											>
+												Remove
+											</button>
+										</>
+									)}
+								</div>
 							</div>
 						))}
 						{working && !view.dialog && (
@@ -345,6 +489,8 @@ export function AgentView(props: {
 						}
 						mode={view.mode ?? view.status?.permissionMode ?? null}
 						onSend={send}
+						recalled={recalled}
+						onEditQueued={queuedIds.length > 0 ? () => edit(queuedIds) : null}
 						onKey={(key) => void press(key)}
 					/>
 				</div>

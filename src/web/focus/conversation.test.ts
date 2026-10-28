@@ -17,6 +17,8 @@ import {
 	formatTokens,
 	matchCount,
 	modeLabel,
+	nextBatch,
+	type Outgoing,
 	prepend,
 	promptHistory,
 	replacementLines,
@@ -282,6 +284,25 @@ describe("conversation window", () => {
 			stillQueued(queued, [user(0, "also update the docs", 1000)]),
 			queued,
 		);
+	});
+
+	it("batches queued prompts up to the next command", () => {
+		const entry = (
+			id: string,
+			text: string,
+			state: Outgoing["state"] = "queued",
+		): Outgoing => ({ id, text, state, sentAt: 0 });
+		const plain = [entry("1", "fix it"), entry("2", "and test it")];
+		assert.deepEqual(nextBatch(plain), plain);
+		assert.deepEqual(
+			nextBatch([...plain, entry("3", "/compact"), entry("4", "then go")]),
+			plain,
+		);
+		assert.deepEqual(nextBatch([entry("3", " /compact"), ...plain]), [
+			entry("3", " /compact"),
+		]);
+		assert.deepEqual(nextBatch([entry("0", "x", "sent"), ...plain]), []);
+		assert.deepEqual(nextBatch([]), []);
 	});
 
 	it("collects prompt history without repeats", () => {

@@ -22,7 +22,9 @@ export function Composer(props: {
 	working: boolean;
 	disabled: string | null;
 	mode: string | null;
-	onSend: (text: string) => Promise<boolean>;
+	onSend: (text: string) => void;
+	recalled: { text: string } | null;
+	onEditQueued: (() => void) | null;
 	onKey: (key: "Escape" | "Shift+Tab") => void;
 }): JSX.Element {
 	const field = useRef<HTMLTextAreaElement>(null);
@@ -32,7 +34,6 @@ export function Composer(props: {
 	const [files, setFiles] = useState<string[]>([]);
 	const [selected, setSelected] = useState(0);
 	const [dismissed, setDismissed] = useState<string | null>(null);
-	const [sending, setSending] = useState(false);
 	const recall = useRef<{ at: number; saved: string } | null>(null);
 
 	useEffect(() => {
@@ -131,17 +132,22 @@ export function Composer(props: {
 		setValue(next.value, next.caret);
 	};
 
-	const submit = async () => {
-		const text = draft;
-		if (text.trim() === "" || sending || props.disabled) return;
-		setSending(true);
-		const sent = await props.onSend(text);
-		setSending(false);
-		if (sent) {
-			recall.current = null;
-			setValue("", 0);
-		}
+	const submit = () => {
+		if (draft.trim() === "" || props.disabled) return;
+		props.onSend(draft);
+		recall.current = null;
+		setValue("", 0);
 	};
+
+	useEffect(() => {
+		const recalled = props.recalled;
+		if (!recalled) return;
+		const value =
+			draft.trim() === "" ? recalled.text : `${recalled.text}\n${draft}`;
+		recall.current = null;
+		setValue(value, recalled.text.length);
+		field.current?.focus();
+	}, [props.recalled]);
 
 	const browseHistory = (step: -1 | 1): boolean => {
 		const history = props.history;
@@ -190,7 +196,7 @@ export function Composer(props: {
 		}
 		if (event.key === "Enter" && !event.shiftKey) {
 			event.preventDefault();
-			void submit();
+			submit();
 			return;
 		}
 		if (event.key === "Tab" && event.shiftKey) {
@@ -207,7 +213,10 @@ export function Composer(props: {
 		const atEnd =
 			element.selectionStart === element.value.length &&
 			element.selectionEnd === element.value.length;
-		if (event.key === "ArrowUp" && atStart && browseHistory(-1)) {
+		if (event.key === "ArrowUp" && atStart && props.onEditQueued) {
+			event.preventDefault();
+			props.onEditQueued();
+		} else if (event.key === "ArrowUp" && atStart && browseHistory(-1)) {
 			event.preventDefault();
 		} else if (
 			event.key === "ArrowDown" &&
@@ -297,8 +306,8 @@ export function Composer(props: {
 					<button
 						type="button"
 						class="focus-button focus-button-primary"
-						disabled={props.disabled !== null || draft.trim() === "" || sending}
-						onClick={() => void submit()}
+						disabled={props.disabled !== null || draft.trim() === ""}
+						onClick={submit}
 						title="Send (Enter)"
 					>
 						<CornerDownLeft size={14} aria-hidden="true" />
@@ -318,7 +327,8 @@ export function Composer(props: {
 					<kbd>⇧Tab</kbd>
 				</button>
 				<span class="av-hint">
-					Enter sends · Shift+Enter new line · ↑ history · Esc interrupts
+					Enter sends · Shift+Enter new line ·{" "}
+					{props.onEditQueued ? "↑ edits queued" : "↑ history"} · Esc interrupts
 				</span>
 			</div>
 		</div>

@@ -332,10 +332,23 @@ export type Queued = { id: string; text: string; sentAt: number };
 
 const comparable = (value: string): string => value.replace(/\s+/g, " ").trim();
 
-export function stillQueued(
-	queue: Queued[],
+export type Outgoing = Queued & { state: "queued" | "sending" | "sent" };
+
+const isCommand = (text: string): boolean => /^[/!]/.test(text.trimStart());
+
+export function nextBatch(outbox: Outgoing[]): Outgoing[] {
+	if (outbox.some((entry) => entry.state !== "queued")) return [];
+	const [head, ...rest] = outbox;
+	if (!head) return [];
+	if (isCommand(head.text)) return [head];
+	const end = rest.findIndex((entry) => isCommand(entry.text));
+	return [head, ...(end === -1 ? rest : rest.slice(0, end))];
+}
+
+export function stillQueued<Entry extends Queued>(
+	queue: Entry[],
 	items: ConversationItem[],
-): Queued[] {
+): Entry[] {
 	const seen = items.flatMap((item) =>
 		item.kind === "user" || item.kind === "command"
 			? [

@@ -495,6 +495,8 @@ export const createConversationHub = (
 		let driveKey = "";
 		let timer: NodeJS.Timeout | undefined;
 		let screenAt = 0;
+		let activity: Session["activity"] | null = null;
+		let dialogShown = false;
 		let busy: Promise<unknown> = Promise.resolve();
 		let lastUse = 0;
 		let held = 0;
@@ -557,11 +559,27 @@ export const createConversationHub = (
 			broadcast({ type: "drive", drive });
 		};
 
+		const publishDialog = (next: ReturnType<typeof dialogOf>) => {
+			const key = JSON.stringify(next);
+			if (key === dialogKey) return;
+			dialogKey = key;
+			dialogShown = next.dialog !== null;
+			broadcast({ type: "dialog", ...next });
+		};
+
 		const syncScreen = async (current: Session | null) => {
-			if (!current || Date.now() - screenAt < screenMs) return;
+			if (!current) return;
+			if (current.activity !== activity) {
+				activity = current.activity;
+				screenAt = 0;
+			}
+			if (Date.now() - screenAt < screenMs) return;
 			screenAt = Date.now();
 			const drive = driveOf(current);
 			const waiting = awaitingAnswer(current, log, block());
+			if (waiting && !dialogShown) {
+				publishDialog(dialogOf(log, current, null, block()));
+			}
 			const wantsScreen =
 				drive.mode === "drive" &&
 				(drive.via === "cmux" || waiting || ttys.has(current.id));
@@ -574,12 +592,7 @@ export const createConversationHub = (
 			if (drive.mode === "drive" && drive.via === "attach" && !waiting) {
 				if (Date.now() - lastUse > 30_000) releaseTty(current.id);
 			}
-			const next = dialogOf(log, current, screen, block());
-			const key = JSON.stringify(next);
-			if (key !== dialogKey) {
-				dialogKey = key;
-				broadcast({ type: "dialog", ...next });
-			}
+			publishDialog(dialogOf(log, current, screen, block()));
 			const mode =
 				screen === null || readDialog(screen) !== null
 					? modeKey
