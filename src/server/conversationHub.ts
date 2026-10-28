@@ -41,7 +41,7 @@ export type ConversationDeps = {
 	session(id: string): Session | null;
 	tty(session: Session): SessionTty | null;
 	transcriptPath(node: NodeRef): string | null;
-	block?(sessionId: string): Record<string, unknown> | null;
+	block(sessionId: string): Record<string, unknown> | null;
 	audit: Audit;
 	pollMs?: number;
 	screenMs?: number;
@@ -449,7 +449,7 @@ export const createConversationHub = (
 			sessionId === null ? null : deps.session(sessionId);
 
 		const block = (): Record<string, unknown> | null =>
-			sessionId === null ? null : (deps.block?.(sessionId) ?? null);
+			sessionId === null ? null : deps.block(sessionId);
 
 		const syncStatus = () => {
 			const key = JSON.stringify(log.status);
@@ -607,7 +607,7 @@ export const createConversationHub = (
 				case "permission": {
 					const screen = await tty.screen();
 					if (!screen.ok) return screen;
-					const fresh = dialogOf(log, current, screen.value, block());
+					const fresh = dialogOf(log, current, screen.value);
 					if (
 						fresh.dialog?.kind !== "permission" ||
 						!fresh.answerable ||
