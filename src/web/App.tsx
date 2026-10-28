@@ -322,9 +322,9 @@ export function App() {
 		<div class="app">
 			<TopBar />
 			<main class="main">
+				{focus}
 				<Stage />
 				<Rail />
-				{focus}
 			</main>
 			{newSessionOpen.value && (
 				<NewSession

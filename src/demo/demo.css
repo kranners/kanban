@@ -14,6 +14,10 @@
 	font: 500 11px / 18px var(--sans);
 }
 
+:root:has(.focus-docked) .demo-badge {
+	left: calc(50% + 16px);
+}
+
 .demo-badge strong {
 	color: var(--accent);
 	font-weight: 600;

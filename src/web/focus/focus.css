@@ -19,7 +19,7 @@
 	width: 50%;
 	position: relative;
 	z-index: 3;
-	border-left: 1px solid var(--hairline);
+	border-right: 1px solid var(--hairline);
 }
 
 @keyframes focus-fade {
