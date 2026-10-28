@@ -78,6 +78,8 @@ function session(id: string): Session {
 		attachable: true,
 		cmux: false,
 		artifacts: [],
+		tasks: [],
+		steps: [],
 	};
 }
 

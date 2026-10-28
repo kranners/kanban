@@ -1,0 +1,108 @@
+.world[data-detail="near"] .node.session .goal {
+	flex: none;
+	padding-bottom: 6px;
+	font-size: 17px;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+}
+
+.detail {
+	flex: 1;
+	min-height: 0;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+	gap: 0.7em;
+	padding: 0 14px 0.6em;
+	font-size: calc(12px / var(--zoom));
+	line-height: 1.4;
+	color: var(--muted);
+	mask-image: linear-gradient(to bottom, #000 calc(100% - 1.4em), transparent);
+}
+
+.detail-section {
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	gap: 0.3em;
+	min-width: 0;
+}
+
+.detail-head {
+	display: flex;
+	align-items: center;
+	gap: 0.6em;
+	color: var(--ink);
+	font-weight: 600;
+}
+
+.detail-track {
+	flex: 1;
+	height: 0.45em;
+	overflow: hidden;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--done-edge) 18%, var(--surface));
+}
+
+.detail-fill {
+	display: block;
+	height: 100%;
+	border-radius: inherit;
+	background: var(--done-edge);
+	transition: width calc(300ms * var(--motion)) ease-out;
+}
+
+.detail-list {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: 0.15em;
+}
+
+.detail-list li {
+	display: flex;
+	align-items: center;
+	gap: 0.5em;
+	min-width: 0;
+}
+
+.detail-text {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.task svg {
+	flex: none;
+	width: 1em;
+	height: 1em;
+}
+
+.task-in_progress {
+	color: var(--ink);
+	font-weight: 600;
+}
+
+.task-in_progress svg {
+	color: var(--busy-edge);
+}
+
+.task-completed svg {
+	color: var(--done-edge);
+}
+
+.detail-earlier {
+	padding-left: 1.5em;
+}
+
+.step:first-child {
+	color: var(--ink);
+}
+
+.step time {
+	flex: none;
+}

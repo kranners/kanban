@@ -40,6 +40,8 @@ function session(id: string, cwd = "/dev/acme-api"): Session {
 		attachable: true,
 		cmux: false,
 		artifacts: [],
+		tasks: [],
+		steps: [],
 	};
 }
 

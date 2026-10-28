@@ -524,7 +524,8 @@ describe("startBoard", () => {
 	});
 
 	test("derives an interactive session from the registry and transcript", () => {
-		assert.deepEqual(session(lead), {
+		const { steps, ...derived } = session(lead);
+		assert.deepEqual(derived, {
 			id: lead,
 			short: null,
 			pid: process.pid,
@@ -541,6 +542,11 @@ describe("startBoard", () => {
 			attachable: false,
 			cmux: true,
 			artifacts: [],
+			tasks: [],
+		});
+		assert.deepEqual(steps.at(-1), {
+			at: now - 530_000,
+			text: "Edit: /Users/me/dev/acme-api/src/a.ts",
 		});
 	});
 

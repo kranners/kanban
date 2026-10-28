@@ -9,7 +9,8 @@ import {
 	WandSparkles,
 } from "lucide-preact";
 import { useState } from "preact/hooks";
-import { ActivityIcon, activityLabel, activityOrder } from "./activity.tsx";
+import { activityOrder } from "../shared/types.ts";
+import { ActivityIcon, activityLabel } from "./activity.tsx";
 import { tidyBoard, tidying } from "./Comments.tsx";
 import { Mark } from "./Mark.tsx";
 import { NextNeedingYou } from "./NeedsYou.tsx";

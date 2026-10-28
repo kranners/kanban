@@ -29,6 +29,8 @@ function session(
 		attachable: true,
 		cmux: false,
 		artifacts: [],
+		tasks: [],
+		steps: [],
 	};
 }
 

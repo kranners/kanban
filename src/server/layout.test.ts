@@ -31,6 +31,8 @@ const session = (id: string, short: string | null): Session => ({
 	attachable: true,
 	cmux: false,
 	artifacts: [],
+	tasks: [],
+	steps: [],
 });
 
 const boardOf = (...sessions: Session[]): Board => ({

@@ -29,6 +29,8 @@ function session(id: string, activity: Activity): Session {
 		attachable: true,
 		cmux: false,
 		artifacts: [],
+		tasks: [],
+		steps: [],
 	};
 }
 

@@ -437,6 +437,8 @@ function toSession(
 		attachable: kind === "background" && job !== null,
 		cmux: kind === "interactive" && entry !== null && inCmux(entry.pid),
 		artifacts: [...(tail?.facts.artifacts.values() ?? [])].reverse(),
+		tasks: [...(tail?.facts.tasks.values() ?? [])],
+		steps: [...(tail?.facts.steps ?? [])],
 	};
 }
 

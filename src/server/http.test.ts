@@ -187,6 +187,8 @@ const board: Board = {
 			attachable: true,
 			cmux: false,
 			artifacts: [],
+			tasks: [],
+			steps: [],
 		},
 		{
 			id: "66666666-7777-8888-9999-000000000000",
@@ -205,6 +207,8 @@ const board: Board = {
 			attachable: false,
 			cmux: true,
 			artifacts: [],
+			tasks: [],
+			steps: [],
 		},
 	],
 	subagents: [],

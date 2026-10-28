@@ -36,6 +36,8 @@ const session: Session = {
 	attachable: true,
 	cmux: false,
 	artifacts: [],
+	tasks: [],
+	steps: [],
 };
 
 const card = { x: 100, y: 205, w: 288, h: 168 };

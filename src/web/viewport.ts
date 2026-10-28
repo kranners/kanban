@@ -21,6 +21,16 @@ export function fromOrigin(view: View, origin: Point): View {
 export const minZoom = 0.15;
 export const maxZoom = 2;
 
+export type Detail = "far" | "medium" | "near";
+
+export const farZoom = 0.45;
+export const nearZoom = 1.2;
+
+export function detailAt(k: number): Detail {
+	if (k < farZoom) return "far";
+	return k >= nearZoom ? "near" : "medium";
+}
+
 export function clampZoom(k: number): number {
 	return Math.min(maxZoom, Math.max(minZoom, k));
 }

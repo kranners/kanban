@@ -1,19 +1,32 @@
 import {
 	AppWindow,
 	Bot,
+	Circle,
+	CircleCheck,
+	CircleDot,
 	Server,
 	SquareTerminal,
 	Terminal,
 } from "lucide-preact";
 import type { ComponentChildren } from "preact";
 import type { RegionColour } from "../shared/colours.ts";
-import type { Artifact, Session, Subagent, Workflow } from "../shared/types.ts";
+import type {
+	Artifact,
+	Session,
+	Step,
+	Subagent,
+	Task,
+	TaskStatus,
+	Workflow,
+} from "../shared/types.ts";
 import "./attention.css";
+import "./detail.css";
 import { subagentState } from "../shared/subagents.ts";
 import { ActivityBadge, ActivityIcon, activityLabel } from "./activity.tsx";
 import type { PlacedNode } from "./layout.ts";
 import { plainText } from "./markdown.ts";
 import { ago, relativeTime } from "./time.ts";
+import type { Detail } from "./viewport.ts";
 
 type Emphasis = {
 	dimmed: boolean;
@@ -101,6 +114,84 @@ function WorkflowBars(props: { workflows: readonly Workflow[] }) {
 	);
 }
 
+const taskIcons: Record<TaskStatus, typeof Circle> = {
+	pending: Circle,
+	in_progress: CircleDot,
+	completed: CircleCheck,
+};
+
+function taskText(task: Task): string {
+	return task.status === "in_progress" && task.activeForm
+		? task.activeForm
+		: task.subject;
+}
+
+function TaskList(props: { tasks: readonly Task[] }) {
+	const { tasks } = props;
+	if (tasks.length === 0) return null;
+	const done = tasks.filter((task) => task.status === "completed").length;
+	const open = tasks.findIndex((task) => task.status !== "completed");
+	const from = open === -1 ? tasks.length - 1 : Math.max(0, open - 1);
+	return (
+		<section class="detail-section" aria-label="Tasks">
+			<div class="detail-head">
+				<span>Tasks</span>
+				<span class="detail-track" aria-hidden="true">
+					<span
+						class="detail-fill"
+						style={{ width: `${(100 * done) / tasks.length}%` }}
+					/>
+				</span>
+				<span class="num">
+					{done}/{tasks.length}
+				</span>
+			</div>
+			<ol class="detail-list">
+				{from > 0 && <li class="detail-earlier">{from} done earlier</li>}
+				{tasks.slice(from).map((task) => {
+					const Icon = taskIcons[task.status];
+					return (
+						<li key={task.id} class={`task task-${task.status}`}>
+							<Icon size={12} aria-hidden="true" />
+							<span class="detail-text">{taskText(task)}</span>
+						</li>
+					);
+				})}
+			</ol>
+		</section>
+	);
+}
+
+function RecentSteps(props: { steps: readonly Step[]; now: number }) {
+	if (props.steps.length === 0) return null;
+	return (
+		<section class="detail-section" aria-label="Recent steps">
+			<div class="detail-head">
+				<span>Recent</span>
+			</div>
+			<ol class="detail-list">
+				{[...props.steps].reverse().map((step, index) => (
+					<li key={`${step.at}-${index}`} class="step">
+						<span class="detail-text">{plainText(step.text)}</span>
+						<time class="num">{relativeTime(step.at, props.now)}</time>
+					</li>
+				))}
+			</ol>
+		</section>
+	);
+}
+
+function NearDetail(props: { session: Session; now: number }) {
+	const { session } = props;
+	if (session.tasks.length === 0 && session.steps.length === 0) return null;
+	return (
+		<div class="detail">
+			<TaskList tasks={session.tasks} />
+			<RecentSteps steps={session.steps} now={props.now} />
+		</div>
+	);
+}
+
 const shownArtifacts = 2;
 
 export function ArtifactLink(props: { artifact: Artifact }) {
@@ -172,6 +263,7 @@ export function SessionCard(props: {
 	session: Session;
 	workflows: readonly Workflow[];
 	now: number;
+	detail: Detail;
 	emphasis: Emphasis;
 	onOpen: (id: string, origin: DOMRect) => void;
 	corner?: ComponentChildren;
@@ -221,6 +313,9 @@ export function SessionCard(props: {
 						<div class="needs" title={session.needs}>
 							{session.needs}
 						</div>
+					)}
+					{props.detail === "near" && (
+						<NearDetail session={session} now={props.now} />
 					)}
 				</div>
 				<div class="foot">

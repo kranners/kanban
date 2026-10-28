@@ -44,6 +44,8 @@ function session(id: string, startedAt: number): Session {
 		attachable: true,
 		cmux: false,
 		artifacts: [],
+		tasks: [],
+		steps: [],
 	};
 }
 

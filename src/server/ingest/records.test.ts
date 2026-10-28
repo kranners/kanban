@@ -4,6 +4,7 @@ import {
 	applyRecord,
 	createFacts,
 	type PeerRef,
+	stepLimit,
 	summariseTool,
 } from "./records.ts";
 
@@ -482,5 +483,107 @@ describe("artifacts", () => {
 			),
 		);
 		assert.equal(facts.artifacts.size, 0);
+	});
+});
+
+describe("tasks", () => {
+	test("tracks the task list through TaskCreate and TaskUpdate", () => {
+		const facts = apply(
+			toolUse("c1", "TaskCreate", {
+				subject: "Write the parser",
+				description: "x",
+				activeForm: "Writing the parser",
+			}),
+			toolResult("c1", { task: { id: "1", subject: "Write the parser" } }),
+			toolUse("c2", "TaskCreate", { subject: "Ship it", description: "y" }),
+			toolResult("c2", { task: { id: "2", subject: "Ship it" } }),
+			toolUse("u1", "TaskUpdate", { taskId: "1", status: "completed" }),
+			toolResult("u1", { success: true, taskId: "1" }),
+			toolUse("u2", "TaskUpdate", { taskId: "2", status: "in_progress" }),
+			toolResult("u2", { success: true, taskId: "2" }),
+		);
+		assert.deepEqual(
+			[...facts.tasks.values()],
+			[
+				{
+					id: "1",
+					subject: "Write the parser",
+					status: "completed",
+					activeForm: "Writing the parser",
+				},
+				{
+					id: "2",
+					subject: "Ship it",
+					status: "in_progress",
+					activeForm: null,
+				},
+			],
+		);
+	});
+
+	test("drops deleted tasks and ignores failed updates", () => {
+		const facts = apply(
+			toolUse("c1", "TaskCreate", { subject: "Keep" }),
+			toolResult("c1", { task: { id: "1" } }),
+			toolUse("c2", "TaskCreate", { subject: "Drop" }),
+			toolResult("c2", { task: { id: "2" } }),
+			toolUse("u1", "TaskUpdate", { taskId: "2", status: "deleted" }),
+			toolResult("u1", { success: true }),
+			toolUse("u2", "TaskUpdate", { taskId: "1", status: "completed" }),
+			toolResult("u2", { success: false }),
+		);
+		assert.deepEqual(
+			[...facts.tasks.values()].map((task) => [task.subject, task.status]),
+			[["Keep", "pending"]],
+		);
+	});
+
+	test("replaces the list on every TodoWrite", () => {
+		const facts = apply(
+			toolUse("t1", "TodoWrite", {
+				todos: [{ content: "Old", status: "pending", activeForm: "Olding" }],
+			}),
+			toolUse("t2", "TodoWrite", {
+				todos: [
+					{ content: "Read", status: "completed", activeForm: "Reading" },
+					{ content: "Write", status: "in_progress", activeForm: "Writing" },
+				],
+			}),
+		);
+		assert.deepEqual(
+			[...facts.tasks.values()].map((task) => [
+				task.subject,
+				task.status,
+				task.activeForm,
+			]),
+			[
+				["Read", "completed", "Reading"],
+				["Write", "in_progress", "Writing"],
+			],
+		);
+	});
+});
+
+describe("steps", () => {
+	test("keeps the latest steps with their times", () => {
+		const facts = createFacts();
+		for (let i = 0; i < stepLimit + 2; i++) {
+			applyRecord(
+				facts,
+				{
+					sessionId,
+					timestamp: new Date(Date.UTC(2026, 9, 24, 10, i)).toISOString(),
+					...toolUse(`b${i}`, "Bash", { description: `step ${i}` }),
+				},
+				resolve,
+			);
+		}
+		assert.equal(facts.steps.length, stepLimit);
+		assert.equal(facts.steps[0]?.text, "Bash: step 2");
+		assert.equal(facts.steps.at(-1)?.text, `Bash: step ${stepLimit + 1}`);
+		assert.equal(
+			facts.steps.at(-1)?.at,
+			Date.UTC(2026, 9, 24, 10, stepLimit + 1),
+		);
 	});
 });

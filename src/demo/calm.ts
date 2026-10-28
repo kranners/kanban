@@ -28,6 +28,41 @@ function world(start: number): World {
 			activity: "working",
 			doing: "Running npm test -- --filter auth",
 			updatedAt: start - 20_000,
+			tasks: [
+				{
+					id: "1",
+					subject: "Find where sessions are stored",
+					status: "completed",
+					activeForm: null,
+				},
+				{
+					id: "2",
+					subject: "Add an expiry sweep",
+					status: "completed",
+					activeForm: null,
+				},
+				{
+					id: "3",
+					subject: "Test the sweep",
+					status: "in_progress",
+					activeForm: "Testing the sweep",
+				},
+				{
+					id: "4",
+					subject: "Open a pull request",
+					status: "pending",
+					activeForm: null,
+				},
+			],
+			steps: [
+				{ at: start - 6 * minute, text: "Read: src/auth/sessions.ts" },
+				{ at: start - 4 * minute, text: "Edit: src/auth/sweep.ts" },
+				{
+					at: start - 2 * minute,
+					text: "The sweep runs hourly; testing it now.",
+				},
+				{ at: start - 20_000, text: "Bash: npm test -- --filter auth" },
+			],
 		}),
 		session(start, {
 			id: "b2e1d3c4f6",

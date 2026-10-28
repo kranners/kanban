@@ -8,16 +8,6 @@ import {
 } from "lucide-preact";
 import type { Activity } from "../shared/types.ts";
 
-export const activityOrder: Activity[] = [
-	"needs-you",
-	"working",
-	"watching",
-	"idle",
-	"done",
-	"failed",
-	"stopped",
-];
-
 export const activityLabel: Record<Activity, string> = {
 	working: "Working",
 	"needs-you": "Needs you",

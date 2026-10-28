@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
 	centredOn,
+	detailAt,
+	farZoom,
 	fitPadding,
 	fitView,
 	fromOrigin,
@@ -9,6 +11,7 @@ import {
 	legibleZoom,
 	maxZoom,
 	minZoom,
+	nearZoom,
 	toBoard,
 	toScreen,
 	zoomAround,
@@ -106,4 +109,16 @@ test("centring on a card zooms in to a legible size but never out", () => {
 		legibleZoom,
 	);
 	assert.equal(centredOn(card, { width: 1000, height: 800 }, 1.5).k, 1.5);
+});
+
+test("zoom picks far, medium or near detail", () => {
+	assert.equal(detailAt(minZoom), "far");
+	assert.equal(detailAt(farZoom), "medium");
+	assert.equal(detailAt(1), "medium");
+	assert.equal(detailAt(nearZoom), "near");
+	assert.equal(detailAt(maxZoom), "near");
+});
+
+test("centring from far out lands on the medium cards", () => {
+	assert.equal(detailAt(legibleZoom), "medium");
 });

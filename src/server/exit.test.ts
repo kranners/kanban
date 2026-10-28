@@ -28,6 +28,8 @@ const background: Session = {
 	attachable: true,
 	cmux: false,
 	artifacts: [],
+	tasks: [],
+	steps: [],
 };
 
 const interactive: Session = {

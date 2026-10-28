@@ -11,7 +11,7 @@ import { withoutSessions } from "./actions.ts";
 import { ordered } from "./annotations.ts";
 import { arrangement, groups } from "./arrangement.ts";
 import { arrived, beckoned } from "./attentionState.ts";
-import { Canvas } from "./Canvas.tsx";
+import { Canvas, detail } from "./Canvas.tsx";
 import { SessionCard, SubagentCard } from "./Card.tsx";
 import {
 	CommentLayer,
@@ -42,6 +42,7 @@ import { RegionFrames, RegionLayer } from "./Regions.tsx";
 import { ReportButton, ReportNotice } from "./ReportControls.tsx";
 import { reports } from "./reports.ts";
 import { BoardMenu, SpawnLayer, useBoardGestures } from "./Spawning.tsx";
+import { Summaries } from "./Summaries.tsx";
 import {
 	awaitingShort,
 	board,
@@ -65,6 +66,7 @@ import {
 	isWorkingAgent,
 	sessionsWithWorkingSubagents,
 } from "./subagentCounts.ts";
+import { sessionsOnly, summariesOf } from "./summaries.ts";
 import { TopBar } from "./TopBar.tsx";
 
 function visibility(): (key: NodeKey) => boolean {
@@ -123,6 +125,8 @@ function sessionCards(
 }
 
 function World(props: { board: Board; layout: Arrangement }) {
+	const level = detail.value;
+	const edges = level === "far" ? sessionsOnly(props.board) : props.board;
 	const visible = visibility();
 	const lit = litNodes(props.board);
 	const t = now.value;
@@ -150,6 +154,7 @@ function World(props: { board: Board; layout: Arrangement }) {
 				(workflow) => workflow.sessionId === session.id,
 			)}
 			now={t}
+			detail={level}
 			emphasis={{
 				dimmed: !visible(node.key),
 				lit: lit.nodes.has(node.key),
@@ -187,11 +192,12 @@ function World(props: { board: Board; layout: Arrangement }) {
 				notes={ordered.value}
 				regions={regionFrames}
 			/>
-			<Links board={props.board} layout={props.layout} visible={visible} />
-			{sessionCards(props.board, props.layout).map(({ session, node }) =>
-				card(session, node, exiting.get(session.id)),
-			)}
-			{props.board.subagents.map((subagent) => {
+			<Links board={edges} layout={props.layout} visible={visible} />
+			{level !== "far" &&
+				sessionCards(props.board, props.layout).map(({ session, node }) =>
+					card(session, node, exiting.get(session.id)),
+				)}
+			{edges.subagents.map((subagent) => {
 				const node = props.layout.nodes.get(
 					nodeKey({ kind: "subagent", id: subagent.id }),
 				);
@@ -212,12 +218,23 @@ function World(props: { board: Board; layout: Arrangement }) {
 				);
 			})}
 			<Arcs
-				board={props.board}
+				board={edges}
 				layout={props.layout}
 				now={t}
 				litPair={lit.pair}
 				visible={visible}
 			/>
+			{level === "far" && (
+				<Summaries
+					summaries={summariesOf(
+						frames,
+						props.board.sessions,
+						props.layout.nodes,
+					)}
+					board={props.board}
+					visible={visible}
+				/>
+			)}
 			<RegionNotices groups={frames} />
 			<CommentLayer />
 		</>

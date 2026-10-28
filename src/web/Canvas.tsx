@@ -1,4 +1,4 @@
-import { signal } from "@preact/signals";
+import { computed, signal } from "@preact/signals";
 import { Maximize, Minus, Plus } from "lucide-preact";
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
@@ -11,6 +11,7 @@ import { maxSessionSize, minSessionSize } from "./placement.ts";
 import type { Span, View } from "./viewport.ts";
 import {
 	centredOn,
+	detailAt,
 	fitPadding,
 	fitView,
 	fromOrigin,
@@ -21,6 +22,7 @@ import {
 } from "./viewport.ts";
 
 export const view = signal<View>({ x: 0, y: 0, k: 1 });
+export const detail = computed(() => detailAt(view.value.k));
 
 const dragThreshold = 4;
 const touchHoldMs = 350;
@@ -34,7 +36,6 @@ export function boardPointAt(clientX: number, clientY: number): Point | null {
 }
 
 export const glideMs = 360;
-const farZoom = 0.45;
 
 export function centreOn(rect: Rect): void {
 	const world = stage?.querySelector<HTMLElement>(".world");
@@ -416,9 +417,10 @@ export function Canvas(props: {
 		>
 			<div
 				class="world"
-				data-far={v.k < farZoom ? "" : undefined}
+				data-detail={detail.value}
 				style={{
 					transform: `translate(${v.x}px, ${v.y}px) scale(${v.k})`,
+					"--zoom": v.k,
 					"--unzoom": Math.max(1, 1 / v.k),
 				}}
 			>

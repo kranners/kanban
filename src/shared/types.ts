@@ -12,7 +12,28 @@ export type Activity =
 	| "failed"
 	| "stopped";
 
+export const activityOrder: readonly Activity[] = [
+	"needs-you",
+	"working",
+	"watching",
+	"idle",
+	"done",
+	"failed",
+	"stopped",
+];
+
 export type Artifact = { url: string; title: string; at: number };
+
+export type TaskStatus = "pending" | "in_progress" | "completed";
+
+export type Task = {
+	id: string;
+	subject: string;
+	status: TaskStatus;
+	activeForm: string | null;
+};
+
+export type Step = { at: number; text: string };
 
 export type Session = {
 	id: string;
@@ -31,6 +52,8 @@ export type Session = {
 	attachable: boolean;
 	cmux: boolean;
 	artifacts: Artifact[];
+	tasks: Task[];
+	steps: Step[];
 };
 
 export type Subagent = {

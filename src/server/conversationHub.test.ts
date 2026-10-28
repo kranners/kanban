@@ -45,6 +45,8 @@ const session = (changes: Partial<Session> = {}): Session => ({
 	attachable: false,
 	cmux: true,
 	artifacts: [],
+	tasks: [],
+	steps: [],
 	...changes,
 });
 
@@ -715,6 +717,8 @@ describe("conversation rules", () => {
 					short: "abcd1234",
 					cmux: false,
 					artifacts: [],
+					tasks: [],
+					steps: [],
 				}),
 			),
 			{ mode: "drive", via: "attach" },

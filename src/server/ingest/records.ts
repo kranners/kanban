@@ -1,4 +1,10 @@
-import type { Artifact, TranscriptEntry } from "../../shared/types.ts";
+import type {
+	Artifact,
+	Step,
+	Task,
+	TaskStatus,
+	TranscriptEntry,
+} from "../../shared/types.ts";
 import { publishedArtifact } from "../artifacts.ts";
 import {
 	asNumber,
@@ -52,11 +58,14 @@ export type TranscriptFacts = {
 	workflowRuns: Map<string, string>;
 	workflowNames: Map<string, string>;
 	artifacts: Map<string, Artifact>;
+	tasks: Map<string, Task>;
+	steps: Step[];
 	entries: TranscriptEntry[];
 };
 
 export const entryLimit = 2000;
 const handbackLimit = 200;
+export const stepLimit = 6;
 const summaryLength = 80;
 const entryTextLength = 4000;
 const backgroundedPattern = /backgrounded · ([0-9a-f]{8})/g;
@@ -79,6 +88,8 @@ export function createFacts(): TranscriptFacts {
 		workflowRuns: new Map(),
 		workflowNames: new Map(),
 		artifacts: new Map(),
+		tasks: new Map(),
+		steps: [],
 		entries: [],
 	};
 }
@@ -174,15 +185,16 @@ function applyAssistant(facts: TranscriptFacts, record: Json, at: number) {
 		if (block.type === "text") {
 			const text = asString(block.text)?.trim() ?? "";
 			if (text === "") continue;
-			facts.doing = truncate(lastLine(text), summaryLength);
+			setDoing(facts, truncate(lastLine(text), summaryLength), at);
 			pushEntry(facts, { at, role: "assistant", text });
 		} else if (block.type === "tool_use") {
 			const name = asString(block.name) ?? "tool";
 			const input = asObject(block.input) ?? {};
 			const id = asString(block.id);
 			if (id) facts.tools.set(id, { name, input });
+			if (name === "TodoWrite") replaceTodos(facts, input.todos);
 			const summary = summariseTool(name, input);
-			facts.doing = summary;
+			setDoing(facts, summary, at);
 			pushEntry(facts, { at, role: "tool", text: summary });
 		}
 	}
@@ -240,6 +252,18 @@ function applyToolResults(
 				summary: messageSummary(tool.input),
 				to: address ? resolve(peerRefFromAddress(address)) : null,
 			});
+		} else if (tool.name === "TaskCreate") {
+			const taskId = asString(asObject(result.task)?.id);
+			const subject = asString(tool.input.subject);
+			if (taskId && subject)
+				facts.tasks.set(taskId, {
+					id: taskId,
+					subject: truncate(subject, summaryLength),
+					status: "pending",
+					activeForm: activeFormOf(tool.input),
+				});
+		} else if (tool.name === "TaskUpdate") {
+			if (result.success !== false) updateTask(facts, tool.input);
 		} else if (tool.name === "TaskStop") {
 			const taskId = asString(result.task_id);
 			if (taskId) endTask(facts, taskId, at);
@@ -365,6 +389,63 @@ function endTask(facts: TranscriptFacts, taskId: string, at: number) {
 	if (shell && shell.endedAt === null) shell.endedAt = at;
 	const runId = facts.workflowRuns.get(taskId);
 	if (runId) facts.finishedTasks.add(runId);
+}
+
+function setDoing(facts: TranscriptFacts, text: string, at: number) {
+	facts.doing = text;
+	facts.steps.push({ at, text });
+	if (facts.steps.length > stepLimit) facts.steps.shift();
+}
+
+const taskStatuses: readonly string[] = [
+	"pending",
+	"in_progress",
+	"completed",
+] satisfies TaskStatus[];
+
+function taskStatusOf(value: unknown): TaskStatus | null {
+	return typeof value === "string" && taskStatuses.includes(value)
+		? (value as TaskStatus)
+		: null;
+}
+
+function activeFormOf(input: Json): string | null {
+	const activeForm = asString(input.activeForm)?.trim();
+	return activeForm ? truncate(activeForm, summaryLength) : null;
+}
+
+function updateTask(facts: TranscriptFacts, input: Json) {
+	const taskId = asString(input.taskId);
+	const task = taskId ? facts.tasks.get(taskId) : undefined;
+	if (!taskId || !task) return;
+	if (input.status === "deleted") {
+		facts.tasks.delete(taskId);
+		return;
+	}
+	const subject = asString(input.subject)?.trim();
+	facts.tasks.set(taskId, {
+		...task,
+		status: taskStatusOf(input.status) ?? task.status,
+		subject: subject ? truncate(subject, summaryLength) : task.subject,
+		activeForm: activeFormOf(input) ?? task.activeForm,
+	});
+}
+
+function replaceTodos(facts: TranscriptFacts, todos: unknown) {
+	if (!Array.isArray(todos)) return;
+	facts.tasks.clear();
+	for (const [index, item] of todos.entries()) {
+		const todo = asObject(item);
+		const content = asString(todo?.content)?.trim();
+		if (!todo || !content) continue;
+		const id = String(index + 1);
+		facts.tasks.set(id, {
+			id,
+			subject: truncate(content, summaryLength),
+			status: taskStatusOf(todo.status) ?? "pending",
+			activeForm: activeFormOf(todo),
+		});
+	}
 }
 
 function isToolResult(item: unknown): boolean {
