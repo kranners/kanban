@@ -190,17 +190,13 @@
 	white-space: nowrap;
 	pointer-events: none;
 	transform-origin: 100% 0;
-	scale: min(var(--unzoom), 3);
+	scale: var(--unzoom);
 	transition: translate calc(180ms * var(--motion))
 		cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 .node.session:has(> .ribbon) .goal:first-child {
-	padding-top: max(12px, calc(22px * min(var(--unzoom), 3) - 14px));
-}
-
-.world[data-detail="far"] .node.session:has(> .ribbon) .goal:first-child {
-	padding-top: calc(22px * var(--unzoom) - 14px);
+	padding-top: max(12px, calc(22px * var(--unzoom) - 14px));
 }
 
 .ribbon.act-needs-you {
@@ -284,36 +280,18 @@
 }
 
 .node.session:has(> .ribbon) .workflows {
-	padding-top: max(10px, calc(22px * min(var(--unzoom), 3) - 6px));
-}
-
-.world[data-detail="far"] .node.session:has(> .ribbon) .workflows {
-	padding-top: calc(22px * var(--unzoom) - 6px);
+	padding-top: max(10px, calc(22px * var(--unzoom) - 6px));
 }
 
 .ribbon:is(.act-done, .act-idle) .ribbon-text {
 	display: none;
 }
 
-.world[data-detail="far"] .ribbon {
-	padding: 0 4px;
-	scale: var(--unzoom);
-}
-
-.world[data-detail="far"] .ribbon .ribbon-text {
-	display: none;
-}
-
-.world:not([data-detail="far"])
-	.node:is(:hover, :focus-within)
-	.ribbon:is(.act-done, .act-idle) {
+.node:is(:hover, :focus-within) .ribbon:is(.act-done, .act-idle) {
 	padding: 0 8px 0 6px;
 }
 
-.world:not([data-detail="far"])
-	.node:is(:hover, :focus-within)
-	.ribbon:is(.act-done, .act-idle)
-	.ribbon-text {
+.node:is(:hover, :focus-within) .ribbon:is(.act-done, .act-idle) .ribbon-text {
 	display: inline;
 }
 

@@ -1,4 +1,4 @@
-.world[data-detail="near"] .node.session .goal {
+.world[data-detail="near"] .node.session .body:has(> .detail) .goal {
 	flex: none;
 	padding-bottom: 6px;
 	font-size: 17px;

@@ -255,13 +255,15 @@ function applyToolResults(
 		} else if (tool.name === "TaskCreate") {
 			const taskId = asString(asObject(result.task)?.id);
 			const subject = asString(tool.input.subject);
-			if (taskId && subject)
+			if (taskId && subject) {
+				if (allCompleted(facts.tasks)) facts.tasks.clear();
 				facts.tasks.set(taskId, {
 					id: taskId,
 					subject: truncate(subject, summaryLength),
 					status: "pending",
 					activeForm: activeFormOf(tool.input),
 				});
+			}
 		} else if (tool.name === "TaskUpdate") {
 			if (result.success !== false) updateTask(facts, tool.input);
 		} else if (tool.name === "TaskStop") {
@@ -412,6 +414,10 @@ function taskStatusOf(value: unknown): TaskStatus | null {
 function activeFormOf(input: Json): string | null {
 	const activeForm = asString(input.activeForm)?.trim();
 	return activeForm ? truncate(activeForm, summaryLength) : null;
+}
+
+function allCompleted(tasks: Map<string, Task>): boolean {
+	return [...tasks.values()].every((task) => task.status === "completed");
 }
 
 function updateTask(facts: TranscriptFacts, input: Json) {

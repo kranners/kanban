@@ -538,6 +538,23 @@ describe("tasks", () => {
 		);
 	});
 
+	test("starts a fresh list once every earlier task is completed", () => {
+		const facts = apply(
+			toolUse("c1", "TaskCreate", { subject: "Old plan" }),
+			toolResult("c1", { task: { id: "1" } }),
+			toolUse("u1", "TaskUpdate", { taskId: "1", status: "completed" }),
+			toolResult("u1", { success: true }),
+			toolUse("c2", "TaskCreate", { subject: "New plan" }),
+			toolResult("c2", { task: { id: "2" } }),
+			toolUse("c3", "TaskCreate", { subject: "Next step" }),
+			toolResult("c3", { task: { id: "3" } }),
+		);
+		assert.deepEqual(
+			[...facts.tasks.values()].map((task) => task.subject),
+			["New plan", "Next step"],
+		);
+	});
+
 	test("replaces the list on every TodoWrite", () => {
 		const facts = apply(
 			toolUse("t1", "TodoWrite", {

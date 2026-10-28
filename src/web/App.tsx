@@ -28,7 +28,7 @@ import {
 	exitStateClass,
 } from "./ExitControls.tsx";
 import type { ExitState } from "./exitState.ts";
-import { departed, exits } from "./exitState.ts";
+import { departed, departing, exits } from "./exitState.ts";
 import { Focus } from "./focus/Focus.tsx";
 import { NewSession } from "./focus/NewSession.tsx";
 import { GroupFrames, RegionMenu } from "./Groups.tsx";
@@ -228,7 +228,7 @@ function World(props: { board: Board; layout: Arrangement }) {
 				<Summaries
 					summaries={summariesOf(
 						frames,
-						props.board.sessions,
+						props.board.sessions.filter((s) => !departing.value.has(s.id)),
 						props.layout.nodes,
 					)}
 					board={props.board}

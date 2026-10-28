@@ -4,10 +4,13 @@ import type { Board, Session } from "../shared/types.ts";
 import { ActivityIcon, activityLabel } from "./activity.tsx";
 import { centreOn } from "./Canvas.tsx";
 import { colourOf } from "./colours.ts";
+import { exits } from "./exitState.ts";
 import type { NodeKey } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import { plainText } from "./markdown.ts";
 import { groupLabelSpace } from "./placement.ts";
+import { frontGroup } from "./regionState.ts";
+import { reports } from "./reports.ts";
 import { openSession } from "./state.ts";
 import type { Summary } from "./summaries.ts";
 import { activityCounts } from "./summaries.ts";
@@ -20,10 +23,21 @@ function taskProgress(session: Session): string | null {
 	return `${done}/${session.tasks.length}`;
 }
 
+function noticeOf(session: Session): string | null {
+	const exit = exits.value.get(session.id);
+	if (exit?.phase === "checking")
+		return exit.force ? "Exiting…" : "Asking whether it's safe to exit…";
+	if (exit?.phase === "refused") return `${exit.title}: ${exit.message}`;
+	const report = reports.value.get(session.id);
+	if (report?.phase === "failed")
+		return `Couldn't get a status report: ${report.error}`;
+	return session.activity === "needs-you" ? session.needs : null;
+}
+
 function SummaryRow(props: { session: Session; dimmed: boolean }) {
 	const { session } = props;
 	const progress = taskProgress(session);
-	const needs = session.activity === "needs-you" ? session.needs : null;
+	const notice = noticeOf(session);
 	return (
 		<li>
 			<button
@@ -39,7 +53,7 @@ function SummaryRow(props: { session: Session; dimmed: boolean }) {
 					<span class="summary-goal">
 						{session.goal ? plainText(session.goal) : session.name}
 					</span>
-					{needs && <span class="summary-needs">{needs}</span>}
+					{notice && <span class="summary-notice">{notice}</span>}
 				</span>
 				{progress && <span class="summary-progress num">{progress}</span>}
 			</button>
@@ -47,7 +61,7 @@ function SummaryRow(props: { session: Session; dimmed: boolean }) {
 	);
 }
 
-function agentsRunning(board: Board, sessions: readonly Session[]): number {
+function outstandingAgents(board: Board, sessions: readonly Session[]): number {
 	return sessions.reduce((total, session) => {
 		const counts = board.subagentCounts[session.id];
 		return total + (counts ? outstandingSubagents(counts) : 0);
@@ -62,7 +76,7 @@ function ProjectSummary(props: {
 	const { summary } = props;
 	const edge = summary.framed ? frameEdge : 0;
 	const top = summary.framed ? groupLabelSpace : 0;
-	const agents = agentsRunning(props.board, summary.sessions);
+	const agents = outstandingAgents(props.board, summary.sessions);
 	return (
 		<div
 			class={`summary region region-${colourOf(summary.cwd)}${summary.framed ? "" : " alone"}`}
@@ -116,6 +130,16 @@ function ProjectSummary(props: {
 	);
 }
 
+function frontLast(
+	summaries: readonly Summary[],
+	front: string | null,
+): Summary[] {
+	return [
+		...summaries.filter((summary) => summary.key !== front),
+		...summaries.filter((summary) => summary.key === front),
+	];
+}
+
 export function Summaries(props: {
 	summaries: readonly Summary[];
 	board: Board;
@@ -123,7 +147,7 @@ export function Summaries(props: {
 }) {
 	return (
 		<>
-			{props.summaries.map((summary) => (
+			{frontLast(props.summaries, frontGroup.value).map((summary) => (
 				<ProjectSummary
 					key={summary.key}
 					summary={summary}
