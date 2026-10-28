@@ -1,5 +1,16 @@
-import { Moon, Plus, RotateCw, Search, Sun, SunMoon } from "lucide-preact";
+import {
+	LoaderCircle,
+	Moon,
+	Plus,
+	RotateCw,
+	Search,
+	Sun,
+	SunMoon,
+	WandSparkles,
+} from "lucide-preact";
+import { useState } from "preact/hooks";
 import { ActivityIcon, activityLabel, activityOrder } from "./activity.tsx";
+import { tidyBoard, tidying } from "./Comments.tsx";
 import { Mark } from "./Mark.tsx";
 import { NextNeedingYou } from "./NeedsYou.tsx";
 import { SubagentPill } from "./SubagentPill.tsx";
@@ -20,6 +31,31 @@ const themeName = {
 	light: "Light theme",
 	dark: "Dark theme",
 };
+
+function TidyButton() {
+	const [error, setError] = useState<string | null>(null);
+	const busy = tidying.value;
+	const label = busy ? "Tidying the board" : "Tidy the board";
+	return (
+		<button
+			type="button"
+			class="icon-button"
+			disabled={busy}
+			onClick={async () => {
+				const started = await tidyBoard();
+				setError(started.ok ? null : started.error);
+			}}
+			aria-label={label}
+			title={error ?? `${label} with the board agent`}
+		>
+			{busy ? (
+				<LoaderCircle size={16} class="spin" />
+			) : (
+				<WandSparkles size={16} />
+			)}
+		</button>
+	);
+}
 
 export function TopBar() {
 	const ThemeIcon = themeIcon[theme.value];
@@ -82,6 +118,7 @@ export function TopBar() {
 						aria-label="Search sessions"
 					/>
 				</label>
+				<TidyButton />
 				<button
 					type="button"
 					class="icon-button"

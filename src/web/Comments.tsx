@@ -1,4 +1,5 @@
 import "./comments.css";
+import { computed } from "@preact/signals";
 import {
 	ArrowUp,
 	Bot,
@@ -544,6 +545,22 @@ export function CommentOverlays(): JSX.Element {
 			<ThreadMenu />
 		</>
 	);
+}
+
+export const tidyPrompt =
+	"Tidy up the board: group the sessions into project regions by directory, lay out each region's cards in a neat grid, and keep notes and stickers beside what they are about.";
+
+export const tidying = computed(() =>
+	pinned.value.some(
+		(thread) => thread.running && threadTitle(thread) === tidyPrompt,
+	),
+);
+
+export function tidyBoard() {
+	const at = centreTarget();
+	if (!at)
+		return Promise.resolve({ ok: false, error: "The board isn't shown" });
+	return startThread(at.board, tidyPrompt);
 }
 
 function centreTarget() {
