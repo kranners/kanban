@@ -5,6 +5,7 @@ import { join, relative } from "node:path";
 import { describe, it } from "node:test";
 import { maxImageBytes, maxPromptImages } from "../shared/promptImages.ts";
 import {
+	claudeLauncher,
 	launchArgs,
 	launchResult,
 	parseBackgrounded,
@@ -158,5 +159,12 @@ describe("prompt images", () => {
 		} finally {
 			await rm(dir, { recursive: true });
 		}
+	});
+
+	it("reports images it can't save instead of launching", async () => {
+		const launch = claudeLauncher("/bin/false", import.meta.filename);
+		const result = await launch({ ...valid, images: [png] });
+		assert.equal(result.ok, false);
+		assert.match(result.ok ? "" : result.error, /Couldn't save the images/);
 	});
 });

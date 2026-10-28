@@ -11,7 +11,6 @@ import {
 } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import { maxPromptImages } from "../shared/promptImages.ts";
 import type { Point, PromptImage } from "../shared/types.ts";
 import { cycle, isQuickPromptKey } from "./actions.ts";
 import { addNote, annotationMenu, stickerPicker } from "./annotations.ts";
@@ -33,6 +32,9 @@ import {
 } from "./state.ts";
 
 let pointer: { x: number; y: number } | null = null;
+
+const carriesFiles = (event: DragEvent) =>
+	event.dataTransfer?.types.includes("Files") ?? false;
 
 export function isTyping(target: EventTarget | null): boolean {
 	return (
@@ -245,6 +247,8 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 	const input = useRef<HTMLTextAreaElement>(null);
 	const [prompt, setPrompt] = useState("");
 	const [images, setImages] = useState<PromptImage[]>([]);
+	const held = useRef<PromptImage[]>([]);
+	const reading = useRef(Promise.resolve());
 	const [dropping, setDropping] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -254,6 +258,15 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 
 	useEffect(() => {
 		input.current?.focus({ preventScroll: true });
+		const keepBoardOnMissedDrop = (event: DragEvent) => {
+			if (carriesFiles(event)) event.preventDefault();
+		};
+		addEventListener("dragover", keepBoardOnMissedDrop);
+		addEventListener("drop", keepBoardOnMissedDrop);
+		return () => {
+			removeEventListener("dragover", keepBoardOnMissedDrop);
+			removeEventListener("drop", keepBoardOnMissedDrop);
+		};
 	}, []);
 
 	useLayoutEffect(() => {
@@ -267,12 +280,19 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 		if (!busy) quickPrompt.value = null;
 	};
 
-	const addImages = async (files: File[]) => {
-		const { accepted, error } = admit(images.length, files);
-		setError(error);
-		const read = await readImages(accepted).catch(() => null);
-		if (!read) return setError("Couldn't read that image");
-		setImages((held) => [...held, ...read].slice(0, maxPromptImages));
+	const keepImages = (next: PromptImage[]) => {
+		held.current = next;
+		setImages(next);
+	};
+
+	const addImages = (files: File[]) => {
+		reading.current = reading.current.then(async () => {
+			const { accepted, error } = admit(held.current.length, files);
+			setError(error);
+			const read = await readImages(accepted).catch(() => null);
+			if (read) keepImages([...held.current, ...read]);
+			else setError("Couldn't read that image");
+		});
 	};
 
 	const submit = async () => {
@@ -280,7 +300,8 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 		if (!text || busy) return;
 		setBusy(true);
 		setError(null);
-		const failure = await spawnFromPrompt(text, images);
+		await reading.current;
+		const failure = await spawnFromPrompt(text, held.current);
 		setBusy(false);
 		if (failure) {
 			setError(failure);
@@ -303,9 +324,6 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 		}
 	};
 
-	const carriesFiles = (event: DragEvent) =>
-		event.dataTransfer?.types.includes("Files") ?? false;
-
 	const onDragOver = (event: DragEvent) => {
 		if (!carriesFiles(event) || busy) return;
 		event.preventDefault();
@@ -316,15 +334,16 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 		if (!carriesFiles(event)) return;
 		event.preventDefault();
 		setDropping(false);
-		if (!busy) void addImages(imageFiles(event.dataTransfer?.files));
+		if (!busy) addImages(imageFiles(event.dataTransfer?.files));
 		input.current?.focus();
 	};
 
 	const onPaste = (event: ClipboardEvent) => {
-		const files = imageFiles(event.clipboardData?.files);
-		if (files.length === 0) return;
+		const clipboard = event.clipboardData;
+		const files = imageFiles(clipboard?.files);
+		if (files.length === 0 || clipboard?.types.includes("text/plain")) return;
 		event.preventDefault();
-		void addImages(files);
+		addImages(files);
 	};
 
 	const closeIfEmpty = (event: FocusEvent) => {
@@ -343,6 +362,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 			style={{
 				transform: `translate(${open.at.x}px, ${open.at.y}px) scale(${legible})`,
 				width: `min(${sessionSize.w}px, calc((100vw - 32px) / ${legible * k}))`,
+				"--prompt-scale": legible * k,
 			}}
 			onDragOver={onDragOver}
 			onDragLeave={(event) => {
@@ -357,6 +377,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 				<textarea
 					ref={input}
 					rows={1}
+					data-scrollable
 					value={prompt}
 					onInput={(event) => setPrompt(event.currentTarget.value)}
 					onKeyDown={onKeyDown}
@@ -381,7 +402,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 									aria-label={`Remove image ${at + 1}`}
 									disabled={busy}
 									onClick={() => {
-										setImages((held) => held.filter((_, i) => i !== at));
+										keepImages(held.current.filter((_, i) => i !== at));
 										input.current?.focus();
 									}}
 								>

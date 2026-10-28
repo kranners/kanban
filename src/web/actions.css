@@ -347,7 +347,7 @@
 .quick-prompt-field textarea {
 	flex: 1;
 	min-width: 0;
-	max-height: 50vh;
+	max-height: calc(50vh / var(--prompt-scale, 1));
 	padding: 11px 0;
 	border: 0;
 	outline: none;

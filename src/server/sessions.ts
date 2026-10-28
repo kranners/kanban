@@ -159,9 +159,12 @@ export const launchArgs = (
 export const claudeLauncher =
 	(claudeBin: string, imagesDir: string): SessionLauncher =>
 	async (request) => {
-		const saved = request.images
-			? await saveImages(imagesDir, request.images)
-			: null;
+		let saved: SavedImages | null = null;
+		try {
+			if (request.images) saved = await saveImages(imagesDir, request.images);
+		} catch (error) {
+			return { ok: false, error: `Couldn't save the images (${error})` };
+		}
 		return new Promise((resolve) => {
 			execFile(
 				claudeBin,
