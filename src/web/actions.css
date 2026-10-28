@@ -415,29 +415,6 @@
 	color: var(--muted);
 }
 
-.cwd-chip {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	max-width: 50%;
-	height: 20px;
-	padding: 0 7px;
-	border: 1px solid var(--hairline);
-	border-radius: 999px;
-	background: var(--surface);
-	color: var(--ink);
-	font-family: var(--mono);
-	font-size: 11px;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-.cwd-chip svg {
-	flex: none;
-	color: var(--muted);
-}
-
 .quick-prompt-hint {
 	margin-left: auto;
 	white-space: nowrap;

@@ -520,34 +520,10 @@
 	font-weight: 400;
 }
 
-.focus-field input[list] {
-	font-family: var(--mono);
-	font-size: 13px;
-}
-
-.focus-field input[list]::-webkit-calendar-picker-indicator {
-	width: 0;
-	margin: 0;
-	padding: 0;
-	opacity: 0;
-}
-
 .focus-field textarea {
 	resize: vertical;
 	min-height: 96px;
 	line-height: 1.5;
-}
-
-.focus-field input[aria-invalid="true"] {
-	border-color: var(--red);
-}
-
-.focus-field-hint {
-	font-weight: 400;
-}
-
-.focus-field-hint-error {
-	color: var(--red);
 }
 
 .focus-form-error {

@@ -28,6 +28,7 @@ import {
 } from "./exit.ts";
 import { createFeed, type Feed } from "./feed.ts";
 import { listFiles } from "./files.ts";
+import { osascriptFolderPicker } from "./folders.ts";
 import { createKanbanServer } from "./http.ts";
 import { startBoard } from "./ingest/index.ts";
 import { createLayoutStore, loadLayout } from "./layout.ts";
@@ -270,6 +271,7 @@ const server = createKanbanServer({
 	files: (cwd, query) =>
 		listFiles({ cwd, query, claudeHome: config.claudeHome }),
 	commands: (cwd) => listCommands({ claudeHome: config.claudeHome, cwd }),
+	pickFolder: osascriptFolderPicker(),
 	feed,
 	audit,
 });

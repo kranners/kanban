@@ -39,10 +39,6 @@ export function directoryName(cwd: string): string {
 	return cwd.replace(/\/+$/, "").split("/").pop() ?? "";
 }
 
-export function isAbsoluteDirectory(cwd: string): boolean {
-	return cwd.trim().startsWith("/");
-}
-
 export function needsTrust(error: string): boolean {
 	return /trust/i.test(error);
 }

@@ -730,6 +730,15 @@ export function createBackend(scenario: Scenario): Backend {
 		["POST", /^\/api\/sessions$/, (_, body) => createSession(body)],
 		[
 			"POST",
+			/^\/api\/folder-picker$/,
+			() =>
+				json(200, {
+					ok: false,
+					error: "The demo can't open a folder picker; choose a recent project",
+				}),
+		],
+		[
+			"POST",
 			/^\/api\/sessions\/([^/]+)\/exit$/,
 			([id = ""], body) => exitSession(id, body),
 		],

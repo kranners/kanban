@@ -6,7 +6,7 @@ import type { JSX } from "preact";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
 import { groups } from "./arrangement.ts";
 import { colourOf } from "./colours.ts";
-import { isAbsoluteDirectory } from "./focus/paths.ts";
+import { FolderPicker } from "./FolderPicker.tsx";
 import {
 	belowLabel,
 	openRegionMenu,
@@ -106,7 +106,8 @@ function RegionDialogView(props: {
 }): JSX.Element {
 	const { open } = props;
 	const dialog = useRef<HTMLDialogElement>(null);
-	const first = useRef<HTMLInputElement>(null);
+	const folder = useRef<HTMLButtonElement>(null);
+	const nameInput = useRef<HTMLInputElement>(null);
 	const pressedBackdrop = useRef(false);
 	const id = useId();
 	const renaming = open.mode === "rename" ? open.region : null;
@@ -118,15 +119,15 @@ function RegionDialogView(props: {
 
 	useEffect(() => {
 		dialog.current?.showModal();
-		first.current?.focus();
-		first.current?.select();
+		folder.current?.focus();
+		nameInput.current?.focus();
+		nameInput.current?.select();
 	}, []);
 
 	const close = () => {
 		if (!busy) regionDialog.value = null;
 	};
-	const cwdInvalid = cwd !== "" && !isAbsoluteDirectory(cwd);
-	const ready = !busy && (renaming !== null || isAbsoluteDirectory(cwd));
+	const ready = !busy && (renaming !== null || cwd !== "");
 
 	const submit = async (event: Event) => {
 		event.preventDefault();
@@ -137,11 +138,11 @@ function RegionDialogView(props: {
 			? await renameRegion(renaming.id, name)
 			: open.mode === "create"
 				? await createRegion({
-						cwd: cwd.trim(),
+						cwd,
 						...(name.trim() ? { name: name.trim() } : {}),
 						...clearOfProjects(
 							storableRegion(newRegionAt(open.at)),
-							framesBesideNew(cwd.trim(), groups.peek()),
+							framesBesideNew(cwd, groups.peek()),
 						),
 					})
 				: null;
@@ -187,38 +188,25 @@ function RegionDialogView(props: {
 				</header>
 
 				{!renaming && (
-					<label class="focus-field">
-						<span>Directory</span>
-						<input
-							type="text"
-							ref={first}
-							list={`${id}-cwds`}
+					<div class="focus-field">
+						<span id={`${id}-folder`}>Folder</span>
+						<FolderPicker
+							variant="field"
 							value={cwd}
-							onInput={(event) => setCwd(event.currentTarget.value)}
-							placeholder="/Users/you/dev/project"
-							spellcheck={false}
-							autocomplete="off"
-							aria-invalid={cwdInvalid}
-							required
+							recent={knownCwds.value}
+							onPick={setCwd}
+							labelledBy={`${id}-folder`}
+							disabled={busy}
+							trigger={folder}
 						/>
-						<datalist id={`${id}-cwds`}>
-							{knownCwds.value.map((option) => (
-								<option key={option} value={option} />
-							))}
-						</datalist>
-						{cwdInvalid && (
-							<small class="focus-field-hint focus-field-hint-error">
-								Use an absolute path starting with /
-							</small>
-						)}
-					</label>
+					</div>
 				)}
 
 				<label class="focus-field">
 					<span>Name</span>
 					<input
 						type="text"
-						ref={renaming ? first : undefined}
+						ref={renaming ? nameInput : undefined}
 						value={name}
 						onInput={(event) => setName(event.currentTarget.value)}
 						placeholder="Optional; the directory's name otherwise"

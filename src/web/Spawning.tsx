@@ -1,7 +1,6 @@
 import "./actions.css";
 import {
 	CircleAlert,
-	Folder,
 	LoaderCircle,
 	Plus,
 	SquareDashed,
@@ -12,12 +11,12 @@ import {
 import type { JSX } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Point, PromptImage } from "../shared/types.ts";
-import { cycle, isQuickPromptKey } from "./actions.ts";
+import { cwdChoices, isQuickPromptKey } from "./actions.ts";
 import { addNote, annotationMenu, stickerPicker } from "./annotations.ts";
 import { boardPointAt, clientPointOf, view } from "./Canvas.tsx";
 import { composer, threadMenu } from "./comments.ts";
 import { exitAsk } from "./exits.ts";
-import { directoryName } from "./focus/paths.ts";
+import { FolderPicker } from "./FolderPicker.tsx";
 import { moveMenuFocus } from "./menuFocus.ts";
 import { sessionSize } from "./placement.ts";
 import { admit, dataUrl, imageFiles, readImages } from "./promptImages.ts";
@@ -317,10 +316,6 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 		} else if (event.key === "Enter" && !event.shiftKey) {
 			event.preventDefault();
 			void submit();
-		} else if (event.key === "Tab" && open.cwds.length > 1) {
-			event.preventDefault();
-			const cwd = cycle(open.cwds, open.cwd, event.shiftKey ? -1 : 1);
-			if (cwd) quickPrompt.value = { ...open, cwd };
 		}
 	};
 
@@ -414,16 +409,23 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 				)}
 			</div>
 			<div class="quick-prompt-meta">
-				<span class="cwd-chip" title={open.cwd}>
-					<Folder size={11} aria-hidden="true" />
-					{directoryName(open.cwd) || open.cwd}
-				</span>
+				<FolderPicker
+					variant="chip"
+					value={open.cwd}
+					recent={open.cwds}
+					disabled={busy}
+					onPick={(cwd) => {
+						const current = quickPrompt.peek();
+						if (current)
+							quickPrompt.value = {
+								...current,
+								cwd,
+								cwds: cwdChoices(cwd, current.cwds),
+							};
+						input.current?.focus({ preventScroll: true });
+					}}
+				/>
 				<span class="quick-prompt-hint">
-					{open.cwds.length > 1 && (
-						<>
-							<kbd>Tab</kbd> folder ·{" "}
-						</>
-					)}
 					<kbd>Enter</kbd> start · <kbd>Esc</kbd> cancel
 				</span>
 			</div>

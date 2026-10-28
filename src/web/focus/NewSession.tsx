@@ -2,8 +2,9 @@ import "./focus.css";
 import { CircleAlert, LoaderCircle, X } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
+import { FolderPicker } from "../FolderPicker.tsx";
 import { createSession } from "../spawns.ts";
-import { isAbsoluteDirectory, needsTrust } from "./paths.ts";
+import { needsTrust } from "./paths.ts";
 import { commandKey } from "./platform.ts";
 
 function Failure(props: { error: string; cwd: string }): JSX.Element {
@@ -30,7 +31,7 @@ export function NewSession(props: {
 	onClose: () => void;
 }): JSX.Element {
 	const dialog = useRef<HTMLDialogElement>(null);
-	const directory = useRef<HTMLInputElement>(null);
+	const folder = useRef<HTMLButtonElement>(null);
 	const pressedBackdrop = useRef(false);
 	const listId = useId();
 	const [cwd, setCwd] = useState("");
@@ -41,11 +42,10 @@ export function NewSession(props: {
 
 	useEffect(() => {
 		dialog.current?.showModal();
-		directory.current?.focus();
+		folder.current?.focus();
 	}, []);
 
-	const cwdInvalid = cwd !== "" && !isAbsoluteDirectory(cwd);
-	const ready = isAbsoluteDirectory(cwd) && prompt.trim() !== "" && !busy;
+	const ready = cwd !== "" && prompt.trim() !== "" && !busy;
 
 	const submit = async (event?: Event) => {
 		event?.preventDefault();
@@ -53,7 +53,7 @@ export function NewSession(props: {
 		setBusy(true);
 		setError(null);
 		const result = await createSession({
-			cwd: cwd.trim(),
+			cwd,
 			...(name.trim() ? { name: name.trim() } : {}),
 			prompt: prompt.trim(),
 		});
@@ -104,31 +104,18 @@ export function NewSession(props: {
 					</button>
 				</header>
 
-				<label class="focus-field">
-					<span>Directory</span>
-					<input
-						type="text"
-						ref={directory}
-						list={`${listId}-cwds`}
+				<div class="focus-field">
+					<span id={`${listId}-folder`}>Folder</span>
+					<FolderPicker
+						variant="field"
 						value={cwd}
-						onInput={(event) => setCwd(event.currentTarget.value)}
-						placeholder="/Users/you/dev/project"
-						spellcheck={false}
-						autocomplete="off"
-						aria-invalid={cwdInvalid}
-						required
+						recent={props.cwds}
+						onPick={setCwd}
+						labelledBy={`${listId}-folder`}
+						disabled={busy}
+						trigger={folder}
 					/>
-					<datalist id={`${listId}-cwds`}>
-						{props.cwds.map((option) => (
-							<option key={option} value={option} />
-						))}
-					</datalist>
-					{cwdInvalid && (
-						<small class="focus-field-hint focus-field-hint-error">
-							Use an absolute path starting with /
-						</small>
-					)}
-				</label>
+				</div>
 
 				<label class="focus-field">
 					<span>Name</span>

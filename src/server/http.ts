@@ -50,6 +50,7 @@ import {
 import type { ExitRunner } from "./exit.ts";
 import type { Feed } from "./feed.ts";
 import type { FileListing } from "./files.ts";
+import type { FolderPicker } from "./folders.ts";
 import { boardKeys, type LayoutStore, parseLayoutUpdate } from "./layout.ts";
 import type { MirrorHub } from "./mirror.ts";
 import {
@@ -90,6 +91,7 @@ export type ServerDeps = {
 	conversation: ConversationHub;
 	files(cwd: string, query: string): Promise<FileListing>;
 	commands(cwd: string): Promise<SlashCommand[]>;
+	pickFolder: FolderPicker;
 	feed: Feed;
 	audit: Audit;
 };
@@ -100,6 +102,7 @@ export type Route =
 	| { kind: "files"; sessionId: string; query: string }
 	| { kind: "commands"; sessionId: string }
 	| { kind: "create-session" }
+	| { kind: "pick-folder" }
 	| { kind: "exit-session"; sessionId: string }
 	| { kind: "report-session"; sessionId: string }
 	| { kind: "update-layout" }
@@ -192,6 +195,11 @@ export const matchRoute = (method: string, url: URL): Route => {
 	if (path === "/api/sessions") {
 		return method === "POST"
 			? { kind: "create-session" }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/folder-picker") {
+		return method === "POST"
+			? { kind: "pick-folder" }
 			: { kind: "method-not-allowed" };
 	}
 	const exit = path.match(/^\/api\/sessions\/([^/]+)\/exit$/);
@@ -807,6 +815,9 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			}
 			case "create-session":
 				return createSession(req, res, auth.identity);
+			case "pick-folder":
+				if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+				return sendJson(res, 200, await deps.pickFolder());
 			case "exit-session":
 				return exitSession(req, res, route.sessionId, auth.identity);
 			case "report-session":

@@ -47,7 +47,7 @@ Terminal in the header switches to the session's own TUI: a full-window `claude 
 
 ### Start and exit sessions
 
-New session takes a directory, an optional name and a first prompt, runs `claude --bg` and opens the card. Press A to start one in place with just a prompt, in the project under the pointer. A card's × asks the agent whether it is safe to exit first; hold Shift to force it.
+New session takes a folder, an optional name and a first prompt, runs `claude --bg` and opens the card. Press A to start one in place with just a prompt, in the project under the pointer. Every folder chooser lists recent projects and ends with Choose folder…, which opens the macOS folder panel on the Mac running the board. A card's × asks the agent whether it is safe to exit first; hold Shift to force it.
 
 ![Starting a session from the New session dialog, then another from a quick prompt on the board](docs/media/clip-new-session.gif)
 

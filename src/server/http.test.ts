@@ -437,6 +437,7 @@ describe("createKanbanServer", () => {
 			commands: async (cwd) => [
 				{ name: "compact", description: cwd, source: "built-in" },
 			],
+			pickFolder: async () => ({ ok: true, path: "/Users/me/dev/picked" }),
 			feed,
 			audit: (event) => events.push(event),
 		});
@@ -543,6 +544,22 @@ describe("createKanbanServer", () => {
 			headers: authed,
 		});
 		assert.equal(missing.status, 404);
+	});
+
+	it("opens the host's folder picker for same-origin requests", async () => {
+		const pick = (headers: Record<string, string>) =>
+			fetch(`${base}/api/folder-picker`, { method: "POST", headers });
+		const picked = await pick({ ...authed, origin });
+		assert.equal(picked.status, 200);
+		assert.deepEqual(await picked.json(), {
+			ok: true,
+			path: "/Users/me/dev/picked",
+		});
+		assert.equal(
+			(await pick({ ...authed, origin: "https://evil.example" })).status,
+			403,
+		);
+		assert.equal((await pick({ origin })).status, 401);
 	});
 
 	it("creates sessions from same-origin JSON and audits them", async () => {

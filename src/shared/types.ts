@@ -260,3 +260,8 @@ export type MirrorServerFrame =
 	| { type: "screen"; text: string }
 	| { type: "error"; error: string }
 	| { type: "ended"; reason: string };
+
+export type FolderPick =
+	| { ok: true; path: string }
+	| { ok: false; cancelled: true }
+	| { ok: false; error: string };
