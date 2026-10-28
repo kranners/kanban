@@ -14,7 +14,10 @@ import {
 	useRef,
 	useState,
 } from "preact/hooks";
-import type { ConversationStatus } from "../../shared/conversation.ts";
+import {
+	type ConversationStatus,
+	maxPromptText,
+} from "../../shared/conversation.ts";
 import type { Activity, Session } from "../../shared/types.ts";
 import { Composer } from "./Composer.tsx";
 import {
@@ -32,6 +35,7 @@ import {
 import { DialogForm } from "./DialogForm.tsx";
 import { type Links, TranscriptItem } from "./Transcript.tsx";
 import {
+	connectionDropped,
 	type Outcome,
 	useConversation,
 	type ViewNode,
@@ -53,10 +57,13 @@ const updateOutbox = (
 	};
 };
 
+const noOutbox: Outgoing[] = [];
+
 const queuedLabels: Record<Outgoing["state"], string> = {
 	queued: "Queued",
 	sending: "Sending…",
 	sent: "Sent",
+	echoed: "Sent",
 };
 
 function useTicking(active: boolean): number {
@@ -171,10 +178,9 @@ export function AgentView(props: {
 	const [atBottom, setAtBottom] = useState(true);
 	const [problem, setProblem] = useState<string | null>(null);
 	const [recalled, setRecalled] = useState<{ text: string } | null>(null);
-	const viewed = useRef(props.node.id);
-	viewed.current = props.node.id;
+	const [paused, setPaused] = useState(false);
 	const sessionId = props.node.kind === "session" ? props.node.id : null;
-	const outbox = (sessionId && outboxes.value[sessionId]) || [];
+	const outbox = (sessionId && outboxes.value[sessionId]) || noOutbox;
 	const items = view.window.items;
 	const lastIndex = items.at(-1)?.index ?? 0;
 
@@ -192,8 +198,10 @@ export function AgentView(props: {
 			items,
 		);
 		updateOutbox(sessionId, (current) =>
-			current.filter(
-				(entry) => entry.state !== "sent" || unechoed.includes(entry),
+			current.map((entry) =>
+				entry.state === "sent" && !unechoed.includes(entry)
+					? { ...entry, state: "echoed" }
+					: entry,
 			),
 		);
 	}, [items]);
@@ -263,8 +271,20 @@ export function AgentView(props: {
 		!waiting;
 
 	useEffect(() => {
-		if (!sessionId || !deliverable) return;
-		const batch = nextBatch(outbox);
+		if (!deliverable) setPaused(false);
+	}, [deliverable]);
+
+	useEffect(() => {
+		if (!sessionId || !working) return;
+		if (!outbox.some((entry) => entry.state === "echoed")) return;
+		updateOutbox(sessionId, (current) =>
+			current.filter((entry) => entry.state !== "echoed"),
+		);
+	}, [working, outbox]);
+
+	useEffect(() => {
+		if (!sessionId || !deliverable || paused) return;
+		const batch = nextBatch(outbox, maxPromptText);
 		const head = batch[0];
 		if (!head) return;
 		const text = batch.map((entry) => entry.text).join("\n");
@@ -279,44 +299,56 @@ export function AgentView(props: {
 			...current.filter((entry) => !batch.includes(entry)),
 		]);
 		void request({ type: "prompt", text }).then((outcome) => {
-			if (outcome.ok) {
-				updateOutbox(sessionId, (current) =>
-					current.map((entry) =>
-						entry.id === sending.id ? { ...entry, state: "sent" } : entry,
-					),
-				);
-				return;
-			}
-			const shown = viewed.current === sessionId;
+			const settled: Outgoing["state"] = outcome.ok
+				? "sent"
+				: outcome.error === connectionDropped
+					? "sent"
+					: "queued";
 			updateOutbox(sessionId, (current) =>
-				current.flatMap((entry) =>
-					entry.id !== sending.id
-						? [entry]
-						: shown
-							? []
-							: [{ ...entry, state: "queued" as const }],
+				current.map((entry) =>
+					entry.id === sending.id ? { ...entry, state: settled } : entry,
 				),
 			);
-			if (shown) {
+			if (settled === "queued") {
+				setPaused(true);
 				setProblem(outcome.error);
-				setRecalled({ text });
 			}
 		});
-	}, [deliverable, outbox]);
+	}, [deliverable, paused, outbox]);
 
 	useEffect(() => {
 		if (!sessionId) return;
-		const sent = outbox.filter((entry) => entry.state === "sent");
-		if (sent.length === 0) return;
-		const due = Math.min(...sent.map((entry) => entry.sentAt)) + echoWaitMs;
+		const delivered = outbox.filter(
+			(entry) => entry.state === "sent" || entry.state === "echoed",
+		);
+		if (delivered.length === 0) return;
+		const due =
+			Math.min(...delivered.map((entry) => entry.sentAt)) + echoWaitMs;
 		const timer = setTimeout(
-			() =>
+			() => {
+				const expired = (entry: Outgoing) =>
+					Date.now() - entry.sentAt >= echoWaitMs;
+				const lost = outbox.some(
+					(entry) => entry.state === "sent" && expired(entry),
+				);
 				updateOutbox(sessionId, (current) =>
-					current.filter(
-						(entry) =>
-							entry.state !== "sent" || Date.now() - entry.sentAt < echoWaitMs,
+					current.flatMap((entry) =>
+						!expired(entry)
+							? [entry]
+							: entry.state === "echoed"
+								? []
+								: entry.state === "sent"
+									? [{ ...entry, state: "queued" as const }]
+									: [entry],
 					),
-				),
+				);
+				if (lost) {
+					setPaused(true);
+					setProblem(
+						"Claude never showed that message, so it is queued again. Send it again or edit it.",
+					);
+				}
+			},
 			Math.max(0, due - Date.now()),
 		);
 		return () => clearTimeout(timer);
@@ -325,6 +357,7 @@ export function AgentView(props: {
 	const send = (text: string) => {
 		if (!sessionId) return;
 		setProblem(null);
+		setPaused(false);
 		pinned.current = true;
 		const now = Date.now();
 		updateOutbox(sessionId, (current) => [
@@ -339,6 +372,7 @@ export function AgentView(props: {
 			(entry) => entry.state === "queued" && ids.includes(entry.id),
 		);
 		if (picked.length === 0) return;
+		setPaused(false);
 		updateOutbox(sessionId, (current) =>
 			current.filter((entry) => !picked.includes(entry)),
 		);
@@ -347,6 +381,7 @@ export function AgentView(props: {
 
 	const discard = (id: string) => {
 		if (!sessionId) return;
+		setPaused(false);
 		updateOutbox(sessionId, (current) =>
 			current.filter((entry) => entry.id !== id || entry.state !== "queued"),
 		);
@@ -400,35 +435,37 @@ export function AgentView(props: {
 								<TranscriptItem item={item} links={props.links} />
 							</div>
 						))}
-						{outbox.map((entry) => (
-							<div key={entry.id} class="av-user av-user-pending">
-								<div class="av-user-text">{entry.text}</div>
-								<div class="av-queued-foot">
-									<span class="av-queued-label">
-										{queuedLabels[entry.state]}
-									</span>
-									{entry.state === "queued" && (
-										<>
-											<button
-												type="button"
-												class="av-queued-action"
-												onClick={() => edit([entry.id])}
-												title="Move back into the message box to edit"
-											>
-												Edit
-											</button>
-											<button
-												type="button"
-												class="av-queued-action"
-												onClick={() => discard(entry.id)}
-											>
-												Remove
-											</button>
-										</>
-									)}
+						{outbox
+							.filter((entry) => entry.state !== "echoed")
+							.map((entry) => (
+								<div key={entry.id} class="av-user av-user-pending">
+									<div class="av-user-text">{entry.text}</div>
+									<div class="av-queued-foot">
+										<span class="av-queued-label">
+											{queuedLabels[entry.state]}
+										</span>
+										{entry.state === "queued" && (
+											<>
+												<button
+													type="button"
+													class="av-queued-action"
+													onClick={() => edit([entry.id])}
+													title="Move back into the message box to edit"
+												>
+													Edit
+												</button>
+												<button
+													type="button"
+													class="av-queued-action"
+													onClick={() => discard(entry.id)}
+												>
+													Remove
+												</button>
+											</>
+										)}
+									</div>
 								</div>
-							</div>
-						))}
+							))}
 						{working && !view.dialog && (
 							<div class="av-working" role="status">
 								<span class="av-running" aria-hidden="true" />
@@ -490,6 +527,7 @@ export function AgentView(props: {
 						mode={view.mode ?? view.status?.permissionMode ?? null}
 						onSend={send}
 						recalled={recalled}
+						onRecalled={() => setRecalled(null)}
 						onEditQueued={queuedIds.length > 0 ? () => edit(queuedIds) : null}
 						onKey={(key) => void press(key)}
 					/>

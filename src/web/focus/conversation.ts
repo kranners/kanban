@@ -332,17 +332,25 @@ export type Queued = { id: string; text: string; sentAt: number };
 
 const comparable = (value: string): string => value.replace(/\s+/g, " ").trim();
 
-export type Outgoing = Queued & { state: "queued" | "sending" | "sent" };
+export type Outgoing = Queued & {
+	state: "queued" | "sending" | "sent" | "echoed";
+};
 
 const isCommand = (text: string): boolean => /^[/!]/.test(text.trimStart());
 
-export function nextBatch(outbox: Outgoing[]): Outgoing[] {
+export function nextBatch(outbox: Outgoing[], maxText: number): Outgoing[] {
 	if (outbox.some((entry) => entry.state !== "queued")) return [];
 	const [head, ...rest] = outbox;
 	if (!head) return [];
-	if (isCommand(head.text)) return [head];
-	const end = rest.findIndex((entry) => isCommand(entry.text));
-	return [head, ...(end === -1 ? rest : rest.slice(0, end))];
+	const batch = [head];
+	if (isCommand(head.text)) return batch;
+	let length = head.text.length;
+	for (const entry of rest) {
+		length += entry.text.length + 1;
+		if (isCommand(entry.text) || length > maxText) break;
+		batch.push(entry);
+	}
+	return batch;
 }
 
 export function stillQueued<Entry extends Queued>(

@@ -42,6 +42,8 @@ export type ConversationView = {
 
 const retryDelays = [500, 1000, 2000, 4000, 8000];
 
+export const connectionDropped = "The connection dropped";
+
 let requestCount = 0;
 
 const initial = (): ConversationView => ({
@@ -126,7 +128,7 @@ export function useConversation(node: ViewNode): {
 
 		const failPending = () => {
 			for (const settle of waiting.current.values()) {
-				settle({ ok: false, error: "The connection dropped" });
+				settle({ ok: false, error: connectionDropped });
 			}
 			waiting.current.clear();
 		};

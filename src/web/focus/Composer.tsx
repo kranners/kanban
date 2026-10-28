@@ -24,6 +24,7 @@ export function Composer(props: {
 	mode: string | null;
 	onSend: (text: string) => void;
 	recalled: { text: string } | null;
+	onRecalled: () => void;
 	onEditQueued: (() => void) | null;
 	onKey: (key: "Escape" | "Shift+Tab") => void;
 }): JSX.Element {
@@ -147,6 +148,7 @@ export function Composer(props: {
 		recall.current = null;
 		setValue(value, recalled.text.length);
 		field.current?.focus();
+		props.onRecalled();
 	}, [props.recalled]);
 
 	const browseHistory = (step: -1 | 1): boolean => {

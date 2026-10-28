@@ -293,16 +293,18 @@ describe("conversation window", () => {
 			state: Outgoing["state"] = "queued",
 		): Outgoing => ({ id, text, state, sentAt: 0 });
 		const plain = [entry("1", "fix it"), entry("2", "and test it")];
-		assert.deepEqual(nextBatch(plain), plain);
+		assert.deepEqual(nextBatch(plain, 100), plain);
 		assert.deepEqual(
-			nextBatch([...plain, entry("3", "/compact"), entry("4", "then go")]),
+			nextBatch([...plain, entry("3", "/compact"), entry("4", "then go")], 100),
 			plain,
 		);
-		assert.deepEqual(nextBatch([entry("3", " /compact"), ...plain]), [
+		assert.deepEqual(nextBatch([entry("3", " /compact"), ...plain], 100), [
 			entry("3", " /compact"),
 		]);
-		assert.deepEqual(nextBatch([entry("0", "x", "sent"), ...plain]), []);
-		assert.deepEqual(nextBatch([]), []);
+		assert.deepEqual(nextBatch(plain, 18), plain);
+		assert.deepEqual(nextBatch(plain, 17), [plain[0]]);
+		assert.deepEqual(nextBatch([entry("0", "x", "echoed"), ...plain], 100), []);
+		assert.deepEqual(nextBatch([], 100), []);
 	});
 
 	it("collects prompt history without repeats", () => {
