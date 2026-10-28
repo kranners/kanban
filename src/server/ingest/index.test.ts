@@ -750,6 +750,7 @@ describe("goalOf", () => {
 		detail: null,
 		needs: null,
 		intent,
+		block: null,
 		createdAt: 0,
 		updatedAt: 0,
 	});

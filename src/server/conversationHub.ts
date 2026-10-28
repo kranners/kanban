@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { basename } from "node:path";
 import {
 	type AskAnswer,
@@ -40,6 +41,7 @@ export type ConversationDeps = {
 	session(id: string): Session | null;
 	tty(session: Session): SessionTty | null;
 	transcriptPath(node: NodeRef): string | null;
+	block?(sessionId: string): Record<string, unknown> | null;
 	audit: Audit;
 	pollMs?: number;
 	screenMs?: number;
@@ -87,8 +89,10 @@ export const driveOf = (session: Session): Drive => {
 export const awaitingAnswer = (
 	session: Session,
 	log: ConversationLog,
+	block: Record<string, unknown> | null = null,
 ): boolean =>
-	session.activity === "needs-you" && log.status.pendingTools.length > 0;
+	session.activity === "needs-you" &&
+	(log.status.pendingTools.length > 0 || blockedQuestion(block) !== null);
 
 export const promptRefusal = (
 	text: string,
@@ -153,9 +157,24 @@ const askQuestions = (input: Record<string, unknown>): AskQuestion[] | null => {
 	return questions.length > 0 ? questions : null;
 };
 
+type PendingQuestion = { toolUseId: string; questions: AskQuestion[] };
+
+const blockedQuestion = (
+	block: Record<string, unknown> | null,
+): PendingQuestion | null => {
+	const questions = block ? askQuestions(block) : null;
+	if (!questions) return null;
+	const digest = createHash("sha256")
+		.update(JSON.stringify(questions))
+		.digest("hex")
+		.slice(0, 16);
+	return { toolUseId: `block-${digest}`, questions };
+};
+
 export const pendingQuestion = (
 	log: ConversationLog,
-): { toolUseId: string; questions: AskQuestion[] } | null => {
+	block: Record<string, unknown> | null = null,
+): PendingQuestion | null => {
 	for (const id of [...log.status.pendingTools].reverse()) {
 		const index = log.tools.get(id);
 		const item = index === undefined ? undefined : log.items[index];
@@ -163,7 +182,7 @@ export const pendingQuestion = (
 		const questions = askQuestions(item.input);
 		if (questions) return { toolUseId: id, questions };
 	}
-	return null;
+	return blockedQuestion(block);
 };
 
 export const pendingTool = (
@@ -221,10 +240,11 @@ export const dialogOf = (
 	log: ConversationLog,
 	session: Session | null,
 	screen: string | null,
+	block: Record<string, unknown> | null = null,
 ): { dialog: Dialog | null; answerable: boolean } => {
 	const waiting = session?.activity === "needs-you";
 	const shown = screen === null ? null : readDialog(screen);
-	const question = pendingQuestion(log);
+	const question = pendingQuestion(log, block);
 	if (question && (waiting || shown?.kind === "ask")) {
 		return {
 			dialog: { kind: "question", ...question },
@@ -428,6 +448,9 @@ export const createConversationHub = (
 		const session = (): Session | null =>
 			sessionId === null ? null : deps.session(sessionId);
 
+		const block = (): Record<string, unknown> | null =>
+			sessionId === null ? null : (deps.block?.(sessionId) ?? null);
+
 		const syncStatus = () => {
 			const key = JSON.stringify(log.status);
 			if (key === statusKey) return;
@@ -450,7 +473,7 @@ export const createConversationHub = (
 			if (!current || Date.now() - screenAt < screenMs) return;
 			screenAt = Date.now();
 			const drive = driveOf(current);
-			const waiting = awaitingAnswer(current, log);
+			const waiting = awaitingAnswer(current, log, block());
 			const wantsScreen =
 				drive.mode === "drive" &&
 				(drive.via === "cmux" || waiting || ttys.has(current.id));
@@ -463,7 +486,7 @@ export const createConversationHub = (
 			if (drive.mode === "drive" && drive.via === "attach" && !waiting) {
 				if (Date.now() - lastUse > 30_000) releaseTty(current.id);
 			}
-			const next = dialogOf(log, current, screen);
+			const next = dialogOf(log, current, screen, block());
 			const key = JSON.stringify(next);
 			if (key !== dialogKey) {
 				dialogKey = key;
@@ -555,7 +578,7 @@ export const createConversationHub = (
 				case "prompt": {
 					const refused = promptRefusal(
 						frame.text,
-						awaitingAnswer(current, log),
+						awaitingAnswer(current, log, block()),
 					);
 					if (refused) return { ok: false, error: refused };
 					const shown = await shownDialog();
@@ -564,7 +587,7 @@ export const createConversationHub = (
 					return blocked ? { ok: false, error: blocked } : tty.send(frame.text);
 				}
 				case "key": {
-					if (awaitingAnswer(current, log)) {
+					if (awaitingAnswer(current, log, block())) {
 						return {
 							ok: false,
 							error: "The session is waiting on a prompt. Answer it first.",
@@ -584,7 +607,7 @@ export const createConversationHub = (
 				case "permission": {
 					const screen = await tty.screen();
 					if (!screen.ok) return screen;
-					const fresh = dialogOf(log, current, screen.value);
+					const fresh = dialogOf(log, current, screen.value, block());
 					if (
 						fresh.dialog?.kind !== "permission" ||
 						!fresh.answerable ||
@@ -598,7 +621,7 @@ export const createConversationHub = (
 					});
 				}
 				case "answer": {
-					const question = pendingQuestion(log);
+					const question = pendingQuestion(log, block());
 					if (!question || question.toolUseId !== frame.toolUseId) {
 						return { ok: false, error: "That question is no longer open" };
 					}

@@ -27,6 +27,7 @@ export type Job = {
 	detail: string | null;
 	needs: string | null;
 	intent: string | null;
+	block: Record<string, unknown> | null;
 	createdAt: number;
 	updatedAt: number;
 };
@@ -139,6 +140,7 @@ function toJob(short: string, value: unknown): Job | null {
 		detail: asString(record.detail) || null,
 		needs: asString(record.needs) || null,
 		intent: asString(record.intent) || null,
+		block: asObject(record.block),
 		createdAt,
 		updatedAt: asTime(record.updatedAt) ?? createdAt,
 	};

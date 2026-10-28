@@ -195,6 +195,7 @@ const conversation = createConversationHub({
 	session: (id) =>
 		source.board().sessions.find((session) => session.id === id) ?? null,
 	transcriptPath: source.transcriptPath,
+	block: source.block,
 	tty: (session) => {
 		const short = session.short;
 		if (session.kind === "background" && session.attachable && short) {

@@ -47,6 +47,7 @@ export type BoardHandle = {
 	transcript(sessionId: string, limit: number): Promise<TranscriptEntry[]>;
 	transcriptPath(node: NodeRef): string | null;
 	recentCwds(): string[];
+	block(sessionId: string): Record<string, unknown> | null;
 	refresh(): void;
 	stop(): void;
 };
@@ -88,6 +89,7 @@ export function startBoard(opts: {
 	const byName = new Map<string, string>();
 	const subagentPaths = new Map<string, string>();
 	let cwds: string[] = [];
+	let blocks = new Map<string, Record<string, unknown>>();
 
 	const resolve: ResolvePeer = (ref: PeerRef) =>
 		(ref.pid !== undefined ? byPid.get(ref.pid) : undefined) ??
@@ -121,6 +123,11 @@ export function startBoard(opts: {
 		const jobs = readJobs(claudeHome);
 		const tracked = collectTracked(registry, jobs, now);
 		cwds = recentCwdsOf(registry, jobs);
+		blocks = new Map(
+			[...tracked.values()].flatMap(({ id, job }) =>
+				job?.block ? [[id, job.block]] : [],
+			),
+		);
 
 		for (const item of tracked.values()) {
 			const cwd = item.entry?.cwd ?? item.job?.cwd ?? "";
@@ -306,6 +313,7 @@ export function startBoard(opts: {
 			);
 		},
 		recentCwds: () => cwds,
+		block: (sessionId) => blocks.get(sessionId) ?? null,
 		refresh: schedule,
 		stop() {
 			clearInterval(poll);

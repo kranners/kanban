@@ -119,6 +119,7 @@ const hub = (
 	tty = fakeTty(),
 	windowSize = 3,
 	transcriptPath: () => string | null = () => null,
+	block: () => Record<string, unknown> | null = () => null,
 ) => {
 	const events: AuditEvent[] = [];
 	return {
@@ -131,6 +132,7 @@ const hub = (
 				return tty;
 			},
 			transcriptPath,
+			block,
 			audit: (event) => events.push(event),
 			pollMs: 5,
 			screenMs: 0,
@@ -561,6 +563,75 @@ describe("guarding what reaches the session", () => {
 				),
 			),
 		);
+		socket.hangUp();
+	});
+
+	it("shows and answers a background question that only the job state holds so far", async () => {
+		const path = join(dir, "guard-block.jsonl");
+		writeFileSync(path, prompt("ask me"));
+		const asking = session({
+			kind: "background",
+			short: "aefe4be5",
+			attachable: true,
+			cmux: false,
+			activity: "needs-you",
+		});
+		let block: Record<string, unknown> | null = {
+			questions: [
+				{
+					question: "Colour?",
+					options: [
+						{ label: "Red", description: "warm" },
+						{ label: "Blue", description: "cool" },
+					],
+				},
+			],
+		};
+		const { hub: conversations, tty } = hub(
+			() => asking,
+			fakeTty(),
+			3,
+			() => path,
+			() => block,
+		);
+		tty.shows =
+			" ☐ Colour \nColour?\n❯ 1. Red\n  2. Blue\n  3. Type something.";
+		const keys = tty.keys;
+		tty.keys = (pressed) => {
+			tty.shows = "❯ ";
+			block = null;
+			return keys(pressed);
+		};
+		const socket = fakeSocket();
+		conversations.open(
+			socket,
+			{ kind: "session", session: asking, path },
+			null,
+			null,
+		);
+		await until(() =>
+			socket.frames.some(
+				(frame) => frame.type === "dialog" && frame.answerable,
+			),
+		);
+		const shown = socket.frames.find((frame) => frame.type === "dialog");
+		assert.ok(shown?.type === "dialog" && shown.dialog?.kind === "question");
+		assert.deepEqual(
+			shown.dialog.questions.map(({ question, options }) => ({
+				question,
+				options: options.map(({ label }) => label),
+			})),
+			[{ question: "Colour?", options: ["Red", "Blue"] }],
+		);
+		socket.receive({
+			type: "answer",
+			id: "a1",
+			toolUseId: shown.dialog.toolUseId,
+			answers: [{ selected: ["Red"], other: null }],
+		});
+		await until(() => replies(socket).length === 1);
+		assert.deepEqual(replies(socket), [["a1", true]]);
+		assert.deepEqual(tty.keysSent, ["Enter"]);
 		socket.hangUp();
 	});
 });
