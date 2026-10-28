@@ -8,6 +8,7 @@ import { askToExitProject, exitSessions, held } from "./exits.ts";
 import type { Group } from "./groups.ts";
 import { nodeKey } from "./layout.ts";
 import { AskButton, ReportFailure } from "./ReportControls.tsx";
+import { deleteRegion } from "./regionState.ts";
 import {
 	dismissReport,
 	regionReportKey,
@@ -43,14 +44,27 @@ function ExitProjectButton(props: {
 			type="button"
 			class={`close-bubble${force ? " force" : ""}`}
 			aria-label={`${force ? "Force exit" : "Exit"} every session in ${project}`}
-			title={
-				sessions.length === 0
-					? "No sessions in this project to exit"
-					: exitTitle(force, skipAsking, "every session in this project")
-			}
-			disabled={sessions.length === 0}
+			title={exitTitle(force, skipAsking, "every session in this project")}
 			data-no-pan
 			onClick={exit}
+		>
+			<X size={13} strokeWidth={2.5} aria-hidden="true" />
+		</button>
+	);
+}
+
+function CloseProjectButton(props: {
+	project: string;
+	regionId: string;
+}): JSX.Element {
+	return (
+		<button
+			type="button"
+			class="close-bubble"
+			aria-label={`Close ${props.project}`}
+			title="Close this project"
+			data-no-pan
+			onClick={() => void deleteRegion(props.regionId)}
 		>
 			<X size={13} strokeWidth={2.5} aria-hidden="true" />
 		</button>
@@ -78,7 +92,11 @@ export function RegionControls(props: { group: Group }): JSX.Element | null {
 				disabled={empty}
 				onAsk={() => void requestRegionReport(region.id)}
 			/>
-			<ExitProjectButton project={group.project} sessions={sessions} />
+			{empty ? (
+				<CloseProjectButton project={group.project} regionId={region.id} />
+			) : (
+				<ExitProjectButton project={group.project} sessions={sessions} />
+			)}
 		</div>
 	);
 }
