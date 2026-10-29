@@ -1,0 +1,117 @@
+.alert-toasts {
+	position: fixed;
+	top: calc(var(--topbar) + 12px);
+	left: 50%;
+	z-index: 60;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	width: min(420px, calc(100vw - 32px));
+	translate: -50% 0;
+	pointer-events: none;
+}
+
+.alert-toast {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	width: 100%;
+	padding: 10px 6px 10px 12px;
+	border: 1px solid var(--needs-ribbon);
+	border-radius: var(--radius);
+	background: color-mix(in srgb, var(--amber) 10%, var(--surface));
+	box-shadow:
+		var(--shadow-pop),
+		0 0 18px 2px var(--needs-glow);
+	color: var(--ink);
+	pointer-events: auto;
+	animation: alert-arrive calc(320ms * var(--motion))
+		cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+
+.alert-toast-icon {
+	flex: none;
+	margin-top: 1px;
+	color: var(--amber);
+}
+
+.alert-toast-open {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.alert-toast-title {
+	overflow: hidden;
+	font-size: 13px;
+	font-weight: 650;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.alert-toast-body {
+	display: -webkit-box;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	color: var(--muted);
+	font-size: 12.5px;
+	line-height: 1.4;
+}
+
+.alert-toast-open:hover .alert-toast-title {
+	text-decoration: underline;
+}
+
+.alert-toast-close {
+	flex: none;
+	width: 26px;
+	height: 26px;
+}
+
+.alert-toast-more {
+	margin: 0;
+	padding: 3px 10px;
+	border-radius: 999px;
+	background: var(--needs-ribbon);
+	color: var(--needs-ribbon-ink);
+	font-size: 11.5px;
+	font-weight: 600;
+	pointer-events: auto;
+}
+
+.notify-toggle[aria-pressed="true"] {
+	color: var(--ink);
+}
+
+.notify-toggle.asking {
+	color: var(--amber-ink);
+}
+
+.notify-toggle:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+@keyframes alert-arrive {
+	from {
+		opacity: 0;
+		translate: 0 -8px;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.alert-toast {
+		animation: none;
+	}
+}

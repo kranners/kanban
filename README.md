@@ -29,7 +29,7 @@ Messages sent between sessions animate along a dashed arc from sender to recipie
 
 ### What needs you
 
-Sessions waiting on you glow amber, and project frames count them. The top bar counts them too, and J pans to the next one, which Enter opens. Search matches name, project, directory and what a session is doing, and the activity pills filter by state; cards that don't match dim rather than vanish.
+Sessions waiting on you glow amber, and project frames count them. The top bar counts them too, and J pans to the next one, which Enter opens. The tab's title and icon carry the count, a banner names each session as it starts waiting, and the bell in the top bar turns on browser notifications for when the board isn't in front of you. Search matches name, project, directory and what a session is doing, and the activity pills filter by state; cards that don't match dim rather than vanish.
 
 ![Searching the board, filtering to sessions that need you and pressing J to hop between them](docs/media/clip-focus-search.gif)
 

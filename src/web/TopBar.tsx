@@ -10,6 +10,7 @@ import {
 } from "lucide-preact";
 import { useState } from "preact/hooks";
 import { activityOrder } from "../shared/types.ts";
+import { NotifyToggle } from "./Alerts.tsx";
 import { ActivityIcon, activityLabel } from "./activity.tsx";
 import { tidyBoard, tidying } from "./Comments.tsx";
 import { Mark } from "./Mark.tsx";
@@ -120,6 +121,7 @@ export function TopBar() {
 					/>
 				</label>
 				<TidyButton />
+				<NotifyToggle />
 				<button
 					type="button"
 					class="icon-button"

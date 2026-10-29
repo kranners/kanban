@@ -1,5 +1,6 @@
 import { Plus } from "lucide-preact";
 import type { Board, Session, Subagent } from "../shared/types.ts";
+import { AlertToasts } from "./Alerts.tsx";
 import {
 	AnnotationLayer,
 	AnnotationMenu,
@@ -341,29 +342,32 @@ export function App() {
 		/>
 	);
 	return (
-		<div class="app">
-			<TopBar />
-			<main class="main">
-				{focus}
-				<Stage />
-				<Rail />
-			</main>
-			{newSessionOpen.value && (
-				<NewSession
-					cwds={knownCwds.value}
-					onCreated={created}
-					onClose={() => {
-						newSessionOpen.value = false;
-					}}
-				/>
-			)}
-			<ExitDialog />
-			<BoardMenu />
-			<AnnotationMenu />
-			<StickerPicker />
-			<RegionMenu />
-			<RegionLayer />
-			<CommentOverlays />
-		</div>
+		<>
+			<div class="app">
+				<TopBar />
+				<main class="main">
+					{focus}
+					<Stage />
+					<Rail />
+				</main>
+				{newSessionOpen.value && (
+					<NewSession
+						cwds={knownCwds.value}
+						onCreated={created}
+						onClose={() => {
+							newSessionOpen.value = false;
+						}}
+					/>
+				)}
+				<ExitDialog />
+				<BoardMenu />
+				<AnnotationMenu />
+				<StickerPicker />
+				<RegionMenu />
+				<RegionLayer />
+				<CommentOverlays />
+			</div>
+			<AlertToasts />
+		</>
 	);
 }

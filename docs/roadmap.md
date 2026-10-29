@@ -30,7 +30,6 @@ The MVP is the board, relationships, messages, focused TUI for background sessio
 
 ## Platform
 
-- PWA manifest and notifications when a session needs you.
 - Several hosts on one board.
 - Passkey step-up on top of Cloudflare Access for destructive actions.
 - xterm.js 6.1 with the kitty keyboard protocol, so Shift+Enter is distinct.
