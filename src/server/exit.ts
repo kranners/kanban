@@ -234,7 +234,7 @@ export const runClaude = (
 	configDir?: string,
 ): Promise<{ ok: boolean; stdout: string; stderr: string }> =>
 	new Promise((resolve) => {
-		execFile(
+		const child = execFile(
 			claudeBin,
 			args,
 			{
@@ -245,6 +245,7 @@ export const runClaude = (
 			},
 			(error, stdout, stderr) => resolve({ ok: !error, stdout, stderr }),
 		);
+		child.stdin?.end();
 	});
 
 const startTolerance = { before: 2000, after: 60_000 };

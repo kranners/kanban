@@ -27,7 +27,7 @@ const digestPrompt = [
 	"- sessions: one entry per session, by its label, with:",
 	"  - now: one short sentence on what the session is doing right now.",
 	"  - progress: one short sentence on how far along it is towards its goal.",
-	"  - stuck: if the session looks stuck, because it keeps repeating the same step, keeps failing the same way, or is blocked on something it cannot fix itself, one short sentence saying why. Otherwise an empty string. A session waiting on the user is not stuck, and neither is one that has merely gone quiet.",
+	"  - stuck: if the session looks stuck, because it has tried the same thing three or more times without progress, keeps failing the same way, or is blocked on something it cannot fix itself, one short sentence saying why. Otherwise an empty string. A session waiting on the user is not stuck, nor is one that has merely gone quiet, nor one rerunning a command once or twice while it works.",
 	"Be concrete and terse. Use only what the input shows.",
 ].join("\n");
 
