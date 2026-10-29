@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { describe, it } from "node:test";
@@ -238,5 +238,40 @@ describe("prompt images", () => {
 		const result = await launch({ ...valid, images: [png] });
 		assert.equal(result.ok, false);
 		assert.match(result.ok ? "" : result.error, /Couldn't save the images/);
+	});
+
+	it("mirrors the default login's trust into an account profile and retries", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "trust-launch-"));
+		try {
+			const cwd = join(dir, "work");
+			await mkdir(cwd);
+			const profile = join(dir, "profile");
+			await mkdir(profile);
+			await writeFile(join(profile, ".claude.json"), "{}");
+			const defaultConfig = join(dir, "default.json");
+			await writeFile(
+				defaultConfig,
+				JSON.stringify({
+					projects: { [dir]: { hasTrustDialogAccepted: true } },
+				}),
+			);
+			const cswap = join(dir, "cswap");
+			await writeFile(
+				cswap,
+				`#!/bin/sh\ngrep -q hasTrustDialogAccepted "${profile}/.claude.json" && echo "backgrounded · deadbeef · x" || echo "Workspace not trusted"\n`,
+				{ mode: 0o755 },
+			);
+			const launch = claudeLauncher("/bin/false", dir, {
+				cswapBin: cswap,
+				defaultConfig,
+				profileOf: () => profile,
+			});
+			assert.deepEqual(await launch({ ...valid, cwd, account: 2 }), {
+				ok: true,
+				short: "deadbeef",
+			});
+		} finally {
+			await rm(dir, { recursive: true });
+		}
 	});
 });

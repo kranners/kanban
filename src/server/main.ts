@@ -224,7 +224,15 @@ const runRegionReport = createRegionReportRunner({
 const launch = claudeLauncher(
 	config.claudeBin,
 	join(config.stateDir, "images"),
-	config.cswapBin,
+	{
+		cswapBin: config.cswapBin,
+		profileOf: (number) =>
+			accounts
+				.current()
+				.accounts.find(
+					(account) => account.number === number && !account.isDefault,
+				)?.configDir ?? null,
+	},
 );
 const attachPty = claudeAttachPty(config.claudeBin);
 const attach = createAttachHub(attachPty, audit, (short) =>

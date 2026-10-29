@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import {
 	imageExtensions,
@@ -13,6 +14,7 @@ import type {
 } from "../shared/types.ts";
 import { stripAnsi } from "./ansi.ts";
 import { parsePoint } from "./layout.ts";
+import { mirrorTrust, profileConfig } from "./trust.ts";
 
 export type SessionLauncher = (
 	request: NewSessionRequest,
@@ -115,6 +117,9 @@ export const validateNewSession = async (
 export const parseBackgrounded = (stdout: string): string | null =>
 	stdout.match(/backgrounded · ([0-9a-f]{8})/)?.[1] ?? null;
 
+const isUntrusted = (output: string) =>
+	output.includes("Workspace not trusted");
+
 const untrustedHint = (cwd: string, account?: number) =>
 	`Workspace not trusted: run ${account === undefined ? "claude" : `cswap run ${account}`} in ${cwd} once and accept the trust prompt, then try again`;
 
@@ -127,7 +132,7 @@ export const launchResult = (
 	const short = parseBackgrounded(stdout);
 	if (short) return { ok: true, short };
 	const output = stripAnsi(`${stdout}\n${stderr}`);
-	if (output.includes("Workspace not trusted")) {
+	if (isUntrusted(output)) {
 		return { ok: false, error: untrustedHint(cwd, account) };
 	}
 	const detail = output.trim().split("\n").at(-1)?.trim();
@@ -205,8 +210,22 @@ export const launchCommand = (
 				env: withClaudeFirst(claudeBin, env),
 			};
 
+export type LauncherOptions = {
+	cswapBin?: string;
+	defaultConfig?: string;
+	profileOf?: (account: number) => string | null;
+};
+
 export const claudeLauncher =
-	(claudeBin: string, imagesDir: string, cswapBin = "cswap"): SessionLauncher =>
+	(
+		claudeBin: string,
+		imagesDir: string,
+		{
+			cswapBin = "cswap",
+			defaultConfig = join(homedir(), ".claude.json"),
+			profileOf = () => null,
+		}: LauncherOptions = {},
+	): SessionLauncher =>
 	async (request) => {
 		let saved: SavedImages | null = null;
 		try {
@@ -220,13 +239,29 @@ export const claudeLauncher =
 			request,
 			saved,
 		);
-		return new Promise((resolve) => {
-			execFile(
-				file,
-				args,
-				{ cwd: request.cwd, env, timeout: 60_000, maxBuffer: 1024 * 1024 },
-				(_error, stdout, stderr) =>
-					resolve(launchResult(request.cwd, stdout, stderr, request.account)),
-			);
-		});
+		const run = () =>
+			new Promise<{ stdout: string; stderr: string }>((resolve) => {
+				execFile(
+					file,
+					args,
+					{ cwd: request.cwd, env, timeout: 60_000, maxBuffer: 1024 * 1024 },
+					(_error, stdout, stderr) => resolve({ stdout, stderr }),
+				);
+			});
+		let { stdout, stderr } = await run();
+		const profile =
+			request.account === undefined ? null : profileOf(request.account);
+		if (
+			profile &&
+			!parseBackgrounded(stdout) &&
+			isUntrusted(stripAnsi(`${stdout}\n${stderr}`)) &&
+			(await mirrorTrust(
+				defaultConfig,
+				profileConfig(profile),
+				request.cwd,
+			).catch(() => false))
+		) {
+			({ stdout, stderr } = await run());
+		}
+		return launchResult(request.cwd, stdout, stderr, request.account);
 	};
