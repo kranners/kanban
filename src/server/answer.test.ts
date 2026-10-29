@@ -6,11 +6,14 @@ import {
 	choosePermission,
 	notShowing,
 	notSubmitted,
+	readQuestionShapes,
 	validAnswers,
 } from "./answer.ts";
 import { fakeTui } from "./fakeTui.ts";
 
 const timing = { pollMs: 1, settleMs: 40 };
+
+const patientTiming = { pollMs: 1, settleMs: 2000 };
 
 const anyPrompt = () => true;
 
@@ -35,6 +38,18 @@ const toppings: AskQuestion = {
 		{ label: "Basil", description: "herb" },
 	],
 };
+
+const shade: AskQuestion = {
+	...colour,
+	question: "Pick a shade",
+	header: "Shade",
+};
+
+const unshaped = (question: AskQuestion): AskQuestion => ({
+	...question,
+	header: "",
+	multiSelect: false,
+});
 
 const permissionOptions = [
 	"Yes",
@@ -68,7 +83,7 @@ describe("answering a permission prompt", () => {
 					1,
 					permissionOptions[1] ?? "",
 					anyPrompt,
-					timing,
+					patientTiming,
 				)
 			).ok,
 			true,
@@ -247,6 +262,140 @@ describe("answering questions", () => {
 		assert.equal(tui.submitted, null);
 	});
 
+	it("submits the review that a lone multi-select question ends on", async () => {
+		const tui = fakeTui({ questions: [toppings] });
+		const outcome = await answerQuestions(
+			tui,
+			[toppings],
+			[{ selected: ["Cheese", "Basil"], other: "Anchovies" }],
+			timing,
+		);
+		assert.deepEqual(outcome, { ok: true, value: null });
+		assert.deepEqual(tui.submitted, {
+			"Pick toppings": "Cheese, Basil, Anchovies",
+		});
+	});
+
+	it("toggles a multi-select question that the job state lists without its type", async () => {
+		const tui = fakeTui({ questions: [colour, toppings] });
+		const outcome = await answerQuestions(
+			tui,
+			[colour, toppings].map(unshaped),
+			[
+				{ selected: ["Blue"], other: null },
+				{ selected: ["Olives"], other: null },
+			],
+			timing,
+		);
+		assert.deepEqual(outcome, { ok: true, value: null });
+		assert.deepEqual(tui.submitted, {
+			"Pick a colour": "Blue",
+			"Pick toppings": "Olives",
+		});
+	});
+
+	it("refuses several picks for a question the screen shows as single-select", async () => {
+		const tui = fakeTui({ questions: [colour] });
+		const outcome = await answerQuestions(
+			tui,
+			[{ ...colour, multiSelect: true }],
+			[{ selected: ["Red", "Blue"], other: null }],
+			timing,
+		);
+		assert.deepEqual(outcome, {
+			ok: false,
+			error: "“Colour” takes one answer",
+		});
+		assert.equal(tui.submitted, null);
+	});
+
+	it("goes back to the first question when an earlier attempt left the prompt further on", async () => {
+		const tui = fakeTui({ questions: [colour, toppings] });
+		assert.ok(tui.state?.kind === "ask");
+		tui.state.typed[0] = "Teal";
+		tui.state.tab = 1;
+		const outcome = await answerQuestions(
+			tui,
+			[colour, toppings],
+			[
+				{ selected: [], other: "Teal" },
+				{ selected: ["Cheese"], other: null },
+			],
+			timing,
+		);
+		assert.deepEqual(outcome, { ok: true, value: null });
+		assert.deepEqual(tui.sent, [], "the typed answer is not pasted twice");
+		assert.deepEqual(tui.submitted, {
+			"Pick a colour": "Teal",
+			"Pick toppings": "Cheese",
+		});
+	});
+
+	it("refuses rather than adding to a different answer already typed", async () => {
+		const tui = fakeTui({ questions: [colour] });
+		assert.ok(tui.state?.kind === "ask");
+		tui.state.typed[0] = "Teal";
+		const outcome = await answerQuestions(
+			tui,
+			[colour],
+			[{ selected: [], other: "Navy" }],
+			timing,
+		);
+		assert.equal(outcome.ok, false);
+		assert.deepEqual(tui.sent, []);
+		assert.equal(tui.submitted, null);
+	});
+
+	it("refuses rather than submitting a shorter answer already typed", async () => {
+		const tui = fakeTui({ questions: [colour] });
+		assert.ok(tui.state?.kind === "ask");
+		tui.state.typed[0] = "Navy";
+		const outcome = await answerQuestions(
+			tui,
+			[colour],
+			[{ selected: [], other: "Navy blue with stripes" }],
+			timing,
+		);
+		assert.equal(outcome.ok, false);
+		assert.equal(tui.submitted, null);
+	});
+
+	it("refuses rather than submitting a typed answer left in a multi-select question", async () => {
+		const tui = fakeTui({ questions: [toppings] });
+		assert.ok(tui.state?.kind === "ask");
+		tui.state.typed[0] = "Anchovies";
+		const outcome = await answerQuestions(
+			tui,
+			[toppings],
+			[{ selected: ["Cheese"], other: null }],
+			timing,
+		);
+		assert.equal(outcome.ok, false);
+		assert.equal(tui.submitted, null);
+	});
+
+	it("tells apart questions where one's text starts with the other's", async () => {
+		const border: AskQuestion = {
+			...shade,
+			question: "Pick a colour for the border",
+		};
+		const tui = fakeTui({ questions: [colour, border] });
+		const outcome = await answerQuestions(
+			tui,
+			[colour, border],
+			[
+				{ selected: ["Red"], other: null },
+				{ selected: ["Green"], other: null },
+			],
+			timing,
+		);
+		assert.deepEqual(outcome, { ok: true, value: null });
+		assert.deepEqual(tui.submitted, {
+			"Pick a colour": "Red",
+			"Pick a colour for the border": "Green",
+		});
+	});
+
 	it("validates answers before touching the session", async () => {
 		assert.equal(validAnswers([colour], []), "Answer every question");
 		assert.equal(
@@ -276,5 +425,41 @@ describe("answering questions", () => {
 		const outcome = await answerQuestions(tui, [colour], [], timing);
 		assert.equal(outcome.ok, false);
 		assert.deepEqual(tui.sent, []);
+	});
+});
+
+describe("reading question types off the screen", () => {
+	it("reads each question's header and type, then returns to the question it started on", async () => {
+		const questions = [colour, toppings, shade];
+		const tui = fakeTui({ questions });
+		await tui.keys(["Tab"]);
+		const read = await readQuestionShapes(tui, questions.map(unshaped), timing);
+		assert.deepEqual(read, {
+			ok: true,
+			value: [
+				{ header: "Colour", multiSelect: false },
+				{ header: "Toppings", multiSelect: true },
+				{ header: "Shade", multiSelect: false },
+			],
+		});
+		assert.ok(tui.state?.kind === "ask");
+		assert.equal(tui.state.tab, 1);
+		assert.equal(tui.submitted, null);
+	});
+
+	it("leaves a typed answer's row before switching questions", async () => {
+		const questions = [colour, toppings];
+		const tui = fakeTui({ questions });
+		assert.ok(tui.state?.kind === "ask");
+		tui.state.cursor = colour.options.length;
+		const read = await readQuestionShapes(tui, questions, timing);
+		assert.equal(read.ok, true);
+		assert.deepEqual(tui.sent, []);
+	});
+
+	it("refuses when the prompt on screen is not one of the questions", async () => {
+		const tui = fakeTui({ questions: [toppings] });
+		const read = await readQuestionShapes(tui, [colour], timing);
+		assert.deepEqual(read, { ok: false, error: notShowing });
 	});
 });

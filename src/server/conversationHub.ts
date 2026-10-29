@@ -12,7 +12,13 @@ import {
 	type ViewKey,
 } from "../shared/conversation.ts";
 import type { NodeRef, Session } from "../shared/types.ts";
-import { answerQuestions, choosePermission, type Outcome } from "./answer.ts";
+import {
+	answerQuestions,
+	choosePermission,
+	type Outcome,
+	type QuestionShape,
+	readQuestionShapes,
+} from "./answer.ts";
 import type { AttachSocket } from "./attach.ts";
 import type { Audit } from "./audit.ts";
 import type { CmuxResult } from "./cmux.ts";
@@ -66,6 +72,8 @@ export type ConversationHub = {
 };
 
 const socketOpen = 1;
+
+const shapeTries = 3;
 const viewKeys: ViewKey[] = ["Escape", "Shift+Tab"];
 const controlCharacters = /(?![\n\t])\p{Cc}/u;
 const frameIdPattern = /^[\w-]{1,64}$/;
@@ -165,13 +173,27 @@ const askQuestions = (input: Record<string, unknown>): AskQuestion[] | null => {
 
 type PendingQuestion = { toolUseId: string; questions: AskQuestion[] };
 
+const withShapes = (
+	block: Record<string, unknown>,
+	shapes: QuestionShape[],
+): Record<string, unknown> => ({
+	...block,
+	questions: (Array.isArray(block.questions) ? block.questions : []).map(
+		(question: unknown, at) => ({ ...asObject(question), ...shapes[at] }),
+	),
+});
+
 const blockedQuestion = (
 	block: Record<string, unknown> | null,
 ): PendingQuestion | null => {
 	const questions = block ? askQuestions(block) : null;
 	if (!questions) return null;
 	const digest = createHash("sha256")
-		.update(JSON.stringify(questions))
+		.update(
+			JSON.stringify(
+				questions.map(({ question, options }) => ({ question, options })),
+			),
+		)
 		.digest("hex")
 		.slice(0, 16);
 	return { toolUseId: `block-${digest}`, questions };
@@ -538,8 +560,40 @@ export const createConversationHub = (
 		const session = (): Session | null =>
 			sessionId === null ? null : deps.session(sessionId);
 
-		const block = (): Record<string, unknown> | null =>
+		const jobBlock = (): Record<string, unknown> | null =>
 			sessionId === null ? null : deps.block(sessionId);
+
+		let shapes: {
+			key: string;
+			read: QuestionShape[] | null;
+			tries: number;
+		} | null = null;
+
+		const block = (): Record<string, unknown> | null => {
+			const raw = jobBlock();
+			return raw && shapes?.read && shapes.key === JSON.stringify(raw.questions)
+				? withShapes(raw, shapes.read)
+				: raw;
+		};
+
+		const learnShapes = async (tty: SessionTty, screen: string | null) => {
+			const raw = jobBlock();
+			const questions = raw ? askQuestions(raw) : null;
+			if (!raw || !questions) return;
+			const key = JSON.stringify(raw.questions);
+			const earlier = shapes?.key === key ? shapes : null;
+			const tries = earlier?.tries ?? 0;
+			if (
+				earlier?.read ||
+				tries >= shapeTries ||
+				pendingQuestion(log) !== null ||
+				readDialog(screen ?? "")?.kind !== "ask"
+			) {
+				return;
+			}
+			const read = await readQuestionShapes(tty, questions);
+			shapes = { key, read: read.ok ? read.value : null, tries: tries + 1 };
+		};
 
 		const syncStatus = () => {
 			const key = JSON.stringify(log.status);
@@ -588,6 +642,7 @@ export const createConversationHub = (
 				const tty = ttyFor(current);
 				const read = tty ? await tty.screen() : null;
 				screen = read?.ok ? read.value : null;
+				if (tty && waiting) await learnShapes(tty, screen);
 			}
 			if (drive.mode === "drive" && drive.via === "attach" && !waiting) {
 				if (Date.now() - lastUse > 30_000) releaseTty(current.id);
@@ -748,6 +803,7 @@ export const createConversationHub = (
 			advance();
 			const screen = await tty.screen();
 			if (!screen.ok) return screen;
+			await learnShapes(tty, screen.value);
 			const { dialog, answerable } = dialogOf(
 				log,
 				current,

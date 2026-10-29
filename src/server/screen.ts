@@ -45,9 +45,15 @@ const modePattern = /(?:⏵⏵|⏸|⏵)\s+([a-z][a-z ]*?) on\b/i;
 export const normalise = (text: string): string =>
 	text.replace(/\s+/g, " ").replace(/…$/, "").trim().toLowerCase();
 
+const comparable = (text: string): string =>
+	normalise(text).replace(/[\s`*]/g, "");
+
+export const sameText = (shown: string, wanted: string): boolean =>
+	comparable(shown) !== "" && comparable(shown) === comparable(wanted);
+
 export const sameLabel = (shown: string, wanted: string): boolean => {
-	const a = normalise(shown).replace(/[\s`*]/g, "");
-	const b = normalise(wanted).replace(/[\s`*]/g, "");
+	const a = comparable(shown);
+	const b = comparable(wanted);
 	if (a === "" || b === "") return false;
 	return (
 		a === b ||

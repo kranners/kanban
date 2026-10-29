@@ -11,6 +11,7 @@ import {
 	readDialog,
 	type ScreenDialog,
 	sameLabel,
+	sameText,
 } from "./screen.ts";
 
 export type Tty = {
@@ -28,8 +29,6 @@ const defaultTiming: AnswerTiming = { pollMs: 120, settleMs: 1500 };
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const refuse = (error: string): Outcome => ({ ok: false, error });
-
-const ok: Outcome = { ok: true, value: null };
 
 export const notShowing =
 	"The session is not showing that prompt any more, so nothing was sent. Open the terminal to check it.";
@@ -94,41 +93,105 @@ const moveTo = async (
 	return askScreen(moved);
 };
 
+const isMulti = (screen: AskScreen): boolean =>
+	screen.rows.some((row) => row.checked !== null);
+
+const shownAt = (screen: AskScreen, questions: AskQuestion[]): number => {
+	if (screen.review) return questions.length;
+	const exact = questions.findIndex((question) =>
+		sameText(screen.question, question.question),
+	);
+	if (exact !== -1) return exact;
+	const close = questions
+		.map((question, at) => ({ question, at }))
+		.filter(({ question }) => sameLabel(screen.question, question.question))
+		.sort((a, b) => b.question.question.length - a.question.question.length);
+	return close[0]?.at ?? -1;
+};
+
+const showing = async (
+	drive: Driver,
+	questions: AskQuestion[],
+): Promise<AskScreen> =>
+	askScreen(
+		await drive.until((dialog) =>
+			isAsk(dialog, (ask) => shownAt(ask, questions) !== -1),
+		),
+	);
+
+const goTo = async (
+	drive: Driver,
+	questions: AskQuestion[],
+	target: number,
+): Promise<AskScreen> => {
+	let screen = await showing(drive, questions);
+	for (let step = 0; step <= questions.length; step++) {
+		const at = shownAt(screen, questions);
+		if (at === -1) throw new Refusal(notShowing);
+		if (at === target) return screen;
+		const cursor = cursorRow(screen.rows);
+		if (!screen.review && cursor === questions[at]?.options.length) {
+			screen = await moveTo(drive, screen, cursor - 1);
+		}
+		const next = at < target ? at + 1 : at - 1;
+		await drive.press([at < target ? "Tab" : "Shift+Tab"]);
+		screen = askScreen(
+			await drive.until((dialog) =>
+				isAsk(dialog, (ask) => shownAt(ask, questions) === next),
+			),
+		);
+	}
+	throw new Refusal(notShowing);
+};
+
+const typedAlready = (label: string): string | null => {
+	const shown = label.replace(/\s*✔$/, "");
+	return shown.trim() === "" || normalise(shown).startsWith("type something")
+		? null
+		: shown;
+};
+
+const holdsTyped = (typed: string, text: string): boolean =>
+	/…\s*$/.test(typed)
+		? normalise(text).startsWith(normalise(typed))
+		: sameText(typed, text);
+
+const otherTyped =
+	"The prompt already holds a different typed answer, so it was left open. Open the terminal to check it.";
+
 const typeOther = async (
 	drive: Driver,
 	screen: AskScreen,
 	row: number,
 	text: string,
 ): Promise<AskScreen> => {
-	await moveTo(drive, screen, row);
+	const typed = typedAlready(screen.rows[row]?.label ?? "");
+	const moved = await moveTo(drive, screen, row);
+	if (typed !== null) {
+		if (holdsTyped(typed, text)) return moved;
+		throw new Refusal(otherTyped);
+	}
 	await drive.paste(text);
-	const typed = await drive.until((dialog) =>
+	const shown = await drive.until((dialog) =>
 		isAsk(dialog, (ask) => sameLabel(ask.rows[row]?.label ?? "", text)),
 	);
-	if (!isAsk(typed, (ask) => sameLabel(ask.rows[row]?.label ?? "", text))) {
+	if (!isAsk(shown, (ask) => sameLabel(ask.rows[row]?.label ?? "", text))) {
 		throw new Refusal(
 			"The typed answer did not appear in the prompt, so it was left open",
 		);
 	}
-	return askScreen(typed);
+	return askScreen(shown);
 };
 
 const answerOne = async (
 	drive: Driver,
-	question: AskQuestion,
+	questions: AskQuestion[],
+	at: number,
 	answer: AskAnswer,
-): Promise<void> => {
-	let screen = askScreen(
-		await drive.until((dialog) =>
-			isAsk(
-				dialog,
-				(ask) => !ask.review && sameLabel(ask.question, question.question),
-			),
-		),
-	);
-	if (screen.review || !sameLabel(screen.question, question.question)) {
-		throw new Refusal(notShowing);
-	}
+): Promise<{ multi: boolean }> => {
+	const question = questions[at];
+	if (!question) throw new Refusal(notShowing);
+	let screen = await goTo(drive, questions, at);
 	const count = question.options.length;
 	question.options.forEach((option, at) => {
 		const row = screen.rows[at];
@@ -137,7 +200,10 @@ const answerOne = async (
 		}
 	});
 	const other = answer.other?.trim() ? answer.other : null;
-	if (!question.multiSelect) {
+	if (!isMulti(screen)) {
+		if (answer.selected.length + (other ? 1 : 0) > 1) {
+			throw new Refusal(oneAnswer(question));
+		}
 		if (other) screen = await typeOther(drive, screen, count, other);
 		else {
 			const target = question.options.findIndex(
@@ -151,7 +217,10 @@ const answerOne = async (
 			(dialog) =>
 				!isAsk(dialog, (ask) => sameLabel(ask.question, question.question)),
 		);
-		return;
+		return { multi: false };
+	}
+	if (!other && typedAlready(screen.rows[count]?.label ?? "") !== null) {
+		throw new Refusal(otherTyped);
 	}
 	for (const [at, option] of question.options.entries()) {
 		const wanted = answer.selected.includes(option.label);
@@ -177,6 +246,7 @@ const answerOne = async (
 		(dialog) =>
 			!isAsk(dialog, (ask) => sameLabel(ask.question, question.question)),
 	);
+	return { multi: true };
 };
 
 export const notSubmitted =
@@ -199,15 +269,20 @@ const submitReview = async (drive: Driver): Promise<void> => {
 	}
 };
 
-const run = async (task: () => Promise<void>): Promise<Outcome> => {
+const run = async <T>(task: () => Promise<T>): Promise<CmuxResult<T>> => {
 	try {
-		await task();
-		return ok;
+		return { ok: true, value: await task() };
 	} catch (error) {
-		if (error instanceof Refusal) return refuse(error.message);
+		if (error instanceof Refusal) return { ok: false, error: error.message };
 		throw error;
 	}
 };
+
+const named = (question: AskQuestion): string =>
+	question.header || question.question;
+
+const oneAnswer = (question: AskQuestion): string =>
+	`“${named(question)}” takes one answer`;
 
 export const validAnswers = (
 	questions: AskQuestion[],
@@ -226,10 +301,8 @@ export const validAnswers = (
 			return "An answer cannot contain control characters";
 		}
 		const picked = answer.selected.length + (other ? 1 : 0);
-		if (picked === 0) return `Answer “${question.header || question.question}”`;
-		if (!question.multiSelect && picked > 1) {
-			return `“${question.header || question.question}” takes one answer`;
-		}
+		if (picked === 0) return `Answer “${named(question)}”`;
+		if (!question.multiSelect && picked > 1) return oneAnswer(question);
 	}
 	return null;
 };
@@ -244,11 +317,38 @@ export const answerQuestions = (
 	if (invalid) return Promise.resolve(refuse(invalid));
 	const drive = driver(tty, timing);
 	return run(async () => {
-		for (const [at, question] of questions.entries()) {
-			const answer = answers[at];
-			if (answer) await answerOne(drive, question, answer);
+		let last = { multi: false };
+		for (const [at, answer] of answers.entries()) {
+			last = await answerOne(drive, questions, at, answer);
 		}
-		if (questions.length > 1) await submitReview(drive);
+		if (questions.length > 1 || last.multi) await submitReview(drive);
+		return null;
+	});
+};
+
+export type QuestionShape = { header: string; multiSelect: boolean };
+
+export const readQuestionShapes = (
+	tty: Tty,
+	questions: AskQuestion[],
+	timing: AnswerTiming = defaultTiming,
+): Promise<CmuxResult<QuestionShape[]>> => {
+	const drive = driver(tty, timing);
+	return run(async () => {
+		const origin = shownAt(await showing(drive, questions), questions);
+		const shapes: QuestionShape[] = [];
+		for (const at of questions.keys()) {
+			const screen = await goTo(drive, questions, at);
+			shapes.push({
+				header:
+					screen.tabs.length === questions.length
+						? (screen.tabs[at] ?? "")
+						: "",
+				multiSelect: isMulti(screen),
+			});
+		}
+		await goTo(drive, questions, origin);
+		return shapes;
 	});
 };
 
@@ -278,5 +378,6 @@ export const choosePermission = (
 			);
 		}
 		await drive.press(["Enter"]);
+		return null;
 	});
 };

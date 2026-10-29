@@ -821,6 +821,31 @@ const betfair: AskQuestion = {
 	],
 };
 
+const venue: AskQuestion = {
+	question: "Where should the party be?",
+	header: "Venue",
+	multiSelect: false,
+	options: [
+		{ label: "Hall", description: "indoors" },
+		{ label: "Park", description: "outdoors" },
+	],
+};
+
+const snacks: AskQuestion = {
+	question: "Which snacks should we buy?",
+	header: "Snacks",
+	multiSelect: true,
+	options: [
+		{ label: "Chips", description: "salty" },
+		{ label: "Fruit", description: "fresh" },
+		{ label: "Cookies", description: "sweet" },
+	],
+};
+
+const jobBlock = (questions: AskQuestion[]) => ({
+	questions: questions.map(({ question, options }) => ({ question, options })),
+});
+
 const askCall = (id: string, questions: AskQuestion[]) =>
 	line({
 		type: "assistant",
@@ -935,6 +960,92 @@ describe("answering a prompt for the board agent", () => {
 		assert.deepEqual(tui.submitted, {
 			"Run against Betfair?": "Yes, test then full",
 		});
+	});
+
+	it("reads a background question's types off the screen, since the job state leaves them out", async () => {
+		const path = join(dir, "agent-block-shapes.jsonl");
+		writeFileSync(path, prompt("plan the party"));
+		const background = session({
+			kind: "background",
+			short: "73585ae6",
+			attachable: true,
+			cmux: false,
+			activity: "needs-you",
+		});
+		const tui = fakeTui({ questions: [venue, snacks] });
+		const { conversations } = answering(
+			tui,
+			path,
+			background,
+			jobBlock([venue, snacks]),
+		);
+		const picked = await readAndAnswer(conversations, background, [
+			{ selected: ["Park"], other: null },
+			{ selected: ["Chips", "Fruit"], other: "Pretzels" },
+		]);
+		assert.equal(picked.ok, true);
+		assert.deepEqual(tui.submitted, {
+			"Where should the party be?": "Park",
+			"Which snacks should we buy?": "Chips, Fruit, Pretzels",
+		});
+	});
+
+	it("shows a viewer a background question's checkboxes and headers, then answers it", async () => {
+		const path = join(dir, "view-block-shapes.jsonl");
+		writeFileSync(path, prompt("plan the party"));
+		const background = session({
+			kind: "background",
+			short: "f549d3f9",
+			attachable: true,
+			cmux: false,
+			activity: "needs-you",
+		});
+		const tui = fakeTui({ questions: [venue, snacks] });
+		const { conversations } = answering(
+			tui,
+			path,
+			background,
+			jobBlock([venue, snacks]),
+		);
+		const socket = fakeSocket();
+		conversations.open(
+			socket,
+			{ kind: "session", session: background, path },
+			null,
+			null,
+		);
+		await until(() =>
+			socket.frames.some(
+				(frame) => frame.type === "dialog" && frame.answerable,
+			),
+		);
+		const shown = socket.frames.findLast((frame) => frame.type === "dialog");
+		assert.ok(shown?.type === "dialog" && shown.dialog?.kind === "question");
+		assert.deepEqual(
+			shown.dialog.questions.map(({ header, multiSelect }) => ({
+				header,
+				multiSelect,
+			})),
+			[
+				{ header: "Venue", multiSelect: false },
+				{ header: "Snacks", multiSelect: true },
+			],
+		);
+		socket.receive({
+			type: "answer",
+			id: "a1",
+			toolUseId: shown.dialog.toolUseId,
+			answers: [
+				{ selected: [], other: "The roof" },
+				{ selected: ["Cookies"], other: "Pretzels" },
+			],
+		});
+		await until(() => tui.submitted !== null);
+		assert.deepEqual(tui.submitted, {
+			"Where should the party be?": "The roof",
+			"Which snacks should we buy?": "Cookies, Pretzels",
+		});
+		socket.hangUp();
 	});
 
 	it("types a free-text answer where the question takes one", async () => {

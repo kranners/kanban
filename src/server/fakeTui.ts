@@ -31,6 +31,9 @@ export type FakeTui = Tty & {
 
 const wrap = (value: number, count: number) => (value + count) % count;
 
+const hasReview = (state: Ask): boolean =>
+	state.questions.length > 1 || state.questions[0]?.multiSelect === true;
+
 const quoteWidth = 60;
 
 const shownQuestion = (question: string): string[] => {
@@ -108,10 +111,9 @@ export function fakeTui(opts: {
 				(question, at) =>
 					`${state.picked[at]?.length || state.typed[at] ? "☒" : "☐"} ${question.header}`,
 			);
-			const bar =
-				state.questions.length > 1
-					? `←  ${tabs.join("  ")}  ✔ Submit  →`
-					: ` ${tabs[0]} `;
+			const bar = hasReview(state)
+				? `←  ${tabs.join("  ")}  ✔ Submit  →`
+				: ` ${tabs[0]} `;
 			if (state.review) {
 				return [
 					...head,
@@ -171,10 +173,22 @@ export function fakeTui(opts: {
 				return { ok: true, value: null };
 			const question = state.questions[state.tab];
 			if (question && state.cursor === question.options.length) {
-				state.typed[state.tab] = text;
+				state.typed[state.tab] = (state.typed[state.tab] ?? "") + text;
 			}
 			return { ok: true, value: null };
 		},
+	};
+
+	const switchTab = (state: Ask, step: 1 | -1) => {
+		const last = state.questions.length - 1;
+		const at = state.review ? last + 1 : state.tab;
+		const next = Math.min(
+			Math.max(at + step, 0),
+			hasReview(state) ? last + 1 : last,
+		);
+		state.cursor = 0;
+		state.review = next > last;
+		state.tab = Math.min(next, last);
 	};
 
 	const advance = (state: Ask) => {
@@ -183,7 +197,7 @@ export function fakeTui(opts: {
 			state.tab += 1;
 			return;
 		}
-		if (state.questions.length > 1) {
+		if (hasReview(state)) {
 			state.review = true;
 			return;
 		}
@@ -217,6 +231,13 @@ export function fakeTui(opts: {
 				tui.chosen = state.options[state.cursor] ?? null;
 				tui.state = null;
 			}
+			return;
+		}
+		if (key === "Tab" || key === "Shift+Tab") {
+			const typing =
+				!state.review &&
+				state.cursor === state.questions[state.tab]?.options.length;
+			if (!typing) switchTab(state, key === "Tab" ? 1 : -1);
 			return;
 		}
 		if (state.review) {
