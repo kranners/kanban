@@ -2,13 +2,20 @@ import "./usage.css";
 import { Gauge, TriangleAlert } from "lucide-preact";
 import type { JSX } from "preact";
 import { useState } from "preact/hooks";
-import type { UsageSample, UsageWindow } from "../shared/types.ts";
+import type {
+	AccountUsage,
+	UsageSample,
+	UsageWindow,
+} from "../shared/types.ts";
 import { now } from "./state.ts";
 import { ago } from "./time.ts";
 import {
+	accountLabel,
 	chartSpanMs,
+	defaultAccount,
 	type Frame,
 	linePath,
+	makeDefault,
 	nearestSample,
 	severity,
 	untilReset,
@@ -45,23 +52,27 @@ const sparkFrame = (to: number): Frame => ({
 export function UsagePill(): JSX.Element | null {
 	const current = usage.value;
 	if (!current) return null;
-	const { session, week, samples, error } = current;
+	const { session, week, samples, error, accounts } = current;
 	const level = worst(session, week);
 	const at = now.value;
+	const chosen = accounts.length > 1 ? defaultAccount(current) : null;
+	const chip = chosen ? accountLabel(chosen) : null;
+	const owner = chosen ? ` on ${chip} (${chosen.email})` : "";
 	return (
 		<>
 			<button
 				type="button"
 				class={`pill usage-pill usage-${level}${error ? " usage-stale" : ""}`}
 				popovertarget="usage-popover"
-				aria-label={`Claude usage: 5-hour session ${percent(session)}, week ${percent(week)}${error ? `; ${error}` : ""}`}
-				title={error ?? "Claude usage"}
+				aria-label={`Claude usage${owner}: 5-hour session ${percent(session)}, week ${percent(week)}${error ? `; ${error}` : ""}`}
+				title={error ?? `Claude usage${owner}`}
 			>
 				{level === "normal" && !error ? (
 					<Gauge size={13} aria-hidden="true" />
 				) : (
 					<TriangleAlert size={13} strokeWidth={2.25} aria-hidden="true" />
 				)}
+				{chip && <span class="usage-account">{chip}</span>}
 				<span class="usage-reading">
 					<span class="usage-name">5h</span>
 					<span class="num">{percent(session)}</span>
@@ -81,7 +92,7 @@ export function UsagePill(): JSX.Element | null {
 				</svg>
 			</button>
 			<div id="usage-popover" popover="auto" class="usage-popover">
-				<h2>Claude usage</h2>
+				<h2>Claude usage{chip ? ` · ${chip}` : ""}</h2>
 				<dl class="usage-windows">
 					{series.map(({ key, label }) => {
 						const window = current[key];
@@ -114,6 +125,7 @@ export function UsagePill(): JSX.Element | null {
 					})}
 				</dl>
 				<UsageChart samples={samples} to={at} />
+				{accounts.length > 1 && <AccountList accounts={accounts} at={at} />}
 				<p class={`usage-status${error ? " usage-error" : ""}`}>
 					{error ??
 						(current.checkedAt
@@ -122,6 +134,108 @@ export function UsagePill(): JSX.Element | null {
 				</p>
 			</div>
 		</>
+	);
+}
+
+function AccountList(props: {
+	accounts: readonly AccountUsage[];
+	at: number;
+}): JSX.Element {
+	const [pending, setPending] = useState<number | null>(null);
+	const [failure, setFailure] = useState<{
+		account: number;
+		error: string;
+	} | null>(null);
+	const choose = async (account: number) => {
+		setPending(account);
+		setFailure(null);
+		const result = await makeDefault(account);
+		setPending(null);
+		if (!result.ok) setFailure({ account, error: result.error });
+	};
+	return (
+		<ul class="usage-accounts" aria-label="Claude accounts">
+			{props.accounts.map((account) => (
+				<AccountRow
+					key={account.id}
+					account={account}
+					at={props.at}
+					pending={pending}
+					error={
+						failure?.account === account.number ? failure.error : account.error
+					}
+					onChoose={() => void choose(account.number)}
+				/>
+			))}
+		</ul>
+	);
+}
+
+function AccountRow(props: {
+	account: AccountUsage;
+	at: number;
+	pending: number | null;
+	error: string | null;
+	onChoose: () => void;
+}): JSX.Element {
+	const { account } = props;
+	return (
+		<li class={`usage-account-row${account.isDefault ? " is-default" : ""}`}>
+			<div class="usage-account-head">
+				<span class="usage-account-name" title={account.organization}>
+					{account.alias ?? account.email}
+				</span>
+				<svg
+					class="usage-spark"
+					viewBox="0 0 40 14"
+					width="40"
+					height="14"
+					aria-hidden="true"
+				>
+					<path d={linePath(account.samples, "week", sparkFrame(props.at))} />
+				</svg>
+				{account.isDefault ? (
+					<span class="usage-default-tag">Default</span>
+				) : (
+					<button
+						type="button"
+						class="usage-make-default"
+						title="Switch the default Claude login; sessions on it move to this account"
+						disabled={props.pending !== null}
+						onClick={props.onChoose}
+					>
+						{props.pending === account.number ? "Switching…" : "Make default"}
+					</button>
+				)}
+			</div>
+			<AccountWindow label="5h" window={account.session} at={props.at} />
+			<AccountWindow label="Week" window={account.week} at={props.at} />
+			{props.error && <p class="usage-account-error">{props.error}</p>}
+		</li>
+	);
+}
+
+function AccountWindow(props: {
+	label: string;
+	window: UsageWindow | null;
+	at: number;
+}): JSX.Element {
+	const { window } = props;
+	return (
+		<div class={`usage-account-window usage-${severity(window?.percent ?? 0)}`}>
+			<span class="usage-account-label">{props.label}</span>
+			<span class="usage-bar" aria-hidden="true">
+				<span style={{ width: `${Math.min(100, window?.percent ?? 0)}%` }} />
+			</span>
+			<span class="num usage-account-percent">{percent(window)}</span>
+			{window?.resetsAt != null ? (
+				<span class="usage-reset" title={`Resets ${clock(window.resetsAt)}`}>
+					{untilReset(window.resetsAt, props.at)}
+				</span>
+			) : (
+				<span class="usage-reset" />
+			)}
+		</div>
 	);
 }
 

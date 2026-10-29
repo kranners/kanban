@@ -15,6 +15,13 @@ export type AuditEvent =
 			cwd: string;
 			name: string | null;
 			images?: number;
+			account?: number | null;
+			identity: string | null;
+			result: string;
+	  }
+	| {
+			action: "account-default";
+			account: number;
 			identity: string | null;
 			result: string;
 	  }

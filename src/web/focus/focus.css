@@ -509,6 +509,7 @@
 }
 
 .focus-field input,
+.focus-field select,
 .focus-field textarea {
 	padding: 8px 10px;
 	border: 1px solid var(--hairline);

@@ -54,10 +54,13 @@ export type BoardHandle = {
 
 type Owner = { node: NodeRef; facts: TranscriptFacts };
 
+type Homed<T> = T & { home: string };
+
 type Tracked = {
 	id: string;
-	entry: RegistryEntry | null;
-	job: Job | null;
+	home: string;
+	entry: Homed<RegistryEntry> | null;
+	job: Homed<Job> | null;
 	tail: Tail | null;
 };
 
@@ -73,12 +76,14 @@ export function startBoard(opts: {
 	onChange: (board: Board) => void;
 	ignore?: (sessionId: string, cwd: string) => boolean;
 	inCmux?: (pid: number) => boolean;
+	profiles?: () => string[];
 }): BoardHandle {
 	const {
 		claudeHome,
 		onChange,
 		ignore = () => false,
 		inCmux = () => false,
+		profiles = () => [],
 	} = opts;
 	const tails = new Map<string, Tail>();
 	const agentTails = new Map<string, Tail>();
@@ -97,12 +102,17 @@ export function startBoard(opts: {
 		(ref.name !== undefined ? byName.get(ref.name) : undefined) ??
 		null;
 
-	function tailFor(id: string, cwd: string, now: number): Tail | null {
+	function tailFor(
+		id: string,
+		cwd: string,
+		home: string,
+		now: number,
+	): Tail | null {
 		const existing = tails.get(id);
 		if (existing) return existing;
 		if (now - (locateAttempts.get(id) ?? 0) < locateRetryMs) return null;
 		locateAttempts.set(id, now);
-		const path = locateTranscript(claudeHome, id, cwd);
+		const path = locateTranscript(home, id, cwd);
 		if (!path) return null;
 		const tail = createTail(path);
 		tails.set(id, tail);
@@ -112,15 +122,22 @@ export function startBoard(opts: {
 
 	function build(): Board {
 		const now = Date.now();
-		const registry = readRegistry(claudeHome).filter(
-			(entry) => !ignore(entry.sessionId, entry.cwd) && isAlive(entry.pid),
-		);
+		const homes = [claudeHome, ...profiles()];
+		const registry = homes
+			.flatMap((home) =>
+				readRegistry(home).map((entry) => ({ ...entry, home })),
+			)
+			.filter(
+				(entry) => !ignore(entry.sessionId, entry.cwd) && isAlive(entry.pid),
+			);
 		for (const entry of registry) {
 			byPid.set(entry.pid, entry.sessionId);
 			if (entry.socket) bySocket.set(entry.socket, entry.sessionId);
 			if (entry.name) byName.set(entry.name, entry.sessionId);
 		}
-		const jobs = readJobs(claudeHome);
+		const jobs = homes.flatMap((home) =>
+			readJobs(home).map((job) => ({ ...job, home })),
+		);
 		const tracked = collectTracked(registry, jobs, now);
 		cwds = recentCwdsOf(registry, jobs);
 		blocks = new Map(
@@ -131,7 +148,7 @@ export function startBoard(opts: {
 
 		for (const item of tracked.values()) {
 			const cwd = item.entry?.cwd ?? item.job?.cwd ?? "";
-			item.tail = tailFor(item.id, cwd, now);
+			item.tail = tailFor(item.id, cwd, item.home, now);
 		}
 		for (const item of [...tracked.values()].sort(byStartedAt)) {
 			if (item.tail) advanceTail(item.tail, resolve);
@@ -161,7 +178,7 @@ export function startBoard(opts: {
 			...workflows.map((workflow) => workflow.sessionId),
 		]);
 		const sessions = [...tracked.values()]
-			.map((item) => toSession(item, inCmux, watched.has(item.id)))
+			.map((item) => toSession(item, claudeHome, inCmux, watched.has(item.id)))
 			.sort((a, b) => b.updatedAt - a.updatedAt);
 		subagentPaths.clear();
 		for (const { subagent, transcriptPath } of shown) {
@@ -237,8 +254,8 @@ export function startBoard(opts: {
 		tracked: Map<string, Tracked>,
 		now: number,
 	): FoundSubagent[] {
-		const projects = join(claudeHome, "projects");
 		return [...tracked.values()].flatMap((item) => {
+			const projects = join(item.home, "projects");
 			const slug = projectSlug(item.entry?.cwd ?? item.job?.cwd ?? "");
 			const dirs = new Set<string>();
 			if (item.tail) {
@@ -317,7 +334,7 @@ export function startBoard(opts: {
 			if (!session) return null;
 			return (
 				tails.get(node.id)?.path ??
-				locateTranscript(claudeHome, node.id, session.cwd)
+				locateTranscript(session.configDir ?? claudeHome, node.id, session.cwd)
 			);
 		},
 		recentCwds: () => cwds,
@@ -369,28 +386,35 @@ function collectShells(
 }
 
 function collectTracked(
-	registry: RegistryEntry[],
-	jobs: Job[],
+	registry: Homed<RegistryEntry>[],
+	jobs: Homed<Job>[],
 	now: number,
 ): Map<string, Tracked> {
-	const jobByShort = new Map(jobs.map((job) => [job.short, job]));
+	const jobKey = (home: string, short: string) => `${home}\0${short}`;
+	const jobByShort = new Map(
+		jobs.map((job) => [jobKey(job.home, job.short), job]),
+	);
 	const tracked = new Map<string, Tracked>();
-	const claimedShorts = new Set<string>();
+	const claimed = new Set<Homed<Job>>();
 	for (const entry of [...registry].sort((a, b) => a.updatedAt - b.updatedAt)) {
-		const job = entry.jobId ? (jobByShort.get(entry.jobId) ?? null) : null;
-		if (job) claimedShorts.add(job.short);
+		const job = entry.jobId
+			? (jobByShort.get(jobKey(entry.home, entry.jobId)) ?? null)
+			: null;
+		if (job) claimed.add(job);
 		tracked.set(entry.sessionId, {
 			id: entry.sessionId,
+			home: entry.home,
 			entry,
 			job,
 			tail: null,
 		});
 	}
 	for (const job of jobs) {
-		if (claimedShorts.has(job.short) || tracked.has(job.sessionId)) continue;
+		if (claimed.has(job) || tracked.has(job.sessionId)) continue;
 		if (now - job.updatedAt > stoppedJobWindowMs) continue;
 		tracked.set(job.sessionId, {
 			id: job.sessionId,
+			home: job.home,
 			entry: null,
 			job,
 			tail: null,
@@ -401,6 +425,7 @@ function collectTracked(
 
 function toSession(
 	item: Tracked,
+	claudeHome: string,
 	inCmux: (pid: number) => boolean,
 	watching: boolean,
 ): Session {
@@ -439,6 +464,7 @@ function toSession(
 		artifacts: [...(tail?.facts.artifacts.values() ?? [])].reverse(),
 		tasks: [...(tail?.facts.tasks.values() ?? [])],
 		steps: [...(tail?.facts.steps ?? [])],
+		...(item.home !== claudeHome ? { configDir: item.home } : {}),
 	};
 }
 

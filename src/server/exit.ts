@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { ExitResult, Session } from "../shared/types.ts";
+import { claudeEnv } from "./accounts.ts";
 import { lastLine } from "./ansi.ts";
 import type { Audit } from "./audit.ts";
 import {
@@ -19,8 +20,8 @@ export type ProcessInfo = { startedAt: number; command: string };
 
 export type ExitDeps = {
 	ask(session: Session): Promise<Readiness>;
-	stop(short: string): Promise<CommandResult>;
-	remove(short: string): Promise<CommandResult>;
+	stop(session: Session): Promise<CommandResult>;
+	remove(session: Session): Promise<CommandResult>;
 	terminate(session: Session): Promise<CommandResult>;
 };
 
@@ -135,15 +136,14 @@ export const exitSession = async (
 			? { ok: true, exited: true }
 			: { ok: false, error: terminated.output };
 	}
-	const short = session.short ?? "";
-	const stopped = await deps.stop(short);
+	const stopped = await deps.stop(session);
 	if (!stopped.ok) {
 		return {
 			ok: false,
 			error: `claude stop failed: ${stopped.output || "no output"}`,
 		};
 	}
-	const removed = await deps.remove(short);
+	const removed = await deps.remove(session);
 	return removed.ok
 		? { ok: true, exited: true }
 		: {
@@ -231,12 +231,18 @@ const run = (
 	args: string[],
 	cwd: string | undefined,
 	timeout: number,
+	configDir?: string,
 ): Promise<{ ok: boolean; stdout: string; stderr: string }> =>
 	new Promise((resolve) => {
 		execFile(
 			claudeBin,
 			args,
-			{ cwd, timeout, maxBuffer: 4 * 1024 * 1024 },
+			{
+				cwd,
+				timeout,
+				maxBuffer: 4 * 1024 * 1024,
+				env: claudeEnv(configDir),
+			},
 			(error, stdout, stderr) => resolve({ ok: !error, stdout, stderr }),
 		);
 	});
@@ -273,9 +279,9 @@ const inspectProcess = (pid: number): Promise<ProcessInfo | null> =>
 
 export const liveInteractiveEntry = async (
 	claudeHome: string,
-	session: Pick<Session, "id" | "pid">,
+	session: Pick<Session, "id" | "pid" | "configDir">,
 ): Promise<RegistryEntry | null> => {
-	const entry = readRegistry(claudeHome).find(
+	const entry = readRegistry(session.configDir ?? claudeHome).find(
 		(entry) => entry.pid === session.pid,
 	);
 	return entry &&
@@ -306,6 +312,7 @@ const inFork = async (
 			args(forkId),
 			session.cwd || undefined,
 			askTimeoutMs,
+			session.configDir,
 		);
 	} finally {
 		setTimeout(() => opts.probes.delete(forkId), probeForgetMs).unref();
@@ -329,8 +336,17 @@ export const claudeAsker =
 export const claudeExitDeps = (
 	opts: ForkOptions & { claudeHome: string },
 ): ExitDeps => {
-	const command = async (args: string[]): Promise<CommandResult> => {
-		const result = await run(opts.claudeBin, args, undefined, commandTimeoutMs);
+	const command = async (
+		args: string[],
+		configDir?: string,
+	): Promise<CommandResult> => {
+		const result = await run(
+			opts.claudeBin,
+			args,
+			undefined,
+			commandTimeoutMs,
+			configDir,
+		);
 		return {
 			ok: result.ok,
 			output: lastLine(`${result.stdout}\n${result.stderr}`),
@@ -343,8 +359,10 @@ export const claudeExitDeps = (
 			);
 			return parseReadiness(result.stdout, result.stderr);
 		},
-		stop: (short) => command(["stop", short]),
-		remove: (short) => command(["rm", short]),
+		stop: (session) =>
+			command(["stop", session.short ?? ""], session.configDir),
+		remove: (session) =>
+			command(["rm", session.short ?? ""], session.configDir),
 		async terminate(session) {
 			const entry = await liveInteractiveEntry(opts.claudeHome, session);
 			if (!entry) {

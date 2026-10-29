@@ -50,7 +50,7 @@ export const parseUsageResponse = (
 	return session || week ? { session, week } : null;
 };
 
-const isSample = (value: unknown): value is UsageSample => {
+export const isSample = (value: unknown): value is UsageSample => {
 	if (typeof value !== "object" || value === null) return false;
 	const { at, session, week } = value as Record<string, unknown>;
 	return isPercent(at) && isPercent(session) && isPercent(week);
@@ -83,6 +83,7 @@ export const createUsageMonitor = ({
 		samples: initial,
 		checkedAt: null,
 		error: null,
+		accounts: [],
 	};
 
 	const settle = (next: Partial<Usage>) => {

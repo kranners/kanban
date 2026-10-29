@@ -1,6 +1,15 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Board } from "../shared/types.ts";
+import {
+	accountsIntervalMs,
+	createAccountMonitor,
+	cswapList,
+	cswapSwitch,
+	loadAccountSamples,
+	profileHomes,
+	withAccounts,
+} from "./accounts.ts";
 import { createAgentTokens } from "./agentAuth.ts";
 import { createAnnotationStore, loadAnnotations } from "./annotations.ts";
 import { claudeAttachPty, createAttachHub } from "./attach.ts";
@@ -103,10 +112,32 @@ const usage = createUsageMonitor({
 	token: claudeCodeToken(config.claudeHome),
 	fetch,
 	now: Date.now,
-	onChange: (next) => feed?.usage(next),
+	onChange: () => feed?.usage(currentUsage()),
 });
-void usage.check();
-const usagePoll = setInterval(usage.check, usageIntervalMs);
+const accountsFile = join(config.stateDir, "accounts.json");
+const accounts = createAccountMonitor({
+	file: accountsFile,
+	initial: await loadAccountSamples(accountsFile),
+	list: cswapList(config.cswapBin),
+	root: config.cswapRoot,
+	now: Date.now,
+	onChange: () => feed?.usage(currentUsage()),
+});
+const currentUsage = () => withAccounts(usage.current(), accounts.current());
+const checkUsage = async () => {
+	if (!(await accounts.check())) await usage.check();
+};
+void checkUsage();
+const accountsPoll = setInterval(accounts.check, accountsIntervalMs);
+const usagePoll = setInterval(() => {
+	if (accounts.current().accounts.length === 0) void usage.check();
+}, usageIntervalMs);
+const switchAccount = cswapSwitch(config.cswapBin);
+const makeDefault = async (account: number) => {
+	const result = await switchAccount(account);
+	if (result.ok) await accounts.check();
+	return result;
+};
 const probes = new Set<string>();
 const cmux = cmuxCli(config.cmuxBin);
 const cmuxTargets = createCmuxTargets({
@@ -131,6 +162,7 @@ const syncCmuxOnNewPids = (board: Board) => {
 };
 const source = startBoard({
 	claudeHome: config.claudeHome,
+	profiles: () => profileHomes(config.cswapRoot),
 	ignore: (sessionId, cwd) =>
 		probes.has(sessionId) || comments.owns(sessionId) || isAgentDir(cwd),
 	inCmux: cmuxTargets.has,
@@ -150,7 +182,7 @@ feed = createFeed({
 	colours: colours.current,
 	regions: regions.current,
 	comments: comments.current,
-	usage: usage.current,
+	usage: currentUsage,
 });
 
 const exitDeps = claudeExitDeps({
@@ -187,6 +219,7 @@ const runRegionReport = createRegionReportRunner({
 const launch = claudeLauncher(
 	config.claudeBin,
 	join(config.stateDir, "images"),
+	config.cswapBin,
 );
 const attachPty = claudeAttachPty(config.claudeBin);
 const attach = createAttachHub(attachPty, audit, (short) =>
@@ -202,7 +235,12 @@ const conversation = createConversationHub({
 		if (session.kind === "background" && session.attachable && short) {
 			return attach.screen(short)
 				? sharedAttachTty({ live: () => attach.screen(short) })
-				: attachTty({ spawnPty: attachPty, short, cwd: session.cwd });
+				: attachTty({
+						spawnPty: attachPty,
+						short,
+						cwd: session.cwd,
+						configDir: session.configDir,
+					});
 		}
 		return session.cmux
 			? cmuxTty({ cmux, resolve: cmuxTargets.resolve, session })
@@ -272,6 +310,7 @@ const server = createKanbanServer({
 		listFiles({ cwd, query, claudeHome: config.claudeHome }),
 	commands: (cwd) => listCommands({ claudeHome: config.claudeHome, cwd }),
 	pickFolder: osascriptFolderPicker(),
+	makeDefault,
 	feed,
 	audit,
 });
@@ -287,6 +326,7 @@ const shutdown = () => {
 	source.stop();
 	clearInterval(cmuxPoll);
 	clearInterval(usagePoll);
+	clearInterval(accountsPoll);
 	server.close();
 	server.closeAllConnections();
 	setTimeout(() => process.exit(0), 500).unref();

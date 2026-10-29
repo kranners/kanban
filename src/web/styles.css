@@ -793,6 +793,18 @@ button.reconnecting {
 	color: var(--muted);
 }
 
+.foot-account {
+	max-width: 8em;
+	padding: 0 5px;
+	border: 1px solid var(--hairline);
+	border-radius: 5px;
+	font-size: 11px;
+	line-height: 16px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .badge {
 	flex: none;
 	display: inline-flex;

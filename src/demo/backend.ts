@@ -730,6 +730,15 @@ export function createBackend(scenario: Scenario): Backend {
 		["POST", /^\/api\/sessions$/, (_, body) => createSession(body)],
 		[
 			"POST",
+			/^\/api\/accounts\/default$/,
+			() =>
+				json(200, {
+					ok: false,
+					error: "The demo runs on one account",
+				}),
+		],
+		[
+			"POST",
 			/^\/api\/folder-picker$/,
 			() =>
 				json(200, {

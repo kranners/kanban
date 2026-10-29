@@ -253,6 +253,7 @@ describe("createKanbanServer", () => {
 	const asked: [string, string][] = [];
 	const cancelled: string[] = [];
 	const toolCalls: [string, ToolCall][] = [];
+	const madeDefault: number[] = [];
 	const agentTokens = createAgentTokens(60_000);
 	let base = "";
 	let origin = "";
@@ -322,6 +323,7 @@ describe("createKanbanServer", () => {
 				samples: [],
 				checkedAt: null,
 				error: null,
+				accounts: [],
 			}),
 		});
 		const server = createKanbanServer({
@@ -442,6 +444,12 @@ describe("createKanbanServer", () => {
 				{ name: "compact", description: cwd, source: "built-in" },
 			],
 			pickFolder: async () => ({ ok: true, path: "/Users/me/dev/picked" }),
+			makeDefault: async (account) => {
+				madeDefault.push(account);
+				return account === 9
+					? { ok: false, error: "no account 9" }
+					: { ok: true };
+			},
 			feed,
 			audit: (event) => events.push(event),
 		});
@@ -614,6 +622,37 @@ describe("createKanbanServer", () => {
 			headers: { ...authed, "content-type": "application/json", origin },
 			body: JSON.stringify(body),
 		});
+
+	it("makes another account the default and audits it", async () => {
+		const made = await send("POST", "/api/accounts/default", { account: 2 });
+		assert.equal(made.status, 200);
+		assert.deepEqual(await made.json(), { ok: true });
+		assert.deepEqual(events.at(-1), {
+			action: "account-default",
+			account: 2,
+			identity: "me@example.com",
+			result: "ok",
+		});
+
+		const refused = await send("POST", "/api/accounts/default", {
+			account: 9,
+		});
+		assert.equal(refused.status, 422);
+		assert.deepEqual(await refused.json(), {
+			ok: false,
+			error: "no account 9",
+		});
+
+		const invalid = await send("POST", "/api/accounts/default", {
+			account: "2",
+		});
+		assert.equal(invalid.status, 400);
+		assert.deepEqual(madeDefault, [2, 9]);
+		assert.equal(
+			(await fetch(`${base}/api/accounts/default`, { headers: authed })).status,
+			405,
+		);
+	});
 
 	const feedFrames = async (type: BoardFeed["type"]) => {
 		const socket = new WebSocket(`${base.replace("http", "ws")}/api/feed`, {

@@ -2,12 +2,18 @@ import "./focus.css";
 import { CircleAlert, LoaderCircle, X } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
+import { AccountPicker } from "../AccountPicker.tsx";
 import { FolderPicker } from "../FolderPicker.tsx";
 import { createSession } from "../spawns.ts";
+import { pickableAccounts, usage } from "../usage.ts";
 import { needsTrust } from "./paths.ts";
 import { commandKey } from "./platform.ts";
 
-function Failure(props: { error: string; cwd: string }): JSX.Element {
+function Failure(props: {
+	error: string;
+	cwd: string;
+	account: number | undefined;
+}): JSX.Element {
 	return (
 		<div class="focus-form-error" role="alert">
 			<CircleAlert size={14} />
@@ -15,7 +21,12 @@ function Failure(props: { error: string; cwd: string }): JSX.Element {
 				<p>{props.error}</p>
 				{needsTrust(props.error) && (
 					<p class="focus-muted">
-						Claude needs to trust this folder first. Run <code>claude</code>{" "}
+						Claude needs to trust this folder first. Run{" "}
+						<code>
+							{props.account === undefined
+								? "claude"
+								: `cswap run ${props.account}`}
+						</code>{" "}
 						once in <code>{props.cwd}</code>, accept the trust prompt, then try
 						again.
 					</p>
@@ -39,6 +50,7 @@ export function NewSession(props: {
 	const [prompt, setPrompt] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [account, setAccount] = useState<number | undefined>(undefined);
 
 	useEffect(() => {
 		dialog.current?.showModal();
@@ -56,6 +68,7 @@ export function NewSession(props: {
 			cwd,
 			...(name.trim() ? { name: name.trim() } : {}),
 			prompt: prompt.trim(),
+			...(account !== undefined ? { account } : {}),
 		});
 		setBusy(false);
 		if (result.ok) props.onCreated(result.short);
@@ -129,6 +142,18 @@ export function NewSession(props: {
 					/>
 				</label>
 
+				{pickableAccounts(usage.value) && (
+					<div class="focus-field">
+						<span id={`${listId}-account`}>Account</span>
+						<AccountPicker
+							labelledBy={`${listId}-account`}
+							account={account}
+							onPick={setAccount}
+							disabled={busy}
+						/>
+					</div>
+				)}
+
 				<label class="focus-field">
 					<span>First prompt</span>
 					<textarea
@@ -140,7 +165,7 @@ export function NewSession(props: {
 					/>
 				</label>
 
-				{error && <Failure error={error} cwd={cwd} />}
+				{error && <Failure error={error} cwd={cwd} account={account} />}
 
 				<footer class="focus-form-footer">
 					<span class="focus-muted focus-form-shortcut">

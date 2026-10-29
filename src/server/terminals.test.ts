@@ -77,7 +77,11 @@ describe("attached terminal", () => {
 		assert.equal(screen.ok && screen.value.split("\n")[0], "❯ ready");
 		assert.equal(screen.ok && screen.value.split("\n").length, attachRows);
 		assert.deepEqual(pty.spawned, [
-			[{ short: "abcd1234", cwd: "/work/demo" }, attachColumns, attachRows],
+			[
+				{ short: "abcd1234", cwd: "/work/demo", configDir: undefined },
+				attachColumns,
+				attachRows,
+			],
 		]);
 		assert.equal(tty.isOpen(), true);
 		await tty.keys(["Down", "Enter"] as MirrorKey[]);

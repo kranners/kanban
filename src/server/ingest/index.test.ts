@@ -900,3 +900,103 @@ describe("startBoard with more subagents than the board shows", () => {
 		assert.equal(activityOf(resumed), "idle");
 	});
 });
+
+describe("startBoard across account profiles", () => {
+	const mine = "1a1a1a1a-0000-4000-8000-000000000009";
+	const theirs = "2b2b2b2b-0000-4000-8000-000000000010";
+	const twin = "3c3c3c3c-0000-4000-8000-000000000011";
+	const short = "2b2b2b2b";
+	const projectDir = "-Users-me-dev-acme-api";
+	const profilePath = "profiles/2-two_example.com";
+	let board: Board;
+	let handle: ReturnType<typeof startBoard>;
+	let profile: string;
+
+	before(() => {
+		home = mkdtempSync(join(tmpdir(), "kanban-profiles-"));
+		profile = join(home, profilePath);
+		write(`default/sessions/${process.pid}.json`, {
+			pid: process.pid,
+			sessionId: mine,
+			cwd: "/Users/me/dev/acme-api",
+			startedAt: now - 60_000,
+			kind: "interactive",
+			status: "idle",
+			updatedAt: now - 1000,
+		});
+		write(`default/jobs/${short}/state.json`, {
+			state: "done",
+			sessionId: twin,
+			cwd: "/Users/me/dev/acme-api",
+			createdAt: iso(-120_000),
+			updatedAt: iso(-60_000),
+		});
+		write(`${profilePath}/sessions/${process.ppid}.json`, {
+			pid: process.ppid,
+			sessionId: theirs,
+			jobId: short,
+			cwd: "/Users/me/dev/acme-api",
+			startedAt: now - 30_000,
+			kind: "bg",
+			status: "busy",
+			updatedAt: now - 1000,
+		});
+		write(`${profilePath}/jobs/${short}/state.json`, {
+			state: "running",
+			detail: "Fixing the build",
+			name: "profile job",
+			sessionId: theirs,
+			cwd: "/Users/me/dev/acme-api",
+			createdAt: iso(-30_000),
+			updatedAt: iso(-1000),
+		});
+		jsonl(`${profilePath}/projects/${projectDir}/${theirs}.jsonl`, [
+			{ type: "ai-title", sessionId: theirs, aiTitle: "Profile work" },
+		]);
+		handle = startBoard({
+			claudeHome: join(home, "default"),
+			profiles: () => [profile, join(home, "profiles", "missing")],
+			onChange: () => {},
+		});
+		board = handle.board();
+	});
+
+	after(() => {
+		handle.stop();
+		rmSync(home, { recursive: true, force: true });
+	});
+
+	const session = (id: string) => {
+		const found = board.sessions.find((item) => item.id === id);
+		assert.ok(found, `session ${id} on the board`);
+		return found;
+	};
+
+	test("merges every home and marks sessions that run on a profile", () => {
+		assert.equal(session(mine).configDir, undefined);
+		assert.equal(session(theirs).configDir, profile);
+		assert.equal(session(twin).configDir, undefined);
+	});
+
+	test("pairs a session with the job from its own home", () => {
+		const { short: shown, name, doing, attachable } = session(theirs);
+		assert.deepEqual(
+			{ shown, name, doing, attachable },
+			{
+				shown: short,
+				name: "profile job",
+				doing: "Fixing the build",
+				attachable: true,
+			},
+		);
+		assert.equal(session(twin).activity, "done");
+	});
+
+	test("reads a profile session's transcript from its own home", () => {
+		assert.equal(session(theirs).goal, "Profile work");
+		assert.equal(
+			handle.transcriptPath({ kind: "session", id: theirs }),
+			join(profile, "projects", projectDir, `${theirs}.jsonl`),
+		);
+	});
+});

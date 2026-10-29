@@ -1,6 +1,7 @@
 import { accessSync, constants, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
+import { cswapRoot } from "./accounts.ts";
 
 export type AuthConfig =
 	| { mode: "off" }
@@ -13,6 +14,8 @@ export type Config = {
 	origins: string[];
 	claudeBin: string;
 	cmuxBin: string;
+	cswapBin: string;
+	cswapRoot: string;
 	claudeHome: string;
 	dist: string;
 	auditLog: string;
@@ -126,6 +129,8 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
 		claudeBin: env.CLAUDE_BIN || findClaude(env.PATH),
 		cmuxBin:
 			env.CMUX_BIN || "/Applications/cmux.app/Contents/Resources/bin/cmux",
+		cswapBin: env.CSWAP_BIN || "cswap",
+		cswapRoot: cswapRoot(process.platform, env),
 		claudeHome: env.CLAUDE_HOME || join(homedir(), ".claude"),
 		dist: env.KANBAN_DIST || join(repoRoot, "dist"),
 		auditLog:

@@ -1,5 +1,10 @@
 import { signal } from "@preact/signals";
-import type { Usage, UsageSample } from "../shared/types.ts";
+import type {
+	AccountResult,
+	AccountUsage,
+	Usage,
+	UsageSample,
+} from "../shared/types.ts";
 
 export const usage = signal<Usage | null>(null);
 
@@ -60,4 +65,48 @@ export function untilReset(resetsAt: number, now: number): string {
 	if (days > 0) return `${days}d ${hours}h`;
 	if (hours > 0) return `${hours}h ${minutes % 60}m`;
 	return `${minutes}m`;
+}
+
+export const defaultAccount = (usage: Usage | null): AccountUsage | null =>
+	usage?.accounts.find((account) => account.isDefault) ?? null;
+
+export const pickableAccounts = (
+	usage: Usage | null,
+): { accounts: AccountUsage[]; fallback: AccountUsage } | null => {
+	const fallback = defaultAccount(usage);
+	return usage && fallback && usage.accounts.length > 1
+		? { accounts: usage.accounts, fallback }
+		: null;
+};
+
+export const accountOf = (
+	configDir: string,
+	accounts: readonly AccountUsage[],
+): AccountUsage | null =>
+	accounts.find((account) => account.configDir === configDir) ?? null;
+
+export const accountChip = (
+	configDir: string,
+	accounts: readonly AccountUsage[],
+): string => {
+	const account = accountOf(configDir, accounts);
+	if (account) return accountLabel(account);
+	const slot = configDir.split("/").at(-1)?.match(/^\d+/)?.[0];
+	return slot ? `#${slot}` : "#?";
+};
+
+export const accountLabel = (account: AccountUsage): string =>
+	account.alias ?? `#${account.number}`;
+
+export async function makeDefault(account: number): Promise<AccountResult> {
+	try {
+		const response = await fetch("/api/accounts/default", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ account }),
+		});
+		return (await response.json()) as AccountResult;
+	} catch (caught) {
+		return { ok: false, error: `Couldn't reach the board server (${caught})` };
+	}
 }

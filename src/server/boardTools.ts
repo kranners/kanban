@@ -373,6 +373,7 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				action: "session-create",
 				cwd: request.cwd,
 				name: request.name ?? null,
+				account: request.account ?? null,
 				identity: agentIdentity,
 				result: result.ok ? result.short : result.error,
 			});

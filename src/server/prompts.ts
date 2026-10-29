@@ -94,7 +94,11 @@ export const createPromptSender = (deps: PromptDeps): PromptSender => {
 		text: string,
 	): Promise<PromptResult> => {
 		const terminal = deps.spawnPty(
-			{ short: session.short ?? "", cwd: session.cwd },
+			{
+				short: session.short ?? "",
+				cwd: session.cwd,
+				configDir: session.configDir,
+			},
 			120,
 			40,
 		);

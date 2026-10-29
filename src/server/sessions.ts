@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import { delimiter, dirname, isAbsolute, join } from "node:path";
 import {
 	imageExtensions,
 	maxImageBytes,
@@ -62,13 +62,19 @@ const validateImages = (images: unknown): PromptImage[] | { error: string } => {
 	return images.map(({ type, data }) => ({ type, data }));
 };
 
+export const isAccountNumber = (value: unknown): value is number =>
+	Number.isInteger(value) && (value as number) > 0;
+
 export const validateNewSession = async (
 	body: unknown,
 ): Promise<NewSessionRequest | { error: string }> => {
 	if (typeof body !== "object" || body === null) {
 		return { error: "Expected a JSON object with cwd and prompt" };
 	}
-	const { cwd, name, prompt, images, at } = body as Record<string, unknown>;
+	const { cwd, name, prompt, images, at, account } = body as Record<
+		string,
+		unknown
+	>;
 	if (typeof cwd !== "string" || !isAbsolute(cwd)) {
 		return { error: "cwd must be an absolute path" };
 	}
@@ -93,31 +99,36 @@ export const validateNewSession = async (
 	if (point === null) {
 		return { error: "at must be a point with finite x and y" };
 	}
+	if (account !== undefined && !isAccountNumber(account)) {
+		return { error: "account must be a positive whole number" };
+	}
 	return {
 		cwd,
 		prompt,
 		...(trimmed ? { name: trimmed } : {}),
 		...(attached.length ? { images: attached } : {}),
 		...(point ? { at: point } : {}),
+		...(account !== undefined ? { account } : {}),
 	};
 };
 
 export const parseBackgrounded = (stdout: string): string | null =>
 	stdout.match(/backgrounded · ([0-9a-f]{8})/)?.[1] ?? null;
 
-const untrustedHint = (cwd: string) =>
-	`Workspace not trusted: run claude in ${cwd} once and accept the trust prompt, then try again`;
+const untrustedHint = (cwd: string, account?: number) =>
+	`Workspace not trusted: run ${account === undefined ? "claude" : `cswap run ${account}`} in ${cwd} once and accept the trust prompt, then try again`;
 
 export const launchResult = (
 	cwd: string,
 	stdout: string,
 	stderr: string,
+	account?: number,
 ): NewSessionResult => {
 	const short = parseBackgrounded(stdout);
 	if (short) return { ok: true, short };
 	const output = stripAnsi(`${stdout}\n${stderr}`);
 	if (output.includes("Workspace not trusted")) {
-		return { ok: false, error: untrustedHint(cwd) };
+		return { ok: false, error: untrustedHint(cwd, account) };
 	}
 	const detail = output.trim().split("\n").at(-1)?.trim();
 	return {
@@ -156,8 +167,46 @@ export const launchArgs = (
 	saved ? [request.prompt, ...saved.paths].join("\n\n") : request.prompt,
 ];
 
+export type LaunchCommand = {
+	file: string;
+	args: string[];
+	env: NodeJS.ProcessEnv;
+};
+
+const withClaudeFirst = (
+	claudeBin: string,
+	env: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv =>
+	isAbsolute(claudeBin)
+		? {
+				...env,
+				PATH: [dirname(claudeBin), env.PATH].filter(Boolean).join(delimiter),
+			}
+		: env;
+
+export const launchCommand = (
+	claudeBin: string,
+	cswapBin: string,
+	request: NewSessionRequest,
+	saved: SavedImages | null = null,
+	env: NodeJS.ProcessEnv = process.env,
+): LaunchCommand =>
+	request.account === undefined
+		? { file: claudeBin, args: launchArgs(request, saved), env }
+		: {
+				file: cswapBin,
+				args: [
+					"run",
+					String(request.account),
+					"--share-history",
+					"--",
+					...launchArgs(request, saved),
+				],
+				env: withClaudeFirst(claudeBin, env),
+			};
+
 export const claudeLauncher =
-	(claudeBin: string, imagesDir: string): SessionLauncher =>
+	(claudeBin: string, imagesDir: string, cswapBin = "cswap"): SessionLauncher =>
 	async (request) => {
 		let saved: SavedImages | null = null;
 		try {
@@ -165,13 +214,19 @@ export const claudeLauncher =
 		} catch (error) {
 			return { ok: false, error: `Couldn't save the images (${error})` };
 		}
+		const { file, args, env } = launchCommand(
+			claudeBin,
+			cswapBin,
+			request,
+			saved,
+		);
 		return new Promise((resolve) => {
 			execFile(
-				claudeBin,
-				launchArgs(request, saved),
-				{ cwd: request.cwd, timeout: 60_000, maxBuffer: 1024 * 1024 },
+				file,
+				args,
+				{ cwd: request.cwd, env, timeout: 60_000, maxBuffer: 1024 * 1024 },
 				(_error, stdout, stderr) =>
-					resolve(launchResult(request.cwd, stdout, stderr)),
+					resolve(launchResult(request.cwd, stdout, stderr, request.account)),
 			);
 		});
 	};

@@ -13,6 +13,7 @@ import { WebSocketServer } from "ws";
 import { parseToolCall } from "../agent/tools.ts";
 import { maxImageBytes, maxPromptImages } from "../shared/promptImages.ts";
 import type {
+	AccountResult,
 	Board,
 	NodeRef,
 	Session,
@@ -61,7 +62,11 @@ import {
 	type RegionStore,
 } from "./regions.ts";
 import type { RegionReportRunner, ReportRunner } from "./reports.ts";
-import { type SessionLauncher, validateNewSession } from "./sessions.ts";
+import {
+	isAccountNumber,
+	type SessionLauncher,
+	validateNewSession,
+} from "./sessions.ts";
 
 export type BoardSource = {
 	board(): Board;
@@ -92,6 +97,7 @@ export type ServerDeps = {
 	files(cwd: string, query: string): Promise<FileListing>;
 	commands(cwd: string): Promise<SlashCommand[]>;
 	pickFolder: FolderPicker;
+	makeDefault(account: number): Promise<AccountResult>;
 	feed: Feed;
 	audit: Audit;
 };
@@ -103,6 +109,7 @@ export type Route =
 	| { kind: "commands"; sessionId: string }
 	| { kind: "create-session" }
 	| { kind: "pick-folder" }
+	| { kind: "set-default-account" }
 	| { kind: "exit-session"; sessionId: string }
 	| { kind: "report-session"; sessionId: string }
 	| { kind: "update-layout" }
@@ -195,6 +202,11 @@ export const matchRoute = (method: string, url: URL): Route => {
 	if (path === "/api/sessions") {
 		return method === "POST"
 			? { kind: "create-session" }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/accounts/default") {
+		return method === "POST"
+			? { kind: "set-default-account" }
 			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api/folder-picker") {
@@ -415,7 +427,9 @@ const attachTarget = (board: Board, short: string): AttachTarget | null => {
 			session.kind === "background" &&
 			session.attachable,
 	);
-	return session ? { short, cwd: session.cwd } : null;
+	return session
+		? { short, cwd: session.cwd, configDir: session.configDir }
+		: null;
 };
 
 const mirrorTarget = (board: Board, sessionId: string): Session | null =>
@@ -486,6 +500,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			cwd: request.cwd,
 			name: request.name ?? null,
 			images: request.images?.length ?? 0,
+			account: request.account ?? null,
 			identity,
 			result: result.ok ? result.short : result.error,
 		});
@@ -494,6 +509,30 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			deps.layout.observe(deps.source.board());
 		}
 		sendJson(res, result.ok ? 201 : 422, result);
+	};
+
+	const setDefaultAccount = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+		identity: string | null,
+	) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const account = (read.body as { account?: unknown } | null)?.account;
+		if (!isAccountNumber(account)) {
+			return sendJson(res, 400, {
+				ok: false,
+				error: "account must be a positive whole number",
+			});
+		}
+		const result = await deps.makeDefault(account);
+		deps.audit({
+			action: "account-default",
+			account,
+			identity,
+			result: result.ok ? "ok" : result.error,
+		});
+		sendJson(res, result.ok ? 200 : 422, result);
 	};
 
 	const exitSession = async (
@@ -815,6 +854,8 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			}
 			case "create-session":
 				return createSession(req, res, auth.identity);
+			case "set-default-account":
+				return setDefaultAccount(req, res, auth.identity);
 			case "pick-folder":
 				if (!originAllowed(req, deps.origins)) return sendError(res, 403);
 				return sendJson(res, 200, await deps.pickFolder());

@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { linePath, nearestSample, severity, untilReset } from "./usage.ts";
+import type { AccountUsage, Usage } from "../shared/types.ts";
+import {
+	accountChip,
+	accountOf,
+	linePath,
+	nearestSample,
+	pickableAccounts,
+	severity,
+	untilReset,
+} from "./usage.ts";
 
 const frame = { from: 0, to: 100 * 60_000, width: 100, height: 50 };
 const sample = (minute: number, session: number, week: number) => ({
@@ -55,4 +64,59 @@ test("time until reset reads in its two largest units", () => {
 	assert.equal(untilReset(now + 151 * 60_000, now), "2h 31m");
 	assert.equal(untilReset(now + (2 * 1440 + 125) * 60_000, now), "2d 2h");
 	assert.equal(untilReset(now - 5000, now), "0m");
+});
+
+const account = (
+	number: number,
+	extra: Partial<AccountUsage> = {},
+): AccountUsage => ({
+	id: `${number}`,
+	number,
+	email: `${number}@example.com`,
+	alias: null,
+	organization: "",
+	configDir: `/backup/sessions/${number}-${number}_example.com`,
+	isDefault: false,
+	session: null,
+	week: null,
+	samples: [],
+	error: null,
+	...extra,
+});
+
+test("an account chip prefers the alias, then the slot number", () => {
+	const accounts = [account(1, { alias: "home" }), account(2)];
+	assert.equal(
+		accountChip("/backup/sessions/1-1_example.com", accounts),
+		"home",
+	);
+	assert.equal(accountChip("/backup/sessions/2-2_example.com", accounts), "#2");
+	assert.equal(
+		accountChip("/backup/sessions/7-gone_example.com", accounts),
+		"#7",
+	);
+	assert.equal(accountOf("/elsewhere", accounts), null);
+	assert.equal(
+		accountOf("/backup/sessions/2-2_example.com", accounts)?.number,
+		2,
+	);
+});
+
+test("accounts are pickable only with a default and a choice", () => {
+	const usage = (accounts: AccountUsage[]): Usage => ({
+		session: null,
+		week: null,
+		samples: [],
+		checkedAt: null,
+		error: null,
+		accounts,
+	});
+	const chosen = account(2, { isDefault: true });
+	assert.equal(pickableAccounts(null), null);
+	assert.equal(pickableAccounts(usage([chosen])), null);
+	assert.equal(pickableAccounts(usage([account(1), account(3)])), null);
+	assert.deepEqual(pickableAccounts(usage([account(1), chosen])), {
+		accounts: [account(1), chosen],
+		fallback: chosen,
+	});
 });

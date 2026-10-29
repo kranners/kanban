@@ -7,6 +7,7 @@ import { maxImageBytes, maxPromptImages } from "../shared/promptImages.ts";
 import {
 	claudeLauncher,
 	launchArgs,
+	launchCommand,
 	launchResult,
 	parseBackgrounded,
 	saveImages,
@@ -46,6 +47,13 @@ describe("validateNewSession", () => {
 		);
 	});
 
+	it("keeps the account a session should run on", async () => {
+		assert.deepEqual(await validateNewSession({ ...valid, account: 3 }), {
+			...valid,
+			account: 3,
+		});
+	});
+
 	it("rejects bad input with a reason", async () => {
 		const cases: [unknown, RegExp][] = [
 			[null, /JSON object/],
@@ -58,6 +66,9 @@ describe("validateNewSession", () => {
 			[{ ...valid, prompt: "   " }, /prompt is required/],
 			[{ ...valid, at: { x: 1 } }, /at must be a point/],
 			[{ ...valid, at: { x: 1, y: Number.NaN } }, /at must be a point/],
+			[{ ...valid, account: 0 }, /account must be a positive/],
+			[{ ...valid, account: 1.5 }, /account must be a positive/],
+			[{ ...valid, account: "2" }, /account must be a positive/],
 		];
 		for (const [body, reason] of cases) {
 			const result = await validateNewSession(body);
@@ -95,11 +106,72 @@ describe("launchResult", () => {
 		);
 	});
 
+	it("asks for trust under the chosen account's profile", () => {
+		const result = launchResult(
+			"/x",
+			"Launching Account-2\n",
+			"Workspace not trusted",
+			2,
+		);
+		assert.match(
+			result.ok ? "" : result.error,
+			/^Workspace not trusted: run cswap run 2 in \/x once/,
+		);
+	});
+
 	it("surfaces the last line of other failures", () => {
 		assert.deepEqual(launchResult("/x", "", "warming up\nboom\n"), {
 			ok: false,
 			error: "claude --bg failed: boom",
 		});
+	});
+});
+
+describe("launchCommand", () => {
+	const env = { PATH: "/usr/bin", HOME: "/home/me" };
+
+	it("runs claude directly on the default account", () => {
+		assert.deepEqual(
+			launchCommand("/nix/bin/claude", "cswap", valid, null, env),
+			{
+				file: "/nix/bin/claude",
+				args: ["--bg", "--name=acme-api fix", "--", "say hi"],
+				env,
+			},
+		);
+	});
+
+	it("runs claude through cswap for another account", () => {
+		assert.deepEqual(
+			launchCommand(
+				"/nix/bin/claude",
+				"cswap",
+				{ ...valid, account: 2 },
+				null,
+				env,
+			),
+			{
+				file: "cswap",
+				args: [
+					"run",
+					"2",
+					"--share-history",
+					"--",
+					"--bg",
+					"--name=acme-api fix",
+					"--",
+					"say hi",
+				],
+				env: { PATH: "/nix/bin:/usr/bin", HOME: "/home/me" },
+			},
+		);
+	});
+
+	it("leaves PATH alone when claude is found on it", () => {
+		assert.deepEqual(
+			launchCommand("claude", "cswap", { ...valid, account: 2 }, null, env).env,
+			env,
+		);
 	});
 });
 

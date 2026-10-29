@@ -8,7 +8,7 @@ import {
 	SquareTerminal,
 	Terminal,
 } from "lucide-preact";
-import type { ComponentChildren } from "preact";
+import type { ComponentChildren, JSX } from "preact";
 import type { RegionColour } from "../shared/colours.ts";
 import type {
 	Artifact,
@@ -26,6 +26,7 @@ import { ActivityBadge, ActivityIcon, activityLabel } from "./activity.tsx";
 import type { PlacedNode } from "./layout.ts";
 import { plainText } from "./markdown.ts";
 import { ago, relativeTime } from "./time.ts";
+import { accountChip, accountOf, usage } from "./usage.ts";
 import type { Detail } from "./viewport.ts";
 
 type Emphasis = {
@@ -324,6 +325,7 @@ export function SessionCard(props: {
 						{session.project}
 					</span>
 					<span class="foot-end">
+						{session.configDir && <AccountChip configDir={session.configDir} />}
 						<span
 							class="foot-kind"
 							title={
@@ -425,5 +427,18 @@ export function SubagentCard(props: {
 				/>
 			)}
 		</div>
+	);
+}
+
+function AccountChip(props: { configDir: string }): JSX.Element {
+	const accounts = usage.value?.accounts ?? [];
+	const account = accountOf(props.configDir, accounts);
+	return (
+		<span
+			class="foot-account"
+			title={account ? `Runs on ${account.email}` : props.configDir}
+		>
+			{accountChip(props.configDir, accounts)}
+		</span>
 	);
 }

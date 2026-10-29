@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import headless from "@xterm/headless";
 import * as pty from "node-pty";
 import type { AttachClientFrame, AttachServerNotice } from "../shared/types.ts";
+import { claudeEnv } from "./accounts.ts";
 import { stripAnsi } from "./ansi.ts";
 import type { Audit } from "./audit.ts";
 
@@ -14,7 +15,7 @@ export type AttachPty = {
 	kill(signal?: string): void;
 };
 
-export type AttachTarget = { short: string; cwd: string };
+export type AttachTarget = { short: string; cwd: string; configDir?: string };
 
 export type PtyFactory = (
 	target: AttachTarget,
@@ -123,13 +124,17 @@ export const escapeGuard = (
 
 export const claudeAttachPty =
 	(claudeBin: string): PtyFactory =>
-	({ short, cwd }, cols, rows) =>
+	({ short, cwd, configDir }, cols, rows) =>
 		pty.spawn(claudeBin, ["attach", short], {
 			name: "xterm-256color",
 			cols,
 			rows,
 			cwd: existsSync(cwd) ? cwd : homedir(),
-			env: { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor" },
+			env: {
+				...claudeEnv(configDir),
+				TERM: "xterm-256color",
+				COLORTERM: "truecolor",
+			},
 		});
 
 const notice = (frame: AttachServerNotice): string => JSON.stringify(frame);

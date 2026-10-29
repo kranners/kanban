@@ -54,6 +54,7 @@ export type Session = {
 	artifacts: Artifact[];
 	tasks: Task[];
 	steps: Step[];
+	configDir?: string;
 };
 
 export type Subagent = {
@@ -210,13 +211,30 @@ export type UsageWindow = { percent: number; resetsAt: number | null };
 
 export type UsageSample = { at: number; session: number; week: number };
 
+export type AccountUsage = {
+	id: string;
+	number: number;
+	email: string;
+	alias: string | null;
+	organization: string;
+	configDir: string;
+	isDefault: boolean;
+	session: UsageWindow | null;
+	week: UsageWindow | null;
+	samples: UsageSample[];
+	error: string | null;
+};
+
 export type Usage = {
 	session: UsageWindow | null;
 	week: UsageWindow | null;
 	samples: UsageSample[];
 	checkedAt: number | null;
 	error: string | null;
+	accounts: AccountUsage[];
 };
+
+export type AccountResult = { ok: true } | { ok: false; error: string };
 
 export type BoardFeed =
 	| { type: "board"; board: Board }
@@ -237,6 +255,7 @@ export type NewSessionRequest = {
 	prompt: string;
 	images?: PromptImage[];
 	at?: Point;
+	account?: number;
 };
 
 export type PromptImage = { type: string; data: string };

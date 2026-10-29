@@ -143,6 +143,7 @@ function land(ghost: Ghost): boolean {
 export async function spawnFromPrompt(
 	prompt: string,
 	images: PromptImage[],
+	account?: number,
 ): Promise<string | null> {
 	const open = quickPrompt.peek();
 	if (!open) return null;
@@ -151,6 +152,7 @@ export async function spawnFromPrompt(
 		prompt,
 		...(images.length ? { images } : {}),
 		at: open.at,
+		...(account !== undefined ? { account } : {}),
 	});
 	if (!result.ok) return result.error;
 	if (open.region) growToHold(open.region, open.cwd, open.at);

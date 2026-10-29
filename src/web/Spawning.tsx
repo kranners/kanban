@@ -11,6 +11,7 @@ import {
 import type { JSX } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Point, PromptImage } from "../shared/types.ts";
+import { AccountPicker } from "./AccountPicker.tsx";
 import { cwdChoices, isQuickPromptKey } from "./actions.ts";
 import { addNote, annotationMenu, stickerPicker } from "./annotations.ts";
 import { boardPointAt, clientPointOf, view } from "./Canvas.tsx";
@@ -256,6 +257,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 	const [dropping, setDropping] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [account, setAccount] = useState<number | undefined>(undefined);
 	const { k } = view.value;
 	const legible = Math.max(1, 1 / k);
 	useRestoreFocus();
@@ -305,7 +307,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 		setBusy(true);
 		setError(null);
 		await reading.current;
-		const failure = await spawnFromPrompt(text, held.current);
+		const failure = await spawnFromPrompt(text, held.current, account);
 		setBusy(false);
 		if (failure) {
 			setError(failure);
@@ -427,6 +429,15 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 								cwd,
 								cwds: cwdChoices(cwd, current.cwds),
 							};
+						input.current?.focus({ preventScroll: true });
+					}}
+				/>
+				<AccountPicker
+					class="quick-prompt-account"
+					account={account}
+					disabled={busy}
+					onPick={(picked) => {
+						setAccount(picked);
 						input.current?.focus({ preventScroll: true });
 					}}
 				/>

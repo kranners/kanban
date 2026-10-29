@@ -52,13 +52,13 @@ const fakeDeps = (
 				calls.push(`ask ${session.id}`);
 				return readiness;
 			},
-			stop: async (short) => {
+			stop: async ({ short }) => {
 				calls.push(`stop ${short}`);
 				return stopOk
 					? { ok: true, output: "" }
 					: { ok: false, output: "no such job" };
 			},
-			remove: async (short) => {
+			remove: async ({ short }) => {
 				calls.push(`rm ${short}`);
 				return removeOk
 					? { ok: true, output: "" }

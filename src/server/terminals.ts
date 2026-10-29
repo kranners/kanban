@@ -187,6 +187,7 @@ export const attachTty = (deps: {
 	spawnPty: PtyFactory;
 	short: string;
 	cwd: string;
+	configDir?: string;
 	onExit?: () => void;
 	readyMs?: number;
 	settleMs?: number;
@@ -216,7 +217,7 @@ export const attachTty = (deps: {
 			scrollback: 0,
 		});
 		const child = deps.spawnPty(
-			{ short: deps.short, cwd: deps.cwd },
+			{ short: deps.short, cwd: deps.cwd, configDir: deps.configDir },
 			attachColumns,
 			attachRows,
 		);

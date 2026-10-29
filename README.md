@@ -104,6 +104,7 @@ Then open <http://127.0.0.1:7420>. `npm run dev` rebuilds and restarts on change
 | `CLAUDE_BIN`       | first `claude` on `PATH`, skipping cmux's shim | The `claude` binary sessions are started and attached with    |
 | `CMUX_BIN`         | cmux.app's bundled `cmux`                      | The `cmux` CLI that mirrors and drives sessions in cmux panes |
 | `CLAUDE_HOME`      | `~/.claude`                                    | Claude Code's state directory                                 |
+| `CSWAP_BIN`        | `cswap`                                        | The `cswap` CLI for several Claude accounts, when installed   |
 | `KANBAN_STATE`     | `~/.local/state/kanban`, or `kanban-<port>`    | Where the layout, notes, colours, regions and threads live    |
 | `KANBAN_AUDIT_LOG` | `~/Library/Logs/kanban/audit.jsonl`            | Audit log of exits, new sessions, sends and board agent edits |
 | `KANBAN_DIST`      | `dist`                                         | Built page                                                    |

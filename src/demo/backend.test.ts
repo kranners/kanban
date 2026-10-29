@@ -129,6 +129,9 @@ const probes: Record<string, Probe> = {
 	"/api/sessions/:param/commands": async (backend) => {
 		await answers(backend, "GET", `/api/sessions/${sessionId}/commands`);
 	},
+	"/api/accounts/default": async (backend) => {
+		await answers(backend, "POST", "/api/accounts/default", { account: 2 });
+	},
 	"/api/folder-picker": async (backend) => {
 		await answers(backend, "POST", "/api/folder-picker");
 	},

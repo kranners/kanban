@@ -416,6 +416,17 @@
 	color: var(--muted);
 }
 
+.quick-prompt-account {
+	min-width: 0;
+	max-width: 12em;
+	padding: 1px 4px;
+	border: 1px solid var(--hairline);
+	border-radius: 5px;
+	background: var(--surface);
+	color: inherit;
+	font: inherit;
+}
+
 .quick-prompt-hint {
 	margin-left: auto;
 	white-space: nowrap;
