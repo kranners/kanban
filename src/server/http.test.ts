@@ -14,6 +14,7 @@ import {
 	type ExitResult,
 	maxNoteText,
 	type NewSessionRequest,
+	noDigests,
 	type Point,
 } from "../shared/types.ts";
 import { createAgentTokens } from "./agentAuth.ts";
@@ -325,6 +326,7 @@ describe("createKanbanServer", () => {
 				error: null,
 				accounts: [],
 			}),
+			digests: () => noDigests,
 		});
 		const server = createKanbanServer({
 			origins,
@@ -1178,7 +1180,7 @@ describe("createKanbanServer", () => {
 			});
 			socket.on("message", (data) => {
 				received.push(JSON.parse(String(data)));
-				if (received.length === 7) {
+				if (received.length === 8) {
 					socket.close();
 					resolve(received);
 				}
@@ -1193,6 +1195,7 @@ describe("createKanbanServer", () => {
 				"regions",
 				"comments",
 				"usage",
+				"digests",
 				"board",
 			],
 		);

@@ -404,7 +404,6 @@ button.reconnecting {
 	transform-origin: 0 0;
 	user-select: none;
 	-webkit-user-select: none;
-	will-change: transform;
 }
 
 .zoom {

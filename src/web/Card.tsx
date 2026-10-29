@@ -7,12 +7,14 @@ import {
 	Server,
 	SquareTerminal,
 	Terminal,
+	TriangleAlert,
 } from "lucide-preact";
 import type { ComponentChildren, JSX } from "preact";
 import type { RegionColour } from "../shared/colours.ts";
 import type {
 	Artifact,
 	Session,
+	SessionDigest,
 	Step,
 	Subagent,
 	Task,
@@ -23,6 +25,7 @@ import "./attention.css";
 import "./detail.css";
 import { subagentState } from "../shared/subagents.ts";
 import { ActivityBadge, ActivityIcon, activityLabel } from "./activity.tsx";
+import { digests, stuckOf } from "./digests.ts";
 import type { PlacedNode } from "./layout.ts";
 import { plainText } from "./markdown.ts";
 import { ago, relativeTime } from "./time.ts";
@@ -182,11 +185,51 @@ function RecentSteps(props: { steps: readonly Step[]; now: number }) {
 	);
 }
 
+function ProgressNote(props: {
+	digest: SessionDigest;
+	stuck: string | null;
+	hasTasks: boolean;
+	now: number;
+}) {
+	const { digest, stuck } = props;
+	return (
+		<section
+			class={`detail-section progress${stuck ? " is-stuck" : ""}`}
+			aria-label="Progress"
+		>
+			<div class="detail-head">
+				<span>{stuck ? "Stuck" : "Progress"}</span>
+				<time class="num">{relativeTime(digest.at, props.now)}</time>
+			</div>
+			{stuck && (
+				<p class="progress-stuck">
+					<TriangleAlert size={12} aria-hidden="true" />
+					<span>{stuck}</span>
+				</p>
+			)}
+			{digest.now && <p class="progress-now">{digest.now}</p>}
+			{digest.progress && !stuck && !props.hasTasks && (
+				<p class="progress-far">{digest.progress}</p>
+			)}
+		</section>
+	);
+}
+
 function NearDetail(props: { session: Session; now: number }) {
 	const { session } = props;
-	if (session.tasks.length === 0 && session.steps.length === 0) return null;
+	const digest = digests.value.sessions[session.id];
+	if (session.tasks.length === 0 && session.steps.length === 0 && !digest)
+		return null;
 	return (
 		<div class="detail">
+			{digest && (
+				<ProgressNote
+					digest={digest}
+					stuck={stuckOf(session, digest)}
+					hasTasks={session.tasks.length > 0}
+					now={props.now}
+				/>
+			)}
 			<TaskList tasks={session.tasks} />
 			<RecentSteps steps={session.steps} now={props.now} />
 		</div>

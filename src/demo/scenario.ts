@@ -7,6 +7,7 @@ import type {
 import type {
 	Annotations,
 	CommentThread,
+	Digests,
 	Layout,
 	Link,
 	Message,
@@ -50,6 +51,7 @@ export type World = {
 	colours: RegionColours;
 	annotations: Annotations;
 	comments: CommentThread[];
+	digests: Digests;
 	stories: Record<string, Turn[]>;
 	files: Record<string, string[]>;
 };

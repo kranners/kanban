@@ -106,3 +106,57 @@
 .step time {
 	flex: none;
 }
+
+.progress p {
+	margin: 0;
+}
+
+.progress-now,
+.progress-far {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	overflow: hidden;
+}
+
+.progress-now {
+	-webkit-line-clamp: 1;
+	line-clamp: 1;
+	color: var(--ink);
+	font-weight: 500;
+}
+
+.progress-far {
+	color: var(--muted);
+}
+
+.progress-stuck {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.4em;
+	color: var(--amber-ink);
+	font-weight: 600;
+}
+
+.progress-stuck svg {
+	flex: none;
+	width: 1em;
+	height: 1em;
+	margin-top: 0.2em;
+}
+
+.progress.is-stuck {
+	padding-left: 0.5em;
+	border-left: 2px solid var(--amber-ink);
+}
+
+.progress.is-stuck .detail-head {
+	color: var(--amber-ink);
+}
+
+.progress .detail-head time {
+	margin-left: auto;
+	color: var(--muted);
+	font-weight: 400;
+}

@@ -1,12 +1,13 @@
 import { defaultRegionColour } from "../shared/colours.ts";
-import type {
-	Layout,
-	Link,
-	Message,
-	Note,
-	Region,
-	Session,
-	Subagent,
+import {
+	type Layout,
+	type Link,
+	type Message,
+	type Note,
+	noDigests,
+	type Region,
+	type Session,
+	type Subagent,
 } from "../shared/types.ts";
 import {
 	a,
@@ -779,6 +780,7 @@ function world(start: number): World {
 		colours: {},
 		annotations: {},
 		comments: [],
+		digests: noDigests,
 		files: {},
 		stories: {
 			[`session:${sid("orders v3")}`]: orchestratorStory,

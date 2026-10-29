@@ -90,9 +90,34 @@
 	color: var(--muted);
 }
 
-.summary-sessions {
-	flex: 1;
+.summary-narrative {
+	flex: 0 1 auto;
 	min-height: 0;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 4;
+	line-clamp: 4;
+	overflow: hidden;
+	padding: 0 4px;
+	color: var(--region-ink, var(--ink));
+	font-size: 13.5px;
+	line-height: 1.4;
+}
+
+.summary-narrative :is(p, ul) {
+	margin: 0;
+}
+
+.summary-narrative ul {
+	padding-left: 1.1em;
+}
+
+.summary-narrative strong {
+	font-weight: 650;
+}
+
+.summary-sessions {
+	flex: 1 0 auto;
 	margin: 0;
 	padding: 0;
 	list-style: none;

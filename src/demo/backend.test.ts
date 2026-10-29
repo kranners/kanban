@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import { test } from "node:test";
+import { summariesOfBoard } from "../server/boardTools.ts";
 import type { ConversationServerFrame } from "../shared/conversation.ts";
 import type { BoardFeed } from "../shared/types.ts";
 import { type Backend, createBackend, type Peer } from "./backend.ts";
@@ -241,15 +242,16 @@ test("writes reach every feed socket as the real server's frames", async () => {
 	});
 	backend.stop();
 	const types = (frames as BoardFeed[]).map((frame) => frame.type);
-	assert.deepEqual(types.slice(0, 6), [
+	assert.deepEqual(types.slice(0, 7), [
 		"layout",
 		"annotations",
 		"colours",
 		"regions",
 		"comments",
+		"digests",
 		"board",
 	]);
-	assert.deepEqual(types.slice(6), ["colours", "regions", "layout"]);
+	assert.deepEqual(types.slice(7), ["colours", "regions", "layout"]);
 });
 
 test("the shim answers /api requests in memory and passes the rest through", async () => {
@@ -374,4 +376,25 @@ test("the headline scenario is big, covers every activity and never rolls dice",
 	} finally {
 		Math.random = random;
 	}
+});
+
+test("the calm digests describe the frames and sessions the board shows", () => {
+	const backend = createBackend(calm);
+	const { frames, peer } = listening();
+	backend.socket("/api/feed")?.(peer);
+	backend.stop();
+	const sent = frames as BoardFeed[];
+	const board = sent.flatMap((f) => (f.type === "board" ? [f.board] : []))[0];
+	const digests = sent.flatMap((f) =>
+		f.type === "digests" ? [f.digests] : [],
+	)[0];
+	assert.ok(board && digests);
+	const keys = summariesOfBoard(board, {
+		layout: { current: () => ({}) },
+		annotations: { current: () => ({}) },
+		regions: { current: () => [] },
+	} as never).map((summary) => summary.key);
+	assert.deepEqual(Object.keys(digests.projects).sort(), [...keys].sort());
+	const ids = new Set(board.sessions.map((session) => session.id));
+	for (const id of Object.keys(digests.sessions)) assert.ok(ids.has(id), id);
 });

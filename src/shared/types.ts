@@ -236,6 +236,22 @@ export type Usage = {
 
 export type AccountResult = { ok: true } | { ok: false; error: string };
 
+export type SessionDigest = {
+	at: number;
+	now: string;
+	progress: string;
+	stuck: string | null;
+};
+
+export type ProjectDigest = { at: number; narrative: string };
+
+export type Digests = {
+	projects: Record<string, ProjectDigest>;
+	sessions: Record<string, SessionDigest>;
+};
+
+export const noDigests: Digests = { projects: {}, sessions: {} };
+
 export type BoardFeed =
 	| { type: "board"; board: Board }
 	| { type: "layout"; layout: Layout }
@@ -247,7 +263,8 @@ export type BoardFeed =
 	| { type: "region-report"; regionId: string; result: ReportResult }
 	| { type: "comments"; comments: CommentThread[] }
 	| { type: "comment"; comment: CommentThread }
-	| { type: "usage"; usage: Usage };
+	| { type: "usage"; usage: Usage }
+	| { type: "digests"; digests: Digests };
 
 export type NewSessionRequest = {
 	cwd: string;

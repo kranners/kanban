@@ -226,7 +226,7 @@ export const parseAnswer = (stdout: string, stderr = ""): Answer => {
 	return { ok: true, answer };
 };
 
-const run = (
+export const runClaude = (
 	claudeBin: string,
 	args: string[],
 	cwd: string | undefined,
@@ -307,7 +307,7 @@ const inFork = async (
 	const forkId = randomUUID();
 	opts.probes.add(forkId);
 	try {
-		return await run(
+		return await runClaude(
 			opts.claudeBin,
 			args(forkId),
 			session.cwd || undefined,
@@ -340,7 +340,7 @@ export const claudeExitDeps = (
 		args: string[],
 		configDir?: string,
 	): Promise<CommandResult> => {
-		const result = await run(
+		const result = await runClaude(
 			opts.claudeBin,
 			args,
 			undefined,

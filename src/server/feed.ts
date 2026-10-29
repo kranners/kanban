@@ -4,6 +4,7 @@ import type {
 	Board,
 	BoardFeed,
 	CommentThread,
+	Digests,
 	ExitResult,
 	Layout,
 	Region,
@@ -30,6 +31,7 @@ export type Feed = {
 	comments(comments: CommentThread[]): void;
 	comment(comment: CommentThread): void;
 	usage(usage: Usage): void;
+	digests(digests: Digests): void;
 	size(): number;
 };
 
@@ -41,6 +43,7 @@ export type FeedOptions = {
 	regions: () => Region[];
 	comments: () => CommentThread[];
 	usage: () => Usage;
+	digests: () => Digests;
 };
 
 const socketOpen = 1;
@@ -53,6 +56,7 @@ export const createFeed = ({
 	regions,
 	comments,
 	usage,
+	digests,
 }: FeedOptions): Feed => {
 	const clients = new Set<FeedSocket>();
 
@@ -76,6 +80,7 @@ export const createFeed = ({
 			send(socket, { type: "regions", regions: regions() });
 			send(socket, { type: "comments", comments: comments() });
 			send(socket, { type: "usage", usage: usage() });
+			send(socket, { type: "digests", digests: digests() });
 			send(socket, { type: "board", board: board() });
 		},
 		board: (next) => broadcast({ type: "board", board: next }),
@@ -92,6 +97,7 @@ export const createFeed = ({
 		comments: (next) => broadcast({ type: "comments", comments: next }),
 		comment: (comment) => broadcast({ type: "comment", comment }),
 		usage: (next) => broadcast({ type: "usage", usage: next }),
+		digests: (next) => broadcast({ type: "digests", digests: next }),
 		size: () => clients.size,
 	};
 };

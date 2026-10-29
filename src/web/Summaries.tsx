@@ -4,10 +4,11 @@ import type { Board, Session } from "../shared/types.ts";
 import { ActivityIcon, activityLabel } from "./activity.tsx";
 import { centreOn } from "./Canvas.tsx";
 import { colourOf } from "./colours.ts";
+import { digests, stuckOf } from "./digests.ts";
 import { exits } from "./exitState.ts";
 import type { NodeKey } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
-import { plainText } from "./markdown.ts";
+import { plainText, renderMarkdown } from "./markdown.ts";
 import { groupLabelSpace } from "./placement.ts";
 import { frontGroup } from "./regionState.ts";
 import { reports } from "./reports.ts";
@@ -31,7 +32,8 @@ function noticeOf(session: Session): string | null {
 	const report = reports.value.get(session.id);
 	if (report?.phase === "failed")
 		return `Couldn't get a status report: ${report.error}`;
-	return session.activity === "needs-you" ? session.needs : null;
+	if (session.activity === "needs-you") return session.needs;
+	return stuckOf(session, digests.value.sessions[session.id]);
 }
 
 function SummaryRow(props: { session: Session; dimmed: boolean }) {
@@ -77,6 +79,7 @@ function ProjectSummary(props: {
 	const edge = summary.framed ? frameEdge : 0;
 	const top = summary.framed ? groupLabelSpace : 0;
 	const agents = outstandingAgents(props.board, summary.sessions);
+	const narrative = digests.value.projects[summary.key]?.narrative;
 	return (
 		<div
 			class={`summary region region-${colourOf(summary.cwd)}${summary.framed ? "" : " alone"}`}
@@ -114,6 +117,11 @@ function ProjectSummary(props: {
 						)}
 					</span>
 				</button>
+				{narrative && (
+					<div class="summary-narrative markdown">
+						{renderMarkdown(narrative)}
+					</div>
+				)}
 				<ul class="summary-sessions">
 					{summary.sessions.map((session) => (
 						<SummaryRow

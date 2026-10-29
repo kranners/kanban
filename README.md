@@ -13,7 +13,9 @@ A board of the Claude Code sessions running on one Mac. Each card is a live sess
 
 ### A live board
 
-Every session on the Mac is a card, whether kanban started it or not: background jobs, interactive sessions and sessions in cmux panes. A card shows its name, what it is doing, its goal in large type and one of seven states, each a colour and a shape: working, needs you, watching (its turn ended but subagents or background shells still run), idle, done, failed and stopped. Pan, zoom and pinch around the board: zoomed far out each project collapses into a summary of its sessions, and zoomed close a card adds its task list and latest steps; light and dark follow the system, with a toggle, and the board installs as an app.
+Every session on the Mac is a card, whether kanban started it or not: background jobs, interactive sessions and sessions in cmux panes. A card shows its name, what it is doing, its goal in large type and one of seven states, each a colour and a shape: working, needs you, watching (its turn ended but subagents or background shells still run), idle, done, failed and stopped. Pan, zoom and pinch around the board: zoomed far out each project collapses into a summary of its sessions led by a short narrative of what they are doing together, and zoomed close a card adds a progress note that says what it is doing, how far along it is and whether it looks stuck, then its task list and latest steps; light and dark follow the system, with a toggle, and the board installs as an app.
+
+The narratives and progress notes are digests written by Haiku through your signed-in `claude`, only while a board page is open and only when a project's sessions have changed.
 
 ### Families and subagents
 

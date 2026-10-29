@@ -28,6 +28,7 @@ import {
 	regionGroups,
 } from "../web/regions.ts";
 import { stickerManifest } from "../web/stickers/manifest.ts";
+import { summariesOf } from "../web/summaries.ts";
 import { type AnnotationStore, parseAnnotation } from "./annotations.ts";
 import type { Audit } from "./audit.ts";
 import type { CmuxResult } from "./cmux.ts";
@@ -138,6 +139,18 @@ export const projectsOf = (
 		board.sessions,
 		placed.nodes,
 	);
+
+export const summariesOfBoard = (
+	board: Board,
+	deps: Pick<BoardToolDeps, "layout" | "annotations" | "regions">,
+) => {
+	const placed = arranged(board, deps);
+	return summariesOf(
+		projectsOf(board, deps, placed),
+		board.sessions,
+		placed.nodes,
+	);
+};
 
 export const snapshot = (
 	board: Board,

@@ -940,6 +940,7 @@ export function createBackend(scenario: Scenario): Backend {
 		sendFrame(peer, { type: "colours", colours: world.colours });
 		sendFrame(peer, { type: "regions", regions: world.regions });
 		sendFrame(peer, { type: "comments", comments: world.comments });
+		sendFrame(peer, { type: "digests", digests: world.digests });
 		sendFrame(peer, { type: "board", board: snapshot() });
 		return { receive() {}, close: () => feeds.delete(peer) };
 	};

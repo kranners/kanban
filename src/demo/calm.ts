@@ -1,4 +1,4 @@
-import type { NodeRef } from "../shared/types.ts";
+import type { Digests, NodeRef, SessionDigest } from "../shared/types.ts";
 import {
 	a,
 	minute,
@@ -17,6 +17,67 @@ const welcome = [
 	"- Right-click the board for notes and stickers",
 	"- Press **/** to ask the board agent",
 ].join("\n");
+
+function digestsAt(start: number): Digests {
+	const at = start - minute;
+	const project = (narrative: string) => ({ at, narrative });
+	const progress = (
+		now: string,
+		progress: string,
+		stuck: string | null = null,
+	): SessionDigest => ({ at, now, progress, stuck });
+	return {
+		projects: {
+			"session:a1f0c2d4e5": project(
+				"Auth work is nearly wrapped up: the **token refresh race is fixed** in #482 and the **stale-session sweep** is in testing. The orders migration is **waiting on you** to approve the staging run.",
+			),
+			"session:d4c3f5a6b8": project(
+				"The checkout summary redesign is **going in circles on a type error**, and the accessibility sweep **failed its build** with 14 axe violations left.",
+			),
+			"session:a7f6c8e9f1": project(
+				"Quiet: the staging network plan **stopped after terraform plan**, and last month's bill has been explained.",
+			),
+			"session:b8e7d9f0a2": project(
+				"Release notes for 2.4 have **not started**; the changelog has been read.",
+			),
+		},
+		sessions: {
+			a1f0c2d4e5: progress(
+				"Running the auth tests against the new hourly expiry sweep.",
+				"Two of four tasks done; a pull request follows once tests pass.",
+			),
+			b2e1d3c4f6: progress(
+				"Waiting for approval to run the staging migration.",
+				"Schema and migration are written; only the staging run is left.",
+			),
+			c3d2e4f5a7: progress(
+				"Finished and opened pull request #482.",
+				"Done, waiting for review.",
+			),
+			d4c3f5a6b8: progress(
+				"Editing Summary.tsx to add the currency field once more.",
+				"Layout is done; the currency field still does not type-check.",
+				"The same OrderSummary type error has come back after three edits.",
+			),
+			e5b4a6c7d9: progress(
+				"Stopped after the build failed.",
+				"Fixed 9 of 23 axe violations before the build broke.",
+			),
+			f6a5b7d8e0: progress(
+				"Stopped after reviewing the terraform plan.",
+				"The plan is ready; nothing has been applied.",
+			),
+			a7f6c8e9f1: progress(
+				"Waiting for a follow-up question about the bill.",
+				"Answered what it was asked.",
+			),
+			b8e7d9f0a2: progress(
+				"Waiting for a prompt after reading the changelog.",
+				"No notes drafted yet.",
+			),
+		},
+	};
+}
 
 function world(start: number): World {
 	const sessions = [
@@ -234,6 +295,7 @@ function world(start: number): World {
 		layout: {},
 		regions: [],
 		colours: {},
+		digests: digestsAt(start),
 		annotations: {
 			welcome: {
 				id: "welcome",

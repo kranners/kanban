@@ -22,7 +22,11 @@ import {
 	createBoardAgent,
 	isAgentDir,
 } from "./boardAgent.ts";
-import { createBoardTools, projectsOf } from "./boardTools.ts";
+import {
+	createBoardTools,
+	projectsOf,
+	summariesOfBoard,
+} from "./boardTools.ts";
 import { cmuxCli, createCmuxTargets } from "./cmux.ts";
 import { createColourStore, loadColours } from "./colours.ts";
 import { listCommands } from "./commands.ts";
@@ -30,11 +34,18 @@ import { createCommentStore, loadComments } from "./comments.ts";
 import { type Config, isLoopback, loadConfig } from "./config.ts";
 import { createConversationHub } from "./conversationHub.ts";
 import {
+	createDigester,
+	digestTickMs,
+	digestTimeoutMs,
+	loadDigests,
+} from "./digests.ts";
+import {
 	claudeAsker,
 	claudeExitDeps,
 	createExitRunner,
 	exitSession,
 	liveInteractiveEntry,
+	runClaude,
 } from "./exit.ts";
 import { createFeed, type Feed } from "./feed.ts";
 import { listFiles } from "./files.ts";
@@ -180,6 +191,21 @@ const source = startBoard({
 void syncCmux();
 const cmuxPoll = setInterval(syncCmux, cmuxSyncMs);
 layout.observe(source.board());
+const agentDir = join(config.stateDir, "agent");
+await mkdir(agentDir, { recursive: true });
+await writeFile(join(agentDir, agentMarker), "");
+const digestsFile = join(config.stateDir, "digests.json");
+const digests = createDigester({
+	file: digestsFile,
+	initial: await loadDigests(digestsFile),
+	units: () =>
+		summariesOfBoard(source.board(), { layout, annotations, regions }),
+	transcript: source.transcript,
+	run: (args) => runClaude(config.claudeBin, args, agentDir, digestTimeoutMs),
+	watching: () => (feed?.size() ?? 0) > 0,
+	now: Date.now,
+	onChange: (next) => feed?.digests(next),
+});
 feed = createFeed({
 	board: source.board,
 	layout: layout.current,
@@ -188,7 +214,9 @@ feed = createFeed({
 	regions: regions.current,
 	comments: comments.current,
 	usage: currentUsage,
+	digests: digests.current,
 });
+const digestTick = setInterval(digests.pump, digestTickMs);
 
 const exitDeps = claudeExitDeps({
 	claudeBin: config.claudeBin,
@@ -266,9 +294,6 @@ const attachedAnywhere = () => [
 	...conversation.attached(),
 ];
 const agentTokens = createAgentTokens(agentTimeoutMs);
-const agentDir = join(config.stateDir, "agent");
-await mkdir(agentDir, { recursive: true });
-await writeFile(join(agentDir, agentMarker), "");
 const agentHost = isLoopback(config.host) ? config.host : "127.0.0.1";
 const agent = createBoardAgent({
 	store: comments,
@@ -340,6 +365,7 @@ const shutdown = () => {
 	clearInterval(cmuxPoll);
 	clearInterval(usagePoll);
 	clearInterval(accountsPoll);
+	clearInterval(digestTick);
 	server.close();
 	server.closeAllConnections();
 	setTimeout(() => process.exit(0), 500).unref();

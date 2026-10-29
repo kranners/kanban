@@ -1,6 +1,7 @@
 import type { BoardFeed } from "../shared/types.ts";
 import { receiveColours } from "./colours.ts";
 import { receiveComment, receiveComments } from "./comments.ts";
+import { digests } from "./digests.ts";
 import { receiveExit } from "./exits.ts";
 import { regions } from "./regionState.ts";
 import {
@@ -72,6 +73,10 @@ function receive(frame: BoardFeed): void {
 	}
 	if (frame.type === "usage") {
 		usage.value = frame.usage;
+		return;
+	}
+	if (frame.type === "digests") {
+		digests.value = frame.digests;
 		return;
 	}
 	receiveComment(frame.comment);
