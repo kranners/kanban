@@ -125,7 +125,9 @@ export function UsagePill(): JSX.Element | null {
 					})}
 				</dl>
 				<UsageChart samples={samples} to={at} />
-				{accounts.length > 1 && <AccountList accounts={accounts} at={at} />}
+				{accounts.some((account) => !account.isDefault) && (
+					<AccountList accounts={accounts} at={at} />
+				)}
 				<p class={`usage-status${error ? " usage-error" : ""}`}>
 					{error ??
 						(current.checkedAt
@@ -200,6 +202,7 @@ function AccountRow(props: {
 					<button
 						type="button"
 						class="usage-make-default"
+						aria-label={`Make ${account.alias ?? account.email} the default account`}
 						title="Switch the default Claude login; sessions on it move to this account"
 						disabled={props.pending !== null}
 						onClick={props.onChoose}
@@ -208,21 +211,34 @@ function AccountRow(props: {
 					</button>
 				)}
 			</div>
-			<AccountWindow label="5h" window={account.session} at={props.at} />
-			<AccountWindow label="Week" window={account.week} at={props.at} />
+			<AccountWindow
+				series="session"
+				label="5h"
+				window={account.session}
+				at={props.at}
+			/>
+			<AccountWindow
+				series="week"
+				label="Week"
+				window={account.week}
+				at={props.at}
+			/>
 			{props.error && <p class="usage-account-error">{props.error}</p>}
 		</li>
 	);
 }
 
 function AccountWindow(props: {
+	series: (typeof series)[number]["key"];
 	label: string;
 	window: UsageWindow | null;
 	at: number;
 }): JSX.Element {
 	const { window } = props;
 	return (
-		<div class={`usage-account-window usage-${severity(window?.percent ?? 0)}`}>
+		<div
+			class={`usage-account-window series-${props.series} usage-${severity(window?.percent ?? 0)}`}
+		>
 			<span class="usage-account-label">{props.label}</span>
 			<span class="usage-bar" aria-hidden="true">
 				<span style={{ width: `${Math.min(100, window?.percent ?? 0)}%` }} />

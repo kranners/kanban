@@ -301,10 +301,6 @@
 	white-space: nowrap;
 }
 
-.usage-account-window .usage-bar > span {
-	background: var(--usage-week);
-}
-
 .usage-account-window.usage-warning .usage-bar > span {
 	background: var(--amber);
 }

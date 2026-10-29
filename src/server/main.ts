@@ -6,6 +6,7 @@ import {
 	createAccountMonitor,
 	cswapList,
 	cswapSwitch,
+	defaultOf,
 	loadAccountSamples,
 	profileHomes,
 	withAccounts,
@@ -128,9 +129,13 @@ const checkUsage = async () => {
 	if (!(await accounts.check())) await usage.check();
 };
 void checkUsage();
-const accountsPoll = setInterval(accounts.check, accountsIntervalMs);
+const pollAccounts = async () => {
+	const hadDefault = defaultOf(accounts.current()) !== null;
+	if (!(await accounts.check()) && hadDefault) await usage.check();
+};
+const accountsPoll = setInterval(pollAccounts, accountsIntervalMs);
 const usagePoll = setInterval(() => {
-	if (accounts.current().accounts.length === 0) void usage.check();
+	if (!defaultOf(accounts.current())) void usage.check();
 }, usageIntervalMs);
 const switchAccount = cswapSwitch(config.cswapBin);
 const makeDefault = async (account: number) => {

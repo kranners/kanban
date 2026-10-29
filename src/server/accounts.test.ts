@@ -263,6 +263,17 @@ describe("createAccountMonitor", () => {
 		assert.equal(await monitor.check(), false);
 		assert.equal(changes(), 2);
 	});
+
+	it("reports no default when cswap marks no account active", async () => {
+		const unmanaged = {
+			...listing(),
+			activeAccountNumber: null,
+			accounts: listing().accounts.map((row) => ({ ...row, active: false })),
+		};
+		const { monitor } = await setup(() => unmanaged);
+		assert.equal(await monitor.check(), false);
+		assert.equal(monitor.current().accounts.length, 3);
+	});
 });
 
 describe("withAccounts", () => {
@@ -300,11 +311,12 @@ describe("withAccounts", () => {
 		});
 	});
 
-	it("keeps the single login without a default account", () => {
-		assert.deepEqual(
-			withAccounts(single, { accounts: [account(1, false)], checkedAt: 9 }),
-			single,
-		);
+	it("keeps the single login without a default account, listing the rest", () => {
+		const accounts = [account(1, false)];
+		assert.deepEqual(withAccounts(single, { accounts, checkedAt: 9 }), {
+			...single,
+			accounts,
+		});
 		assert.deepEqual(
 			withAccounts(single, { accounts: [], checkedAt: null }),
 			single,

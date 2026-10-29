@@ -248,15 +248,18 @@ export const createAccountMonitor = ({
 				checkedAt: now(),
 			};
 			onChange();
-			return true;
+			return defaultOf(view) !== null;
 		},
 		saved: stored.saved,
 	};
 };
 
+export const defaultOf = (view: AccountsView): AccountUsage | null =>
+	view.accounts.find((account) => account.isDefault) ?? null;
+
 export const withAccounts = (usage: Usage, view: AccountsView): Usage => {
-	const chosen = view.accounts.find((account) => account.isDefault);
-	if (!chosen) return { ...usage, accounts: [] };
+	const chosen = defaultOf(view);
+	if (!chosen) return { ...usage, accounts: view.accounts };
 	return {
 		...usage,
 		session: chosen.session,
