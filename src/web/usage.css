@@ -220,11 +220,13 @@
 	border-top: 1px solid var(--hairline);
 	list-style: none;
 	display: grid;
+	grid-template-columns: minmax(0, 1fr);
 	gap: 10px;
 }
 
 .usage-account-row {
 	display: grid;
+	grid-template-columns: minmax(0, 1fr);
 	gap: 3px;
 }
 
@@ -280,7 +282,7 @@
 
 .usage-account-window {
 	display: grid;
-	grid-template-columns: 34px 1fr 34px 52px;
+	grid-template-columns: 34px minmax(0, 1fr) 34px 52px;
 	align-items: center;
 	gap: 8px;
 	color: var(--muted);
