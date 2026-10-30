@@ -423,6 +423,15 @@ describe("createKanbanServer", () => {
 				toolCalls.push([threadId, call]);
 				return { ok: true, text: `ran ${call.tool}` };
 			},
+			peerHook: ({ event, sessionId }) =>
+				sessionId === "with-peers"
+					? {
+							hookSpecificOutput: {
+								hookEventName: event,
+								additionalContext: "peers here",
+							},
+						}
+					: null,
 			attach,
 			mirror: {
 				open: (socket, session, identity) => {
@@ -1313,6 +1322,55 @@ describe("createKanbanServer", () => {
 		assert.equal(
 			(await call({ authorization: `Bearer ${token}` })).status,
 			401,
+		);
+	});
+
+	it("answers peer hooks from loopback without browser headers", async () => {
+		const call = (body: unknown, headers: Record<string, string> = {}) =>
+			fetch(`${base}/api/hooks/peers`, {
+				method: "POST",
+				headers: { "content-type": "application/json", ...headers },
+				body: JSON.stringify(body),
+			});
+		const hook = (sessionId: string) => ({
+			hook_event_name: "UserPromptSubmit",
+			session_id: sessionId,
+			prompt: "hi",
+		});
+		const told = await call(hook("with-peers"));
+		assert.equal(told.status, 200);
+		assert.deepEqual(await told.json(), {
+			hookSpecificOutput: {
+				hookEventName: "UserPromptSubmit",
+				additionalContext: "peers here",
+			},
+		});
+		assert.equal((await call(hook("alone"))).status, 204);
+		assert.equal(
+			(await call({ hook_event_name: "Stop", session_id: "with-peers" }))
+				.status,
+			204,
+		);
+		assert.equal(
+			(await call({ ...hook("with-peers"), prompt: "x".repeat(200_000) }))
+				.status,
+			200,
+			"a large prompt or tool batch still gets an answer",
+		);
+		assert.equal((await call(hook("with-peers"), { origin })).status, 403);
+		assert.equal(
+			(await call(hook("with-peers"), { "cf-ray": "abc" })).status,
+			403,
+		);
+		assert.equal(
+			(
+				await fetch(`${base}/api/hooks/peers`, {
+					method: "POST",
+					headers: { "content-type": "text/plain" },
+					body: JSON.stringify(hook("with-peers")),
+				})
+			).status,
+			415,
 		);
 	});
 

@@ -54,6 +54,7 @@ import { createKanbanServer } from "./http.ts";
 import { startBoard } from "./ingest/index.ts";
 import { createLayoutStore, loadLayout } from "./layout.ts";
 import { createMirrorHub } from "./mirror.ts";
+import { createPeerHook, peerHookSettings } from "./peers.ts";
 import { createPromptSender } from "./prompts.ts";
 import { createRegionStore, loadRegions } from "./regions.ts";
 import {
@@ -249,6 +250,8 @@ const runRegionReport = createRegionReportRunner({
 	audit,
 	announce: (regionId, result) => feed?.regionReport(regionId, result),
 });
+const agentHost = isLoopback(config.host) ? config.host : "127.0.0.1";
+const boardUrl = `http://${agentHost.includes(":") ? `[${agentHost}]` : agentHost}:${config.port}`;
 const launch = claudeLauncher(
 	config.claudeBin,
 	join(config.stateDir, "images"),
@@ -260,6 +263,7 @@ const launch = claudeLauncher(
 				.accounts.find(
 					(account) => account.number === number && !account.isDefault,
 				)?.configDir ?? null,
+		settings: peerHookSettings(boardUrl),
 	},
 );
 const attachPty = claudeAttachPty(config.claudeBin);
@@ -294,12 +298,11 @@ const attachedAnywhere = () => [
 	...conversation.attached(),
 ];
 const agentTokens = createAgentTokens(agentTimeoutMs);
-const agentHost = isLoopback(config.host) ? config.host : "127.0.0.1";
 const agent = createBoardAgent({
 	store: comments,
 	tokens: agentTokens,
 	spawn: claudeAgentSpawner(config.claudeBin, agentDir),
-	boardUrl: `http://${agentHost.includes(":") ? `[${agentHost}]` : agentHost}:${config.port}`,
+	boardUrl,
 	mcpScript: resolve(import.meta.dirname, "../agent/mcp.ts"),
 	node: process.execPath,
 	timeoutMs: agentTimeoutMs,
@@ -341,6 +344,11 @@ const server = createKanbanServer({
 	agent,
 	agentTokens,
 	tools,
+	peerHook: createPeerHook({
+		units: () =>
+			summariesOfBoard(source.board(), { layout, annotations, regions }),
+		digests: digests.current,
+	}),
 	attach,
 	mirror: createMirrorHub({ cmux, resolve: cmuxTargets.resolve, audit }),
 	conversation,

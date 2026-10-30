@@ -27,6 +27,8 @@ Arrowed links join a session to the sessions it spawned with `claude --bg`, the 
 
 Messages sent between sessions animate along a dashed arc from sender to recipient. The messages rail lists them newest first; hovering one lights both cards and their arc.
 
+Sessions the board starts know who else shares their project frame. With each prompt, each subagent and whenever a neighbour joins, leaves or changes goal mid-turn, they are told each neighbour's name, state, goal and what it is doing now, and to message one with SendMessage before touching what it is working on.
+
 ![Hovering messages in the rail lights the sender, the recipient and the arc between them](docs/media/clip-messages.gif)
 
 ### What needs you
@@ -119,6 +121,7 @@ kanban is a remote terminal into every background Claude Code session and every 
 - The server binds to localhost; `KANBAN_AUTH=off` is refused on any other address.
 - WebSocket upgrades must come from the board's own origin.
 - Session keys, the daemon control key and other secrets under `~/.claude` are never read or served.
+- The peer hook endpoint answers only loopback requests with no browser `Origin`, and only says who shares a session's frame.
 - The board agent behind / runs headless Claude Code with only the board's own tools, no shell or file access, and never force-exits; its tool endpoint takes a per-run token from loopback only, and every change it makes is audited.
 
 See [SECURITY.md](SECURITY.md) for the threat model and how to report a vulnerability.

@@ -164,10 +164,12 @@ export const saveImages = async (
 export const launchArgs = (
 	request: NewSessionRequest,
 	saved: SavedImages | null = null,
+	settings: string | null = null,
 ): string[] => [
 	"--bg",
 	...(request.name ? [`--name=${request.name}`] : []),
 	...(saved ? [`--add-dir=${saved.folder}`] : []),
+	...(settings ? [`--settings=${settings}`] : []),
 	"--",
 	saved ? [request.prompt, ...saved.paths].join("\n\n") : request.prompt,
 ];
@@ -195,9 +197,10 @@ export const launchCommand = (
 	request: NewSessionRequest,
 	saved: SavedImages | null = null,
 	env: NodeJS.ProcessEnv = process.env,
+	settings: string | null = null,
 ): LaunchCommand =>
 	request.account === undefined
-		? { file: claudeBin, args: launchArgs(request, saved), env }
+		? { file: claudeBin, args: launchArgs(request, saved, settings), env }
 		: {
 				file: cswapBin,
 				args: [
@@ -205,7 +208,7 @@ export const launchCommand = (
 					String(request.account),
 					"--share-history",
 					"--",
-					...launchArgs(request, saved),
+					...launchArgs(request, saved, settings),
 				],
 				env: withClaudeFirst(claudeBin, env),
 			};
@@ -214,6 +217,7 @@ export type LauncherOptions = {
 	cswapBin?: string;
 	defaultConfig?: string;
 	profileOf?: (account: number) => string | null;
+	settings?: string | null;
 };
 
 export const claudeLauncher =
@@ -224,6 +228,7 @@ export const claudeLauncher =
 			cswapBin = "cswap",
 			defaultConfig = join(homedir(), ".claude.json"),
 			profileOf = () => null,
+			settings = null,
 		}: LauncherOptions = {},
 	): SessionLauncher =>
 	async (request) => {
@@ -238,6 +243,8 @@ export const claudeLauncher =
 			cswapBin,
 			request,
 			saved,
+			process.env,
+			settings,
 		);
 		const run = () =>
 			new Promise<{ stdout: string; stderr: string }>((resolve) => {

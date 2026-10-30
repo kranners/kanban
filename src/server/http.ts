@@ -19,7 +19,7 @@ import type {
 	Session,
 	TranscriptEntry,
 } from "../shared/types.ts";
-import type { AgentTokens } from "./agentAuth.ts";
+import { type AgentTokens, fromLoopback } from "./agentAuth.ts";
 import { type AnnotationStore, parseAnnotation } from "./annotations.ts";
 import {
 	type AttachHub,
@@ -54,6 +54,7 @@ import type { FileListing } from "./files.ts";
 import type { FolderPicker } from "./folders.ts";
 import { boardKeys, type LayoutStore, parseLayoutUpdate } from "./layout.ts";
 import type { MirrorHub } from "./mirror.ts";
+import { type PeerHook, parsePeerHookInput } from "./peers.ts";
 import {
 	isRegionId,
 	maxRegions,
@@ -91,6 +92,7 @@ export type ServerDeps = {
 	agent: Omit<BoardAgent, "stopAll">;
 	agentTokens: AgentTokens;
 	tools: BoardTools;
+	peerHook: PeerHook;
 	attach: AttachHub;
 	mirror: MirrorHub;
 	conversation: ConversationHub;
@@ -126,6 +128,7 @@ export type Route =
 	| { kind: "update-comment"; threadId: string }
 	| { kind: "delete-comment"; threadId: string }
 	| { kind: "agent-tool"; tool: string }
+	| { kind: "peer-hook" }
 	| { kind: "static"; path: string }
 	| { kind: "not-found" }
 	| { kind: "method-not-allowed" };
@@ -137,6 +140,7 @@ export type UpgradeRoute =
 	| { kind: "conversation"; node: NodeRef; since: Since };
 
 const maxBodyBytes = 128 * 1024;
+const maxHookBytes = 64 * 1024 * 1024;
 const maxSessionBodyBytes =
 	maxBodyBytes + maxPromptImages * Math.ceil((maxImageBytes * 4) / 3);
 const defaultTranscriptLimit = 200;
@@ -289,6 +293,11 @@ export const matchRoute = (method: string, url: URL): Route => {
 	if (tool?.[1]) {
 		return method === "POST"
 			? { kind: "agent-tool", tool: tool[1] }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/hooks/peers") {
+		return method === "POST"
+			? { kind: "peer-hook" }
 			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api" || path.startsWith("/api/")) return { kind: "not-found" };
@@ -818,10 +827,33 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		sendJson(res, 200, { ok: true, text: outcome.text });
 	};
 
+	const peerHook = async (req: IncomingMessage, res: ServerResponse) => {
+		if (!fromLoopback(req) || req.headers.origin !== undefined) {
+			return sendError(res, 403);
+		}
+		if (!req.headers["content-type"]?.startsWith("application/json")) {
+			return sendError(res, 415);
+		}
+		let body: unknown;
+		try {
+			body = await readJson(req, maxHookBytes);
+		} catch {
+			return sendError(res, 400);
+		}
+		const input = parsePeerHookInput(body);
+		const output = input && deps.peerHook(input);
+		if (!output) {
+			res.writeHead(204, { "cache-control": "no-store" });
+			return res.end();
+		}
+		sendJson(res, 200, output);
+	};
+
 	const handle = async (req: IncomingMessage, res: ServerResponse) => {
 		const route = matchRoute(req.method ?? "GET", requestUrl(req));
 		if (route.kind === "healthz") return sendJson(res, 200, { ok: true });
 		if (route.kind === "agent-tool") return agentTool(req, res, route.tool);
+		if (route.kind === "peer-hook") return peerHook(req, res);
 		const auth = await deps.authenticate(req);
 		if (!auth.ok) return sendError(res, auth.status);
 		switch (route.kind) {

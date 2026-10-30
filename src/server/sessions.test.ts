@@ -31,6 +31,12 @@ describe("validateNewSession", () => {
 			await validateNewSession({ ...valid, name: "  " }),
 			unnamed,
 		);
+		assert.deepEqual(launchArgs(unnamed, null, '{"hooks":{}}'), [
+			"--bg",
+			'--settings={"hooks":{}}',
+			"--",
+			"say hi",
+		]);
 		assert.deepEqual(launchArgs(unnamed), ["--bg", "--", "say hi"]);
 		assert.deepEqual(launchArgs(valid), [
 			"--bg",
