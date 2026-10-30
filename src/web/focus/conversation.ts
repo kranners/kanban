@@ -334,6 +334,7 @@ const comparable = (value: string): string => value.replace(/\s+/g, " ").trim();
 
 export type Outgoing = Queued & {
 	state: "queued" | "held" | "sending" | "sent" | "echoed";
+	tries?: number;
 };
 
 const isCommand = (text: string): boolean => /^[/!]/.test(text.trimStart());
@@ -381,6 +382,105 @@ export function stillQueued<Entry extends Queued>(
 					item.text === comparable(entry.text),
 			),
 	);
+}
+
+export const echoWaitMs = 8000;
+export const sendTries = 3;
+export const retryWaitMs = 2000;
+export const connectionDropped = "The connection dropped";
+const failedBeforeTyping = ["Not connected", "Could not attach to the session"];
+
+export type OutboxScene = {
+	items: ConversationItem[];
+	loaded: boolean;
+	working: boolean;
+	deliverable: boolean;
+	maxText: number;
+	now: number;
+};
+
+export type OutboxStep = {
+	outbox: Outgoing[];
+	sending: Outgoing | null;
+	lost: boolean;
+	due: number | null;
+};
+
+const awaitingEcho = (entry: Outgoing): boolean =>
+	entry.state === "sent" || entry.state === "held";
+
+export function stepOutbox(outbox: Outgoing[], scene: OutboxScene): OutboxStep {
+	const unechoed = stillQueued(outbox.filter(awaitingEcho), scene.items);
+	let next = outbox.map(
+		(entry): Outgoing =>
+			awaitingEcho(entry) && !unechoed.includes(entry)
+				? { ...entry, state: "echoed" }
+				: entry,
+	);
+	if (scene.working) next = next.filter((entry) => entry.state !== "echoed");
+	const expired = (entry: Outgoing) =>
+		scene.loaded && scene.now - entry.sentAt >= echoWaitMs;
+	const lost = next.some((entry) => entry.state === "sent" && expired(entry));
+	next = next.flatMap((entry): Outgoing[] =>
+		!expired(entry)
+			? [entry]
+			: entry.state === "echoed"
+				? []
+				: entry.state === "sent"
+					? [{ ...entry, state: "held" }]
+					: [entry],
+	);
+	let sending: Outgoing | null = null;
+	const batch = scene.deliverable ? nextBatch(next, scene.maxText) : [];
+	const head = batch[0];
+	if (head) {
+		sending = {
+			id: head.id,
+			text: batch.map((entry) => entry.text).join("\n"),
+			state: "sending",
+			sentAt: scene.now,
+			tries: head.tries,
+		};
+		next = [sending, ...next.filter((entry) => !batch.includes(entry))];
+	}
+	const delivered = next.filter(
+		(entry) => entry.state === "sent" || entry.state === "echoed",
+	);
+	const due =
+		scene.loaded && delivered.length > 0
+			? Math.min(...delivered.map((entry) => entry.sentAt)) + echoWaitMs
+			: null;
+	const same =
+		next.length === outbox.length &&
+		next.every((entry, index) => entry === outbox[index]);
+	return { outbox: same ? outbox : next, sending, lost, due };
+}
+
+export function settleSend(
+	outbox: Outgoing[],
+	id: string,
+	outcome: { ok: boolean; error: string | null },
+	now: number,
+): { outbox: Outgoing[]; retryAt: number | null; problem: string | null } {
+	const entry = outbox.find((candidate) => candidate.id === id);
+	if (!entry) return { outbox, retryAt: null, problem: null };
+	const tries = (entry.tries ?? 0) + 1;
+	const retryable =
+		failedBeforeTyping.includes(outcome.error ?? "") && tries < sendTries;
+	const settled: Outgoing = outcome.ok
+		? { ...entry, state: "sent", sentAt: now }
+		: outcome.error === connectionDropped
+			? { ...entry, state: "sent" }
+			: retryable
+				? { ...entry, state: "queued", tries }
+				: { ...entry, state: "held", tries: 0 };
+	return {
+		outbox: outbox.map((candidate) =>
+			candidate === entry ? settled : candidate,
+		),
+		retryAt: retryable ? now + retryWaitMs * tries : null,
+		problem: settled.state === "held" ? outcome.error : null,
+	};
 }
 
 export function promptHistory(items: ConversationItem[]): string[] {

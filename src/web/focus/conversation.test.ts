@@ -9,6 +9,7 @@ import {
 	applyItems,
 	backgroundTools,
 	complete,
+	connectionDropped,
 	diffLines,
 	diffStats,
 	emptyWindow,
@@ -22,6 +23,8 @@ import {
 	prepend,
 	promptHistory,
 	replacementLines,
+	settleSend,
+	stepOutbox,
 	stillQueued,
 	type ToolItem,
 	todos,
@@ -305,6 +308,132 @@ describe("conversation window", () => {
 		assert.deepEqual(nextBatch(plain, 17), [plain[0]]);
 		assert.deepEqual(nextBatch([entry("0", "x", "echoed"), ...plain], 100), []);
 		assert.deepEqual(nextBatch([], 100), []);
+	});
+
+	it("sends the next batch only once the session can take it", () => {
+		const queued: Outgoing = {
+			id: "1",
+			text: "go",
+			state: "queued",
+			sentAt: 0,
+		};
+		const scene = {
+			items: [],
+			loaded: true,
+			working: false,
+			deliverable: false,
+			maxText: 100,
+			now: 5000,
+		};
+		const waiting = stepOutbox([queued], scene);
+		assert.equal(waiting.sending, null);
+		assert.deepEqual(waiting.outbox, [queued]);
+		const ready = stepOutbox([queued], { ...scene, deliverable: true });
+		assert.equal(ready.sending?.state, "sending");
+		assert.deepEqual(ready.outbox, [ready.sending]);
+	});
+
+	it("waits for the echo from when the send was acknowledged", () => {
+		const sending: Outgoing = {
+			id: "1",
+			text: "go",
+			state: "sending",
+			sentAt: 0,
+		};
+		const acked = settleSend([sending], "1", { ok: true, error: null }, 10_000);
+		assert.deepEqual(acked.outbox, [
+			{ ...sending, state: "sent", sentAt: 10_000 },
+		]);
+		const scene = {
+			items: [],
+			loaded: true,
+			working: false,
+			deliverable: false,
+			maxText: 100,
+			now: 12_000,
+		};
+		const early = stepOutbox(acked.outbox, scene);
+		assert.equal(early.lost, false);
+		assert.equal(early.due, 18_000);
+		const late = stepOutbox(acked.outbox, { ...scene, now: 18_000 });
+		assert.equal(late.lost, true);
+		assert.equal(late.outbox[0]?.state, "held");
+	});
+
+	it("clears a held message once the transcript shows it after all", () => {
+		const held: Outgoing = {
+			id: "1",
+			text: "go",
+			state: "held",
+			sentAt: 10_000,
+		};
+		const queued: Outgoing = {
+			id: "2",
+			text: "next",
+			state: "queued",
+			sentAt: 11_000,
+		};
+		const step = stepOutbox([held, queued], {
+			items: [user(0, "go", 30_000)],
+			loaded: true,
+			working: true,
+			deliverable: false,
+			maxText: 100,
+			now: 31_000,
+		});
+		assert.deepEqual(step.outbox, [queued]);
+	});
+
+	it("retries a failed send before holding it", () => {
+		const sending: Outgoing = {
+			id: "1",
+			text: "go",
+			state: "sending",
+			sentAt: 0,
+		};
+		const failure = { ok: false, error: "Could not attach to the session" };
+		const first = settleSend([sending], "1", failure, 1000);
+		assert.equal(first.outbox[0]?.state, "queued");
+		assert.equal(first.retryAt, 3000);
+		assert.equal(first.problem, null);
+		const last = settleSend([{ ...sending, tries: 2 }], "1", failure, 9000);
+		assert.equal(last.outbox[0]?.state, "held");
+		assert.equal(last.retryAt, null);
+		assert.equal(last.problem, failure.error);
+	});
+
+	it("holds a failure that may have typed the text, rather than retrying it", () => {
+		const sending: Outgoing = {
+			id: "1",
+			text: "go",
+			state: "sending",
+			sentAt: 0,
+		};
+		const typed = settleSend(
+			[sending],
+			"1",
+			{ ok: false, error: "cmux paste timed out" },
+			1000,
+		);
+		assert.equal(typed.outbox[0]?.state, "held");
+		assert.equal(typed.retryAt, null);
+	});
+
+	it("keeps the send time when the connection drops mid-send", () => {
+		const sending: Outgoing = {
+			id: "1",
+			text: "go",
+			state: "sending",
+			sentAt: 1000,
+		};
+		const dropped = settleSend(
+			[sending],
+			"1",
+			{ ok: false, error: connectionDropped },
+			40_000,
+		);
+		assert.deepEqual(dropped.outbox, [{ ...sending, state: "sent" }]);
+		assert.equal(dropped.problem, null);
 	});
 
 	it("collects prompt history without repeats", () => {

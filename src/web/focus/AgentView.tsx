@@ -1,4 +1,3 @@
-import { signal } from "@preact/signals";
 import {
 	ArrowDown,
 	BookOpen,
@@ -14,10 +13,7 @@ import {
 	useRef,
 	useState,
 } from "preact/hooks";
-import {
-	type ConversationStatus,
-	maxPromptText,
-} from "../../shared/conversation.ts";
+import type { ConversationStatus } from "../../shared/conversation.ts";
 import type { Activity, Session } from "../../shared/types.ts";
 import { Composer } from "./Composer.tsx";
 import {
@@ -25,17 +21,22 @@ import {
 	formatElapsed,
 	formatTokens,
 	modeLabel,
-	nextBatch,
 	type Outgoing,
 	promptHistory,
-	stillQueued,
 	type ToolItem,
 	toolDetail,
 } from "./conversation.ts";
 import { DialogForm } from "./DialogForm.tsx";
+import {
+	editable,
+	outboxes,
+	outboxProblems,
+	queue,
+	release,
+	withdraw,
+} from "./outbox.ts";
 import { type Links, TranscriptItem } from "./Transcript.tsx";
 import {
-	connectionDropped,
 	type Outcome,
 	useConversation,
 	type ViewNode,
@@ -43,33 +44,8 @@ import {
 
 const bottomSlackPx = 64;
 const loadAheadPx = 400;
-const echoWaitMs = 8000;
-
-const outboxes = signal<Record<string, Outgoing[]>>({});
-
-const updateOutbox = (
-	sessionId: string,
-	update: (outbox: Outgoing[]) => Outgoing[],
-) => {
-	outboxes.value = {
-		...outboxes.value,
-		[sessionId]: update(outboxes.value[sessionId] ?? []),
-	};
-};
 
 const noOutbox: Outgoing[] = [];
-
-const editable = (entry: Outgoing): boolean =>
-	entry.state === "queued" || entry.state === "held";
-
-const undelivered = (): boolean =>
-	Object.values(outboxes.value).some((outbox) =>
-		outbox.some((entry) => entry.state !== "echoed"),
-	);
-
-addEventListener("beforeunload", (event) => {
-	if (undelivered()) event.preventDefault();
-});
 
 const queuedLabels: Record<Outgoing["state"], string> = {
 	queued: "Queued",
@@ -193,6 +169,9 @@ export function AgentView(props: {
 	const [recalled, setRecalled] = useState<{ text: string } | null>(null);
 	const sessionId = props.node.kind === "session" ? props.node.id : null;
 	const outbox = (sessionId && outboxes.value[sessionId]) || noOutbox;
+	const sendProblem = sessionId
+		? (outboxProblems.value[sessionId] ?? null)
+		: null;
 	const items = view.window.items;
 	const lastIndex = items.at(-1)?.index ?? 0;
 
@@ -202,23 +181,6 @@ export function AgentView(props: {
 		[items],
 	);
 	const background = useMemo(() => backgroundTools(items), [items]);
-
-	useEffect(() => {
-		if (!sessionId) return;
-		const sent = outbox.filter((entry) => entry.state === "sent");
-		const unechoed = stillQueued(sent, items);
-		const echoed = sent
-			.filter((entry) => !unechoed.includes(entry))
-			.map((entry) => entry.id);
-		if (echoed.length === 0) return;
-		updateOutbox(sessionId, (current) =>
-			current.map((entry) =>
-				entry.state === "sent" && echoed.includes(entry.id)
-					? { ...entry, state: "echoed" }
-					: entry,
-			),
-		);
-	}, [items, outbox]);
 
 	useLayoutEffect(() => {
 		const element = scroller.current;
@@ -277,128 +239,30 @@ export function AgentView(props: {
 	const working = props.activity === "working";
 	const waiting = view.dialog !== null;
 
-	const deliverable =
-		sessionId !== null &&
-		drive?.mode === "drive" &&
-		view.connection === "open" &&
-		!working &&
-		!waiting;
-
-	useEffect(() => {
-		if (!sessionId || !working) return;
-		if (!outbox.some((entry) => entry.state === "echoed")) return;
-		updateOutbox(sessionId, (current) =>
-			current.filter((entry) => entry.state !== "echoed"),
-		);
-	}, [working, outbox]);
-
-	useEffect(() => {
-		if (!sessionId || !deliverable) return;
-		const batch = nextBatch(outbox, maxPromptText);
-		const head = batch[0];
-		if (!head) return;
-		const text = batch.map((entry) => entry.text).join("\n");
-		const sending: Outgoing = {
-			id: head.id,
-			text,
-			state: "sending",
-			sentAt: Date.now(),
-		};
-		updateOutbox(sessionId, (current) => [
-			sending,
-			...current.filter((entry) => !batch.includes(entry)),
-		]);
-		void request({ type: "prompt", text }).then((outcome) => {
-			const settled: Outgoing["state"] =
-				outcome.ok || outcome.error === connectionDropped ? "sent" : "held";
-			updateOutbox(sessionId, (current) =>
-				current.map((entry) =>
-					entry.id === sending.id ? { ...entry, state: settled } : entry,
-				),
-			);
-			if (settled === "held") setProblem(outcome.error);
-		});
-	}, [deliverable, outbox]);
-
-	useEffect(() => {
-		if (!sessionId) return;
-		const delivered = outbox.filter(
-			(entry) => entry.state === "sent" || entry.state === "echoed",
-		);
-		if (delivered.length === 0 || view.status === null) return;
-		const due =
-			Math.min(...delivered.map((entry) => entry.sentAt)) + echoWaitMs;
-		const timer = setTimeout(
-			() => {
-				const expired = (entry: Outgoing) =>
-					Date.now() - entry.sentAt >= echoWaitMs;
-				const lost = outbox.some(
-					(entry) => entry.state === "sent" && expired(entry),
-				);
-				updateOutbox(sessionId, (current) =>
-					current.flatMap((entry) =>
-						!expired(entry)
-							? [entry]
-							: entry.state === "echoed"
-								? []
-								: entry.state === "sent"
-									? [{ ...entry, state: "held" as const }]
-									: [entry],
-					),
-				);
-				if (lost) {
-					setProblem(
-						"Claude never showed a message, so it is held. Check the transcript, then send, edit or remove it.",
-					);
-				}
-			},
-			Math.max(0, due - Date.now()),
-		);
-		return () => clearTimeout(timer);
-	}, [outbox, view.status === null]);
-
 	const send = (text: string) => {
 		if (!sessionId) return;
 		setProblem(null);
 		pinned.current = true;
-		const now = Date.now();
-		updateOutbox(sessionId, (current) => [
-			...current,
-			{ id: `${now}-${current.length}`, text, state: "queued", sentAt: now },
-		]);
+		queue(sessionId, text);
 	};
 
 	const edit = (ids: string[]) => {
 		if (!sessionId) return;
-		const picked = outbox.filter(
-			(entry) => editable(entry) && ids.includes(entry.id),
-		);
-		if (picked.length === 0) return;
 		setProblem(null);
-		updateOutbox(sessionId, (current) =>
-			current.filter((entry) => !picked.includes(entry)),
-		);
-		setRecalled({ text: picked.map((entry) => entry.text).join("\n") });
+		const text = withdraw(sessionId, ids);
+		if (text !== null) setRecalled({ text });
 	};
 
 	const discard = (id: string) => {
 		if (!sessionId) return;
 		setProblem(null);
-		updateOutbox(sessionId, (current) =>
-			current.filter((entry) => entry.id !== id || !editable(entry)),
-		);
+		withdraw(sessionId, [id]);
 	};
 
-	const release = (id: string) => {
+	const resend = (id: string) => {
 		if (!sessionId) return;
 		setProblem(null);
-		updateOutbox(sessionId, (current) =>
-			current.map((entry) =>
-				entry.id === id && entry.state === "held"
-					? { ...entry, state: "queued" }
-					: entry,
-			),
-		);
+		release(sessionId, id);
 	};
 
 	const composing = props.node.kind === "session" && readOnly === null;
@@ -464,7 +328,7 @@ export function AgentView(props: {
 													<button
 														type="button"
 														class="av-queued-action"
-														onClick={() => release(entry.id)}
+														onClick={() => resend(entry.id)}
 													>
 														Send
 													</button>
@@ -528,10 +392,10 @@ export function AgentView(props: {
 					onTerminal={props.onTerminal}
 				/>
 			)}
-			{problem && (
+			{(problem ?? sendProblem) && (
 				<div class="focus-mirror-problem" role="alert">
 					<CircleAlert size={14} aria-hidden="true" />
-					<span>{problem}</span>
+					<span>{problem ?? sendProblem}</span>
 				</div>
 			)}
 			{composing && (
