@@ -490,3 +490,21 @@
 		animation: none;
 	}
 }
+
+.node.ignored {
+	opacity: 0.4;
+}
+
+.node.session.ignored.act-needs-you .frame {
+	border-color: var(--hairline);
+}
+
+.node.session.ignored.act-needs-you::before,
+.node.session.ignored.act-needs-you::after {
+	animation: none;
+	box-shadow: none;
+}
+
+.node.ignored.dimmed {
+	opacity: 0.2;
+}

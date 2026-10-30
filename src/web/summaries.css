@@ -190,3 +190,7 @@
 .world[data-detail="far"] .annotation {
 	z-index: 1;
 }
+
+.summary.ignored {
+	opacity: 0.45;
+}

@@ -44,6 +44,7 @@ type Emphasis = {
 	region?: RegionColour;
 	arrived?: boolean;
 	beckoned?: boolean;
+	ignored?: boolean;
 };
 
 function nodeClass(base: string, emphasis: Emphasis): string {
@@ -53,6 +54,7 @@ function nodeClass(base: string, emphasis: Emphasis): string {
 		emphasis.lit && "lit",
 		emphasis.arrived && "arrived",
 		emphasis.beckoned && "beckoned",
+		emphasis.ignored && "ignored",
 		emphasis.region && `grouped region region-${emphasis.region}`,
 	]
 		.filter(Boolean)

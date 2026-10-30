@@ -8,6 +8,7 @@ import {
 	summoned,
 	titleFor,
 } from "./alerts.ts";
+import { ignoredSessions } from "./ignoreState.ts";
 import { board, focusedSessionId, openSession } from "./state.ts";
 
 const preferenceKey = "kanban.notifications";
@@ -47,8 +48,13 @@ export async function toggleNotifications(): Promise<void> {
 	} catch {}
 }
 
+const heardSessions = computed(() => {
+	const ignored = ignoredSessions.value;
+	return (board.value?.sessions ?? []).filter((s) => !ignored.has(s.id));
+});
+
 export const needingSessions = computed(() =>
-	(board.value?.sessions ?? []).filter((s) => s.activity === "needs-you"),
+	heardSessions.value.filter((s) => s.activity === "needs-you"),
 );
 
 const raised = signal<readonly string[]>([]);
@@ -103,10 +109,10 @@ function notify(session: Session): void {
 let seen: SeenActivities | null = null;
 
 effect(() => {
-	const current = board.value;
-	if (!current) return;
-	const fresh = summoned(seen, current.sessions);
-	seen = seenActivities(current.sessions);
+	if (!board.value) return;
+	const heard = heardSessions.value;
+	const fresh = summoned(seen, heard);
+	seen = seenActivities(heard);
 	const viewing = focusedSessionId.peek();
 	const watched = lookingAtBoard();
 	const called = fresh.filter((s) => !(watched && s.id === viewing));

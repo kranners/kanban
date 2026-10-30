@@ -1,4 +1,5 @@
 import type { RegionColours } from "./colours.ts";
+import type { ProjectIgnores } from "./ignores.ts";
 import type { SubagentCounts, SubagentState } from "./subagents.ts";
 
 export type SessionKind = "interactive" | "background";
@@ -260,6 +261,7 @@ export type BoardFeed =
 	| { type: "layout"; layout: Layout }
 	| { type: "annotations"; annotations: Annotations }
 	| { type: "colours"; colours: RegionColours }
+	| { type: "ignores"; ignores: ProjectIgnores }
 	| { type: "regions"; regions: Region[] }
 	| { type: "exit"; sessionId: string; result: ExitResult }
 	| { type: "report"; sessionId: string; result: ReportResult }

@@ -161,6 +161,12 @@ const probes: Record<string, Probe> = {
 			colour: "teal",
 		});
 	},
+	"/api/ignores": async (backend) => {
+		await answers(backend, "PUT", "/api/ignores", {
+			cwd: "/Users/me/dev/acme-api",
+			until: Date.now() + 60_000,
+		});
+	},
 	"/api/regions": async (backend) => {
 		await region(backend);
 	},
@@ -235,6 +241,10 @@ test("writes reach every feed socket as the real server's frames", async () => {
 		cwd: "/Users/me/dev/acme-web",
 		colour: "pink",
 	});
+	await answers(backend, "PUT", "/api/ignores", {
+		cwd: "/Users/me/dev/acme-web",
+		until: Date.now() + 60_000,
+	});
 	await region(backend);
 	await answers(backend, "PUT", "/api/layout", {
 		key: `session:${sessionId}`,
@@ -242,16 +252,17 @@ test("writes reach every feed socket as the real server's frames", async () => {
 	});
 	backend.stop();
 	const types = (frames as BoardFeed[]).map((frame) => frame.type);
-	assert.deepEqual(types.slice(0, 7), [
+	assert.deepEqual(types.slice(0, 8), [
 		"layout",
 		"annotations",
 		"colours",
+		"ignores",
 		"regions",
 		"comments",
 		"digests",
 		"board",
 	]);
-	assert.deepEqual(types.slice(7), ["colours", "regions", "layout"]);
+	assert.deepEqual(types.slice(8), ["colours", "ignores", "regions", "layout"]);
 });
 
 test("the shim answers /api requests in memory and passes the rest through", async () => {

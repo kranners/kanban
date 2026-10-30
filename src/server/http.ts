@@ -52,6 +52,7 @@ import type { ExitRunner } from "./exit.ts";
 import type { Feed } from "./feed.ts";
 import type { FileListing } from "./files.ts";
 import type { FolderPicker } from "./folders.ts";
+import { type IgnoreStore, maxIgnores, parseIgnoreUpdate } from "./ignores.ts";
 import { boardKeys, type LayoutStore, parseLayoutUpdate } from "./layout.ts";
 import type { MirrorHub } from "./mirror.ts";
 import { type PeerHook, parsePeerHookInput } from "./peers.ts";
@@ -87,6 +88,7 @@ export type ServerDeps = {
 	layout: LayoutStore;
 	annotations: AnnotationStore;
 	colours: ColourStore;
+	ignores: IgnoreStore;
 	regions: RegionStore;
 	comments: CommentStore;
 	agent: Omit<BoardAgent, "stopAll">;
@@ -118,6 +120,7 @@ export type Route =
 	| { kind: "put-annotation"; id: string }
 	| { kind: "delete-annotation"; id: string }
 	| { kind: "update-colour" }
+	| { kind: "update-ignore" }
 	| { kind: "create-region" }
 	| { kind: "update-region"; regionId: string }
 	| { kind: "delete-region"; regionId: string }
@@ -246,6 +249,11 @@ export const matchRoute = (method: string, url: URL): Route => {
 	if (path === "/api/colours") {
 		return method === "PUT"
 			? { kind: "update-colour" }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/ignores") {
+		return method === "PUT"
+			? { kind: "update-ignore" }
 			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api/regions") {
@@ -654,6 +662,23 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res.end();
 	};
 
+	const updateIgnore = async (req: IncomingMessage, res: ServerResponse) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const update = parseIgnoreUpdate(read.body, Date.now());
+		if ("error" in update) {
+			return sendJson(res, 400, { ok: false, error: update.error });
+		}
+		if (!deps.ignores.set(update)) {
+			return sendJson(res, 409, {
+				ok: false,
+				error: `The board ignores at most ${maxIgnores} projects at once`,
+			});
+		}
+		res.writeHead(204, { "cache-control": "no-store" });
+		res.end();
+	};
+
 	const createRegion = async (req: IncomingMessage, res: ServerResponse) => {
 		const read = await readBody(req, res);
 		if (!read) return;
@@ -903,6 +928,8 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return deleteAnnotation(req, res, route.id);
 			case "update-colour":
 				return updateColour(req, res);
+			case "update-ignore":
+				return updateIgnore(req, res);
 			case "create-region":
 				return createRegion(req, res);
 			case "update-region":

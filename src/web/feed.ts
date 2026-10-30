@@ -3,6 +3,7 @@ import { receiveColours } from "./colours.ts";
 import { receiveComment, receiveComments } from "./comments.ts";
 import { digests } from "./digests.ts";
 import { receiveExit } from "./exits.ts";
+import { receiveIgnores } from "./ignoreState.ts";
 import { regions } from "./regionState.ts";
 import {
 	forgetAskingReports,
@@ -49,6 +50,10 @@ function receive(frame: BoardFeed): void {
 	}
 	if (frame.type === "colours") {
 		receiveColours(frame.colours);
+		return;
+	}
+	if (frame.type === "ignores") {
+		receiveIgnores(frame.ignores);
 		return;
 	}
 	if (frame.type === "regions") {

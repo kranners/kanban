@@ -15,6 +15,7 @@ import {
 	openRegionMenuAtPointer,
 } from "./Groups.tsx";
 import type { Group } from "./groups.ts";
+import { ignoreFor } from "./ignoreState.ts";
 import { NeedsYouCount, needsYouClass } from "./NeedsYou.tsx";
 import { justDragged, projectGestures } from "./projectDrag.ts";
 import { RegionControls } from "./RegionControls.tsx";
@@ -55,7 +56,7 @@ function ProjectFrame(props: { group: Group }): JSX.Element {
 	const { region } = group;
 	return (
 		<div
-			class={`group-frame region region-${colourOf(group.cwd)}${region ? " region-frame" : ""}${needsYouClass(group.members)}${frontGroup.value === group.key ? " front" : ""}`}
+			class={`group-frame region region-${colourOf(group.cwd)}${region ? " region-frame" : ""}${needsYouClass(group.members)}${ignoreFor(group.cwd) ? " ignored" : ""}${frontGroup.value === group.key ? " front" : ""}`}
 			data-region={region?.id}
 			data-group={group.key}
 			style={{

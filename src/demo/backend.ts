@@ -8,6 +8,7 @@ import type {
 	Drive,
 	ToolResult,
 } from "../shared/conversation.ts";
+import type { ProjectIgnores } from "../shared/ignores.ts";
 import {
 	outstandingStates,
 	subagentCountsBySession,
@@ -163,6 +164,7 @@ function screenOf(items: readonly ConversationItem[], newline: string): string {
 
 export function createBackend(scenario: Scenario): Backend {
 	let world: World = scenario.world(Date.now());
+	let ignores: ProjectIgnores = {};
 	let conversations = new Map<string, Conversation>();
 	const feeds = new Set<Peer>();
 	const timers = new Set<ReturnType<typeof setTimeout>>();
@@ -831,6 +833,22 @@ export function createBackend(scenario: Scenario): Backend {
 			},
 		],
 		[
+			"PUT",
+			/^\/api\/ignores$/,
+			(_, body) => {
+				const update = body as { cwd?: unknown; until?: unknown };
+				if (typeof update?.cwd !== "string")
+					return json(400, { ok: false, error: "cwd is required" });
+				const { [update.cwd]: _previous, ...rest } = ignores;
+				ignores =
+					typeof update.until === "number"
+						? { ...rest, [update.cwd]: update.until }
+						: rest;
+				broadcast({ type: "ignores", ignores });
+				return empty(204);
+			},
+		],
+		[
 			"POST",
 			/^\/api\/regions$/,
 			(_, body) => {
@@ -938,6 +956,7 @@ export function createBackend(scenario: Scenario): Backend {
 		sendFrame(peer, { type: "layout", layout: world.layout });
 		sendFrame(peer, { type: "annotations", annotations: world.annotations });
 		sendFrame(peer, { type: "colours", colours: world.colours });
+		sendFrame(peer, { type: "ignores", ignores });
 		sendFrame(peer, { type: "regions", regions: world.regions });
 		sendFrame(peer, { type: "comments", comments: world.comments });
 		sendFrame(peer, { type: "digests", digests: world.digests });
@@ -1235,6 +1254,8 @@ export function createBackend(scenario: Scenario): Backend {
 	const play = (): Promise<void> => {
 		cancel();
 		load(scenario.world(Date.now()));
+		ignores = {};
+		broadcast({ type: "ignores", ignores });
 		broadcast({ type: "layout", layout: world.layout });
 		broadcast({ type: "annotations", annotations: world.annotations });
 		broadcast({ type: "colours", colours: world.colours });

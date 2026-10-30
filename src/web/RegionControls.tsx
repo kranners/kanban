@@ -6,6 +6,7 @@ import { exitTitle } from "./ExitControls.tsx";
 import { departing } from "./exitState.ts";
 import { askToExitProject, exitSessions, held } from "./exits.ts";
 import type { Group } from "./groups.ts";
+import { IgnoreButton } from "./IgnoreControls.tsx";
 import { nodeKey } from "./layout.ts";
 import { AskButton, ReportFailure } from "./ReportControls.tsx";
 import { createRegion, deleteRegion } from "./regionState.ts";
@@ -92,6 +93,7 @@ export function RegionControls(props: { group: Group }): JSX.Element {
 	const empty = sessions.length === 0;
 	return (
 		<div class="region-corner">
+			<IgnoreButton group={group} />
 			<AskButton
 				subject={`every session in ${group.project}`}
 				title={

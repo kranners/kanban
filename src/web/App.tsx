@@ -33,6 +33,8 @@ import { departed, departing, exits } from "./exitState.ts";
 import { Focus } from "./focus/Focus.tsx";
 import { NewSession } from "./focus/NewSession.tsx";
 import { RegionMenu } from "./Groups.tsx";
+import { IgnoreMenu } from "./IgnoreControls.tsx";
+import { ignoredSessions } from "./ignoreState.ts";
 import type { NodeKey, PlacedNode } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import { useNeedsYouShortcut } from "./NeedsYou.tsx";
@@ -142,6 +144,7 @@ function World(props: { board: Board; layout: Arrangement }) {
 	const reporting = reports.value;
 	const landed = arrived.value;
 	const sought = beckoned.value;
+	const ignored = ignoredSessions.value;
 	const card = (
 		session: Session,
 		node: PlacedNode,
@@ -162,6 +165,7 @@ function World(props: { board: Board; layout: Arrangement }) {
 				region: regions.get(node.key),
 				arrived: landed.has(node.key),
 				beckoned: sought === node.key,
+				ignored: ignored.has(session.id),
 			}}
 			onOpen={openSession}
 			state={exitStateClass(state)}
@@ -212,6 +216,7 @@ function World(props: { board: Board; layout: Arrangement }) {
 							dimmed: !visible(node.key),
 							lit: lit.nodes.has(node.key),
 							arrived: landed.has(node.key),
+							ignored: ignored.has(subagent.sessionId),
 						}}
 						onOpen={openSubagent}
 					/>
@@ -363,6 +368,7 @@ export function App() {
 				<AnnotationMenu />
 				<StickerPicker />
 				<RegionMenu />
+				<IgnoreMenu />
 				<RegionLayer />
 				<CommentOverlays />
 			</div>

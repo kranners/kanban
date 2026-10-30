@@ -6,6 +6,7 @@ import { centreOn } from "./Canvas.tsx";
 import { colourOf } from "./colours.ts";
 import { digests, stuckOf } from "./digests.ts";
 import { exits } from "./exitState.ts";
+import { ignoreFor } from "./ignoreState.ts";
 import type { NodeKey } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import { plainText, renderMarkdown } from "./markdown.ts";
@@ -95,7 +96,7 @@ function ProjectSummary(props: {
 	const finish = latestFinish(lanes);
 	return (
 		<div
-			class={`summary region region-${colourOf(summary.cwd)}${summary.framed ? "" : " alone"}`}
+			class={`summary region region-${colourOf(summary.cwd)}${summary.framed ? "" : " alone"}${ignoreFor(summary.cwd) ? " ignored" : ""}`}
 			data-summary={summary.key}
 			style={{
 				transform: `translate(${summary.frame.x + edge}px, ${summary.frame.y + top}px)`,

@@ -314,7 +314,9 @@
 	background: var(--region-chip);
 }
 
-.group-frame .region-corner .close-bubble:not(.report-bubble):hover,
+.group-frame
+	.region-corner
+	.close-bubble:not(.report-bubble, .ignore-bubble):hover,
 .group-frame .region-corner .close-bubble.force {
 	background: var(--red);
 	color: #ffffff;
@@ -344,4 +346,31 @@
 	right: 10px;
 	width: min(320px, calc(100% - 20px));
 	pointer-events: auto;
+}
+
+.group-frame.ignored {
+	border-style: dotted;
+	border-color: color-mix(in srgb, var(--region-border) 50%, transparent);
+	background: color-mix(in srgb, var(--region-fill) 40%, transparent);
+}
+
+.group-frame.ignored .group-label,
+.group-frame.ignored .region-corner .close-bubble:not(.ignore-bubble) {
+	opacity: 0.5;
+}
+
+.group-frame .region-corner .ignore-bubble.ignoring {
+	background: var(--region-chip);
+}
+
+.ignore-menu-title {
+	margin: 0;
+	padding: 2px 8px 6px;
+	color: var(--muted);
+	font-size: 11.5px;
+}
+
+.ignore-menu {
+	width: 180px;
+	box-sizing: border-box;
 }

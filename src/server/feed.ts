@@ -1,4 +1,5 @@
 import type { RegionColours } from "../shared/colours.ts";
+import type { ProjectIgnores } from "../shared/ignores.ts";
 import type {
 	Annotations,
 	Board,
@@ -24,6 +25,7 @@ export type Feed = {
 	layout(layout: Layout): void;
 	annotations(annotations: Annotations): void;
 	colours(colours: RegionColours): void;
+	ignores(ignores: ProjectIgnores): void;
 	regions(regions: Region[]): void;
 	exit(sessionId: string, result: ExitResult): void;
 	report(sessionId: string, result: ReportResult): void;
@@ -40,6 +42,7 @@ export type FeedOptions = {
 	layout: () => Layout;
 	annotations: () => Annotations;
 	colours: () => RegionColours;
+	ignores: () => ProjectIgnores;
 	regions: () => Region[];
 	comments: () => CommentThread[];
 	usage: () => Usage;
@@ -53,6 +56,7 @@ export const createFeed = ({
 	layout,
 	annotations,
 	colours,
+	ignores,
 	regions,
 	comments,
 	usage,
@@ -77,6 +81,7 @@ export const createFeed = ({
 			send(socket, { type: "layout", layout: layout() });
 			send(socket, { type: "annotations", annotations: annotations() });
 			send(socket, { type: "colours", colours: colours() });
+			send(socket, { type: "ignores", ignores: ignores() });
 			send(socket, { type: "regions", regions: regions() });
 			send(socket, { type: "comments", comments: comments() });
 			send(socket, { type: "usage", usage: usage() });
@@ -88,6 +93,7 @@ export const createFeed = ({
 		annotations: (next) =>
 			broadcast({ type: "annotations", annotations: next }),
 		colours: (next) => broadcast({ type: "colours", colours: next }),
+		ignores: (next) => broadcast({ type: "ignores", ignores: next }),
 		regions: (next) => broadcast({ type: "regions", regions: next }),
 		exit: (sessionId, result) => broadcast({ type: "exit", sessionId, result }),
 		report: (sessionId, result) =>

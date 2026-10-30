@@ -51,6 +51,7 @@ import { createFeed, type Feed } from "./feed.ts";
 import { listFiles } from "./files.ts";
 import { osascriptFolderPicker } from "./folders.ts";
 import { createKanbanServer } from "./http.ts";
+import { createIgnoreStore, loadIgnores } from "./ignores.ts";
 import { startBoard } from "./ingest/index.ts";
 import { createLayoutStore, loadLayout } from "./layout.ts";
 import { createMirrorHub } from "./mirror.ts";
@@ -104,6 +105,13 @@ const colours = createColourStore({
 	file: coloursFile,
 	initial: await loadColours(coloursFile),
 	onChange: (next) => feed?.colours(next),
+});
+const ignoresFile = join(config.stateDir, "ignores.json");
+const ignores = createIgnoreStore({
+	file: ignoresFile,
+	initial: await loadIgnores(ignoresFile),
+	now: Date.now,
+	onChange: (next) => feed?.ignores(next),
 });
 const regionsFile = join(config.stateDir, "regions.json");
 const regions = createRegionStore({
@@ -212,6 +220,7 @@ feed = createFeed({
 	layout: layout.current,
 	annotations: annotations.current,
 	colours: colours.current,
+	ignores: ignores.current,
 	regions: regions.current,
 	comments: comments.current,
 	usage: currentUsage,
@@ -339,6 +348,7 @@ const server = createKanbanServer({
 	layout,
 	annotations,
 	colours,
+	ignores,
 	regions,
 	comments,
 	agent,

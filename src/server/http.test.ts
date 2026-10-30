@@ -33,6 +33,7 @@ import {
 	matchUpgrade,
 	staticFile,
 } from "./http.ts";
+import { createIgnoreStore } from "./ignores.ts";
 import { createLayoutStore } from "./layout.ts";
 import { createRegionStore } from "./regions.ts";
 import { createRegionReportRunner, createReportRunner } from "./reports.ts";
@@ -94,6 +95,7 @@ describe("matchRoute", () => {
 			kind: "method-not-allowed",
 		});
 		assert.deepEqual(route("PUT", "/api/colours"), { kind: "update-colour" });
+		assert.deepEqual(route("PUT", "/api/ignores"), { kind: "update-ignore" });
 		assert.deepEqual(route("GET", "/api/colours"), {
 			kind: "method-not-allowed",
 		});
@@ -246,6 +248,8 @@ describe("createKanbanServer", () => {
 	let annotationsSaved = () => Promise.resolve();
 	let coloursFile = "";
 	let coloursSaved = () => Promise.resolve();
+	let ignoresFile = "";
+	let ignoresSaved = () => Promise.resolve();
 	const attached: string[] = [];
 	const mirrored: string[] = [];
 	const conversed: string[] = [];
@@ -298,6 +302,14 @@ describe("createKanbanServer", () => {
 			onChange: (next) => feed?.colours(next),
 		});
 		coloursSaved = colours.saved;
+		ignoresFile = join(dist, "state", "ignores.json");
+		const ignores = createIgnoreStore({
+			file: ignoresFile,
+			initial: {},
+			now: Date.now,
+			onChange: (next) => feed?.ignores(next),
+		});
+		ignoresSaved = ignores.saved;
 		const regions = createRegionStore({
 			file: join(dist, "state", "regions.json"),
 			initial: [],
@@ -316,6 +328,7 @@ describe("createKanbanServer", () => {
 			layout: store.current,
 			annotations: annotations.current,
 			colours: colours.current,
+			ignores: ignores.current,
 			regions: regions.current,
 			board: () => board,
 			usage: () => ({
@@ -403,6 +416,7 @@ describe("createKanbanServer", () => {
 			},
 			annotations,
 			colours,
+			ignores,
 			regions,
 			comments,
 			agent: {
@@ -973,6 +987,45 @@ describe("createKanbanServer", () => {
 		});
 	});
 
+	it("ignores projects by cwd until a time and broadcasts them", async () => {
+		const cwd = "/Users/me/dev/acme-api";
+		const until = Date.now() + 60 * 60 * 1000;
+		const socket = new WebSocket(`${base.replace("http", "ws")}/api/feed`, {
+			headers: { ...authed, origin },
+		});
+		const broadcast = new Promise<BoardFeed>((resolve) => {
+			let frames = 0;
+			socket.on("message", (data) => {
+				const frame = JSON.parse(String(data)) as BoardFeed;
+				if (frame.type === "ignores" && ++frames === 2) resolve(frame);
+			});
+		});
+		await new Promise((resolve) => socket.on("open", resolve));
+		assert.equal(
+			(await send("PUT", "/api/ignores", { cwd, until })).status,
+			204,
+		);
+		assert.deepEqual(await broadcast, {
+			type: "ignores",
+			ignores: { [cwd]: until },
+		});
+		socket.close();
+		assert.equal(
+			(await send("PUT", "/api/ignores", { cwd, until: "later" })).status,
+			400,
+		);
+		await ignoresSaved();
+		assert.deepEqual(JSON.parse(await readFile(ignoresFile, "utf8")), {
+			[cwd]: until,
+		});
+		assert.equal(
+			(await send("PUT", "/api/ignores", { cwd, until: null })).status,
+			204,
+		);
+		await ignoresSaved();
+		assert.deepEqual(JSON.parse(await readFile(ignoresFile, "utf8")), {});
+	});
+
 	it("creates, updates and deletes project regions and broadcasts them", async () => {
 		const socket = new WebSocket(`${base.replace("http", "ws")}/api/feed`, {
 			headers: { ...authed, origin },
@@ -1201,6 +1254,7 @@ describe("createKanbanServer", () => {
 				"layout",
 				"annotations",
 				"colours",
+				"ignores",
 				"regions",
 				"comments",
 				"usage",

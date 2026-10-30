@@ -10,7 +10,9 @@ import {
 	readingOrder,
 } from "./attention.ts";
 import { centreOn, glideMs } from "./Canvas.tsx";
+import { ignoredSessions } from "./ignoreState.ts";
 import type { NodeKey } from "./layout.ts";
+import { nodeKey } from "./layout.ts";
 import { board } from "./state.ts";
 
 const arrivalMs = 1400;
@@ -20,7 +22,14 @@ export const activities = computed<Activities>(() =>
 	board.value ? activitiesOf(board.value) : new Map(),
 );
 
-export const needing = computed(() => needingYou(activities.value));
+export const needing = computed(() => {
+	const ignored = [...ignoredSessions.value].map((id) =>
+		nodeKey({ kind: "session", id }),
+	);
+	const waiting = needingYou(activities.value);
+	for (const key of ignored) waiting.delete(key);
+	return waiting;
+});
 
 export const arrived = signal<ReadonlyMap<NodeKey, Activity>>(new Map());
 
