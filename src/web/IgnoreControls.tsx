@@ -1,8 +1,10 @@
 import { Bell, BellOff } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef } from "preact/hooks";
+import type { Session } from "../shared/types.ts";
 import { view } from "./Canvas.tsx";
 import { held } from "./exits.ts";
+import { directoryName } from "./focus/paths.ts";
 import type { Group } from "./groups.ts";
 import {
 	ignoreFor,
@@ -11,6 +13,7 @@ import {
 	stopIgnoring,
 } from "./ignoreState.ts";
 import {
+	type Ignore,
 	ignoreDurations,
 	ignoredUntilLabel,
 	quickIgnoreMs,
@@ -22,21 +25,42 @@ const menuWidth = 180;
 const itemHeight = 32;
 const menuChrome = 40;
 
+function ignoring(ignore: Ignore): string {
+	const project = directoryName(ignore.cwd) || ignore.cwd;
+	return `${project} is ignored until ${ignoredUntilLabel(ignore.until, now.value)}`;
+}
+
+function StopIgnoringButton(props: { ignore: Ignore }): JSX.Element {
+	const { ignore } = props;
+	return (
+		<button
+			type="button"
+			class="close-bubble ignore-bubble ignoring"
+			aria-label={`Stop ignoring: ${ignoring(ignore)}`}
+			aria-pressed={true}
+			title={`${ignoring(ignore)} · click to stop ignoring it`}
+			data-no-pan
+			onClick={() => void stopIgnoring(ignore.cwd)}
+		>
+			<BellOff size={13} strokeWidth={2.25} aria-hidden="true" />
+		</button>
+	);
+}
+
+export function SessionIgnoreButton(props: {
+	session: Session;
+}): JSX.Element | null {
+	const ignore = ignoreFor(props.session.cwd);
+	return ignore && <StopIgnoringButton ignore={ignore} />;
+}
+
 export function IgnoreButton(props: { group: Group }): JSX.Element {
 	const { group } = props;
 	const ignore = ignoreFor(group.cwd);
 	const quick = held.value.option;
 	const open = ignoreMenu.value?.cwd === group.cwd;
-	const label = ignore
-		? `Stop ignoring ${group.project}, ignored until ${ignoredUntilLabel(ignore.until, now.value)}`
-		: quick
-			? `Ignore ${group.project} for a day`
-			: `Ignore ${group.project}…`;
+	if (ignore) return <StopIgnoringButton ignore={ignore} />;
 	const onClick = (event: MouseEvent) => {
-		if (ignore) {
-			void stopIgnoring(ignore.cwd);
-			return;
-		}
 		if (event.altKey || held.peek().option) {
 			void ignoreProject(group.cwd, quickIgnoreMs);
 			return;
@@ -55,24 +79,18 @@ export function IgnoreButton(props: { group: Group }): JSX.Element {
 	return (
 		<button
 			type="button"
-			class={`close-bubble ignore-bubble${ignore ? " ignoring" : ""}`}
-			aria-label={label}
-			aria-pressed={ignore !== null}
-			aria-haspopup={ignore ? undefined : "menu"}
-			aria-expanded={ignore ? undefined : open}
-			title={
-				ignore
-					? `Ignored until ${ignoredUntilLabel(ignore.until, now.value)} · click to stop ignoring`
-					: "Ignore this project: dim it and silence its notifications · ⌥-click to ignore it for a day"
+			class="close-bubble ignore-bubble"
+			aria-label={
+				quick ? `Ignore ${group.project} for a day` : `Ignore ${group.project}…`
 			}
+			aria-pressed={false}
+			aria-haspopup="menu"
+			aria-expanded={open}
+			title="Ignore this project: dim it and silence its notifications · ⌥-click to ignore it for a day"
 			data-no-pan
 			onClick={onClick}
 		>
-			{ignore ? (
-				<BellOff size={13} strokeWidth={2.25} aria-hidden="true" />
-			) : (
-				<Bell size={13} strokeWidth={2.25} aria-hidden="true" />
-			)}
+			<Bell size={13} strokeWidth={2.25} aria-hidden="true" />
 		</button>
 	);
 }
@@ -152,6 +170,7 @@ export function IgnoreMenu(): JSX.Element | null {
 			onFocusOut={(event) => {
 				const next = event.relatedTarget as Element | null;
 				if (!next || list.current?.contains(next)) return;
+				if (next.closest?.(".ignore-bubble[aria-expanded='true']")) return;
 				ignoreMenu.value = null;
 			}}
 			onContextMenu={(event) => event.preventDefault()}

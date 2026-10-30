@@ -33,7 +33,7 @@ import { departed, departing, exits } from "./exitState.ts";
 import { Focus } from "./focus/Focus.tsx";
 import { NewSession } from "./focus/NewSession.tsx";
 import { RegionMenu } from "./Groups.tsx";
-import { IgnoreMenu } from "./IgnoreControls.tsx";
+import { IgnoreMenu, SessionIgnoreButton } from "./IgnoreControls.tsx";
 import { ignoredSessions } from "./ignoreState.ts";
 import type { NodeKey, PlacedNode } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
@@ -171,6 +171,7 @@ function World(props: { board: Board; layout: Arrangement }) {
 			state={exitStateClass(state)}
 			corner={
 				<>
+					<SessionIgnoreButton session={session} />
 					<ReportButton session={session} state={reporting.get(session.id)} />
 					<CloseButton session={session} state={state} />
 				</>

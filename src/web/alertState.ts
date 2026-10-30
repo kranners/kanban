@@ -48,14 +48,12 @@ export async function toggleNotifications(): Promise<void> {
 	} catch {}
 }
 
-const heardSessions = computed(() => {
+export const needingSessions = computed(() => {
 	const ignored = ignoredSessions.value;
-	return (board.value?.sessions ?? []).filter((s) => !ignored.has(s.id));
+	return (board.value?.sessions ?? []).filter(
+		(s) => s.activity === "needs-you" && !ignored.has(s.id),
+	);
 });
-
-export const needingSessions = computed(() =>
-	heardSessions.value.filter((s) => s.activity === "needs-you"),
-);
 
 const raised = signal<readonly string[]>([]);
 
@@ -109,10 +107,13 @@ function notify(session: Session): void {
 let seen: SeenActivities | null = null;
 
 effect(() => {
-	if (!board.value) return;
-	const heard = heardSessions.value;
-	const fresh = summoned(seen, heard);
-	seen = seenActivities(heard);
+	const current = board.value;
+	if (!current) return;
+	const ignored = ignoredSessions.peek();
+	const fresh = summoned(seen, current.sessions).filter(
+		(s) => !ignored.has(s.id),
+	);
+	seen = seenActivities(current.sessions);
 	const viewing = focusedSessionId.peek();
 	const watched = lookingAtBoard();
 	const called = fresh.filter((s) => !(watched && s.id === viewing));
