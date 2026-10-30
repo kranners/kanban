@@ -77,15 +77,15 @@
 	scale: var(--unzoom);
 	transform-origin: 0 0;
 	container-type: inline-size;
-	display: flex;
-	flex-direction: column;
+	overflow: hidden auto;
+	overscroll-behavior: contain;
+	scrollbar-width: thin;
 	color: var(--muted);
 	font-size: 13px;
 	line-height: 1.4;
 }
 
 .near-head {
-	flex: none;
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
@@ -149,11 +149,6 @@
 }
 
 .near-content {
-	flex: 1;
-	min-height: 0;
-	overflow: hidden auto;
-	overscroll-behavior: contain;
-	scrollbar-width: thin;
 	display: grid;
 	grid-template-columns: minmax(0, 1fr);
 	align-content: start;

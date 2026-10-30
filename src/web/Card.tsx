@@ -233,7 +233,7 @@ function NearPanel(props: {
 	const digest = digests.value.sessions[session.id];
 	const KindIcon = session.kind === "interactive" ? Terminal : Server;
 	return (
-		<div class="near-panel">
+		<div class="near-panel" data-scrollable>
 			<header class="near-head">
 				<div class="near-meta">
 					<ActivityBadge activity={session.activity} />
@@ -265,7 +265,7 @@ function NearPanel(props: {
 				</p>
 				<WorkflowBars workflows={props.workflows} />
 			</header>
-			<div class="near-content" data-scrollable>
+			<div class="near-content">
 				<div class="near-side">
 					{digest && (
 						<ProgressNote
