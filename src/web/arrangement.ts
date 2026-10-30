@@ -10,6 +10,7 @@ import { groupsOf } from "./groups.ts";
 import type { NodeKey } from "./layout.ts";
 import type { Rect } from "./placement.ts";
 import { arrange, seedsOf } from "./placement.ts";
+import { unreachablePeers } from "./reach.ts";
 import { shownRegions } from "./regionState.ts";
 import { regionGroups } from "./regions.ts";
 import { annotations, board, layout } from "./state.ts";
@@ -57,6 +58,10 @@ export const groups = computed(() => {
 		placed.nodes,
 	);
 });
+
+export const unreachable = computed(() =>
+	unreachablePeers(groups.value, board.value?.sessions ?? []),
+);
 
 async function putLayout(update: LayoutUpdate): Promise<void> {
 	const response = await fetch("/api/layout", {

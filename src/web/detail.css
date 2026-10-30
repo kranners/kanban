@@ -138,7 +138,20 @@
 	overflow-wrap: anywhere;
 }
 
-.near-needs svg {
+.near-unreachable {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	margin: 2px 0;
+	padding: 6px 10px;
+	border-radius: var(--radius-sm);
+	background: var(--amber-soft);
+	color: var(--amber-ink);
+	overflow-wrap: anywhere;
+}
+
+.near-needs svg,
+.near-unreachable svg {
 	flex: none;
 	margin-top: 2px;
 }

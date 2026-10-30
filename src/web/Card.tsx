@@ -8,6 +8,7 @@ import {
 	SquareTerminal,
 	Terminal,
 	TriangleAlert,
+	Unlink,
 } from "lucide-preact";
 import type { ComponentChildren, JSX } from "preact";
 import type { RegionColour } from "../shared/colours.ts";
@@ -25,9 +26,11 @@ import "./attention.css";
 import "./detail.css";
 import { subagentState } from "../shared/subagents.ts";
 import { ActivityBadge, ActivityIcon, activityLabel } from "./activity.tsx";
+import { unreachable } from "./arrangement.ts";
 import { digests, stuckOf } from "./digests.ts";
 import type { PlacedNode } from "./layout.ts";
 import { plainText } from "./markdown.ts";
+import { unreachableText } from "./reach.ts";
 import { board } from "./state.ts";
 import { Timeline } from "./Timeline.tsx";
 import { ago, relativeTime } from "./time.ts";
@@ -244,6 +247,7 @@ function NearPanel(props: {
 						{session.project}
 					</span>
 					<span class="foot-end">
+						<UnreachableChip sessionId={session.id} />
 						{session.configDir && <AccountChip configDir={session.configDir} />}
 						<KindIcon size={13} aria-hidden="true" />
 						<time class="num">
@@ -260,6 +264,7 @@ function NearPanel(props: {
 						<span>{session.needs}</span>
 					</p>
 				)}
+				<UnreachableNote sessionId={session.id} />
 				<p class="near-doing">
 					{session.doing ? plainText(session.doing) : activityHint(session)}
 				</p>
@@ -419,6 +424,7 @@ export function SessionCard(props: {
 								{session.project}
 							</span>
 							<span class="foot-end">
+								<UnreachableChip sessionId={session.id} />
 								{session.configDir && (
 									<AccountChip configDir={session.configDir} />
 								)}
@@ -529,6 +535,33 @@ export function SubagentCard(props: {
 				/>
 			)}
 		</div>
+	);
+}
+
+function UnreachableChip(props: { sessionId: string }): JSX.Element | null {
+	const others = unreachable.value.get(props.sessionId);
+	if (!others) return null;
+	return (
+		<span
+			class="foot-unreachable"
+			role="img"
+			title={unreachableText(others)}
+			aria-label={unreachableText(others)}
+		>
+			<Unlink size={12} aria-hidden="true" />
+			<span class="num">{others.length}</span>
+		</span>
+	);
+}
+
+function UnreachableNote(props: { sessionId: string }): JSX.Element | null {
+	const others = unreachable.value.get(props.sessionId);
+	if (!others) return null;
+	return (
+		<p class="near-unreachable">
+			<Unlink size={14} aria-hidden="true" />
+			<span>{unreachableText(others)}</span>
+		</p>
 	);
 }
 

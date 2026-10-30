@@ -1,3 +1,4 @@
+import { live, sameAccount } from "../shared/reach.ts";
 import type { Digests, Session } from "../shared/types.ts";
 import type { Summary } from "../web/summaries.ts";
 
@@ -52,8 +53,7 @@ export const peersIn = (unit: Summary, sessionId: string): Session[] => {
 	const caller = unit.sessions.find((s) => s.id === sessionId);
 	if (!unit.framed || !caller) return [];
 	return unit.sessions.filter(
-		(s) =>
-			s.id !== sessionId && s.pid !== null && s.configDir === caller.configDir,
+		(s) => s.id !== sessionId && live(s) && sameAccount(s, caller),
 	);
 };
 

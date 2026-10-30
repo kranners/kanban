@@ -27,7 +27,7 @@ Arrowed links join a session to the sessions it spawned with `claude --bg`, the 
 
 Messages sent between sessions animate along a dashed arc from sender to recipient. The messages rail lists them newest first; hovering one lights both cards and their arc.
 
-Sessions the board starts know who else shares their project frame. With each prompt, each subagent and whenever a neighbour joins, leaves or changes goal mid-turn, they are told each neighbour's name, state, goal and what it is doing now, and to message one with SendMessage before touching what it is working on.
+Sessions the board starts know who else shares their project frame. With each prompt, each subagent and whenever a neighbour joins, leaves or changes goal mid-turn, they are told each neighbour's name, state, goal and what it is doing now, and to message one with SendMessage before touching what it is working on. Sessions can only message others on their own Claude account, so a card sharing a frame with sessions on another account says which ones it can't reach.
 
 ![Hovering messages in the rail lights the sender, the recipient and the arc between them](docs/media/clip-messages.gif)
 
