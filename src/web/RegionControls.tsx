@@ -8,10 +8,12 @@ import { askToExitProject, exitSessions, held } from "./exits.ts";
 import type { Group } from "./groups.ts";
 import { nodeKey } from "./layout.ts";
 import { AskButton, ReportFailure } from "./ReportControls.tsx";
-import { deleteRegion } from "./regionState.ts";
+import { createRegion, deleteRegion } from "./regionState.ts";
+import { storableRegion } from "./regions.ts";
 import {
 	dismissReport,
-	regionReportKey,
+	failReport,
+	projectReportKey,
 	reports,
 	requestRegionReport,
 } from "./reports.ts";
@@ -71,10 +73,21 @@ function CloseProjectButton(props: {
 	);
 }
 
-export function RegionControls(props: { group: Group }): JSX.Element | null {
+async function askProject(group: Group): Promise<void> {
+	if (group.region) return requestRegionReport(group.region.id);
+	const pinned = await createRegion({
+		cwd: group.cwd,
+		...storableRegion(group.frame),
+	});
+	if (pinned.ok) return requestRegionReport(pinned.value.id);
+	failReport(
+		group.key,
+		`Couldn't save this project as a region: ${pinned.error}`,
+	);
+}
+
+export function RegionControls(props: { group: Group }): JSX.Element {
 	const { group } = props;
-	const { region } = group;
-	if (!region) return null;
 	const sessions = sessionsIn(group);
 	const empty = sessions.length === 0;
 	return (
@@ -86,16 +99,19 @@ export function RegionControls(props: { group: Group }): JSX.Element | null {
 						? "No sessions in this project to ask"
 						: "Ask every session in this project for a status report"
 				}
-				asking={
-					reports.value.get(regionReportKey(region.id))?.phase === "asking"
-				}
+				asking={reports.value.get(projectReportKey(group))?.phase === "asking"}
 				disabled={empty}
-				onAsk={() => void requestRegionReport(region.id)}
+				onAsk={() => void askProject(group)}
 			/>
-			{empty ? (
-				<CloseProjectButton project={group.project} regionId={region.id} />
-			) : (
+			{!empty ? (
 				<ExitProjectButton project={group.project} sessions={sessions} />
+			) : (
+				group.region && (
+					<CloseProjectButton
+						project={group.project}
+						regionId={group.region.id}
+					/>
+				)
 			)}
 		</div>
 	);
@@ -106,9 +122,9 @@ export function RegionNotices(props: {
 }): JSX.Element {
 	return (
 		<>
-			{props.groups.map(({ region, frame }) => {
-				if (!region) return null;
-				const key = regionReportKey(region.id);
+			{props.groups.map((group) => {
+				const { frame } = group;
+				const key = projectReportKey(group);
 				const state = reports.value.get(key);
 				if (state?.phase !== "failed") return null;
 				return (

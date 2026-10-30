@@ -129,10 +129,29 @@
 	--group-fill: var(--region-fill);
 }
 
+.project-bar {
+	position: absolute;
+	top: 0;
+	left: 0;
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	width: 100%;
+	height: 32px;
+	padding: 0 8px 0 10px;
+	border-bottom: 1px solid
+		color-mix(in srgb, var(--region-border) 45%, transparent);
+	pointer-events: auto;
+	cursor: grab;
+	touch-action: none;
+}
+
 .group-frame .group-label {
-	top: 5px;
-	left: 10px;
-	max-width: calc(100% - 20px);
+	position: static;
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: none;
 	height: 22px;
 	padding: 0 8px;
 	border: 1px solid transparent;
@@ -141,7 +160,6 @@
 	color: var(--region-ink);
 	font-family: inherit;
 	line-height: 20px;
-	pointer-events: auto;
 	cursor: pointer;
 	transition: border-color calc(120ms * var(--motion));
 }
@@ -157,8 +175,8 @@
 	text-overflow: ellipsis;
 }
 
-.viewport.panning .group-label,
-.viewport.arranging .group-label {
+.viewport.panning .project-bar,
+.viewport.arranging .project-bar {
 	pointer-events: none;
 }
 
@@ -206,12 +224,6 @@
 
 .region-frame {
 	border-style: dashed;
-}
-
-.group-frame .region-label {
-	max-width: calc(100% - 92px);
-	cursor: grab;
-	touch-action: none;
 }
 
 .region-edge {
@@ -279,11 +291,10 @@
 }
 
 .region-corner {
-	position: absolute;
-	top: 4px;
-	right: 10px;
+	flex: none;
 	display: flex;
 	gap: 6px;
+	margin-left: auto;
 }
 
 .group-frame .region-corner .close-bubble {

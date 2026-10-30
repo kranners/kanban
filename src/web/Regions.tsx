@@ -50,14 +50,13 @@ function gestures(group: Group, handle: RegionHandle) {
 	};
 }
 
-function RegionFrame(props: { group: Group }): JSX.Element | null {
+function ProjectFrame(props: { group: Group }): JSX.Element {
 	const { group } = props;
-	const region = group.region;
-	if (!region) return null;
+	const { region } = group;
 	return (
 		<div
-			class={`group-frame region-frame region region-${colourOf(region.cwd)}${needsYouClass(group.members)}${frontGroup.value === group.key ? " front" : ""}`}
-			data-region={region.id}
+			class={`group-frame region region-${colourOf(group.cwd)}${region ? " region-frame" : ""}${needsYouClass(group.members)}${frontGroup.value === group.key ? " front" : ""}`}
+			data-region={region?.id}
 			data-group={group.key}
 			style={{
 				transform: `translate(${group.frame.x}px, ${group.frame.y}px)`,
@@ -65,42 +64,46 @@ function RegionFrame(props: { group: Group }): JSX.Element | null {
 				height: `${group.frame.h}px`,
 			}}
 		>
-			<button
-				type="button"
-				class="group-label region-label"
-				title={`${region.cwd} · drag to move, click for options`}
-				aria-haspopup="menu"
-				aria-expanded={regionMenu.value?.key === group.key}
-				{...gestures(group, "move")}
-				onClick={(event) => {
-					if (!justDragged())
-						openRegionMenu(group, belowLabel(event.currentTarget));
-				}}
-			>
-				<Folder size={12} aria-hidden="true" />
-				<span class="group-label-text">{group.project}</span>
-				<NeedsYouCount members={group.members} />
-			</button>
-			{regionEdges.map((edge) => (
-				<div
-					key={edge}
-					class="region-edge"
-					data-edge={edge}
-					aria-hidden="true"
-					{...gestures(group, edge)}
-				/>
-			))}
-			<RegionControls group={group} />
+			<div class="project-bar" {...gestures(group, "move")}>
+				<button
+					type="button"
+					class="group-label"
+					title={`${group.cwd} · drag to move, click for ${region ? "options" : "colours"}`}
+					aria-haspopup="menu"
+					aria-expanded={regionMenu.value?.key === group.key}
+					onClick={(event) => {
+						if (!justDragged())
+							openRegionMenu(group, belowLabel(event.currentTarget));
+					}}
+				>
+					<Folder size={12} aria-hidden="true" />
+					<span class="group-label-text">{group.project}</span>
+					<NeedsYouCount members={group.members} />
+				</button>
+				<RegionControls group={group} />
+			</div>
+			{region &&
+				regionEdges.map((edge) => (
+					<div
+						key={edge}
+						class="region-edge"
+						data-edge={edge}
+						aria-hidden="true"
+						{...gestures(group, edge)}
+					/>
+				))}
 		</div>
 	);
 }
 
-export function RegionFrames(props: { groups: readonly Group[] }): JSX.Element {
+export function ProjectFrames(props: {
+	groups: readonly Group[];
+}): JSX.Element {
 	return (
 		<>
-			{props.groups.map((group) =>
-				group.region ? <RegionFrame key={group.key} group={group} /> : null,
-			)}
+			{props.groups.map((group) => (
+				<ProjectFrame key={group.key} group={group} />
+			))}
 		</>
 	);
 }

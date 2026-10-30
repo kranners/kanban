@@ -17,14 +17,12 @@
 }
 
 .world[data-detail="near"]
-	:is(.group-label, .node-corner, .card-artifacts, .resize-handle) {
+	:is(.project-bar, .node-corner, .card-artifacts, .resize-handle) {
 	scale: var(--unzoom);
 }
 
-.world[data-detail="near"] .group-label {
-	top: calc(7px * var(--unzoom));
-	left: calc(14px * var(--unzoom));
-	max-width: calc(100% / var(--unzoom) - 28px);
+.world[data-detail="near"] .project-bar {
+	width: calc(100% / var(--unzoom));
 	transform-origin: 0 0;
 }
 

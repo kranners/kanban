@@ -1,7 +1,6 @@
 import "./regions.css";
 import {
 	Check,
-	Folder,
 	LogOut,
 	Pencil,
 	Plus,
@@ -21,8 +20,6 @@ import { colourOf, setRegionColour } from "./colours.ts";
 import { askToExitProject } from "./exits.ts";
 import type { Group } from "./groups.ts";
 import { topGroupAt } from "./groups.ts";
-import { NeedsYouCount, needsYouClass } from "./NeedsYou.tsx";
-import { justDragged, projectGestures } from "./projectDrag.ts";
 import { sessionsIn } from "./RegionControls.tsx";
 import {
 	deleteRegion,
@@ -74,45 +71,6 @@ export function openRegionMenuAtPointer(
 	event.stopPropagation();
 	regionMenu.value = null;
 	openRegionMenu(group, { x: event.clientX, y: event.clientY }, board);
-}
-
-export function GroupFrames(props: { groups: readonly Group[] }) {
-	const open = regionMenu.value?.key;
-	const front = frontGroup.value;
-	return (
-		<>
-			{props.groups.map((group) => (
-				<div
-					key={group.key}
-					class={`group-frame region region-${colourOf(group.cwd)}${needsYouClass(group.members)}${group.key === front ? " front" : ""}`}
-					data-group={group.key}
-					style={{
-						transform: `translate(${group.frame.x}px, ${group.frame.y}px)`,
-						width: `${group.frame.w}px`,
-						height: `${group.frame.h}px`,
-					}}
-				>
-					<button
-						type="button"
-						class="group-label"
-						title={`${group.cwd} · drag to move, click for colours`}
-						aria-haspopup="menu"
-						aria-expanded={open === group.key}
-						{...projectGestures(group, "move")}
-						onClick={(event) => {
-							if (!justDragged())
-								openRegionMenu(group, belowLabel(event.currentTarget));
-						}}
-						onContextMenu={(event) => openRegionMenuAtPointer(group, event)}
-					>
-						<Folder size={12} aria-hidden="true" />
-						<span class="group-label-text">{group.project}</span>
-						<NeedsYouCount members={group.members} />
-					</button>
-				</div>
-			))}
-		</>
-	);
 }
 
 const menuWidth = 180;

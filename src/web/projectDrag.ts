@@ -32,6 +32,7 @@ const settleMs = 600;
 
 type Drag = {
 	pointerId: number;
+	grip: Element;
 	project: Group;
 	handle: RegionHandle;
 	origin: Rect;
@@ -81,7 +82,6 @@ function beginDrag(
 ): void {
 	if (event.button !== 0 || drag) return;
 	if (handle !== "move" && !project.region) return;
-	(event.currentTarget as Element).setPointerCapture(event.pointerId);
 	const origin = project.region ? rectOf(project.region) : project.frame;
 	const load =
 		handle === "move"
@@ -89,6 +89,7 @@ function beginDrag(
 			: { nodes: [], notes: [] };
 	drag = {
 		pointerId: event.pointerId,
+		grip: event.currentTarget as Element,
 		project,
 		handle,
 		origin,
@@ -123,6 +124,7 @@ function continueDrag(event: PointerEvent): void {
 	const dx = event.clientX - drag.start.x;
 	const dy = event.clientY - drag.start.y;
 	if (!drag.moved && Math.hypot(dx, dy) < dragThreshold) return;
+	if (!drag.moved) drag.grip.setPointerCapture(drag.pointerId);
 	drag.moved = true;
 	setArranging(true);
 	const { k } = view.peek();

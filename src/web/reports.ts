@@ -1,6 +1,7 @@
 import { signal } from "@preact/signals";
 import type { ReportResult } from "../shared/types.ts";
 import { errorOf } from "./exits.ts";
+import type { Group } from "./groups.ts";
 
 export type ReportState =
 	| { phase: "asking" }
@@ -39,6 +40,11 @@ function setReport(id: string, state: ReportState | null): void {
 export const regionReportKey = (regionId: string): string =>
 	`region:${regionId}`;
 
+export const projectReportKey = (
+	project: Pick<Group, "key" | "region">,
+): string =>
+	project.region ? regionReportKey(project.region.id) : project.key;
+
 export function receiveReport(key: string, result: ReportResult): void {
 	if (reports.peek().get(key)?.phase !== "asking") return;
 	setReport(key, result.ok ? null : { phase: "failed", error: result.error });
@@ -48,6 +54,10 @@ export function forgetAskingReports(): void {
 	for (const [key, state] of reports.peek()) {
 		if (state.phase === "asking") setReport(key, null);
 	}
+}
+
+export function failReport(key: string, error: string): void {
+	setReport(key, { phase: "failed", error });
 }
 
 export function dismissReport(key: string): void {

@@ -32,14 +32,14 @@ import type { ExitState } from "./exitState.ts";
 import { departed, departing, exits } from "./exitState.ts";
 import { Focus } from "./focus/Focus.tsx";
 import { NewSession } from "./focus/NewSession.tsx";
-import { GroupFrames, RegionMenu } from "./Groups.tsx";
+import { RegionMenu } from "./Groups.tsx";
 import type { NodeKey, PlacedNode } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import { useNeedsYouShortcut } from "./NeedsYou.tsx";
 import type { Arrangement } from "./placement.ts";
 import { Rail } from "./Rail.tsx";
 import { RegionNotices } from "./RegionControls.tsx";
-import { RegionFrames, RegionLayer } from "./Regions.tsx";
+import { ProjectFrames, RegionLayer } from "./Regions.tsx";
 import { ReportButton, ReportNotice } from "./ReportControls.tsx";
 import { reports } from "./reports.ts";
 import { BoardMenu, SpawnLayer, useBoardGestures } from "./Spawning.tsx";
@@ -183,8 +183,7 @@ function World(props: { board: Board; layout: Arrangement }) {
 	return (
 		<>
 			<div class="group-frames">
-				<GroupFrames groups={frames.filter((g) => !g.region)} />
-				<RegionFrames groups={frames} />
+				<ProjectFrames groups={frames} />
 			</div>
 			<AnnotationLayer />
 			<Tethers
