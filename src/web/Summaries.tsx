@@ -12,9 +12,11 @@ import { plainText, renderMarkdown } from "./markdown.ts";
 import { groupLabelSpace } from "./placement.ts";
 import { frontGroup } from "./regionState.ts";
 import { reports } from "./reports.ts";
-import { openSession } from "./state.ts";
+import { now, openSession } from "./state.ts";
 import type { Summary } from "./summaries.ts";
 import { activityCounts } from "./summaries.ts";
+import { finishText, Timeline } from "./Timeline.tsx";
+import { averageTaskMs, latestFinish, sessionLane } from "./timeline.ts";
 
 const frameEdge = 2;
 
@@ -22,6 +24,10 @@ function taskProgress(session: Session): string | null {
 	if (session.tasks.length === 0) return null;
 	const done = session.tasks.filter((t) => t.status === "completed").length;
 	return `${done}/${session.tasks.length}`;
+}
+
+function labelOf(session: Session): string {
+	return session.goal ? plainText(session.goal) : session.name;
 }
 
 function noticeOf(session: Session): string | null {
@@ -52,9 +58,7 @@ function SummaryRow(props: { session: Session; dimmed: boolean }) {
 			>
 				<ActivityIcon activity={session.activity} size={14} />
 				<span class="summary-text">
-					<span class="summary-goal">
-						{session.goal ? plainText(session.goal) : session.name}
-					</span>
+					<span class="summary-goal">{labelOf(session)}</span>
 					{notice && <span class="summary-notice">{notice}</span>}
 				</span>
 				{progress && <span class="summary-progress num">{progress}</span>}
@@ -80,6 +84,15 @@ function ProjectSummary(props: {
 	const top = summary.framed ? groupLabelSpace : 0;
 	const agents = outstandingAgents(props.board, summary.sessions);
 	const narrative = digests.value.projects[summary.key]?.narrative;
+	const at = now.value;
+	const typical = averageTaskMs(props.board.sessions);
+	const lanes = summary.sessions
+		.map((session) => ({
+			...sessionLane(session, labelOf(session), at, typical),
+			ticks: session.steps.map((step) => step.at),
+		}))
+		.filter((lane) => lane.spans.length > 0 || lane.ticks.length > 0);
+	const finish = latestFinish(lanes);
 	return (
 		<div
 			class={`summary region region-${colourOf(summary.cwd)}${summary.framed ? "" : " alone"}`}
@@ -90,7 +103,7 @@ function ProjectSummary(props: {
 				height: `${summary.frame.h - top - edge}px`,
 			}}
 		>
-			<div class="summary-inner">
+			<div class="summary-inner" data-scrollable>
 				<button
 					type="button"
 					class="summary-head"
@@ -115,6 +128,11 @@ function ProjectSummary(props: {
 								{agents === 1 ? " agent" : " agents"}
 							</span>
 						)}
+						{finish !== null && (
+							<span class="summary-count summary-finish num">
+								{finishText(finish, at)}
+							</span>
+						)}
 					</span>
 				</button>
 				{narrative && (
@@ -133,6 +151,11 @@ function ProjectSummary(props: {
 						/>
 					))}
 				</ul>
+				<Timeline
+					lanes={lanes}
+					now={at}
+					label={`${summary.project} timeline`}
+				/>
 			</div>
 		</div>
 	);

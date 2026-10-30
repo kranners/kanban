@@ -510,13 +510,56 @@ describe("tasks", () => {
 					subject: "Write the parser",
 					status: "completed",
 					activeForm: "Writing the parser",
+					createdAt: Date.parse("2026-10-24T10:00:00.000Z"),
+					startedAt: null,
+					endedAt: Date.parse("2026-10-24T10:00:00.000Z"),
 				},
 				{
 					id: "2",
 					subject: "Ship it",
 					status: "in_progress",
 					activeForm: null,
+					createdAt: Date.parse("2026-10-24T10:00:00.000Z"),
+					startedAt: Date.parse("2026-10-24T10:00:00.000Z"),
+					endedAt: null,
 				},
+			],
+		);
+	});
+
+	test("times when each task was created, started and finished", () => {
+		const at = (time: string) => ({
+			timestamp: `2026-10-24T${time}.000Z`,
+		});
+		const facts = apply(
+			{
+				...toolUse("c1", "TaskCreate", { subject: "Parse" }),
+				...at("10:00:00"),
+			},
+			{ ...toolResult("c1", { task: { id: "1" } }), ...at("10:00:01") },
+			{
+				...toolUse("u1", "TaskUpdate", { taskId: "1", status: "in_progress" }),
+				...at("10:02:00"),
+			},
+			{ ...toolResult("u1", { success: true }), ...at("10:02:01") },
+			{
+				...toolUse("u2", "TaskUpdate", { taskId: "1", status: "in_progress" }),
+				...at("10:05:00"),
+			},
+			{ ...toolResult("u2", { success: true }), ...at("10:05:01") },
+			{
+				...toolUse("u3", "TaskUpdate", { taskId: "1", status: "completed" }),
+				...at("10:09:00"),
+			},
+			{ ...toolResult("u3", { success: true }), ...at("10:09:01") },
+		);
+		const task = facts.tasks.get("1");
+		assert.deepEqual(
+			[task?.createdAt, task?.startedAt, task?.endedAt],
+			[
+				Date.parse("2026-10-24T10:00:01.000Z"),
+				Date.parse("2026-10-24T10:02:01.000Z"),
+				Date.parse("2026-10-24T10:09:01.000Z"),
 			],
 		);
 	});
@@ -576,6 +619,44 @@ describe("tasks", () => {
 			[
 				["Read", "completed", "Reading"],
 				["Write", "in_progress", "Writing"],
+			],
+		);
+	});
+
+	test("carries a todo's times across rewrites of the list", () => {
+		const at = (time: string) => ({
+			timestamp: `2026-10-24T${time}.000Z`,
+		});
+		const facts = apply(
+			{
+				...toolUse("t1", "TodoWrite", {
+					todos: [
+						{ content: "Read", status: "in_progress" },
+						{ content: "Write", status: "pending" },
+					],
+				}),
+				...at("10:00:00"),
+			},
+			{
+				...toolUse("t2", "TodoWrite", {
+					todos: [
+						{ content: "Read", status: "completed" },
+						{ content: "Write", status: "in_progress" },
+					],
+				}),
+				...at("10:07:00"),
+			},
+		);
+		const time = (clock: string) => Date.parse(`2026-10-24T${clock}.000Z`);
+		assert.deepEqual(
+			[...facts.tasks.values()].map((task) => [
+				task.createdAt,
+				task.startedAt,
+				task.endedAt,
+			]),
+			[
+				[time("10:00:00"), time("10:00:00"), time("10:07:00")],
+				[time("10:00:00"), time("10:07:00"), null],
 			],
 		);
 	});

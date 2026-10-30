@@ -31,6 +31,9 @@ export type Task = {
 	subject: string;
 	status: TaskStatus;
 	activeForm: string | null;
+	createdAt: number;
+	startedAt: number | null;
+	endedAt: number | null;
 };
 
 export type Step = { at: number; text: string };

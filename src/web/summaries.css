@@ -26,11 +26,18 @@
 	transform-origin: 0 0;
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
-	padding: 6px 8px;
+	gap: 8px;
+	padding: 6px 8px 10px;
+	overflow: hidden auto;
+	overscroll-behavior: contain;
+	scrollbar-width: thin;
 	font-size: 13px;
 	line-height: 1.35;
-	mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), transparent);
+	pointer-events: auto;
+}
+
+.summary-inner > * {
+	flex: none;
 }
 
 .summary-head {
@@ -57,9 +64,7 @@
 
 .summary-project {
 	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	overflow-wrap: anywhere;
 	font-size: 17px;
 	font-weight: 700;
 	letter-spacing: -0.01em;
@@ -86,18 +91,17 @@
 	color: var(--ink);
 }
 
-.summary-agents {
+.summary-agents,
+.summary-finish {
 	color: var(--muted);
 }
 
+.summary .timeline {
+	padding: 0 4px;
+	font-size: 12px;
+}
+
 .summary-narrative {
-	flex: 0 1 auto;
-	min-height: 0;
-	display: -webkit-box;
-	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 4;
-	line-clamp: 4;
-	overflow: hidden;
 	padding: 0 4px;
 	color: var(--region-ink, var(--ink));
 	font-size: 13.5px;
@@ -117,7 +121,6 @@
 }
 
 .summary-sessions {
-	flex: 1 0 auto;
 	margin: 0;
 	padding: 0;
 	list-style: none;
@@ -166,9 +169,6 @@
 }
 
 .summary-goal {
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
 	font-weight: 500;
 }
 
@@ -177,9 +177,6 @@
 }
 
 .summary-notice {
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
 	color: var(--amber-ink);
 	font-size: 12px;
 }

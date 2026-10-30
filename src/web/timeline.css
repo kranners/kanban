@@ -1,0 +1,117 @@
+.timeline {
+	--tl-minute: 8px;
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	gap: 0.3em;
+	min-width: 0;
+}
+
+.timeline-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 0.2em 0.8em;
+	color: var(--ink);
+	font-weight: 600;
+}
+
+.timeline-finish {
+	color: var(--muted);
+	font-weight: 500;
+}
+
+.timeline-scroll {
+	overflow: auto hidden;
+	overscroll-behavior-x: contain;
+	pointer-events: auto;
+	scrollbar-width: thin;
+}
+
+.timeline-track {
+	position: relative;
+	min-width: 100%;
+	padding-bottom: 0.3em;
+}
+
+.timeline-axis {
+	position: relative;
+	height: 1.4em;
+	color: var(--muted);
+	font-size: 0.85em;
+}
+
+.timeline-mark {
+	position: absolute;
+	top: 0;
+	padding-left: 0.3em;
+	border-left: 1px solid var(--hairline);
+	white-space: nowrap;
+}
+
+.timeline-lane {
+	position: relative;
+	padding-bottom: 0.75em;
+}
+
+.timeline-label {
+	position: sticky;
+	left: 0;
+	display: block;
+	width: fit-content;
+	max-width: 22em;
+	color: var(--ink);
+	font-size: 0.9em;
+	line-height: 1.3;
+}
+
+.timeline-span,
+.timeline-tick {
+	position: absolute;
+	bottom: 0.15em;
+}
+
+.timeline-span {
+	height: 0.55em;
+	min-width: 2px;
+	border-radius: 999px;
+}
+
+.span-done {
+	background: var(--done-edge);
+}
+
+.span-active {
+	background: var(--busy-edge);
+}
+
+.span-planned {
+	border: 1px dashed var(--muted);
+	background: color-mix(in srgb, var(--muted) 12%, transparent);
+}
+
+.timeline-tick {
+	width: 2px;
+	height: 0.6em;
+	border-radius: 1px;
+	background: var(--muted);
+}
+
+.timeline-lane-finish {
+	position: absolute;
+	top: 0.2em;
+	padding-left: 0.4em;
+	border-left: 1px dashed var(--muted);
+	color: var(--muted);
+	font-size: 0.8em;
+	line-height: 1;
+	white-space: nowrap;
+}
+
+.timeline-now {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 1px;
+	background: color-mix(in srgb, var(--accent) 60%, transparent);
+}

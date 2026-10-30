@@ -28,7 +28,10 @@ import { ActivityBadge, ActivityIcon, activityLabel } from "./activity.tsx";
 import { digests, stuckOf } from "./digests.ts";
 import type { PlacedNode } from "./layout.ts";
 import { plainText } from "./markdown.ts";
+import { board } from "./state.ts";
+import { Timeline } from "./Timeline.tsx";
 import { ago, relativeTime } from "./time.ts";
+import { averageTaskMs, type Lane, sessionLane } from "./timeline.ts";
 import { accountChip, accountOf, usage } from "./usage.ts";
 import type { Detail } from "./viewport.ts";
 
@@ -134,8 +137,6 @@ function TaskList(props: { tasks: readonly Task[] }) {
 	const { tasks } = props;
 	if (tasks.length === 0) return null;
 	const done = tasks.filter((task) => task.status === "completed").length;
-	const open = tasks.findIndex((task) => task.status !== "completed");
-	const from = open === -1 ? tasks.length - 1 : Math.max(0, open - 1);
 	return (
 		<section class="detail-section" aria-label="Tasks">
 			<div class="detail-head">
@@ -151,8 +152,7 @@ function TaskList(props: { tasks: readonly Task[] }) {
 				</span>
 			</div>
 			<ol class="detail-list">
-				{from > 0 && <li class="detail-earlier">{from} done earlier</li>}
-				{tasks.slice(from).map((task) => {
+				{tasks.map((task) => {
 					const Icon = taskIcons[task.status];
 					return (
 						<li key={task.id} class={`task task-${task.status}`}>
@@ -188,7 +188,6 @@ function RecentSteps(props: { steps: readonly Step[]; now: number }) {
 function ProgressNote(props: {
 	digest: SessionDigest;
 	stuck: string | null;
-	hasTasks: boolean;
 	now: number;
 }) {
 	const { digest, stuck } = props;
@@ -208,11 +207,25 @@ function ProgressNote(props: {
 				</p>
 			)}
 			{digest.now && <p class="progress-now">{digest.now}</p>}
-			{digest.progress && !stuck && !props.hasTasks && (
-				<p class="progress-far">{digest.progress}</p>
-			)}
+			{digest.progress && <p class="progress-far">{digest.progress}</p>}
 		</section>
 	);
+}
+
+function nearLanes(session: Session, now: number): Lane[] {
+	const typical = averageTaskMs(board.value?.sessions ?? []);
+	const steps = {
+		key: "steps",
+		label: "Steps",
+		spans: [],
+		finish: null,
+		ticks: session.steps.map((step) => step.at),
+	};
+	const tasks = sessionLane(session, "Tasks", now, typical);
+	return [
+		...(session.tasks.length > 0 ? [tasks] : []),
+		...(session.steps.length > 0 ? [steps] : []),
+	];
 }
 
 function NearDetail(props: { session: Session; now: number }) {
@@ -221,16 +234,20 @@ function NearDetail(props: { session: Session; now: number }) {
 	if (session.tasks.length === 0 && session.steps.length === 0 && !digest)
 		return null;
 	return (
-		<div class="detail">
+		<div class="detail" data-scrollable>
 			{digest && (
 				<ProgressNote
 					digest={digest}
 					stuck={stuckOf(session, digest)}
-					hasTasks={session.tasks.length > 0}
 					now={props.now}
 				/>
 			)}
 			<TaskList tasks={session.tasks} />
+			<Timeline
+				lanes={nearLanes(session, props.now)}
+				now={props.now}
+				label="Session timeline"
+			/>
 			<RecentSteps steps={session.steps} now={props.now} />
 		</div>
 	);

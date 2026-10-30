@@ -18,6 +18,7 @@ export const digestTimeoutMs = 90_000;
 const recentEntries = 10;
 const entryChars = 300;
 const transcriptLimit = 40;
+const promptSteps = 8;
 
 const digestPrompt = [
 	"You summarise Claude Code sessions for a kanban board that shows many sessions at once.",
@@ -116,7 +117,9 @@ const memberInput = (
 			(task) => `- [${taskMarks[task.status]}] ${task.subject}`,
 		),
 		session.steps.length > 0 && "Recent steps:",
-		...session.steps.map((step) => `- ${clock(step.at)} ${step.text}`),
+		...session.steps
+			.slice(-promptSteps)
+			.map((step) => `- ${clock(step.at)} ${step.text}`),
 		conversation.length > 0 && "Conversation:",
 		...conversation,
 	]

@@ -65,7 +65,7 @@ export type TranscriptFacts = {
 
 export const entryLimit = 2000;
 const handbackLimit = 200;
-export const stepLimit = 6;
+export const stepLimit = 40;
 const summaryLength = 80;
 const entryTextLength = 4000;
 const backgroundedPattern = /backgrounded · ([0-9a-f]{8})/g;
@@ -192,7 +192,7 @@ function applyAssistant(facts: TranscriptFacts, record: Json, at: number) {
 			const input = asObject(block.input) ?? {};
 			const id = asString(block.id);
 			if (id) facts.tools.set(id, { name, input });
-			if (name === "TodoWrite") replaceTodos(facts, input.todos);
+			if (name === "TodoWrite") replaceTodos(facts, input.todos, at);
 			const summary = summariseTool(name, input);
 			setDoing(facts, summary, at);
 			pushEntry(facts, { at, role: "tool", text: summary });
@@ -262,10 +262,13 @@ function applyToolResults(
 					subject: truncate(subject, summaryLength),
 					status: "pending",
 					activeForm: activeFormOf(tool.input),
+					createdAt: at,
+					startedAt: null,
+					endedAt: null,
 				});
 			}
 		} else if (tool.name === "TaskUpdate") {
-			if (result.success !== false) updateTask(facts, tool.input);
+			if (result.success !== false) updateTask(facts, tool.input, at);
 		} else if (tool.name === "TaskStop") {
 			const taskId = asString(result.task_id);
 			if (taskId) endTask(facts, taskId, at);
@@ -420,7 +423,17 @@ function allCompleted(tasks: Map<string, Task>): boolean {
 	return [...tasks.values()].every((task) => task.status === "completed");
 }
 
-function updateTask(facts: TranscriptFacts, input: Json) {
+function stamped(task: Task, status: TaskStatus, at: number): Task {
+	return {
+		...task,
+		status,
+		startedAt:
+			status === "in_progress" ? (task.startedAt ?? at) : task.startedAt,
+		endedAt: status === "completed" ? (task.endedAt ?? at) : null,
+	};
+}
+
+function updateTask(facts: TranscriptFacts, input: Json, at: number) {
 	const taskId = asString(input.taskId);
 	const task = taskId ? facts.tasks.get(taskId) : undefined;
 	if (!taskId || !task) return;
@@ -430,27 +443,38 @@ function updateTask(facts: TranscriptFacts, input: Json) {
 	}
 	const subject = asString(input.subject)?.trim();
 	facts.tasks.set(taskId, {
-		...task,
-		status: taskStatusOf(input.status) ?? task.status,
+		...stamped(task, taskStatusOf(input.status) ?? task.status, at),
 		subject: subject ? truncate(subject, summaryLength) : task.subject,
 		activeForm: activeFormOf(input) ?? task.activeForm,
 	});
 }
 
-function replaceTodos(facts: TranscriptFacts, todos: unknown) {
+function replaceTodos(facts: TranscriptFacts, todos: unknown, at: number) {
 	if (!Array.isArray(todos)) return;
+	const previous = new Map(
+		[...facts.tasks.values()].map((task) => [task.subject, task]),
+	);
 	facts.tasks.clear();
 	for (const [index, item] of todos.entries()) {
 		const todo = asObject(item);
 		const content = asString(todo?.content)?.trim();
 		if (!todo || !content) continue;
 		const id = String(index + 1);
-		facts.tasks.set(id, {
+		const subject = truncate(content, summaryLength);
+		const earlier = previous.get(subject);
+		const task: Task = {
 			id,
-			subject: truncate(content, summaryLength),
-			status: taskStatusOf(todo.status) ?? "pending",
+			subject,
+			status: "pending",
 			activeForm: activeFormOf(todo),
-		});
+			createdAt: earlier?.createdAt ?? at,
+			startedAt: earlier?.startedAt ?? null,
+			endedAt: earlier?.endedAt ?? null,
+		};
+		facts.tasks.set(
+			id,
+			stamped(task, taskStatusOf(todo.status) ?? "pending", at),
+		);
 	}
 }
 

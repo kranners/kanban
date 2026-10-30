@@ -8,6 +8,7 @@ import { dotGrid, snap, snapWithin } from "./grid.ts";
 import type { NodeKey } from "./layout.ts";
 import type { Bounds, Rect } from "./placement.ts";
 import { maxSessionSize, minSessionSize } from "./placement.ts";
+import { scrollsFurther } from "./scrolling.ts";
 import type { Span, View } from "./viewport.ts";
 import {
 	centredOn,
@@ -148,11 +149,22 @@ export function Canvas(props: {
 		const el = viewport.current;
 		if (!el) return;
 		const onWheel = (event: WheelEvent) => {
-			if ((event.target as Element).closest("[data-scrollable]")) return;
+			const target = event.target as Element;
+			const zooming = event.ctrlKey || event.metaKey;
+			const scroller = target.closest("[data-scrollable]");
+			if (scroller) {
+				const world = scroller.closest(".world");
+				if (!world) return;
+				if (
+					!zooming &&
+					scrollsFurther(target, world, event.deltaX, event.deltaY)
+				)
+					return;
+			}
 			event.preventDefault();
 			const rect = el.getBoundingClientRect();
 			const v = view.value;
-			if (event.ctrlKey || event.metaKey) {
+			if (zooming) {
 				const factor = Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.002));
 				view.value = zoomAround(
 					v,

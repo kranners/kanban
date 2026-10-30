@@ -9,7 +9,9 @@
 .detail {
 	flex: 1;
 	min-height: 0;
-	overflow: hidden;
+	overflow: hidden auto;
+	overscroll-behavior: contain;
+	scrollbar-width: thin;
 	display: flex;
 	flex-direction: column;
 	gap: 0.7em;
@@ -17,7 +19,10 @@
 	font-size: calc(12px / var(--zoom));
 	line-height: 1.4;
 	color: var(--muted);
-	mask-image: linear-gradient(to bottom, #000 calc(100% - 1.4em), transparent);
+}
+
+.detail .timeline {
+	--tl-minute: 0.6em;
 }
 
 .detail-section {
@@ -63,7 +68,7 @@
 
 .detail-list li {
 	display: flex;
-	align-items: center;
+	align-items: flex-start;
 	gap: 0.5em;
 	min-width: 0;
 }
@@ -71,13 +76,12 @@
 .detail-text {
 	flex: 1;
 	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	overflow-wrap: anywhere;
 }
 
 .task svg {
 	flex: none;
+	margin-top: 0.2em;
 	width: 1em;
 	height: 1em;
 }
@@ -95,10 +99,6 @@
 	color: var(--done-edge);
 }
 
-.detail-earlier {
-	padding-left: 1.5em;
-}
-
 .step:first-child {
 	color: var(--ink);
 }
@@ -111,18 +111,7 @@
 	margin: 0;
 }
 
-.progress-now,
-.progress-far {
-	display: -webkit-box;
-	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 2;
-	line-clamp: 2;
-	overflow: hidden;
-}
-
 .progress-now {
-	-webkit-line-clamp: 1;
-	line-clamp: 1;
 	color: var(--ink);
 	font-weight: 500;
 }
