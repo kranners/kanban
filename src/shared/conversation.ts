@@ -95,7 +95,7 @@ export type PromptReply = { prompt: string; answers: AskAnswer[] };
 export type ViewKey = "Escape" | "Shift+Tab";
 
 export type Drive =
-	| { mode: "drive"; via: "cmux" | "attach" }
+	| { mode: "drive"; via: "cmux" | "attach" | "cloud" }
 	| { mode: "read"; reason: string };
 
 export type ConversationClientFrame =

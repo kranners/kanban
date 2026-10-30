@@ -11,6 +11,7 @@ import type {
 import type { Session } from "../shared/types.ts";
 import type { AttachSocket } from "./attach.ts";
 import type { AuditEvent } from "./audit.ts";
+import { cloudTty } from "./cloud.ts";
 import { applyConversationRecord, createLog } from "./conversation.ts";
 import {
 	createConversationHub,
@@ -256,6 +257,66 @@ describe("conversation stream", () => {
 		const sends = events.filter((event) => event.action === "view-send");
 		assert.equal(sends.length, 3);
 		assert.ok(!JSON.stringify(events).includes("keep tests"));
+		socket.hangUp();
+	});
+
+	it("sends a cloud session's prompts through its api and refuses keys", async () => {
+		const path = join(dir, "cloud.jsonl");
+		writeFileSync(path, prompt("a"));
+		const sent: [string, string][] = [];
+		const cloud = session({
+			id: "session_01cloud",
+			activity: "working",
+			kind: "background",
+			short: null,
+			cmux: false,
+			attachable: false,
+			cloud: { url: "https://claude.ai/code/session_01cloud" },
+		});
+		const tty = {
+			...fakeTty(),
+			...cloudTty(
+				{
+					send: async (id, text) => {
+						sent.push([id, text]);
+						return { ok: true, value: null };
+					},
+				},
+				cloud.id,
+			),
+		};
+		const { hub: conversations } = hub(() => cloud, tty);
+		const socket = fakeSocket();
+		conversations.open(
+			socket,
+			{ kind: "session", session: cloud, path },
+			null,
+			"me",
+		);
+		await until(() => socket.frames.some((frame) => frame.type === "drive"));
+		assert.deepEqual(
+			socket.frames.find((frame) => frame.type === "drive"),
+			{ type: "drive", drive: { mode: "drive", via: "cloud" } },
+		);
+		socket.receive({ type: "prompt", id: "p1", text: "Run the tests" });
+		socket.receive({ type: "key", id: "k1", key: "Escape" });
+		await until(
+			() => socket.frames.filter((frame) => frame.type === "done").length === 2,
+		);
+		assert.deepEqual(
+			socket.frames.flatMap((frame) =>
+				frame.type === "done" ? [[frame.id, frame.ok, frame.error]] : [],
+			),
+			[
+				["p1", true, null],
+				[
+					"k1",
+					false,
+					"Open this cloud session's terminal view on the board, or open it on claude.ai, to answer prompts or switch mode",
+				],
+			],
+		);
+		assert.deepEqual(sent, [["session_01cloud", "Run the tests"]]);
 		socket.hangUp();
 	});
 
@@ -728,6 +789,16 @@ describe("conversation rules", () => {
 		assert.equal(
 			driveOf(session({ kind: "background", attachable: false })).mode,
 			"read",
+		);
+		assert.deepEqual(
+			driveOf(
+				session({
+					kind: "background",
+					attachable: false,
+					cloud: { url: "https://claude.ai/code/session_01a" },
+				}),
+			),
+			{ mode: "drive", via: "cloud" },
 		);
 	});
 

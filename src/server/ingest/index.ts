@@ -13,6 +13,7 @@ import type {
 	Subagent,
 	TranscriptEntry,
 } from "../../shared/types.ts";
+import type { CloudSession } from "../cloud.ts";
 import { firstLine, truncate } from "./json.ts";
 import { locateTranscript, projectSlug } from "./locate.ts";
 import {
@@ -77,6 +78,7 @@ export function startBoard(opts: {
 	ignore?: (sessionId: string, cwd: string) => boolean;
 	inCmux?: (pid: number) => boolean;
 	profiles?: () => string[];
+	cloud?: () => CloudSession[];
 }): BoardHandle {
 	const {
 		claudeHome,
@@ -84,6 +86,7 @@ export function startBoard(opts: {
 		ignore = () => false,
 		inCmux = () => false,
 		profiles = () => [],
+		cloud = () => [],
 	} = opts;
 	const tails = new Map<string, Tail>();
 	const agentTails = new Map<string, Tail>();
@@ -94,6 +97,7 @@ export function startBoard(opts: {
 	const byName = new Map<string, string>();
 	const subagentPaths = new Map<string, string>();
 	let cwds: string[] = [];
+	let cloudPaths = new Map<string, string>();
 	let blocks = new Map<string, Record<string, unknown>>();
 
 	const resolve: ResolvePeer = (ref: PeerRef) =>
@@ -153,7 +157,23 @@ export function startBoard(opts: {
 		for (const item of [...tracked.values()].sort(byStartedAt)) {
 			if (item.tail) advanceTail(item.tail, resolve);
 		}
-		for (const id of tails.keys()) if (!tracked.has(id)) tails.delete(id);
+		const clouds = cloud().filter((cs) => !ignore(cs.id, cs.cwd));
+		const cloudTails = new Map(
+			clouds.map((cs) => {
+				const existing = tails.get(cs.id);
+				const tail =
+					existing?.path === cs.transcript
+						? existing
+						: createTail(cs.transcript);
+				tails.set(cs.id, tail);
+				advanceTail(tail, resolve);
+				return [cs.id, tail] as const;
+			}),
+		);
+		cloudPaths = new Map(clouds.map((cs) => [cs.id, cs.transcript]));
+		for (const id of tails.keys()) {
+			if (!tracked.has(id) && !cloudTails.has(id)) tails.delete(id);
+		}
 		for (const id of locateAttempts.keys()) {
 			if (!tracked.has(id)) locateAttempts.delete(id);
 		}
@@ -177,9 +197,12 @@ export function startBoard(opts: {
 				.map((subagent) => subagent.sessionId),
 			...workflows.map((workflow) => workflow.sessionId),
 		]);
-		const sessions = [...tracked.values()]
-			.map((item) => toSession(item, claudeHome, inCmux, watched.has(item.id)))
-			.sort((a, b) => b.updatedAt - a.updatedAt);
+		const sessions = [
+			...[...tracked.values()].map((item) =>
+				toSession(item, claudeHome, inCmux, watched.has(item.id)),
+			),
+			...clouds.map((cs) => toCloudSession(cs, cloudTails.get(cs.id) ?? null)),
+		].sort((a, b) => b.updatedAt - a.updatedAt);
 		subagentPaths.clear();
 		for (const { subagent, transcriptPath } of shown) {
 			subagentPaths.set(subagent.id, transcriptPath);
@@ -203,6 +226,17 @@ export function startBoard(opts: {
 						? [{ node: { kind: "subagent", id: subagent.id } as const, facts }]
 						: [];
 				}),
+			...clouds.flatMap((cs) => {
+				const tail = cloudTails.get(cs.id);
+				return tail
+					? [
+							{
+								node: { kind: "session", id: cs.id } as const,
+								facts: tail.facts,
+							},
+						]
+					: [];
+			}),
 		];
 		return {
 			sessions,
@@ -324,7 +358,9 @@ export function startBoard(opts: {
 				advanceTail(tail, resolve);
 				return tail.facts.entries.slice(-count);
 			}
-			const path = locateTranscript(claudeHome, sessionId, "");
+			const path =
+				cloudPaths.get(sessionId) ??
+				locateTranscript(claudeHome, sessionId, "");
 			if (!path) return [];
 			return (await readFacts(path, resolve)).entries.slice(-count);
 		},
@@ -332,6 +368,7 @@ export function startBoard(opts: {
 			if (node.kind === "subagent") return subagentPaths.get(node.id) ?? null;
 			const session = current.sessions.find(({ id }) => id === node.id);
 			if (!session) return null;
+			if (session.cloud) return cloudPaths.get(node.id) ?? null;
 			return (
 				tails.get(node.id)?.path ??
 				locateTranscript(session.configDir ?? claudeHome, node.id, session.cwd)
@@ -465,6 +502,34 @@ function toSession(
 		tasks: [...(tail?.facts.tasks.values() ?? [])],
 		steps: [...(tail?.facts.steps ?? [])],
 		...(item.home !== claudeHome ? { configDir: item.home } : {}),
+	};
+}
+
+function toCloudSession(cs: CloudSession, tail: Tail | null): Session {
+	const facts = tail?.facts ?? null;
+	return {
+		id: cs.id,
+		short: null,
+		pid: null,
+		name: cs.name,
+		cwd: cs.cwd,
+		project: basename(cs.cwd),
+		kind: "background",
+		activity: cs.activity,
+		doing:
+			cs.activity === "working" && cs.detail
+				? cs.detail
+				: (facts?.doing ?? null),
+		needs: cs.activity === "needs-you" ? cs.detail : null,
+		goal: goalOf(facts, null) ?? cs.name,
+		startedAt: cs.createdAt,
+		updatedAt: Math.max(cs.updatedAt, facts?.lastAt ?? 0),
+		attachable: false,
+		cmux: false,
+		artifacts: [...(facts?.artifacts.values() ?? [])].reverse(),
+		tasks: [...(facts?.tasks.values() ?? [])],
+		steps: [...(facts?.steps ?? [])],
+		cloud: { url: cs.url },
 	};
 }
 

@@ -1,6 +1,13 @@
 import { isRegionColour, type RegionColour } from "../shared/colours.ts";
 import type { AskAnswer, PromptReply } from "../shared/conversation.ts";
-import { maxNoteText, type NoteColor, noteColors } from "../shared/types.ts";
+import {
+	defaultRunsOn,
+	maxNoteText,
+	type NoteColor,
+	noteColors,
+	type RunsOn,
+	runsOnChoices,
+} from "../shared/types.ts";
 
 export type Placed = {
 	id: string;
@@ -26,6 +33,7 @@ export type ToolCall =
 			name?: string;
 			x?: number;
 			y?: number;
+			runsOn?: RunsOn;
 	  }
 	| {
 			tool: "put_note";
@@ -222,6 +230,11 @@ export const toolDefinitions: ToolDefinition[] = [
 				name: { type: "string", maxLength: 60 },
 				x: coordinate,
 				y: coordinate,
+				runsOn: {
+					type: "string",
+					enum: [...runsOnChoices],
+					description: `Where the session runs; ${defaultRunsOn} when omitted`,
+				},
 			},
 			["cwd", "prompt"],
 		),
@@ -435,6 +448,11 @@ const name = (fields: Fields, key: string): string =>
 		? fields[key]
 		: fail(`${key} must be a string of at most 60 characters`);
 
+const runsOn = (fields: Fields, key: string): RunsOn =>
+	runsOnChoices.includes(fields[key] as RunsOn)
+		? (fields[key] as RunsOn)
+		: fail(`${key} must be one of ${runsOnChoices.join(", ")}`);
+
 const regionSize = (fields: Fields, key: string) =>
 	number(fields, key, 96, 20_000);
 
@@ -502,6 +520,7 @@ const readers: { [K in ToolName]: (fields: Fields) => ToolCall } = {
 			name: optional(fields, "name", name),
 			x,
 			y,
+			runsOn: optional(fields, "runsOn", runsOn),
 		});
 	},
 	put_note: (fields) => {

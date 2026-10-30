@@ -1000,3 +1000,98 @@ describe("startBoard across account profiles", () => {
 		);
 	});
 });
+
+describe("startBoard with cloud sessions", () => {
+	const id = "session_01cloud";
+	let handle: ReturnType<typeof startBoard>;
+	let mirror: string;
+	let ignored: string;
+
+	before(() => {
+		home = mkdtempSync(join(tmpdir(), "kanban-cloud-"));
+		mirror = join(home, "cloud", `${id}.jsonl`);
+		ignored = join(home, "cloud", "session_01ignored.jsonl");
+		jsonl(`cloud/${id}.jsonl`, [
+			{
+				type: "user",
+				uuid: "u1",
+				session_id: "",
+				parent_tool_use_id: null,
+				message: { role: "user", content: "Fix the flaky test" },
+				created_at: iso(-20_000),
+				timestamp: iso(-20_000),
+			},
+			{
+				type: "ai-title",
+				uuid: "t1",
+				aiTitle: "Fixing the flaky test",
+				created_at: iso(-19_000),
+				timestamp: iso(-19_000),
+			},
+			{
+				type: "assistant",
+				uuid: "a1",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "Found it" }],
+				},
+				created_at: iso(-10_000),
+				timestamp: iso(-10_000),
+			},
+		]);
+		jsonl("cloud/session_01ignored.jsonl", []);
+		const cloudSession = {
+			cwd: "/Users/me/dev/acme-api",
+			name: "acme-api",
+			url: `https://claude.ai/code/${id}`,
+			createdAt: now - 30_000,
+			updatedAt: now - 25_000,
+			activity: "working" as const,
+			detail: "Running the tests",
+		};
+		handle = startBoard({
+			claudeHome: join(home, "default"),
+			cloud: () => [
+				{ ...cloudSession, id, transcript: mirror },
+				{
+					...cloudSession,
+					id: "session_01ignored",
+					cwd: "/ignored",
+					transcript: ignored,
+				},
+			],
+			ignore: (_sessionId, cwd) => cwd === "/ignored",
+			onChange: () => {},
+		});
+	});
+
+	after(() => {
+		handle.stop();
+		rmSync(home, { recursive: true, force: true });
+	});
+
+	test("shows a cloud session with its link and mirrored transcript", async () => {
+		const board = handle.board();
+		assert.deepEqual(
+			board.sessions.map((session) => session.id),
+			[id],
+		);
+		const [session] = board.sessions;
+		assert.equal(session?.short, null);
+		assert.equal(session?.pid, null);
+		assert.equal(session?.kind, "background");
+		assert.equal(session?.attachable, false);
+		assert.deepEqual(session?.cloud, { url: `https://claude.ai/code/${id}` });
+		assert.equal(session?.goal, "Fixing the flaky test");
+		assert.equal(session?.doing, "Running the tests");
+		assert.equal(session?.needs, null);
+		assert.equal(session?.project, "acme-api");
+		assert.equal(session?.startedAt, now - 30_000);
+		assert.equal(session?.updatedAt, Date.parse(iso(-10_000)));
+		assert.equal(handle.transcriptPath({ kind: "session", id }), mirror);
+		assert.deepEqual(
+			(await handle.transcript(id, 10)).map((entry) => entry.text),
+			["Fix the flaky test", "Found it"],
+		);
+	});
+});

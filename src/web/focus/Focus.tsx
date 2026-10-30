@@ -1,6 +1,12 @@
 import "./focus.css";
 import "./agent.css";
-import { Bot, MessagesSquare, SquareTerminal, X } from "lucide-preact";
+import {
+	Bot,
+	ExternalLink,
+	MessagesSquare,
+	SquareTerminal,
+	X,
+} from "lucide-preact";
 import type { JSX } from "preact";
 import {
 	useEffect,
@@ -71,14 +77,20 @@ function outside(own: HTMLElement | null): HTMLElement[] {
 	return behind;
 }
 
+function attachKey(session: Session): string | null {
+	if (session.cloud) return session.id;
+	return session.attachable ? session.short : null;
+}
+
 function hasTerminal(session: Session): boolean {
-	return (session.attachable && session.short !== null) || session.cmux;
+	return attachKey(session) !== null || session.cmux;
 }
 
 function RawTerminal(props: { session: Session }) {
 	const { session } = props;
-	return session.attachable && session.short ? (
-		<AttachedTerminal short={session.short} />
+	const key = attachKey(session);
+	return key ? (
+		<AttachedTerminal short={key} />
 	) : (
 		<MirroredTerminal id={session.id} />
 	);
@@ -197,7 +209,9 @@ export function Focus(props: {
 								>
 									<bdi>{session.cwd}</bdi>
 								</span>
-								<span class="focus-kind">{kindLabels[session.kind]}</span>
+								<span class="focus-kind">
+									{session.cloud ? "Cloud" : kindLabels[session.kind]}
+								</span>
 							</>
 						) : (
 							<span class="focus-kind">
@@ -236,6 +250,18 @@ export function Focus(props: {
 							<span class="av-toggle-label">Terminal</span>
 						</button>
 					</div>
+				)}
+				{session?.cloud && (
+					<a
+						class="focus-button focus-cloud-link"
+						href={session.cloud.url}
+						target="_blank"
+						rel="noreferrer"
+						title="Open on claude.ai"
+					>
+						<ExternalLink size={15} aria-hidden="true" />
+						<span class="av-toggle-label">Open on claude.ai</span>
+					</a>
 				)}
 				<button
 					ref={closeButton}

@@ -43,6 +43,7 @@ const fakeDeps = (
 	readiness: Readiness,
 	removeOk = true,
 	stopOk = true,
+	archiveOk = true,
 ): { deps: ExitDeps; calls: string[] } => {
 	const calls: string[] = [];
 	return {
@@ -68,6 +69,12 @@ const fakeDeps = (
 				calls.push(`term ${session.pid}`);
 				return { ok: true, output: "" };
 			},
+			archive: async (id) => {
+				calls.push(`archive ${id}`);
+				return archiveOk
+					? { ok: true, value: null }
+					: { ok: false, error: "Cloud API failed with HTTP 500" };
+			},
 		},
 	};
 };
@@ -87,6 +94,31 @@ describe("exitSession", () => {
 			"stop abcd1234",
 			"rm abcd1234",
 		]);
+	});
+
+	it("archives a cloud session only when forced, since it can't be asked", async () => {
+		const cloud: Session = {
+			...background,
+			id: "session_01cloud",
+			short: null,
+			pid: null,
+			attachable: false,
+			cloud: { url: "https://claude.ai/code/session_01cloud" },
+		};
+		const { deps, calls } = fakeDeps(ready);
+		const unforced = await exitSession(deps, cloud, false);
+		assert.equal(unforced.ok && unforced.exited, false);
+		assert.deepEqual(calls, []);
+		assert.deepEqual(await exitSession(deps, cloud, true), {
+			ok: true,
+			exited: true,
+		});
+		assert.deepEqual(calls, ["archive session_01cloud"]);
+		const failing = fakeDeps(ready, true, true, false);
+		assert.deepEqual(await exitSession(failing.deps, cloud, true), {
+			ok: false,
+			error: "Cloud API failed with HTTP 500",
+		});
 	});
 
 	it("leaves a session that is not ready alone", async () => {

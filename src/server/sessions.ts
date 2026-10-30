@@ -1,18 +1,23 @@
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { delimiter, dirname, isAbsolute, join } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join } from "node:path";
 import {
 	imageExtensions,
 	maxImageBytes,
 	maxPromptImages,
 } from "../shared/promptImages.ts";
-import type {
-	NewSessionRequest,
-	NewSessionResult,
-	PromptImage,
+import {
+	defaultRunsOn,
+	type Landing,
+	type NewSessionRequest,
+	type NewSessionResult,
+	type PromptImage,
+	type RunsOn,
+	runsOnChoices,
 } from "../shared/types.ts";
 import { stripAnsi } from "./ansi.ts";
+import type { CloudLauncher, CloudRecord } from "./cloud.ts";
 import { parsePoint } from "./layout.ts";
 import { mirrorTrust, profileConfig } from "./trust.ts";
 
@@ -22,6 +27,8 @@ export type SessionLauncher = (
 
 const maxNameLength = 60;
 const controlCharacters = /\p{Cc}/u;
+const cloudTargetPattern =
+	/^(session_[A-Za-z0-9]+|\S*claude\.ai\/code\/\S*)(\s|$)/;
 
 export const isDirectory = async (path: string): Promise<boolean> => {
 	try {
@@ -73,7 +80,7 @@ export const validateNewSession = async (
 	if (typeof body !== "object" || body === null) {
 		return { error: "Expected a JSON object with cwd and prompt" };
 	}
-	const { cwd, name, prompt, images, at, account } = body as Record<
+	const { cwd, name, prompt, images, at, account, runsOn } = body as Record<
 		string,
 		unknown
 	>;
@@ -104,6 +111,27 @@ export const validateNewSession = async (
 	if (account !== undefined && !isAccountNumber(account)) {
 		return { error: "account must be a positive whole number" };
 	}
+	if (runsOn !== undefined && !runsOnChoices.includes(runsOn as RunsOn)) {
+		return { error: "runsOn must be cloud or local" };
+	}
+	const where: RunsOn =
+		(runsOn as RunsOn | undefined) ??
+		(account !== undefined || attached.length ? "local" : defaultRunsOn);
+	if (where === "cloud" && account !== undefined) {
+		return {
+			error:
+				"Accounts apply only to sessions on this Mac; cloud sessions run on the default account",
+		};
+	}
+	if (where === "cloud" && attached.length) {
+		return { error: "Images can only be sent to sessions on this Mac" };
+	}
+	if (where === "cloud" && cloudTargetPattern.test(prompt.trim())) {
+		return {
+			error:
+				"A cloud prompt can't start with a cloud session id or claude.ai/code link",
+		};
+	}
 	return {
 		cwd,
 		prompt,
@@ -111,6 +139,7 @@ export const validateNewSession = async (
 		...(attached.length ? { images: attached } : {}),
 		...(point ? { at: point } : {}),
 		...(account !== undefined ? { account } : {}),
+		runsOn: where,
 	};
 };
 
@@ -271,4 +300,26 @@ export const claudeLauncher =
 			({ stdout, stderr } = await run());
 		}
 		return launchResult(request.cwd, stdout, stderr, request.account);
+	};
+
+export const landingId = (landing: Landing): string =>
+	"short" in landing ? landing.short : landing.id;
+
+export const routedLauncher =
+	(
+		local: SessionLauncher,
+		cloud: CloudLauncher,
+		onCloud: (record: CloudRecord) => void,
+	): SessionLauncher =>
+	async (request) => {
+		if ((request.runsOn ?? defaultRunsOn) === "local") return local(request);
+		const created = await cloud(request);
+		if (!created.ok) return created;
+		onCloud({
+			id: created.id,
+			cwd: request.cwd,
+			name: request.name ?? basename(request.cwd),
+			createdAt: Date.now(),
+		});
+		return { ok: true, id: created.id };
 	};

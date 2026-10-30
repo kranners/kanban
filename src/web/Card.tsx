@@ -4,6 +4,7 @@ import {
 	Circle,
 	CircleCheck,
 	CircleDot,
+	Cloud,
 	Server,
 	SquareTerminal,
 	Terminal,
@@ -236,7 +237,11 @@ function NearPanel(props: {
 }) {
 	const { session } = props;
 	const digest = digests.value.sessions[session.id];
-	const KindIcon = session.kind === "interactive" ? Terminal : Server;
+	const KindIcon = session.cloud
+		? Cloud
+		: session.kind === "interactive"
+			? Terminal
+			: Server;
 	return (
 		<div class="near-panel" data-scrollable>
 			<header class="near-head">
@@ -376,7 +381,11 @@ export function SessionCard(props: {
 	state?: string;
 }) {
 	const { session } = props;
-	const KindIcon = session.kind === "interactive" ? Terminal : Server;
+	const KindIcon = session.cloud
+		? Cloud
+		: session.kind === "interactive"
+			? Terminal
+			: Server;
 	const open = (event: MouseEvent) => {
 		const control = event.currentTarget as HTMLElement;
 		const frame =
@@ -433,11 +442,13 @@ export function SessionCard(props: {
 								<span
 									class="foot-kind"
 									title={
-										session.kind === "background"
-											? "Background"
-											: session.cmux
-												? "Interactive · in cmux"
-												: "Interactive"
+										session.cloud
+											? "Cloud"
+											: session.kind === "background"
+												? "Background"
+												: session.cmux
+													? "Interactive · in cmux"
+													: "Interactive"
 									}
 								>
 									<KindIcon size={13} aria-hidden="true" />
@@ -573,7 +584,7 @@ function AccountChip(props: { configDir: string }): JSX.Element {
 	return (
 		<span
 			class="foot-account"
-			title={account ? `Runs on ${account.email}` : props.configDir}
+			title={account ? `Account ${account.email}` : props.configDir}
 		>
 			{accountChip(props.configDir, accounts)}
 		</span>

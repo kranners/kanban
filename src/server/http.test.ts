@@ -37,6 +37,7 @@ import { createIgnoreStore } from "./ignores.ts";
 import { createLayoutStore } from "./layout.ts";
 import { createRegionStore } from "./regions.ts";
 import { createRegionReportRunner, createReportRunner } from "./reports.ts";
+import { landingId } from "./sessions.ts";
 
 const route = (method: string, path: string) =>
 	matchRoute(method, new URL(path, "http://x"));
@@ -355,7 +356,9 @@ describe("createKanbanServer", () => {
 			},
 			launch: async (request) => {
 				launched.push(request);
-				return { ok: true, short: "feedbeef" };
+				return request.runsOn === "cloud"
+					? { ok: true, id: "session_01cloud" }
+					: { ok: true, short: "feedbeef" };
 			},
 			exit: createExitRunner({
 				exit: async (session, force) => {
@@ -408,9 +411,9 @@ describe("createKanbanServer", () => {
 				...store,
 				expect: (cwd, at) => {
 					const settle = store.expect(cwd, at);
-					return (short) => {
-						if (short) expected.push([short, at]);
-						settle(short);
+					return (landing) => {
+						if (landing) expected.push([landingId(landing), at]);
+						settle(landing);
 					};
 				},
 			},
@@ -611,7 +614,12 @@ describe("createKanbanServer", () => {
 				},
 				body: JSON.stringify(body),
 			});
-		const request = { cwd: tmpdir(), name: "acme-api", prompt: "say hi" };
+		const request = {
+			cwd: tmpdir(),
+			name: "acme-api",
+			prompt: "say hi",
+			runsOn: "local",
+		};
 		const created = await post(request);
 		assert.equal(created.status, 201);
 		assert.deepEqual(await created.json(), { ok: true, short: "feedbeef" });
@@ -639,6 +647,32 @@ describe("createKanbanServer", () => {
 		const placed = await post({ ...request, at: { x: 40, y: 80 } });
 		assert.equal(placed.status, 201);
 		assert.deepEqual(expected, [["feedbeef", { x: 40, y: 80 }]]);
+		const cloud = await post({
+			...request,
+			runsOn: "cloud",
+			at: { x: 120, y: 80 },
+		});
+		assert.equal(cloud.status, 201);
+		assert.deepEqual(await cloud.json(), { ok: true, id: "session_01cloud" });
+		assert.deepEqual(launched.at(-1), {
+			...request,
+			runsOn: "cloud",
+			at: { x: 120, y: 80 },
+		});
+		assert.deepEqual(
+			{ ...events.at(-1), identity: null },
+			{
+				action: "session-create",
+				cwd: request.cwd,
+				name: "acme-api",
+				images: 0,
+				account: null,
+				runsOn: "cloud",
+				identity: null,
+				result: "session_01cloud",
+			},
+		);
+		assert.deepEqual(expected.at(-1), ["session_01cloud", { x: 120, y: 80 }]);
 	});
 
 	const send = (method: string, path: string, body: unknown) =>

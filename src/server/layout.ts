@@ -1,22 +1,24 @@
 import type {
 	Board,
+	Landing,
 	Layout,
 	LayoutUpdate,
 	Placement,
 	Point,
 } from "../shared/types.ts";
+import { hasLanded } from "../shared/types.ts";
 import { createStateFile, readState } from "./stateFile.ts";
 
 export type LayoutStore = {
 	current(): Layout;
 	set(update: LayoutUpdate): void;
 	setMany(updates: LayoutUpdate[]): void;
-	expect(cwd: string, at: Point): (short: string | null) => void;
+	expect(cwd: string, at: Point): (landing: Landing | null) => void;
 	observe(board: Board): void;
 	saved(): Promise<void>;
 };
 
-type Spawn = { cwd: string; at: Point; since: number; short?: string };
+type Spawn = { cwd: string; at: Point; since: number; landing?: Landing };
 
 export type LayoutStoreOptions = {
 	file: string;
@@ -129,8 +131,8 @@ export const createLayoutStore = ({
 		expect(cwd, at) {
 			const spawn: Spawn = { cwd, at, since: now() };
 			pending.add(spawn);
-			return (short) => {
-				if (short) spawn.short = short;
+			return (landing) => {
+				if (landing) spawn.landing = landing;
 				else pending.delete(spawn);
 			};
 		},
@@ -140,8 +142,8 @@ export const createLayoutStore = ({
 			let changed = false;
 			for (const spawn of pending) {
 				const session = board.sessions.find((s) =>
-					spawn.short
-						? s.short === spawn.short
+					spawn.landing
+						? hasLanded(spawn.landing, s)
 						: s.cwd === spawn.cwd &&
 							s.startedAt >= spawn.since &&
 							!next[`session:${s.id}`],

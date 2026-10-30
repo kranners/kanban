@@ -4,6 +4,12 @@ import type { SubagentCounts, SubagentState } from "./subagents.ts";
 
 export type SessionKind = "interactive" | "background";
 
+export type RunsOn = "cloud" | "local";
+
+export const runsOnChoices: readonly RunsOn[] = ["cloud", "local"];
+
+export const defaultRunsOn: RunsOn = "cloud";
+
 export type Activity =
 	| "working"
 	| "needs-you"
@@ -59,6 +65,7 @@ export type Session = {
 	tasks: Task[];
 	steps: Step[];
 	configDir?: string;
+	cloud?: { url: string };
 };
 
 export type Subagent = {
@@ -278,6 +285,7 @@ export type NewSessionRequest = {
 	images?: PromptImage[];
 	at?: Point;
 	account?: number;
+	runsOn?: RunsOn;
 };
 
 export type PromptImage = { type: string; data: string };
@@ -291,9 +299,16 @@ export type ExitResult =
 
 export type ReportResult = { ok: true } | { ok: false; error: string };
 
+export type Landing = { short: string } | { id: string };
+
 export type NewSessionResult =
-	| { ok: true; short: string }
+	| ({ ok: true } & Landing)
 	| { ok: false; error: string };
+
+export const hasLanded = (landing: Landing, session: Session): boolean =>
+	"short" in landing
+		? session.short === landing.short
+		: session.id === landing.id;
 
 export type AttachClientFrame =
 	| { t: "in"; d: string }

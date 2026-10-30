@@ -16,6 +16,7 @@ export type PromptDeps = {
 	attached: () => string[];
 	cmux: Cmux;
 	resolve(session: Session): Promise<CmuxResult<CmuxSurface>>;
+	cloudSend(id: string, text: string): Promise<CmuxResult<null>>;
 	settleMs?: number;
 	readyTimeoutMs?: number;
 	submitDelayMs?: number;
@@ -67,6 +68,7 @@ export const blockedReason = (
 	session: Session,
 	attached: string[],
 ): string | null => {
+	if (session.cloud) return null;
 	if (session.activity === "needs-you") {
 		return "The session is waiting on a question or permission prompt, so typing would answer it. Read and answer it with answer_prompt instead.";
 	}
@@ -120,6 +122,10 @@ export const createPromptSender = (deps: PromptDeps): PromptSender => {
 		const blocked =
 			unsafeTextReason(text) ?? blockedReason(session, deps.attached());
 		if (blocked) return { ok: false, error: blocked };
+		if (session.cloud) {
+			const sent = await deps.cloudSend(session.id, text);
+			return sent.ok ? { ok: true, via: "cloud api" } : sent;
+		}
 		if (session.kind === "background") return typeInto(session, text);
 		const target = await deps.resolve(session);
 		if (!target.ok) return target;

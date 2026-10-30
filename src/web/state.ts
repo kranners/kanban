@@ -3,6 +3,7 @@ import type {
 	Activity,
 	Annotations,
 	Board,
+	Landing,
 	Layout,
 	Session,
 } from "../shared/types.ts";
@@ -23,7 +24,7 @@ export const litMessage = computed(
 export const focusedSessionId = signal<string | null>(null);
 export const focusedSubagentId = signal<string | null>(null);
 export const newSessionOpen = signal(false);
-export const awaitingShort = signal<string | null>(null);
+export const awaitingLanding = signal<Landing | null>(null);
 export type RailView = "search" | "status" | "usage" | "messages";
 export const railView = signal<RailView | null>(
 	innerWidth > 720 ? "messages" : null,

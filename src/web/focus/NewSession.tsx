@@ -2,8 +2,14 @@ import "./focus.css";
 import { CircleAlert, LoaderCircle, X } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
+import {
+	defaultRunsOn,
+	type Landing,
+	type RunsOn,
+} from "../../shared/types.ts";
 import { AccountPicker } from "../AccountPicker.tsx";
 import { FolderPicker } from "../FolderPicker.tsx";
+import { RunsOnPicker } from "../RunsOnPicker.tsx";
 import { createSession } from "../spawns.ts";
 import { pickableAccounts, usage } from "../usage.ts";
 import { needsTrust } from "./paths.ts";
@@ -13,13 +19,14 @@ function Failure(props: {
 	error: string;
 	cwd: string;
 	account: number | undefined;
+	runsOn: RunsOn;
 }): JSX.Element {
 	return (
 		<div class="focus-form-error" role="alert">
 			<CircleAlert size={14} />
 			<div>
 				<p>{props.error}</p>
-				{needsTrust(props.error) && (
+				{props.runsOn === "local" && needsTrust(props.error) && (
 					<p class="focus-muted">
 						Claude needs to trust this folder first. Run{" "}
 						<code>
@@ -38,7 +45,7 @@ function Failure(props: {
 
 export function NewSession(props: {
 	cwds: string[];
-	onCreated: (short: string) => void;
+	onCreated: (landing: Landing) => void;
 	onClose: () => void;
 }): JSX.Element {
 	const dialog = useRef<HTMLDialogElement>(null);
@@ -51,6 +58,7 @@ export function NewSession(props: {
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [account, setAccount] = useState<number | undefined>(undefined);
+	const [runsOn, setRunsOn] = useState<RunsOn>(defaultRunsOn);
 
 	useEffect(() => {
 		dialog.current?.showModal();
@@ -68,11 +76,16 @@ export function NewSession(props: {
 			cwd,
 			...(name.trim() ? { name: name.trim() } : {}),
 			prompt: prompt.trim(),
-			...(account !== undefined ? { account } : {}),
+			runsOn,
+			...(runsOn === "local" && account !== undefined ? { account } : {}),
 		});
 		setBusy(false);
-		if (result.ok) props.onCreated(result.short);
-		else setError(result.error);
+		if (!result.ok) {
+			setError(result.error);
+			return;
+		}
+		const { ok: _, ...landing } = result;
+		props.onCreated(landing);
 	};
 
 	const submitOnShortcut = (event: KeyboardEvent) => {
@@ -117,17 +130,28 @@ export function NewSession(props: {
 					</button>
 				</header>
 
-				<div class="focus-field">
-					<span id={`${listId}-folder`}>Folder</span>
-					<FolderPicker
-						variant="field"
-						value={cwd}
-						recent={props.cwds}
-						onPick={setCwd}
-						labelledBy={`${listId}-folder`}
-						disabled={busy}
-						trigger={folder}
-					/>
+				<div class="focus-field-row">
+					<div class="focus-field">
+						<span id={`${listId}-folder`}>Folder</span>
+						<FolderPicker
+							variant="field"
+							value={cwd}
+							recent={props.cwds}
+							onPick={setCwd}
+							labelledBy={`${listId}-folder`}
+							disabled={busy}
+							trigger={folder}
+						/>
+					</div>
+					<div class="focus-field">
+						<span id={`${listId}-runs-on`}>Runs on</span>
+						<RunsOnPicker
+							labelledBy={`${listId}-runs-on`}
+							runsOn={runsOn}
+							onPick={setRunsOn}
+							disabled={busy}
+						/>
+					</div>
 				</div>
 
 				<label class="focus-field">
@@ -142,7 +166,7 @@ export function NewSession(props: {
 					/>
 				</label>
 
-				{pickableAccounts(usage.value) && (
+				{runsOn === "local" && pickableAccounts(usage.value) && (
 					<div class="focus-field">
 						<span id={`${listId}-account`}>Account</span>
 						<AccountPicker
@@ -165,7 +189,9 @@ export function NewSession(props: {
 					/>
 				</label>
 
-				{error && <Failure error={error} cwd={cwd} account={account} />}
+				{error && (
+					<Failure error={error} cwd={cwd} account={account} runsOn={runsOn} />
+				)}
 
 				<footer class="focus-form-footer">
 					<span class="focus-muted focus-form-shortcut">

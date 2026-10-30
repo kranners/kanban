@@ -10,6 +10,7 @@ import {
 	launchCommand,
 	launchResult,
 	parseBackgrounded,
+	routedLauncher,
 	saveImages,
 	validateNewSession,
 } from "./sessions.ts";
@@ -21,16 +22,20 @@ describe("validateNewSession", () => {
 		assert.deepEqual(await validateNewSession({ ...valid, name: "  acme  " }), {
 			...valid,
 			name: "acme",
+			runsOn: "cloud",
 		});
 	});
 
 	it("leaves the name to Claude Code when it is missing or blank", async () => {
 		const { name: _name, ...unnamed } = valid;
-		assert.deepEqual(await validateNewSession(unnamed), unnamed);
-		assert.deepEqual(
-			await validateNewSession({ ...valid, name: "  " }),
-			unnamed,
-		);
+		assert.deepEqual(await validateNewSession(unnamed), {
+			...unnamed,
+			runsOn: "cloud",
+		});
+		assert.deepEqual(await validateNewSession({ ...valid, name: "  " }), {
+			...unnamed,
+			runsOn: "cloud",
+		});
 		assert.deepEqual(launchArgs(unnamed, null, '{"hooks":{}}'), [
 			"--bg",
 			'--settings={"hooks":{}}',
@@ -49,7 +54,7 @@ describe("validateNewSession", () => {
 	it("keeps the board point a session should spawn at", async () => {
 		assert.deepEqual(
 			await validateNewSession({ ...valid, at: { x: -40, y: 120, z: 1 } }),
-			{ ...valid, at: { x: -40, y: 120 } },
+			{ ...valid, at: { x: -40, y: 120 }, runsOn: "cloud" },
 		);
 	});
 
@@ -57,7 +62,38 @@ describe("validateNewSession", () => {
 		assert.deepEqual(await validateNewSession({ ...valid, account: 3 }), {
 			...valid,
 			account: 3,
+			runsOn: "local",
 		});
+	});
+
+	it("runs a session in the cloud unless asked or it needs this Mac", async () => {
+		assert.deepEqual(await validateNewSession({ ...valid, runsOn: "cloud" }), {
+			...valid,
+			runsOn: "cloud",
+		});
+		assert.deepEqual(
+			await validateNewSession({ ...valid, runsOn: "local", account: 2 }),
+			{ ...valid, account: 2, runsOn: "local" },
+		);
+		assert.deepEqual(await validateNewSession(valid), {
+			...valid,
+			runsOn: "cloud",
+		});
+		for (const prompt of [
+			"session_01abc",
+			"https://claude.ai/code/session_01abc please",
+		]) {
+			const result = await validateNewSession({ ...valid, prompt });
+			assert.match("error" in result ? result.error : "", /cloud session id/);
+		}
+		assert.deepEqual(
+			await validateNewSession({
+				...valid,
+				prompt: "session_01abc",
+				runsOn: "local",
+			}),
+			{ ...valid, prompt: "session_01abc", runsOn: "local" },
+		);
 	});
 
 	it("rejects bad input with a reason", async () => {
@@ -75,6 +111,16 @@ describe("validateNewSession", () => {
 			[{ ...valid, account: 0 }, /account must be a positive/],
 			[{ ...valid, account: 1.5 }, /account must be a positive/],
 			[{ ...valid, account: "2" }, /account must be a positive/],
+			[{ ...valid, runsOn: "mars" }, /runsOn must be cloud or local/],
+			[{ ...valid, runsOn: "cloud", account: 2 }, /default account/],
+			[
+				{
+					...valid,
+					runsOn: "cloud",
+					images: [{ type: "image/png", data: "cG5n" }],
+				},
+				/Images can only be sent to sessions on this Mac/,
+			],
 		];
 		for (const [body, reason] of cases) {
 			const result = await validateNewSession(body);
@@ -191,8 +237,12 @@ describe("prompt images", () => {
 		assert.deepEqual(await validateNewSession({ ...valid, images: [png] }), {
 			...valid,
 			images: [png],
+			runsOn: "local",
 		});
-		assert.deepEqual(await validateNewSession({ ...valid, images: [] }), valid);
+		assert.deepEqual(await validateNewSession({ ...valid, images: [] }), {
+			...valid,
+			runsOn: "cloud",
+		});
 	});
 
 	it("rejects images it can't hand to Claude", async () => {
@@ -279,5 +329,48 @@ describe("prompt images", () => {
 		} finally {
 			await rm(dir, { recursive: true });
 		}
+	});
+});
+
+describe("routedLauncher", () => {
+	const records: unknown[] = [];
+	const launch = routedLauncher(
+		async () => ({ ok: true, short: "feedbeef" }),
+		async (request) =>
+			request.prompt === "fail"
+				? { ok: false, error: "claude --cloud failed: nope" }
+				: { ok: true, id: "session_01cloud" },
+		(record) => records.push(record),
+	);
+
+	it("creates a cloud session and records it", async () => {
+		const before = Date.now();
+		assert.deepEqual(await launch({ ...valid, runsOn: "cloud" }), {
+			ok: true,
+			id: "session_01cloud",
+		});
+		const [record] = records as { createdAt: number }[];
+		assert.ok(record && record.createdAt >= before);
+		assert.deepEqual(records, [
+			{
+				id: "session_01cloud",
+				cwd: valid.cwd,
+				name: valid.name,
+				createdAt: record?.createdAt,
+			},
+		]);
+	});
+
+	it("leaves local sessions and failed cloud launches alone", async () => {
+		records.length = 0;
+		assert.deepEqual(await launch({ ...valid, runsOn: "local" }), {
+			ok: true,
+			short: "feedbeef",
+		});
+		assert.deepEqual(
+			await launch({ ...valid, prompt: "fail", runsOn: "cloud" }),
+			{ ok: false, error: "claude --cloud failed: nope" },
+		);
+		assert.deepEqual(records, []);
 	});
 });

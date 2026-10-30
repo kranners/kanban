@@ -1,4 +1,4 @@
-import type { BoardFeed } from "../shared/types.ts";
+import { type BoardFeed, hasLanded } from "../shared/types.ts";
 import { receiveColours } from "./colours.ts";
 import { receiveComment, receiveComments } from "./comments.ts";
 import { digests } from "./digests.ts";
@@ -12,7 +12,7 @@ import {
 } from "./reports.ts";
 import {
 	annotations,
-	awaitingShort,
+	awaitingLanding,
 	board,
 	connection,
 	layout,
@@ -30,12 +30,12 @@ function feedUrl(): string {
 function receive(frame: BoardFeed): void {
 	if (frame.type === "board") {
 		board.value = frame.board;
-		const short = awaitingShort.value;
-		const created = short
-			? frame.board.sessions.find((s) => s.short === short)
+		const landing = awaitingLanding.value;
+		const created = landing
+			? frame.board.sessions.find((s) => hasLanded(landing, s))
 			: undefined;
 		if (created) {
-			awaitingShort.value = null;
+			awaitingLanding.value = null;
 			openSession(created.id);
 		}
 		return;

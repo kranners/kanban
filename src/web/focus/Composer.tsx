@@ -26,7 +26,7 @@ export function Composer(props: {
 	recalled: { text: string } | null;
 	onRecalled: () => void;
 	onEditQueued: (() => void) | null;
-	onKey: (key: "Escape" | "Shift+Tab") => void;
+	onKey: ((key: "Escape" | "Shift+Tab") => void) | null;
 }): JSX.Element {
 	const field = useRef<HTMLTextAreaElement>(null);
 	const [draft, setDraft] = useState("");
@@ -201,12 +201,12 @@ export function Composer(props: {
 			submit();
 			return;
 		}
-		if (event.key === "Tab" && event.shiftKey) {
+		if (event.key === "Tab" && event.shiftKey && props.onKey) {
 			event.preventDefault();
 			props.onKey("Shift+Tab");
 			return;
 		}
-		if (event.key === "Escape" && props.working) {
+		if (event.key === "Escape" && props.working && props.onKey) {
 			event.preventDefault();
 			props.onKey("Escape");
 			return;
@@ -234,6 +234,7 @@ export function Composer(props: {
 		setCaret((event.currentTarget as HTMLTextAreaElement).selectionStart);
 
 	const mode = modeLabel(props.mode);
+	const { onKey } = props;
 	const listId = `av-suggestions-${props.sessionId}`;
 
 	return (
@@ -294,11 +295,11 @@ export function Composer(props: {
 					onClick={trackCaret}
 				/>
 				<div class="av-input-actions">
-					{props.working && (
+					{props.working && onKey && (
 						<button
 							type="button"
 							class="focus-button av-stop"
-							onClick={() => props.onKey("Escape")}
+							onClick={() => onKey("Escape")}
 							title="Interrupt (Esc)"
 						>
 							<Square size={12} aria-hidden="true" />
@@ -318,19 +319,22 @@ export function Composer(props: {
 				</div>
 			</div>
 			<div class="av-composer-foot">
-				<button
-					type="button"
-					class="av-mode"
-					onClick={() => props.onKey("Shift+Tab")}
-					disabled={props.disabled !== null}
-					title="Cycle the permission mode (Shift+Tab)"
-				>
-					{mode ?? "Permission mode"}
-					<kbd>⇧Tab</kbd>
-				</button>
+				{onKey && (
+					<button
+						type="button"
+						class="av-mode"
+						onClick={() => onKey("Shift+Tab")}
+						disabled={props.disabled !== null}
+						title="Cycle the permission mode (Shift+Tab)"
+					>
+						{mode ?? "Permission mode"}
+						<kbd>⇧Tab</kbd>
+					</button>
+				)}
 				<span class="av-hint">
 					Enter sends · Shift+Enter new line ·{" "}
-					{props.onEditQueued ? "↑ edits queued" : "↑ history"} · Esc interrupts
+					{props.onEditQueued ? "↑ edits queued" : "↑ history"}
+					{onKey && " · Esc interrupts"}
 				</span>
 			</div>
 		</div>

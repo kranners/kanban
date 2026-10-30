@@ -100,7 +100,10 @@ const setup = async (shown: Board = board) => {
 		colours,
 		regions,
 		comments,
-		launch: async () => ({ ok: true, short: "feedbeef" }),
+		launch: async (request) =>
+			request.runsOn === "cloud"
+				? { ok: true, id: "session_01cloud" }
+				: { ok: true, short: "feedbeef" },
 		exit: (s, force, identity) => {
 			exits.push([s.id, force, identity]);
 			return Promise.resolve({
@@ -256,6 +259,7 @@ describe("board tools", () => {
 			prompt: "go",
 			x: note.x,
 			y: note.y,
+			runsOn: "local",
 		});
 		layout.observe({
 			...board,
@@ -264,6 +268,40 @@ describe("board tools", () => {
 		const spot = layout.current()["session:feedbeef-3"];
 		assert.ok(spot);
 		assert.ok(!near({ ...spot, ...sessionSize }, note, 0));
+	});
+
+	it("starts a cloud session unless asked for this Mac and names it in the reply", async () => {
+		const { tools, events } = await setup();
+		const cwd = tmpdir();
+		assert.deepEqual(
+			await tools("t", {
+				tool: "start_session",
+				cwd,
+				prompt: "go",
+			}),
+			{
+				ok: true,
+				text: `Started a session in ${cwd} (cloud session session_01cloud)`,
+			},
+		);
+		assert.deepEqual(
+			await tools("t", {
+				tool: "start_session",
+				cwd,
+				prompt: "go",
+				runsOn: "local",
+			}),
+			{ ok: true, text: `Started a session in ${cwd} (short id feedbeef)` },
+		);
+		assert.deepEqual(
+			events.flatMap((event) =>
+				event.action === "session-create" ? [[event.runsOn, event.result]] : [],
+			),
+			[
+				["cloud", "session_01cloud"],
+				["local", "feedbeef"],
+			],
+		);
 	});
 
 	it("draws regions with a colour and finishes sessions without forcing", async () => {
@@ -410,6 +448,52 @@ describe("prompt safety", () => {
 			null,
 		);
 		assert.equal(blockedReason(session("aaaaaaaa"), []), null);
+		assert.equal(
+			blockedReason(
+				session("session_01a", {
+					short: null,
+					attachable: false,
+					cloud: { url: "https://claude.ai/code/session_01a" },
+				}),
+				[],
+			),
+			null,
+		);
+		assert.equal(
+			blockedReason(
+				session("session_01a", {
+					activity: "needs-you",
+					cloud: { url: "https://claude.ai/code/session_01a" },
+				}),
+				[],
+			),
+			null,
+		);
+	});
+
+	it("sends a cloud session's prompt through the cloud api", async () => {
+		const sent: [string, string][] = [];
+		const send = createPromptSender({
+			spawnPty: () => assert.fail("attached to a session"),
+			attached: () => [],
+			cmux: {} as never,
+			resolve: async () => assert.fail("resolved a cmux pane"),
+			cloudSend: async (id, text) => {
+				sent.push([id, text]);
+				return { ok: true, value: null };
+			},
+		});
+		const cloud = session("session_01a", {
+			short: null,
+			attachable: false,
+			cloud: { url: "https://claude.ai/code/session_01a" },
+		});
+		assert.deepEqual(await send(cloud, "Run the tests"), {
+			ok: true,
+			via: "cloud api",
+		});
+		assert.equal((await send(cloud, "/exit")).ok, false);
+		assert.deepEqual(sent, [["session_01a", "Run the tests"]]);
 	});
 
 	it("refuses text the session would run as a command or that escapes the paste", () => {
@@ -437,6 +521,7 @@ describe("prompt safety", () => {
 				},
 			} as never,
 			resolve: async () => ({ ok: true, value: {} as never }),
+			cloudSend: async () => assert.fail("sent to the cloud"),
 		});
 		const pane = session("a", { kind: "interactive", cmux: true });
 		assert.equal((await send(pane, "/exit")).ok, false);

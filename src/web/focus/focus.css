@@ -184,6 +184,10 @@
 	background: var(--accent-hover);
 }
 
+.focus-cloud-link {
+	text-decoration: none;
+}
+
 .focus-icon-button {
 	width: 32px;
 	padding: 0;
@@ -506,6 +510,16 @@
 	font-size: 12px;
 	font-weight: 500;
 	color: var(--muted);
+}
+
+.focus-field-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 10px;
+}
+
+.focus-field-row select {
+	flex: 1;
 }
 
 .focus-field input,

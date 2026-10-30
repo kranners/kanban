@@ -4,6 +4,7 @@ import type { ExitResult, Session } from "../shared/types.ts";
 import { claudeEnv } from "./accounts.ts";
 import { lastLine } from "./ansi.ts";
 import type { Audit } from "./audit.ts";
+import type { CmuxResult } from "./cmux.ts";
 import {
 	isAlive,
 	type RegistryEntry,
@@ -23,6 +24,7 @@ export type ExitDeps = {
 	stop(session: Session): Promise<CommandResult>;
 	remove(session: Session): Promise<CommandResult>;
 	terminate(session: Session): Promise<CommandResult>;
+	archive(id: string): Promise<CmuxResult<null>>;
 };
 
 export type SessionExiter = (
@@ -117,6 +119,18 @@ export const exitSession = async (
 	session: Session,
 	force: boolean,
 ): Promise<ExitResult> => {
+	if (session.cloud) {
+		if (!force) {
+			return {
+				ok: true,
+				exited: false,
+				reason:
+					"A cloud session's readiness can't be checked from the board; force it to archive",
+			};
+		}
+		const archived = await deps.archive(session.id);
+		return archived.ok ? { ok: true, exited: true } : archived;
+	}
 	if (session.kind === "interactive" && session.pid === null) {
 		return { ok: false, error: "This session is not running" };
 	}
@@ -335,7 +349,10 @@ export const claudeAsker =
 	};
 
 export const claudeExitDeps = (
-	opts: ForkOptions & { claudeHome: string },
+	opts: ForkOptions & {
+		claudeHome: string;
+		archive: ExitDeps["archive"];
+	},
 ): ExitDeps => {
 	const command = async (
 		args: string[],
@@ -354,6 +371,7 @@ export const claudeExitDeps = (
 		};
 	};
 	return {
+		archive: opts.archive,
 		async ask(session) {
 			const result = await inFork(opts, session, (forkId) =>
 				readinessArgs(session.id, forkId),

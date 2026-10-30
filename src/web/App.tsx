@@ -1,5 +1,11 @@
 import { Plus } from "lucide-preact";
-import type { Board, Session, Subagent } from "../shared/types.ts";
+import {
+	type Board,
+	hasLanded,
+	type Landing,
+	type Session,
+	type Subagent,
+} from "../shared/types.ts";
 import { AlertToasts } from "./Alerts.tsx";
 import {
 	AnnotationLayer,
@@ -47,7 +53,7 @@ import { reports } from "./reports.ts";
 import { BoardMenu, SpawnLayer, useBoardGestures } from "./Spawning.tsx";
 import { Summaries } from "./Summaries.tsx";
 import {
-	awaitingShort,
+	awaitingLanding,
 	board,
 	closeFocus,
 	docked,
@@ -318,11 +324,11 @@ function Stage() {
 	);
 }
 
-function created(short: string): void {
+function created(landing: Landing): void {
 	newSessionOpen.value = false;
-	const existing = board.value?.sessions.find((s) => s.short === short);
+	const existing = board.value?.sessions.find((s) => hasLanded(landing, s));
 	if (existing) openSession(existing.id);
-	else awaitingShort.value = short;
+	else awaitingLanding.value = landing;
 }
 
 export function App() {

@@ -24,7 +24,7 @@ import { type AnnotationStore, parseAnnotation } from "./annotations.ts";
 import {
 	type AttachHub,
 	type AttachTarget,
-	isValidShort,
+	isAttachKey,
 	parseSize,
 	type TerminalSize,
 } from "./attach.ts";
@@ -66,6 +66,7 @@ import {
 import type { RegionReportRunner, ReportRunner } from "./reports.ts";
 import {
 	isAccountNumber,
+	landingId,
 	type SessionLauncher,
 	validateNewSession,
 } from "./sessions.ts";
@@ -317,7 +318,7 @@ export const matchRoute = (method: string, url: URL): Route => {
 export const matchUpgrade = (url: URL): UpgradeRoute | null => {
 	if (url.pathname === "/api/feed") return { kind: "feed" };
 	const attach = url.pathname.match(/^\/api\/attach\/([^/]+)$/);
-	if (attach?.[1] && isValidShort(attach[1])) {
+	if (attach?.[1] && isAttachKey(attach[1])) {
 		return {
 			kind: "attach",
 			short: attach[1],
@@ -438,6 +439,10 @@ const rejectUpgrade = (socket: Duplex, status: number) => {
 };
 
 const attachTarget = (board: Board, short: string): AttachTarget | null => {
+	const cloud = board.sessions.find(
+		(session) => session.cloud && session.id === short,
+	);
+	if (cloud) return { short, cwd: cloud.cwd, cloud: true };
 	const session = board.sessions.find(
 		(session) =>
 			session.short === short &&
@@ -518,11 +523,12 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			name: request.name ?? null,
 			images: request.images?.length ?? 0,
 			account: request.account ?? null,
+			runsOn: request.runsOn,
 			identity,
-			result: result.ok ? result.short : result.error,
+			result: result.ok ? landingId(result) : result.error,
 		});
 		if (settle) {
-			settle(result.ok ? result.short : null);
+			settle(result.ok ? result : null);
 			deps.layout.observe(deps.source.board());
 		}
 		sendJson(res, result.ok ? 201 : 422, result);

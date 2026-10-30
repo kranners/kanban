@@ -419,11 +419,12 @@
 }
 
 .quick-prompt-meta .folder-picker-chip {
-	grid-column: 1 / -1;
+	grid-column: 1;
 	max-width: 100%;
 }
 
-.quick-prompt-account {
+.quick-prompt-account,
+.quick-prompt-runs-on {
 	min-width: 0;
 	max-width: 100%;
 	padding: 1px 4px;
@@ -432,6 +433,14 @@
 	background: var(--surface);
 	color: inherit;
 	font: inherit;
+}
+
+.quick-prompt-runs-on {
+	grid-column: 2;
+}
+
+.quick-prompt-account {
+	grid-column: 1;
 }
 
 .quick-prompt-hint {

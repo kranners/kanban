@@ -44,7 +44,11 @@ import {
 	parseRegionPatch,
 	type RegionStore,
 } from "./regions.ts";
-import { type SessionLauncher, validateNewSession } from "./sessions.ts";
+import {
+	landingId,
+	type SessionLauncher,
+	validateNewSession,
+} from "./sessions.ts";
 
 export type ToolOutcome =
 	| { ok: true; text: string }
@@ -332,6 +336,11 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 		ask_session: async ({ session: ref, question }) => {
 			const session = sessionFor(ref);
 			if ("ok" in session) return session;
+			if (session.cloud) {
+				return refused(
+					`${session.name} runs in the cloud and can't be forked to ask; use send_prompt and read_session instead`,
+				);
+			}
 			const answer = await deps.ask(session, question);
 			return answer.ok
 				? done(`Asked ${session.name}\n${answer.answer}`)
@@ -362,11 +371,12 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				? done(`Finished ${session.name}`)
 				: done(`${session.name} is not ready to finish: ${result.reason}`);
 		},
-		start_session: async ({ cwd, prompt, name, x, y }) => {
+		start_session: async ({ cwd, prompt, name, x, y, runsOn }) => {
 			const request = await validateNewSession({
 				cwd,
 				prompt,
 				name,
+				runsOn,
 				...(x !== undefined && y !== undefined
 					? { at: { x: snap(x), y: snap(y) } }
 					: {}),
@@ -387,16 +397,19 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				cwd: request.cwd,
 				name: request.name ?? null,
 				account: request.account ?? null,
+				runsOn: request.runsOn,
 				identity: agentIdentity,
-				result: result.ok ? result.short : result.error,
+				result: result.ok ? landingId(result) : result.error,
 			});
 			if (settle) {
-				settle(result.ok ? result.short : null);
+				settle(result.ok ? result : null);
 				deps.layout.observe(deps.source.board());
 			}
 			if (!result.ok) return refused(result.error);
 			return done(
-				`Started a session in ${request.cwd} (short id ${result.short})`,
+				"short" in result
+					? `Started a session in ${request.cwd} (short id ${result.short})`
+					: `Started a session in ${request.cwd} (cloud session ${result.id})`,
 			);
 		},
 		put_note: ({ id, ...fields }) => {

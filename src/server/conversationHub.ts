@@ -86,6 +86,7 @@ export const parseSince = (raw: string | null): Since => {
 };
 
 export const driveOf = (session: Session): Drive => {
+	if (session.cloud) return { mode: "drive", via: "cloud" };
 	if (session.kind === "background") {
 		return session.attachable && session.short
 			? { mode: "drive", via: "attach" }

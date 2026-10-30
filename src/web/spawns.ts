@@ -1,9 +1,12 @@
 import { effect, signal } from "@preact/signals";
-import type {
-	NewSessionRequest,
-	NewSessionResult,
-	Point,
-	PromptImage,
+import {
+	hasLanded,
+	type Landing,
+	type NewSessionRequest,
+	type NewSessionResult,
+	type Point,
+	type PromptImage,
+	type RunsOn,
 } from "../shared/types.ts";
 import { cwdChoices, freeSpotNear } from "./actions.ts";
 import {
@@ -33,7 +36,7 @@ export type QuickPrompt = {
 	cwds: string[];
 	region?: string;
 };
-export type Ghost = { short: string; at: Point; prompt: string };
+export type Ghost = { landing: Landing; at: Point; prompt: string };
 
 const ghostMs = 5 * 60_000;
 const restartRetryDelaysMs = [500, 1000, 2000, 4000];
@@ -133,7 +136,9 @@ function dropGhost(ghost: Ghost): void {
 }
 
 function land(ghost: Ghost): boolean {
-	const arrived = board.peek()?.sessions.find((s) => s.short === ghost.short);
+	const arrived = board
+		.peek()
+		?.sessions.find((s) => hasLanded(ghost.landing, s));
 	if (!arrived) return false;
 	previewPlacement(nodeKey({ kind: "session", id: arrived.id }), ghost.at);
 	dropGhost(ghost);
@@ -143,7 +148,7 @@ function land(ghost: Ghost): boolean {
 export async function spawnFromPrompt(
 	prompt: string,
 	images: PromptImage[],
-	account?: number,
+	place: { account?: number; runsOn: RunsOn },
 ): Promise<string | null> {
 	const open = quickPrompt.peek();
 	if (!open) return null;
@@ -152,11 +157,15 @@ export async function spawnFromPrompt(
 		prompt,
 		...(images.length ? { images } : {}),
 		at: open.at,
-		...(account !== undefined ? { account } : {}),
+		runsOn: place.runsOn,
+		...(place.runsOn === "local" && place.account !== undefined
+			? { account: place.account }
+			: {}),
 	});
 	if (!result.ok) return result.error;
 	if (open.region) growToHold(open.region, open.cwd, open.at);
-	const ghost = { short: result.short, at: open.at, prompt };
+	const { ok: _, ...landing } = result;
+	const ghost = { landing, at: open.at, prompt };
 	ghosts.value = [...ghosts.peek(), ghost];
 	if (quickPrompt.peek() === open) quickPrompt.value = null;
 	if (!land(ghost)) setTimeout(() => dropGhost(ghost), ghostMs);

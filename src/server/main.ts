@@ -27,6 +27,13 @@ import {
 	projectsOf,
 	summariesOfBoard,
 } from "./boardTools.ts";
+import {
+	cloudCredentials,
+	cloudLauncher,
+	cloudTty,
+	createCloudApi,
+	createCloudSessions,
+} from "./cloud.ts";
 import { cmuxCli, createCmuxTargets } from "./cmux.ts";
 import { createColourStore, loadColours } from "./colours.ts";
 import { listCommands } from "./commands.ts";
@@ -64,7 +71,7 @@ import {
 	createReportRunner,
 	regionMembersOf,
 } from "./reports.ts";
-import { claudeLauncher } from "./sessions.ts";
+import { claudeLauncher, routedLauncher } from "./sessions.ts";
 import { attachTty, cmuxTty, sharedAttachTty } from "./terminals.ts";
 import {
 	claudeCodeToken,
@@ -185,8 +192,20 @@ const syncCmuxOnNewPids = (board: Board) => {
 	interactivePids = pids;
 	void syncCmux();
 };
+const cloud = await createCloudSessions({
+	file: join(config.stateDir, "cloud.json"),
+	dir: join(config.stateDir, "cloud"),
+	api: createCloudApi({
+		credentials: cloudCredentials({
+			claudeBin: config.claudeBin,
+			claudeHome: config.claudeHome,
+		}),
+	}),
+	onChange: () => source.refresh(),
+});
 const source = startBoard({
 	claudeHome: config.claudeHome,
+	cloud: cloud.sessions,
 	profiles: () => profileHomes(config.cswapRoot),
 	ignore: (sessionId, cwd) =>
 		probes.has(sessionId) || comments.owns(sessionId) || isAgentDir(cwd),
@@ -232,6 +251,7 @@ const exitDeps = claudeExitDeps({
 	claudeBin: config.claudeBin,
 	claudeHome: config.claudeHome,
 	probes,
+	archive: cloud.archive,
 });
 const runExit = createExitRunner({
 	exit: (session, force) => exitSession(exitDeps, session, force),
@@ -261,10 +281,8 @@ const runRegionReport = createRegionReportRunner({
 });
 const agentHost = isLoopback(config.host) ? config.host : "127.0.0.1";
 const boardUrl = `http://${agentHost.includes(":") ? `[${agentHost}]` : agentHost}:${config.port}`;
-const launch = claudeLauncher(
-	config.claudeBin,
-	join(config.stateDir, "images"),
-	{
+const launch = routedLauncher(
+	claudeLauncher(config.claudeBin, join(config.stateDir, "images"), {
 		cswapBin: config.cswapBin,
 		profileOf: (number) =>
 			accounts
@@ -273,7 +291,9 @@ const launch = claudeLauncher(
 					(account) => account.number === number && !account.isDefault,
 				)?.configDir ?? null,
 		settings: peerHookSettings(boardUrl),
-	},
+	}),
+	cloudLauncher(config.claudeBin),
+	cloud.add,
 );
 const attachPty = claudeAttachPty(config.claudeBin);
 const attach = createAttachHub(attachPty, audit, (short) =>
@@ -285,6 +305,9 @@ const conversation = createConversationHub({
 	transcriptPath: source.transcriptPath,
 	block: source.block,
 	tty: (session) => {
+		if (session.cloud) {
+			return cloudTty(cloud, session.id, () => attach.screen(session.id));
+		}
 		const short = session.short;
 		if (session.kind === "background" && session.attachable && short) {
 			return attach.screen(short)
@@ -331,6 +354,7 @@ const tools = createBoardTools({
 		attached: attachedAnywhere,
 		cmux,
 		resolve: cmuxTargets.resolve,
+		cloudSend: cloud.send,
 	}),
 	answer: conversation.respond,
 	audit,
@@ -380,6 +404,7 @@ server.listen(config.port, config.host, () => {
 const shutdown = () => {
 	agent.stopAll();
 	source.stop();
+	cloud.stop();
 	clearInterval(cmuxPoll);
 	clearInterval(usagePoll);
 	clearInterval(accountsPoll);

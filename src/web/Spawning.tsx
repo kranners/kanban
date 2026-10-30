@@ -10,7 +10,12 @@ import {
 } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import type { Point, PromptImage } from "../shared/types.ts";
+import {
+	defaultRunsOn,
+	type Point,
+	type PromptImage,
+	type RunsOn,
+} from "../shared/types.ts";
 import { AccountPicker } from "./AccountPicker.tsx";
 import { cwdChoices, isQuickPromptKey } from "./actions.ts";
 import { addNote, annotationMenu, stickerPicker } from "./annotations.ts";
@@ -22,6 +27,7 @@ import { groupUnder, openRegionMenuAtPointer } from "./Groups.tsx";
 import { moveMenuFocus } from "./menuFocus.ts";
 import { sessionSize } from "./placement.ts";
 import { admit, dataUrl, imageFiles, readImages } from "./promptImages.ts";
+import { RunsOnPicker } from "./RunsOnPicker.tsx";
 import { regionDialog, regionMenu } from "./regionState.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 import type { QuickPrompt } from "./spawns.ts";
@@ -258,6 +264,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [account, setAccount] = useState<number | undefined>(undefined);
+	const [runsOn, setRunsOn] = useState<RunsOn>(defaultRunsOn);
 	const { k } = view.value;
 	const legible = Math.max(1, 1 / k);
 	useRestoreFocus();
@@ -289,6 +296,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 	const keepImages = (next: PromptImage[]) => {
 		held.current = next;
 		setImages(next);
+		if (next.length > 0) setRunsOn("local");
 	};
 
 	const addImages = (files: File[]) => {
@@ -307,7 +315,10 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 		setBusy(true);
 		setError(null);
 		await reading.current;
-		const failure = await spawnFromPrompt(text, held.current, account);
+		const failure = await spawnFromPrompt(text, held.current, {
+			account,
+			runsOn,
+		});
 		setBusy(false);
 		if (failure) {
 			setError(failure);
@@ -385,7 +396,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 					onKeyDown={onKeyDown}
 					onPaste={onPaste}
 					onBlur={closeIfEmpty}
-					placeholder="What should Claude work on? Shift+Enter for a new line; paste or drop images"
+					placeholder="What should Claude work on? Shift+Enter for a new line; images run it on this Mac"
 					aria-label="Prompt for a new session"
 					disabled={busy}
 					spellcheck={false}
@@ -432,15 +443,26 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 						input.current?.focus({ preventScroll: true });
 					}}
 				/>
-				<AccountPicker
-					class="quick-prompt-account"
-					account={account}
-					disabled={busy}
+				<RunsOnPicker
+					class="quick-prompt-runs-on"
+					runsOn={runsOn}
+					disabled={busy || images.length > 0}
 					onPick={(picked) => {
-						setAccount(picked);
+						setRunsOn(picked);
 						input.current?.focus({ preventScroll: true });
 					}}
 				/>
+				{runsOn === "local" && (
+					<AccountPicker
+						class="quick-prompt-account"
+						account={account}
+						disabled={busy}
+						onPick={(picked) => {
+							setAccount(picked);
+							input.current?.focus({ preventScroll: true });
+						}}
+					/>
+				)}
 				<span class="quick-prompt-hint">
 					<kbd>Enter</kbd> start · <kbd>Esc</kbd> cancel
 				</span>
@@ -460,7 +482,9 @@ function GhostCards(): JSX.Element {
 		<>
 			{ghosts.value.map((ghost) => (
 				<div
-					key={ghost.short}
+					key={
+						"short" in ghost.landing ? ghost.landing.short : ghost.landing.id
+					}
 					class="ghost-card"
 					data-no-pan
 					role="status"

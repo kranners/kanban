@@ -266,6 +266,7 @@ export function AgentView(props: {
 	};
 
 	const composing = props.node.kind === "session" && readOnly === null;
+	const pressesKeys = !(drive?.mode === "drive" && drive.via === "cloud");
 
 	const queuedIds = outbox.filter(editable).map((entry) => entry.id);
 
@@ -416,7 +417,7 @@ export function AgentView(props: {
 						recalled={recalled}
 						onRecalled={() => setRecalled(null)}
 						onEditQueued={queuedIds.length > 0 ? () => edit(queuedIds) : null}
-						onKey={(key) => void press(key)}
+						onKey={pressesKeys ? (key) => void press(key) : null}
 					/>
 				</div>
 			)}

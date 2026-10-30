@@ -149,7 +149,7 @@ describe("createLayoutStore", () => {
 
 	it("places a spawned session where its prompt was opened", async () => {
 		const { store, changes, file } = await setup();
-		store.expect(cwd, { x: 96, y: 144 })("feedbeef");
+		store.expect(cwd, { x: 96, y: 144 })({ short: "feedbeef" });
 		store.observe(boardOf(session("other", "0000aaaa")));
 		assert.equal(changes.length, 0);
 		store.observe(boardOf(session("new-one", "feedbeef")));
@@ -160,9 +160,20 @@ describe("createLayoutStore", () => {
 		assert.match(await readFile(file, "utf8"), /new-one/);
 	});
 
+	it("places a cloud session by its id", async () => {
+		const { store } = await setup();
+		store.expect(cwd, { x: 96, y: 144 })({ id: "session_01abc" });
+		store.observe(boardOf(session("other", null)));
+		assert.deepEqual(store.current(), {});
+		store.observe(boardOf(session("session_01abc", null)));
+		assert.deepEqual(store.current(), {
+			"session:session_01abc": { x: 96, y: 144 },
+		});
+	});
+
 	it("forgets a spawn that never appears", async () => {
 		const { store, advance } = await setup();
-		store.expect(cwd, { x: 1, y: 1 })("feedbeef");
+		store.expect(cwd, { x: 1, y: 1 })({ short: "feedbeef" });
 		advance(11 * 60_000);
 		store.observe(boardOf());
 		store.observe(boardOf(session("late", "feedbeef")));
@@ -181,7 +192,7 @@ describe("createLayoutStore", () => {
 			),
 		);
 		assert.deepEqual(store.current(), { "session:early": { x: 96, y: 144 } });
-		settle("feedbeef");
+		settle({ short: "feedbeef" });
 		store.observe(
 			boardOf({ ...session("early", "feedbeef"), startedAt: 1_070 }),
 		);

@@ -1,6 +1,6 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { MirrorKey } from "../shared/types.ts";
+import type { MirrorKey, RunsOn } from "../shared/types.ts";
 
 export type AuditEvent =
 	| { action: "attach-open"; short: string; identity: string | null }
@@ -16,6 +16,7 @@ export type AuditEvent =
 			name: string | null;
 			images?: number;
 			account?: number | null;
+			runsOn?: RunsOn;
 			identity: string | null;
 			result: string;
 	  }
