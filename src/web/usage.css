@@ -15,30 +15,6 @@
 	--usage-session: #5a8fdc;
 }
 
-.usage-pill {
-	gap: 8px;
-	font-family: inherit;
-	cursor: pointer;
-}
-
-.usage-reading {
-	display: inline-flex;
-	align-items: baseline;
-	gap: 4px;
-}
-
-.usage-pill.usage-warning > svg:first-child {
-	color: var(--amber);
-}
-
-.usage-pill.usage-critical {
-	border-color: var(--failed-edge);
-}
-
-.usage-pill.usage-critical > svg:first-child {
-	color: var(--failed-edge);
-}
-
 .usage-spark path,
 .usage-line {
 	fill: none;
@@ -52,26 +28,24 @@
 	stroke-width: 1.5;
 }
 
-.usage-popover {
-	position: fixed;
-	inset: calc(var(--topbar) + 6px) 16px auto auto;
-	width: min(320px, calc(100vw - 32px));
-	margin: 0;
-	padding: 14px 16px 12px;
-	border: 1px solid var(--hairline);
-	border-radius: var(--radius);
-	background: var(--surface);
-	color: var(--ink);
-	box-shadow: var(--shadow-pop);
+.usage-view {
+	padding: 10px 10px 12px;
 	font-size: 12.5px;
-	max-height: calc(100vh - var(--topbar) - 22px);
-	overflow-y: auto;
 }
 
-.usage-popover h2 {
+.usage-owner {
 	margin: 0 0 10px;
-	font-size: 13px;
-	font-weight: 600;
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	min-width: 0;
+}
+
+.usage-owner-email {
+	color: var(--muted);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .usage-windows {
@@ -206,10 +180,6 @@
 	color: var(--failed-ink);
 }
 
-.usage-pill.usage-stale .num {
-	color: var(--muted);
-}
-
 .usage-account {
 	font-weight: 600;
 }
@@ -315,11 +285,4 @@
 	margin: 0;
 	color: var(--failed-ink);
 	font-size: 11.5px;
-}
-
-@media (max-width: 900px) {
-	.usage-name,
-	.usage-pill .usage-spark {
-		display: none;
-	}
 }

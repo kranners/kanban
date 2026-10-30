@@ -1,9 +1,9 @@
 import "./usage.css";
-import { Gauge, TriangleAlert } from "lucide-preact";
 import type { JSX } from "preact";
 import { useState } from "preact/hooks";
 import type {
 	AccountUsage,
+	Usage,
 	UsageSample,
 	UsageWindow,
 } from "../shared/types.ts";
@@ -17,6 +17,7 @@ import {
 	linePath,
 	makeDefault,
 	nearestSample,
+	type Severity,
 	severity,
 	untilReset,
 	usage,
@@ -49,93 +50,77 @@ const sparkFrame = (to: number): Frame => ({
 	height: 14,
 });
 
-export function UsagePill(): JSX.Element | null {
+export function usageGlance(current: Usage): {
+	level: Severity;
+	stale: boolean;
+	label: string;
+} {
+	const { session, week, error, accounts } = current;
+	const chosen = accounts.length > 1 ? defaultAccount(current) : null;
+	const owner = chosen ? ` on ${accountLabel(chosen)} (${chosen.email})` : "";
+	return {
+		level: worst(session, week),
+		stale: error !== null,
+		label: `Claude usage${owner}: 5-hour session ${percent(session)}, week ${percent(week)}${error ? `; ${error}` : ""}`,
+	};
+}
+
+export function UsageView(): JSX.Element | null {
 	const current = usage.value;
 	if (!current) return null;
-	const { session, week, samples, error, accounts } = current;
-	const level = worst(session, week);
+	const { samples, error, accounts } = current;
 	const at = now.value;
 	const chosen = accounts.length > 1 ? defaultAccount(current) : null;
-	const chip = chosen ? accountLabel(chosen) : null;
-	const owner = chosen ? ` on ${chip} (${chosen.email})` : "";
 	return (
-		<>
-			<button
-				type="button"
-				class={`pill usage-pill usage-${level}${error ? " usage-stale" : ""}`}
-				popovertarget="usage-popover"
-				aria-label={`Claude usage${owner}: 5-hour session ${percent(session)}, week ${percent(week)}${error ? `; ${error}` : ""}`}
-				title={error ?? `Claude usage${owner}`}
-			>
-				{level === "normal" && !error ? (
-					<Gauge size={13} aria-hidden="true" />
-				) : (
-					<TriangleAlert size={13} strokeWidth={2.25} aria-hidden="true" />
-				)}
-				{chip && <span class="usage-account">{chip}</span>}
-				<span class="usage-reading">
-					<span class="usage-name">5h</span>
-					<span class="num">{percent(session)}</span>
-				</span>
-				<span class="usage-reading">
-					<span class="usage-name">Week</span>
-					<span class="num">{percent(week)}</span>
-				</span>
-				<svg
-					class="usage-spark"
-					viewBox="0 0 40 14"
-					width="40"
-					height="14"
-					aria-hidden="true"
-				>
-					<path d={linePath(samples, "week", sparkFrame(at))} />
-				</svg>
-			</button>
-			<div id="usage-popover" popover="auto" class="usage-popover">
-				<h2>Claude usage{chip ? ` · ${chip}` : ""}</h2>
-				<dl class="usage-windows">
-					{series.map(({ key, label }) => {
-						const window = current[key];
-						return (
-							<div key={key} class={`usage-window series-${key}`}>
-								<dt>
-									<span class="usage-key" aria-hidden="true" />
-									{label}
-								</dt>
-								<dd>
-									<span class="num">{percent(window)}</span>
-									{window?.resetsAt != null && (
-										<span
-											class="usage-reset"
-											title={`Resets ${clock(window.resetsAt)}`}
-										>
-											resets in {untilReset(window.resetsAt, at)}
-										</span>
-									)}
-								</dd>
-								<span class="usage-bar" aria-hidden="true">
-									<span
-										style={{
-											width: `${Math.min(100, window?.percent ?? 0)}%`,
-										}}
-									/>
-								</span>
-							</div>
-						);
-					})}
-				</dl>
-				<UsageChart samples={samples} to={at} />
-				{accounts.some((account) => !account.isDefault) && (
-					<AccountList accounts={accounts} at={at} />
-				)}
-				<p class={`usage-status${error ? " usage-error" : ""}`}>
-					{error ??
-						(current.checkedAt
-							? `Checked ${ago(current.checkedAt, at)}`
-							: "Checking…")}
+		<div class="usage-view">
+			{chosen && (
+				<p class="usage-owner">
+					<span class="usage-account">{accountLabel(chosen)}</span>
+					<span class="usage-owner-email">{chosen.email}</span>
 				</p>
-			</div>
-		</>
+			)}
+			<dl class="usage-windows">
+				{series.map(({ key, label }) => {
+					const window = current[key];
+					return (
+						<div key={key} class={`usage-window series-${key}`}>
+							<dt>
+								<span class="usage-key" aria-hidden="true" />
+								{label}
+							</dt>
+							<dd>
+								<span class="num">{percent(window)}</span>
+								{window?.resetsAt != null && (
+									<span
+										class="usage-reset"
+										title={`Resets ${clock(window.resetsAt)}`}
+									>
+										resets in {untilReset(window.resetsAt, at)}
+									</span>
+								)}
+							</dd>
+							<span class="usage-bar" aria-hidden="true">
+								<span
+									style={{
+										width: `${Math.min(100, window?.percent ?? 0)}%`,
+									}}
+								/>
+							</span>
+						</div>
+					);
+				})}
+			</dl>
+			<UsageChart samples={samples} to={at} />
+			{accounts.some((account) => !account.isDefault) && (
+				<AccountList accounts={accounts} at={at} />
+			)}
+			<p class={`usage-status${error ? " usage-error" : ""}`}>
+				{error ??
+					(current.checkedAt
+						? `Checked ${ago(current.checkedAt, at)}`
+						: "Checking…")}
+			</p>
+		</div>
 	);
 }
 

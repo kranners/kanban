@@ -24,7 +24,10 @@ export const focusedSessionId = signal<string | null>(null);
 export const focusedSubagentId = signal<string | null>(null);
 export const newSessionOpen = signal(false);
 export const awaitingShort = signal<string | null>(null);
-export const railOpen = signal(innerWidth > 720);
+export type RailView = "search" | "status" | "usage" | "messages";
+export const railView = signal<RailView | null>(
+	innerWidth > 720 ? "messages" : null,
+);
 const wide = matchMedia("(min-width: 1280px)");
 export const docked = signal(wide.matches);
 wide.addEventListener("change", () => {
