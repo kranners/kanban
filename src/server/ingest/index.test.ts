@@ -1095,3 +1095,59 @@ describe("startBoard with cloud sessions", () => {
 		);
 	});
 });
+
+describe("startBoard with a remote-control session on this Mac", () => {
+	const bridged = "session_01bridged";
+	let handle: ReturnType<typeof startBoard>;
+
+	before(() => {
+		home = mkdtempSync(join(tmpdir(), "kanban-bridge-"));
+		write(`default/sessions/${process.pid}.json`, {
+			pid: process.pid,
+			sessionId: lead,
+			cwd: "/Users/me/dev/acme-api",
+			startedAt: now - 60_000,
+			kind: "interactive",
+			entrypoint: "sdk-cli",
+			bridgeSessionId: bridged,
+			status: "idle",
+			updatedAt: now - 30_000,
+		});
+		jsonl(`cloud/${bridged}.jsonl`, []);
+		jsonl("cloud/session_01elsewhere.jsonl", []);
+		const cloudSession = {
+			cwd: "/Users/me/dev/acme-api",
+			name: "acme-api",
+			createdAt: now - 60_000,
+			updatedAt: now - 30_000,
+			activity: "idle" as const,
+			detail: null,
+		};
+		handle = startBoard({
+			claudeHome: join(home, "default"),
+			cloud: () =>
+				[bridged, "session_01elsewhere"].map((id) => ({
+					...cloudSession,
+					id,
+					url: `https://claude.ai/code/${id}`,
+					transcript: join(home, "cloud", `${id}.jsonl`),
+				})),
+			onChange: () => {},
+		});
+	});
+
+	after(() => {
+		handle.stop();
+		rmSync(home, { recursive: true, force: true });
+	});
+
+	test("shows the cloud card, which can take prompts, instead of its read-only local twin", () => {
+		assert.deepEqual(
+			handle
+				.board()
+				.sessions.map((session) => session.id)
+				.sort(),
+			[bridged, "session_01elsewhere"],
+		);
+	});
+});

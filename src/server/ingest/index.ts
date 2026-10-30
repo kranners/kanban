@@ -127,12 +127,17 @@ export function startBoard(opts: {
 	function build(): Board {
 		const now = Date.now();
 		const homes = [claudeHome, ...profiles()];
+		const clouds = cloud().filter((cs) => !ignore(cs.id, cs.cwd));
+		const cloudIds = new Set(clouds.map((cs) => cs.id));
 		const registry = homes
 			.flatMap((home) =>
 				readRegistry(home).map((entry) => ({ ...entry, home })),
 			)
 			.filter(
-				(entry) => !ignore(entry.sessionId, entry.cwd) && isAlive(entry.pid),
+				(entry) =>
+					!ignore(entry.sessionId, entry.cwd) &&
+					!cloudIds.has(entry.bridgeSessionId ?? "") &&
+					isAlive(entry.pid),
 			);
 		for (const entry of registry) {
 			byPid.set(entry.pid, entry.sessionId);
@@ -157,7 +162,6 @@ export function startBoard(opts: {
 		for (const item of [...tracked.values()].sort(byStartedAt)) {
 			if (item.tail) advanceTail(item.tail, resolve);
 		}
-		const clouds = cloud().filter((cs) => !ignore(cs.id, cs.cwd));
 		const cloudTails = new Map(
 			clouds.map((cs) => {
 				const existing = tails.get(cs.id);
@@ -530,6 +534,7 @@ function toCloudSession(cs: CloudSession, tail: Tail | null): Session {
 		tasks: [...(facts?.tasks.values() ?? [])],
 		steps: [...(facts?.steps ?? [])],
 		cloud: { url: cs.url },
+		...(cs.configDir ? { configDir: cs.configDir } : {}),
 	};
 }
 

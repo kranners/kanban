@@ -28,11 +28,14 @@ import {
 	summariesOfBoard,
 } from "./boardTools.ts";
 import {
+	type CloudApi,
 	cloudCredentials,
 	cloudLauncher,
 	cloudTty,
 	createCloudApi,
 	createCloudSessions,
+	remoteLauncher,
+	runsOnBlocker,
 } from "./cloud.ts";
 import { cmuxCli, createCmuxTargets } from "./cmux.ts";
 import { createColourStore, loadColours } from "./colours.ts";
@@ -167,7 +170,10 @@ const usagePoll = setInterval(() => {
 const switchAccount = cswapSwitch(config.cswapBin);
 const makeDefault = async (account: number) => {
 	const result = await switchAccount(account);
-	if (result.ok) await accounts.check();
+	if (result.ok) {
+		cloudApis.delete(config.claudeHome);
+		await accounts.check();
+	}
 	return result;
 };
 const probes = new Set<string>();
@@ -192,15 +198,25 @@ const syncCmuxOnNewPids = (board: Board) => {
 	interactivePids = pids;
 	void syncCmux();
 };
+const cloudApis = new Map<string, CloudApi>();
+const cloudApiFor = (configDir?: string): CloudApi => {
+	const claudeHome =
+		configDir === undefined ||
+		configDir === defaultOf(accounts.current())?.configDir
+			? config.claudeHome
+			: configDir;
+	const known = cloudApis.get(claudeHome);
+	if (known) return known;
+	const api = createCloudApi({
+		credentials: cloudCredentials({ claudeBin: config.claudeBin, claudeHome }),
+	});
+	cloudApis.set(claudeHome, api);
+	return api;
+};
 const cloud = await createCloudSessions({
 	file: join(config.stateDir, "cloud.json"),
 	dir: join(config.stateDir, "cloud"),
-	api: createCloudApi({
-		credentials: cloudCredentials({
-			claudeBin: config.claudeBin,
-			claudeHome: config.claudeHome,
-		}),
-	}),
+	apiFor: cloudApiFor,
 	onChange: () => source.refresh(),
 });
 const source = startBoard({
@@ -281,19 +297,34 @@ const runRegionReport = createRegionReportRunner({
 });
 const agentHost = isLoopback(config.host) ? config.host : "127.0.0.1";
 const boardUrl = `http://${agentHost.includes(":") ? `[${agentHost}]` : agentHost}:${config.port}`;
+const profileOf = (number: number) =>
+	accounts
+		.current()
+		.accounts.find((account) => account.number === number && !account.isDefault)
+		?.configDir ?? null;
+const accountApi = (account?: number) =>
+	cloudApiFor((account === undefined ? null : profileOf(account)) ?? undefined);
 const launch = routedLauncher(
 	claudeLauncher(config.claudeBin, join(config.stateDir, "images"), {
 		cswapBin: config.cswapBin,
-		profileOf: (number) =>
-			accounts
-				.current()
-				.accounts.find(
-					(account) => account.number === number && !account.isDefault,
-				)?.configDir ?? null,
+		profileOf,
 		settings: peerHookSettings(boardUrl),
 	}),
-	cloudLauncher(config.claudeBin),
+	cloudLauncher({
+		claudeBin: config.claudeBin,
+		cswapBin: config.cswapBin,
+		profileOf,
+	}),
+	remoteLauncher({ apiFor: cloudApiFor, profileOf }),
 	cloud.add,
+	(account) =>
+		accounts
+			.current()
+			.accounts.find((candidate) =>
+				account === undefined
+					? candidate.isDefault
+					: candidate.number === account,
+			)?.configDir,
 );
 const attachPty = claudeAttachPty(config.claudeBin);
 const attach = createAttachHub(attachPty, audit, (short) =>
@@ -306,7 +337,7 @@ const conversation = createConversationHub({
 	block: source.block,
 	tty: (session) => {
 		if (session.cloud) {
-			return cloudTty(cloud, session.id, () => attach.screen(session.id));
+			return cloudTty(cloud, session.id);
 		}
 		const short = session.short;
 		if (session.kind === "background" && session.attachable && short) {
@@ -389,6 +420,8 @@ const server = createKanbanServer({
 	files: (cwd, query) =>
 		listFiles({ cwd, query, claudeHome: config.claudeHome }),
 	commands: (cwd) => listCommands({ claudeHome: config.claudeHome, cwd }),
+	cloudBlocker: runsOnBlocker(accountApi),
+	remoteHosts: (account) => accountApi(account).hosts(),
 	pickFolder: osascriptFolderPicker(),
 	makeDefault,
 	feed,

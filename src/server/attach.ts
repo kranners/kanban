@@ -15,12 +15,7 @@ export type AttachPty = {
 	kill(signal?: string): void;
 };
 
-export type AttachTarget = {
-	short: string;
-	cwd: string;
-	configDir?: string;
-	cloud?: boolean;
-};
+export type AttachTarget = { short: string; cwd: string; configDir?: string };
 
 export type PtyFactory = (
 	target: AttachTarget,
@@ -50,9 +45,6 @@ const escapeDebounceMs = 1000;
 
 export const isValidShort = (short: string): boolean =>
 	/^[0-9a-f]{8}$/.test(short);
-
-export const isAttachKey = (key: string): boolean =>
-	isValidShort(key) || /^session_[A-Za-z0-9]{1,128}$/.test(key);
 
 const clampDimension = (raw: unknown, fallback: number): number => {
 	const value = Number(raw);
@@ -132,8 +124,8 @@ export const escapeGuard = (
 
 export const claudeAttachPty =
 	(claudeBin: string): PtyFactory =>
-	({ short, cwd, configDir, cloud }, cols, rows) =>
-		pty.spawn(claudeBin, cloud ? [`--cloud=${short}`] : ["attach", short], {
+	({ short, cwd, configDir }, cols, rows) =>
+		pty.spawn(claudeBin, ["attach", short], {
 			name: "xterm-256color",
 			cols,
 			rows,

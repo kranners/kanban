@@ -158,9 +158,7 @@ export async function spawnFromPrompt(
 		...(images.length ? { images } : {}),
 		at: open.at,
 		runsOn: place.runsOn,
-		...(place.runsOn === "local" && place.account !== undefined
-			? { account: place.account }
-			: {}),
+		...(place.account !== undefined ? { account: place.account } : {}),
 	});
 	if (!result.ok) return result.error;
 	if (open.region) growToHold(open.region, open.cwd, open.at);

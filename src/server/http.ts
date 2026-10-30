@@ -12,19 +12,21 @@ import { type Duplex, pipeline } from "node:stream";
 import { WebSocketServer } from "ws";
 import { parseToolCall } from "../agent/tools.ts";
 import { maxImageBytes, maxPromptImages } from "../shared/promptImages.ts";
-import type {
-	AccountResult,
-	Board,
-	NodeRef,
-	Session,
-	TranscriptEntry,
+import {
+	type AccountResult,
+	type Board,
+	landingId,
+	type NodeRef,
+	type RemoteHost,
+	type Session,
+	type TranscriptEntry,
 } from "../shared/types.ts";
 import { type AgentTokens, fromLoopback } from "./agentAuth.ts";
 import { type AnnotationStore, parseAnnotation } from "./annotations.ts";
 import {
 	type AttachHub,
 	type AttachTarget,
-	isAttachKey,
+	isValidShort,
 	parseSize,
 	type TerminalSize,
 } from "./attach.ts";
@@ -66,7 +68,6 @@ import {
 import type { RegionReportRunner, ReportRunner } from "./reports.ts";
 import {
 	isAccountNumber,
-	landingId,
 	type SessionLauncher,
 	validateNewSession,
 } from "./sessions.ts";
@@ -101,6 +102,14 @@ export type ServerDeps = {
 	conversation: ConversationHub;
 	files(cwd: string, query: string): Promise<FileListing>;
 	commands(cwd: string): Promise<SlashCommand[]>;
+	cloudBlocker(
+		cwd: string,
+		runsOn: string,
+		account?: number,
+	): Promise<string | null>;
+	remoteHosts(
+		account?: number,
+	): Promise<{ ok: true; value: RemoteHost[] } | { ok: false; error: string }>;
 	pickFolder: FolderPicker;
 	makeDefault(account: number): Promise<AccountResult>;
 	feed: Feed;
@@ -113,6 +122,8 @@ export type Route =
 	| { kind: "files"; sessionId: string; query: string }
 	| { kind: "commands"; sessionId: string }
 	| { kind: "create-session" }
+	| { kind: "cloud-blocker"; cwd: string; runsOn: string; account?: number }
+	| { kind: "remote-hosts"; account?: number }
 	| { kind: "pick-folder" }
 	| { kind: "set-default-account" }
 	| { kind: "exit-session"; sessionId: string }
@@ -178,6 +189,11 @@ const parseLimit = (raw: string | null): number => {
 	return Math.min(limit, maxTranscriptLimit);
 };
 
+const accountQuery = (url: URL): { account?: number } => {
+	const account = Number(url.searchParams.get("account"));
+	return isAccountNumber(account) ? { account } : {};
+};
+
 export const matchRoute = (method: string, url: URL): Route => {
 	const path = url.pathname;
 	if (path === "/healthz") {
@@ -210,6 +226,21 @@ export const matchRoute = (method: string, url: URL): Route => {
 	if (path === "/api/sessions") {
 		return method === "POST"
 			? { kind: "create-session" }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/cloud-blocker") {
+		return method === "GET"
+			? {
+					kind: "cloud-blocker",
+					cwd: url.searchParams.get("cwd") ?? "",
+					runsOn: url.searchParams.get("runsOn") ?? "cloud",
+					...accountQuery(url),
+				}
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/remote-hosts") {
+		return method === "GET"
+			? { kind: "remote-hosts", ...accountQuery(url) }
 			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api/accounts/default") {
@@ -318,7 +349,7 @@ export const matchRoute = (method: string, url: URL): Route => {
 export const matchUpgrade = (url: URL): UpgradeRoute | null => {
 	if (url.pathname === "/api/feed") return { kind: "feed" };
 	const attach = url.pathname.match(/^\/api\/attach\/([^/]+)$/);
-	if (attach?.[1] && isAttachKey(attach[1])) {
+	if (attach?.[1] && isValidShort(attach[1])) {
 		return {
 			kind: "attach",
 			short: attach[1],
@@ -439,10 +470,6 @@ const rejectUpgrade = (socket: Duplex, status: number) => {
 };
 
 const attachTarget = (board: Board, short: string): AttachTarget | null => {
-	const cloud = board.sessions.find(
-		(session) => session.cloud && session.id === short,
-	);
-	if (cloud) return { short, cwd: cloud.cwd, cloud: true };
 	const session = board.sessions.find(
 		(session) =>
 			session.short === short &&
@@ -917,6 +944,22 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			}
 			case "create-session":
 				return createSession(req, res, auth.identity);
+			case "cloud-blocker":
+				return sendJson(res, 200, {
+					reason: await deps.cloudBlocker(
+						route.cwd,
+						route.runsOn,
+						route.account,
+					),
+				});
+			case "remote-hosts": {
+				const hosts = await deps.remoteHosts(route.account);
+				return sendJson(
+					res,
+					200,
+					hosts.ok ? { hosts: hosts.value } : { hosts: [], error: hosts.error },
+				);
+			}
 			case "set-default-account":
 				return setDefaultAccount(req, res, auth.identity);
 			case "pick-folder":

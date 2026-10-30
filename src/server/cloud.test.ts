@@ -1,21 +1,27 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
+import type { RunsOn } from "../shared/types.ts";
 import {
 	type CloudApi,
 	type CloudEvent,
 	type CloudPty,
 	type CloudSessionInfo,
 	type CloudSessions,
+	cloudBlocker,
 	cloudCredentials,
 	cloudLauncher,
 	cloudTty,
 	createCloudApi,
 	createCloudSessions,
 	parseCloudCreated,
+	remoteLauncher,
+	runsOnBlocker,
 } from "./cloud.ts";
+import { keychainService } from "./usage.ts";
 
 const id = "session_01Thu3Jg2qaDGVcVCQbuTiuP";
 const esc = String.fromCharCode(27);
@@ -151,6 +157,101 @@ describe("createCloudApi", () => {
 		assert.match(!missing.ok ? missing.error : "", /HTTP 404/);
 	});
 
+	it("lists only the online remote-control hosts", async () => {
+		const bridge = (environment_id: string, online: boolean) => ({
+			kind: "bridge",
+			environment_id,
+			name: `pilot:repo:${environment_id}`,
+			bridge_info: {
+				machine_name: "pilot",
+				directory: "/private/tmp/repo",
+				online,
+			},
+		});
+		const { fetch, calls } = fakeFetch(() => ({
+			body: {
+				environments: [
+					bridge("env_01live", true),
+					bridge("env_01dead", false),
+					{
+						kind: "anthropic_cloud",
+						environment_id: "env_01cloud",
+						name: "Default",
+						bridge_info: null,
+					},
+				],
+				has_more: false,
+			},
+		}));
+		const api = createCloudApi({ credentials, fetch });
+		assert.deepEqual(await api.hosts(), {
+			ok: true,
+			value: [
+				{
+					id: "env_01live",
+					name: "pilot:repo:env_01live",
+					machine: "pilot",
+					directory: "/private/tmp/repo",
+				},
+			],
+		});
+		assert.equal(
+			calls[0]?.url,
+			"https://api.anthropic.com/v1/environment_providers",
+		);
+		assert.equal(calls[0]?.method, "GET");
+	});
+
+	it("creates a session on a remote-control host with the first prompt", async () => {
+		const { fetch, calls } = fakeFetch(() => ({
+			body: { id, session_status: "pending" },
+		}));
+		const api = createCloudApi({ credentials, fetch });
+		assert.deepEqual(
+			await api.create("env_01live", "/private/tmp/repo", "Say PONG", "probe"),
+			{ ok: true, value: id },
+		);
+		const [create] = calls;
+		assert.equal(
+			create?.url,
+			"https://api.anthropic.com/v1/sessions?beta=true",
+		);
+		assert.equal(create?.method, "POST");
+		const body = create?.body as {
+			events: { data: Record<string, unknown> }[];
+		};
+		const data = body.events[0]?.data;
+		assert.match(String(data?.uuid), /^[0-9a-f-]{36}$/);
+		assert.deepEqual(
+			{
+				...body,
+				events: [{ ...body.events[0], data: { ...data, uuid: "u" } }],
+			},
+			{
+				title: "probe",
+				environment_id: "env_01live",
+				source: "remote-control",
+				session_context: {
+					sources: [],
+					outcomes: [],
+					cwd: "/private/tmp/repo",
+				},
+				events: [
+					{
+						type: "event",
+						data: {
+							type: "user",
+							uuid: "u",
+							session_id: "",
+							parent_tool_use_id: null,
+							message: { role: "user", content: "Say PONG" },
+						},
+					},
+				],
+			},
+		);
+	});
+
 	it("reports a sign-in problem without the token", async () => {
 		const api = createCloudApi({
 			credentials: async () => {
@@ -167,7 +268,7 @@ describe("createCloudApi", () => {
 });
 
 describe("cloudCredentials", () => {
-	const setup = async (expiresAt: () => number) => {
+	const setup = async (expiresAt: () => number, clock = { now: 1_000_000 }) => {
 		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-creds-"));
 		const configFile = join(dir, "claude.json");
 		await writeFile(
@@ -178,7 +279,7 @@ describe("cloudCredentials", () => {
 		const read = cloudCredentials({
 			claudeBin: "claude",
 			configFile,
-			now: () => 1_000_000,
+			now: () => clock.now,
 			run: async (file, args) => {
 				runs.push([file, ...args].join(" "));
 				return JSON.stringify({
@@ -204,11 +305,92 @@ describe("cloudCredentials", () => {
 
 	it("asks claude to refresh an expired token, then gives up", async () => {
 		let refreshed = false;
-		const { read, runs } = await setup(() => (refreshed ? 2_000_000 : 0));
+		const clock = { now: 1_000_000 };
+		const { read, runs } = await setup(
+			() => (refreshed ? 2_000_000 : 0),
+			clock,
+		);
 		await assert.rejects(read(), /Cloud sign-in expired/);
 		assert.equal(runs[1], "claude auth status");
 		refreshed = true;
+		await assert.rejects(read(), /Cloud sign-in expired/);
+		assert.equal(runs.length, 3);
+		clock.now += 60_000;
 		assert.equal((await read()).expiresAt, 2_000_000);
+	});
+
+	it("shares one keychain read between concurrent callers", async () => {
+		const { read, runs } = await setup(() => 2_000_000);
+		await Promise.all([read(), read(), read()]);
+		assert.equal(runs.length, 1);
+	});
+
+	it("rereads the keychain once told the token was refused", async () => {
+		const { read, runs } = await setup(() => 2_000_000);
+		await read();
+		read.forget();
+		await read();
+		assert.equal(runs.length, 2);
+	});
+
+	it("reads a cswap profile's own sign-in and refreshes it there", async () => {
+		const profile = await mkdtemp(join(tmpdir(), "kanban-cloud-profile-"));
+		await writeFile(
+			join(profile, ".claude.json"),
+			JSON.stringify({ oauthAccount: { organizationUuid: "profile-org" } }),
+		);
+		await writeFile(
+			join(profile, ".credentials.json"),
+			JSON.stringify({
+				claudeAiOauth: { accessToken: "seeded", expiresAt: 500_000 },
+			}),
+		);
+		let profileClock = 1_000_000;
+		const runs: [string, string | undefined][] = [];
+		const read = cloudCredentials({
+			claudeBin: "claude",
+			claudeHome: profile,
+			now: () => profileClock,
+			run: async (file, args, env) => {
+				runs.push([[file, ...args].join(" "), env.CLAUDE_CONFIG_DIR]);
+				throw new Error("not in the keychain");
+			},
+		});
+		await assert.rejects(read(), /Cloud sign-in expired/);
+		assert.deepEqual(runs, [
+			[
+				`security find-generic-password -s ${keychainService(profile)} -w`,
+				profile,
+			],
+			["claude auth status", profile],
+			[
+				`security find-generic-password -s ${keychainService(profile)} -w`,
+				profile,
+			],
+		]);
+		await writeFile(
+			join(profile, ".credentials.json"),
+			JSON.stringify({
+				claudeAiOauth: { accessToken: "seeded", expiresAt: 2_000_000 },
+			}),
+		);
+		profileClock += 60_000;
+		assert.deepEqual(await read(), {
+			token: "seeded",
+			expiresAt: 2_000_000,
+			org: "profile-org",
+		});
+	});
+
+	it("says to sign in when neither the keychain nor a file has it", async () => {
+		const profile = await mkdtemp(join(tmpdir(), "kanban-cloud-profile-"));
+		const read = cloudCredentials({
+			claudeHome: profile,
+			run: async () => {
+				throw new Error("not in the keychain");
+			},
+		});
+		await assert.rejects(read(), /need claude signed in to claude.ai/);
 	});
 });
 
@@ -218,6 +400,7 @@ type FakeCloud = {
 	log: Map<string, CloudEvent[]>;
 	cursors: (string | null)[];
 	archived: string[];
+	down: Set<string>;
 };
 
 const event = (uuid: string, at: string): CloudEvent => ({
@@ -233,8 +416,12 @@ const fakeCloud = (): FakeCloud => {
 		log: new Map(),
 		cursors: [],
 		archived: [],
+		down: new Set(),
 		api: {
 			get: async (sessionId) => {
+				if (fake.down.has(sessionId)) {
+					return { ok: false, error: "Cloud API GET failed with HTTP 500" };
+				}
 				const info = fake.info.get(sessionId);
 				return info
 					? { ok: true, value: info }
@@ -248,8 +435,13 @@ const fakeCloud = (): FakeCloud => {
 					: 0;
 				return { ok: true, value: events.slice(from) };
 			},
+			hosts: async () => ({ ok: true, value: [] }),
+			create: async () => ({ ok: false, error: "not a host" }),
 			send: async () => ({ ok: true, value: null }),
 			archive: async (sessionId) => {
+				if (!fake.info.has(sessionId)) {
+					return { ok: false, error: "Cloud API POST failed with HTTP 404" };
+				}
 				fake.archived.push(sessionId);
 				return { ok: true, value: null };
 			},
@@ -282,7 +474,7 @@ const storeIn = async (dir: string, fake: FakeCloud) => {
 	const store = await createCloudSessions({
 		file: join(dir, "cloud.json"),
 		dir: join(dir, "cloud"),
-		api: fake.api,
+		apiFor: () => fake.api,
 		pollMs: 5,
 		onChange: () => {
 			changes += 1;
@@ -292,7 +484,7 @@ const storeIn = async (dir: string, fake: FakeCloud) => {
 };
 
 const mirrored = async (store: CloudSessions) =>
-	(await readFile(store.transcriptPath(id) ?? "", "utf8"))
+	(await readFile(store.transcriptPath(id) ?? "", "utf8").catch(() => ""))
 		.split("\n")
 		.filter(Boolean)
 		.map((line) => JSON.parse(line) as CloudEvent & { timestamp: string });
@@ -406,6 +598,88 @@ describe("createCloudSessions", () => {
 		second.store.stop();
 	});
 
+	it("opens the mirror with the first prompt, which the events leave out", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		fake.info.set(id, info("idle", "2026-10-30T12:00:01Z"));
+		fake.log.set(id, [event("e1", "2026-10-30T12:00:01Z")]);
+		const opened = {
+			...record,
+			createdAt: Date.parse("2026-10-30T12:00:00Z"),
+			prompt: "Probe it",
+		};
+		const first = await storeIn(dir, fake);
+		first.store.add(opened);
+		const expected = [
+			["user", "Probe it", "2026-10-30T12:00:00.000Z"],
+			["assistant", [{ type: "text", text: "e1" }], "2026-10-30T12:00:01Z"],
+		];
+		const shape = async (store: CloudSessions) =>
+			(await mirrored(store)).map((line) => [
+				line.type,
+				(line as { message?: { content?: unknown } }).message?.content,
+				line.timestamp,
+			]);
+		await until(async () => (await mirrored(first.store)).length === 2);
+		assert.deepEqual(await shape(first.store), expected);
+		first.store.stop();
+
+		const second = await storeIn(dir, fake);
+		await until(async () => (await mirrored(second.store)).length === 2);
+		assert.deepEqual(await shape(second.store), expected);
+		second.store.stop();
+	});
+
+	it("talks to each session through its own account", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const mine = fakeCloud();
+		const theirs = fakeCloud();
+		const other = "session_01Other";
+		mine.info.set(id, info("idle", "2026-10-30T12:00:00Z"));
+		theirs.info.set(other, {
+			...info("idle", "2026-10-30T12:00:00Z"),
+			id: other,
+		});
+		const asked: (string | undefined)[] = [];
+		const store = await createCloudSessions({
+			file: join(dir, "cloud.json"),
+			dir: join(dir, "cloud"),
+			apiFor: (configDir) => {
+				asked.push(configDir);
+				return configDir === "/profiles/2" ? theirs.api : mine.api;
+			},
+			pollMs: 5,
+			onChange: () => {},
+		});
+		store.add(record);
+		store.add({ ...record, id: other, configDir: "/profiles/2" });
+		await until(() =>
+			store.sessions().every((session) => session.name === "Probe the cloud"),
+		);
+		assert.deepEqual(
+			store.sessions().map((session) => [session.id, session.configDir]),
+			[
+				[id, undefined],
+				[other, "/profiles/2"],
+			],
+		);
+		assert.ok(asked.includes(undefined) && asked.includes("/profiles/2"));
+		await until(async () =>
+			(
+				await readFile(join(dir, "cloud.json"), "utf8").catch(() => "")
+			).includes("/profiles/2"),
+		);
+		assert.deepEqual(await store.archive(other), { ok: true, value: null });
+		assert.deepEqual(theirs.archived, [other]);
+		assert.deepEqual(mine.archived, []);
+		assert.equal((await store.archive("session_01Gone")).ok, false);
+		await until(async () => {
+			const saved = JSON.parse(await readFile(join(dir, "cloud.json"), "utf8"));
+			return saved.length === 1 && saved[0].id === id;
+		});
+		store.stop();
+	});
+
 	it("keeps the last known state and logs a failure once", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
 		const fake = fakeCloud();
@@ -417,15 +691,50 @@ describe("createCloudSessions", () => {
 		try {
 			store.add(record);
 			await until(() => store.sessions()[0]?.name === "Probe the cloud");
-			fake.info.delete(id);
+			fake.down.add(id);
 			await until(() => logged.length > 0);
 			await new Promise((resolve) => setTimeout(resolve, 40));
 		} finally {
 			console.error = original;
 		}
 		assert.equal(logged.length, 1);
-		assert.match(logged[0] ?? "", /HTTP 404/);
+		assert.match(logged[0] ?? "", /HTTP 500/);
 		assert.equal(store.sessions()[0]?.activity, "working");
+		store.stop();
+	});
+
+	it("drops a session claude.ai no longer has, by poll or by exit", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		fake.info.set(id, info("running", "2026-10-30T12:00:00Z"));
+		const { store } = await storeIn(dir, fake);
+		store.add(record);
+		await until(() => store.sessions()[0]?.name === "Probe the cloud");
+		fake.info.delete(id);
+		await until(() => store.sessions().length === 0);
+		store.add(record);
+		assert.deepEqual(await store.archive(id), { ok: true, value: null });
+		assert.deepEqual(store.sessions(), []);
+		store.stop();
+	});
+
+	it("logs a poll that throws instead of crashing the board", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		fake.api.get = async () => {
+			throw new TypeError("unexpected body");
+		};
+		const { store } = await storeIn(dir, fake);
+		const logged: string[] = [];
+		const original = console.error;
+		console.error = (...args: unknown[]) => logged.push(args.join(" "));
+		try {
+			store.add(record);
+			await until(() => logged.length > 0);
+		} finally {
+			console.error = original;
+		}
+		assert.match(logged[0] ?? "", /unexpected body/);
 		store.stop();
 	});
 });
@@ -435,6 +744,7 @@ type FakePty = CloudPty & {
 	exit(code: number): void;
 	killed: string[];
 	spawned: { file: string; args: string[]; cwd: string };
+	env: NodeJS.ProcessEnv;
 };
 
 const fakePtySpawn = () => {
@@ -444,12 +754,13 @@ const fakePtySpawn = () => {
 		spawn: (
 			file: string,
 			args: string[],
-			options: { cwd: string },
+			options: { cwd: string; env: NodeJS.ProcessEnv },
 		): CloudPty => {
 			let onData: (data: string) => void = () => {};
 			let onExit: (event: { exitCode: number }) => void = () => {};
 			const terminal: FakePty = {
 				spawned: { file, args, cwd: options.cwd },
+				env: options.env,
 				killed: [],
 				onData: (listener) => {
 					onData = listener;
@@ -473,51 +784,311 @@ describe("cloudLauncher", () => {
 		prompt: "Fix it",
 		name: "fix",
 	};
+	const ready = async () => null;
+
+	const started = async (ptys: FakePty[]) => {
+		await until(() => ptys.length > 0);
+		return ptys[0] as FakePty;
+	};
 
 	it("returns the new session's id and lets go of the terminal", async () => {
 		const { ptys, spawn } = fakePtySpawn();
-		const launching = cloudLauncher("claude", spawn)(request);
-		const [terminal] = ptys;
-		assert.deepEqual(terminal?.spawned, {
+		const launching = cloudLauncher({
+			claudeBin: "claude",
+			blocker: ready,
+			spawnPty: spawn,
+		})(request);
+		const terminal = await started(ptys);
+		assert.deepEqual(terminal.spawned, {
 			file: "claude",
 			args: ["--cloud=Fix it", "--name", "fix"],
 			cwd: request.cwd,
 		});
-		terminal?.emit(created.slice(0, 60));
-		terminal?.emit(created.slice(60));
+		terminal.emit(created.slice(0, 60));
+		terminal.emit(created.slice(60));
 		assert.deepEqual(await launching, { ok: true, id });
-		assert.deepEqual(terminal?.killed, ["SIGHUP"]);
+		assert.deepEqual(terminal.killed, ["SIGHUP"]);
 	});
 
 	it("reports the last line when claude exits without a session", async () => {
 		const { ptys, spawn } = fakePtySpawn();
-		const launching = cloudLauncher(
-			"claude",
-			spawn,
-		)({
+		const launching = cloudLauncher({
+			claudeBin: "claude",
+			blocker: ready,
+			spawnPty: spawn,
+		})({
 			cwd: request.cwd,
 			prompt: "Fix it",
 		});
-		const [terminal] = ptys;
-		assert.deepEqual(terminal?.spawned.args, ["--cloud=Fix it"]);
-		terminal?.emit("Error: Cloud sessions are not available.\r\n");
-		terminal?.exit(1);
+		const terminal = await started(ptys);
+		assert.deepEqual(terminal.spawned.args, ["--cloud=Fix it"]);
+		terminal.emit("Error: Cloud sessions are not available.\r\n");
+		terminal.exit(1);
 		assert.deepEqual(await launching, {
 			ok: false,
 			error: "claude --cloud failed: Error: Cloud sessions are not available.",
 		});
-		assert.deepEqual(terminal?.killed, []);
+		assert.deepEqual(terminal.killed, []);
 	});
 
 	it("gives up on a launch that never answers", async () => {
 		const { ptys, spawn } = fakePtySpawn();
-		const launching = cloudLauncher("claude", spawn, 10)(request);
-		ptys[0]?.emit("Connecting…");
+		const launching = cloudLauncher({
+			claudeBin: "claude",
+			blocker: ready,
+			spawnPty: spawn,
+			timeoutMs: 10,
+		})(request);
+		const terminal = await started(ptys);
+		terminal.emit("Connecting…");
 		assert.deepEqual(await launching, {
 			ok: false,
 			error: "claude --cloud failed: Connecting…",
 		});
-		assert.deepEqual(ptys[0]?.killed, ["SIGHUP"]);
+		assert.deepEqual(terminal.killed, ["SIGHUP"]);
+	});
+
+	it("refuses a folder the cloud can't start from without launching", async () => {
+		const { ptys, spawn } = fakePtySpawn();
+		const blocked: string[] = [];
+		const launching = cloudLauncher({
+			claudeBin: "claude",
+			blocker: async (cwd) => {
+				blocked.push(cwd);
+				return "This folder isn't a git repository";
+			},
+			spawnPty: spawn,
+		})(request);
+		assert.deepEqual(await launching, {
+			ok: false,
+			error: "This folder isn't a git repository",
+		});
+		assert.deepEqual(blocked, [request.cwd]);
+		assert.equal(ptys.length, 0);
+	});
+
+	it("runs on the chosen account and remembers its profile", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-account-"));
+		const profile = join(dir, "profile");
+		const defaultConfig = join(dir, "claude.json");
+		await mkdir(profile);
+		await writeFile(
+			defaultConfig,
+			JSON.stringify({
+				projects: { [request.cwd]: { hasTrustDialogAccepted: true } },
+			}),
+		);
+		const { ptys, spawn } = fakePtySpawn();
+		const launching = cloudLauncher({
+			claudeBin: "/opt/claude/bin/claude",
+			cswapBin: "cswap",
+			defaultConfig,
+			profileOf: (account) => (account === 2 ? profile : null),
+			blocker: ready,
+			spawnPty: spawn,
+		})({ ...request, account: 2 });
+		const terminal = await started(ptys);
+		assert.deepEqual(terminal.spawned, {
+			file: "cswap",
+			args: [
+				"run",
+				"2",
+				"--share-history",
+				"--",
+				"--cloud=Fix it",
+				"--name",
+				"fix",
+			],
+			cwd: request.cwd,
+		});
+		assert.match(terminal.env.PATH ?? "", /^\/opt\/claude\/bin/);
+		terminal.emit(created);
+		assert.deepEqual(await launching, { ok: true, id, configDir: profile });
+	});
+
+	it("trusts the folder in a profile at its trust prompt, then launches again", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-account-"));
+		const profile = join(dir, "profile");
+		const defaultConfig = join(dir, "claude.json");
+		await writeFile(
+			defaultConfig,
+			JSON.stringify({
+				projects: { [request.cwd]: { hasTrustDialogAccepted: true } },
+			}),
+		);
+		const { ptys, spawn } = fakePtySpawn();
+		const launching = cloudLauncher({
+			claudeBin: "claude",
+			defaultConfig,
+			profileOf: () => profile,
+			blocker: ready,
+			spawnPty: spawn,
+		})({ ...request, account: 2 });
+		const first = await started(ptys);
+		await mkdir(profile);
+		first.emit("Yes, I trust this folder");
+		await until(() => ptys.length === 2);
+		const trusted = JSON.parse(
+			await readFile(join(profile, ".claude.json"), "utf8"),
+		);
+		assert.equal(trusted.projects[request.cwd].hasTrustDialogAccepted, true);
+		ptys[1]?.emit(created);
+		assert.deepEqual(await launching, { ok: true, id, configDir: profile });
+		assert.deepEqual(first.killed, ["SIGHUP"]);
+	});
+
+	it("stops at a trust prompt and says how to accept it", async () => {
+		const { ptys, spawn } = fakePtySpawn();
+		const launching = cloudLauncher({
+			claudeBin: "claude",
+			blocker: ready,
+			spawnPty: spawn,
+		})({ ...request, account: 3 });
+		const terminal = await started(ptys);
+		terminal.emit(
+			`Quick safety check${esc}[1C❯ No, exit\r\n  Yes,${esc}[1CI${esc}[1Ctrust${esc}[1Cthis${esc}[1Cfolder`,
+		);
+		const result = await launching;
+		assert.equal(result.ok, false);
+		assert.match(
+			!result.ok ? result.error : "",
+			/Workspace not trusted: run cswap run 3 in \/Users\/me\/dev\/acme-api/,
+		);
+		assert.deepEqual(terminal.killed, ["SIGHUP"]);
+	});
+});
+
+const git = (cwd: string, ...args: string[]) =>
+	new Promise<void>((resolve, reject) =>
+		execFile(
+			"git",
+			[
+				"-C",
+				cwd,
+				"-c",
+				"user.email=kanban@example.com",
+				"-c",
+				"user.name=kanban",
+				...args,
+			],
+			(error) => (error ? reject(error) : resolve()),
+		),
+	);
+
+describe("cloudBlocker", () => {
+	it("lets a repository with a commit through", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-repo-"));
+		await git(dir, "init", "-q");
+		await writeFile(join(dir, "a.txt"), "a");
+		await git(dir, "add", "a.txt");
+		await git(dir, "commit", "-qm", "init");
+		assert.equal(await cloudBlocker(dir), null);
+		await mkdir(join(dir, "sub"));
+		assert.equal(await cloudBlocker(join(dir, "sub")), null);
+	});
+
+	it("names why a folder can't seed a cloud session", async () => {
+		const plain = await mkdtemp(join(tmpdir(), "kanban-cloud-plain-"));
+		assert.match((await cloudBlocker(plain)) ?? "", /isn't a git repository/);
+		const empty = await mkdtemp(join(tmpdir(), "kanban-cloud-empty-"));
+		await git(empty, "init", "-q");
+		assert.match((await cloudBlocker(empty)) ?? "", /no commits yet/);
+		assert.match((await cloudBlocker("relative")) ?? "", /absolute path/);
+	});
+});
+
+describe("remoteLauncher", () => {
+	const hostApi = (directory: string) => {
+		const created: unknown[][] = [];
+		const configs: (string | undefined)[] = [];
+		const api: CloudApi = {
+			...fakeCloud().api,
+			hosts: async () => ({
+				ok: true,
+				value: [
+					{ id: "env_01live", name: "probe", machine: "pilot", directory },
+				],
+			}),
+			create: async (...args) => {
+				created.push(args);
+				return { ok: true, value: id };
+			},
+		};
+		const apiFor = (configDir?: string) => {
+			configs.push(configDir);
+			return api;
+		};
+		return { apiFor, created, configs };
+	};
+
+	const repoWithWorktree = async () => {
+		const root = await mkdtemp(join(tmpdir(), "kanban-remote-"));
+		const main = join(root, "main");
+		await mkdir(main);
+		await git(main, "init", "-q");
+		await writeFile(join(main, "a.txt"), "a");
+		await git(main, "add", "a.txt");
+		await git(main, "commit", "-qm", "init");
+		await git(main, "worktree", "add", "-q", join(root, "tree"));
+		return { main, tree: join(root, "tree"), root };
+	};
+
+	const request = (cwd: string, runsOn: RunsOn = "env_01live") => ({
+		cwd,
+		prompt: "Say PONG",
+		name: "probe",
+		runsOn,
+	});
+
+	it("starts the session on the host serving the folder or its main checkout", async () => {
+		const { main, tree } = await repoWithWorktree();
+		const fake = hostApi(main);
+		const launch = remoteLauncher({
+			apiFor: fake.apiFor,
+			profileOf: (account) => `/profiles/${account}`,
+		});
+		assert.deepEqual(await launch(request(main)), { ok: true, id });
+		assert.deepEqual(await launch({ ...request(tree), account: 2 }), {
+			ok: true,
+			id,
+			configDir: "/profiles/2",
+		});
+		assert.deepEqual(fake.configs, [undefined, "/profiles/2"]);
+		assert.deepEqual(fake.created, [
+			["env_01live", main, "Say PONG", "probe"],
+			["env_01live", main, "Say PONG", "probe"],
+		]);
+	});
+
+	it("refuses a host that is gone or serves another folder", async () => {
+		const { main } = await repoWithWorktree();
+		const other = await mkdtemp(join(tmpdir(), "kanban-remote-other-"));
+		const fake = hostApi(other);
+		const launch = remoteLauncher({ apiFor: fake.apiFor });
+		assert.deepEqual(await launch(request(main, "env_01gone")), {
+			ok: false,
+			error: "That remote-control host is no longer running",
+		});
+		assert.deepEqual(await launch(request(main)), {
+			ok: false,
+			error: `pilot serves ${other}, not this folder`,
+		});
+		assert.deepEqual(fake.created, []);
+	});
+
+	it("blocks up front with the same reasons and leaves This Mac alone", async () => {
+		const { main } = await repoWithWorktree();
+		const fake = hostApi("/elsewhere");
+		const blocked = runsOnBlocker(
+			() => fake.apiFor(),
+			async () => "no commits",
+		);
+		assert.equal(
+			await blocked(main, "env_01live"),
+			"pilot serves /elsewhere, not this folder",
+		);
+		assert.equal(await blocked(main, "cloud"), "no commits");
+		assert.equal(await blocked(main, "local"), null);
 	});
 });
 
@@ -538,7 +1109,7 @@ describe("cloudTty", () => {
 		assert.deepEqual(await tty.screen(), { ok: true, value: "" });
 		const refused = await tty.keys(["Escape"]);
 		assert.equal(refused.ok, false);
-		assert.match(!refused.ok ? refused.error : "", /terminal view/);
+		assert.match(!refused.ok ? refused.error : "", /on claude\.ai/);
 		assert.equal((await tty.paste("x")).ok, false);
 		assert.equal(tty.isOpen(), true);
 	});

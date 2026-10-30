@@ -312,7 +312,7 @@ describe("conversation stream", () => {
 				[
 					"k1",
 					false,
-					"Open this cloud session's terminal view on the board, or open it on claude.ai, to answer prompts or switch mode",
+					"Open this cloud session on claude.ai to answer prompts or switch mode",
 				],
 			],
 		);

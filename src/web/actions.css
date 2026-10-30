@@ -443,6 +443,11 @@
 	grid-column: 1;
 }
 
+.quick-prompt-blocked {
+	grid-column: 1 / -1;
+	color: var(--red);
+}
+
 .quick-prompt-hint {
 	grid-column: 2;
 	white-space: nowrap;

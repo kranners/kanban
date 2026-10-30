@@ -1,18 +1,29 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	appendFile,
+	mkdir,
+	readFile,
+	realpath,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import * as pty from "node-pty";
-import type { Activity, NewSessionRequest } from "../shared/types.ts";
+import {
+	type Activity,
+	isRemoteHost,
+	type NewSessionRequest,
+	type RemoteHost,
+} from "../shared/types.ts";
+import { claudeEnv } from "./accounts.ts";
 import { lastLine, stripAnsi } from "./ansi.ts";
 import type { CmuxResult } from "./cmux.ts";
+import { accountCommand, untrustedHint } from "./sessions.ts";
 import { createStateFile, readState } from "./stateFile.ts";
-import {
-	type PtyScreen,
-	type SessionTty,
-	sharedAttachTty,
-} from "./terminals.ts";
+import type { SessionTty } from "./terminals.ts";
+import { mirrorTrust, profileConfig } from "./trust.ts";
 import { keychainService } from "./usage.ts";
 
 export type CloudCredentials = {
@@ -25,7 +36,11 @@ export type CredentialOptions = {
 	claudeBin?: string;
 	claudeHome?: string;
 	configFile?: string;
-	run?: (file: string, args: string[]) => Promise<string>;
+	run?: (
+		file: string,
+		args: string[],
+		env: NodeJS.ProcessEnv,
+	) => Promise<string>;
 	now?: () => number;
 };
 
@@ -38,10 +53,15 @@ const configFileOf = (claudeHome: string) =>
 
 const expiryMarginMs = 60_000;
 const expiredMessage = "Cloud sign-in expired: run claude once to refresh it";
+const signedOutMessage = "Cloud sessions need claude signed in to claude.ai";
 
-const runQuietly = (file: string, args: string[]): Promise<string> =>
+const runQuietly = (
+	file: string,
+	args: string[],
+	env: NodeJS.ProcessEnv,
+): Promise<string> =>
 	new Promise((resolve, reject) => {
-		execFile(file, args, { timeout: 15_000 }, (error, stdout) =>
+		execFile(file, args, { timeout: 15_000, env }, (error, stdout) =>
 			error ? reject(new Error(`${file} ${args[0]} failed`)) : resolve(stdout),
 		);
 	});
@@ -54,23 +74,38 @@ const parseJsonQuietly = (text: string, what: string): unknown => {
 	}
 };
 
+export type CredentialReader = {
+	(): Promise<CloudCredentials>;
+	forget?(): void;
+};
+
+const failureBackoffMs = 60_000;
+
 export const cloudCredentials = ({
 	claudeBin = "claude",
 	claudeHome = defaultClaudeHome,
 	configFile = configFileOf(claudeHome),
 	run = runQuietly,
 	now = Date.now,
-}: CredentialOptions = {}): (() => Promise<CloudCredentials>) => {
+}: CredentialOptions = {}): CredentialReader & { forget(): void } => {
 	let cached: CloudCredentials | null = null;
+	let pending: Promise<CloudCredentials> | null = null;
+	let failure: { error: unknown; at: number } | null = null;
+	const env = claudeEnv(
+		claudeHome === defaultClaudeHome ? undefined : claudeHome,
+	);
 
 	const read = async (): Promise<CloudCredentials> => {
 		const stored = parseJsonQuietly(
-			await run("security", [
-				"find-generic-password",
-				"-s",
-				keychainService(claudeHome),
-				"-w",
-			]),
+			await run(
+				"security",
+				["find-generic-password", "-s", keychainService(claudeHome), "-w"],
+				env,
+			).catch(() =>
+				readFile(join(claudeHome, ".credentials.json"), "utf8").catch(() => {
+					throw new Error(signedOutMessage);
+				}),
+			),
 			"The stored Claude sign-in",
 		) as { claudeAiOauth?: { accessToken?: unknown; expiresAt?: unknown } };
 		const { accessToken, expiresAt } = stored?.claudeAiOauth ?? {};
@@ -84,7 +119,7 @@ export const cloudCredentials = ({
 			typeof expiresAt !== "number" ||
 			typeof org !== "string"
 		) {
-			throw new Error("Cloud sessions need claude signed in to claude.ai");
+			throw new Error(signedOutMessage);
 		}
 		return { token: accessToken, expiresAt, org };
 	};
@@ -92,17 +127,41 @@ export const cloudCredentials = ({
 	const fresh = (credentials: CloudCredentials) =>
 		credentials.expiresAt - expiryMarginMs > now();
 
-	return async () => {
-		if (cached && fresh(cached)) return cached;
+	const load = async (): Promise<CloudCredentials> => {
 		let credentials = await read();
 		if (!fresh(credentials)) {
-			await run(claudeBin, ["auth", "status"]).catch(() => "");
+			await run(claudeBin, ["auth", "status"], env).catch(() => "");
 			credentials = await read();
 		}
 		if (!fresh(credentials)) throw new Error(expiredMessage);
-		cached = credentials;
 		return credentials;
 	};
+
+	const reader = async () => {
+		if (cached && fresh(cached)) return cached;
+		if (failure && now() - failure.at < failureBackoffMs) throw failure.error;
+		pending ??= load()
+			.then((credentials) => {
+				cached = credentials;
+				failure = null;
+				return credentials;
+			})
+			.catch((error: unknown) => {
+				failure = { error, at: now() };
+				throw error;
+			})
+			.finally(() => {
+				pending = null;
+			});
+		return pending;
+	};
+
+	return Object.assign(reader, {
+		forget: () => {
+			cached = null;
+			failure = null;
+		},
+	});
 };
 
 export type PostTurnSummary = {
@@ -127,7 +186,25 @@ export type CloudEvent = {
 	[field: string]: unknown;
 };
 
+type EnvironmentProvider = {
+	kind: string;
+	environment_id: string;
+	name: string;
+	bridge_info: {
+		machine_name: string;
+		directory: string;
+		online: boolean;
+	} | null;
+};
+
 export type CloudApi = {
+	hosts(): Promise<CmuxResult<RemoteHost[]>>;
+	create(
+		environmentId: string,
+		cwd: string,
+		prompt: string,
+		title?: string,
+	): Promise<CmuxResult<string>>;
 	get(id: string): Promise<CmuxResult<CloudSessionInfo>>;
 	events(id: string, afterId: string | null): Promise<CmuxResult<CloudEvent[]>>;
 	send(id: string, text: string): Promise<CmuxResult<null>>;
@@ -141,7 +218,7 @@ export const createCloudApi = ({
 	credentials,
 	fetch = globalThis.fetch,
 }: {
-	credentials: () => Promise<CloudCredentials>;
+	credentials: CredentialReader;
 	fetch?: typeof globalThis.fetch;
 }): CloudApi => {
 	const call = async <T>(
@@ -163,6 +240,9 @@ export const createCloudApi = ({
 				...(body === undefined ? {} : { body: JSON.stringify(body) }),
 				signal: AbortSignal.timeout(requestTimeoutMs),
 			});
+			if (response.status === 401 || response.status === 403) {
+				credentials.forget?.();
+			}
 			if (!response.ok) {
 				return {
 					ok: false,
@@ -178,10 +258,78 @@ export const createCloudApi = ({
 		}
 	};
 
+	const unexpected = (request: string) => ({
+		ok: false as const,
+		error: `Cloud API ${request} answered in an unexpected shape`,
+	});
+
 	const sessionPath = (id: string) => `/v1/sessions/${encodeURIComponent(id)}`;
 
 	return {
-		get: (id) => call<CloudSessionInfo>("GET", `${sessionPath(id)}?beta=true`),
+		async hosts() {
+			const listed = await call<{ environments: EnvironmentProvider[] }>(
+				"GET",
+				"/v1/environment_providers",
+			);
+			if (!listed.ok) return listed;
+			if (!Array.isArray(listed.value?.environments)) {
+				return unexpected("GET /v1/environment_providers");
+			}
+			return {
+				ok: true,
+				value: listed.value.environments.flatMap(
+					({ kind, environment_id, name, bridge_info }) =>
+						kind === "bridge" && bridge_info?.online
+							? [
+									{
+										id: environment_id,
+										name,
+										machine: bridge_info.machine_name,
+										directory: bridge_info.directory,
+									},
+								]
+							: [],
+				),
+			};
+		},
+		async create(environmentId, cwd, prompt, title) {
+			const created = await call<{ id: string }>(
+				"POST",
+				"/v1/sessions?beta=true",
+				{
+					title,
+					environment_id: environmentId,
+					source: "remote-control",
+					session_context: { sources: [], outcomes: [], cwd },
+					events: [
+						{
+							type: "event",
+							data: {
+								type: "user",
+								uuid: randomUUID(),
+								session_id: "",
+								parent_tool_use_id: null,
+								message: { role: "user", content: prompt },
+							},
+						},
+					],
+				},
+			);
+			if (!created.ok) return created;
+			return typeof created.value?.id === "string"
+				? { ok: true, value: created.value.id }
+				: unexpected("POST /v1/sessions");
+		},
+		async get(id) {
+			const got = await call<CloudSessionInfo>(
+				"GET",
+				`${sessionPath(id)}?beta=true`,
+			);
+			if (!got.ok) return got;
+			return typeof got.value?.session_status === "string"
+				? got
+				: unexpected(`GET ${sessionPath(id)}`);
+		},
 		async events(id, afterId) {
 			const events: CloudEvent[] = [];
 			let cursor = afterId;
@@ -191,6 +339,9 @@ export const createCloudApi = ({
 					`${sessionPath(id)}/events?beta=true&limit=100${cursor ? `&after_id=${encodeURIComponent(cursor)}` : ""}`,
 				);
 				if (!page.ok) return page;
+				if (!Array.isArray(page.value?.data)) {
+					return unexpected(`GET ${sessionPath(id)}/events`);
+				}
 				events.push(...page.value.data);
 				const last = page.value.data.at(-1);
 				if (!page.value.has_more || !last) return { ok: true, value: events };
@@ -222,17 +373,23 @@ export const createCloudApi = ({
 	};
 };
 
+const isGone = (result: CmuxResult<unknown>): boolean =>
+	!result.ok && result.error.endsWith("failed with HTTP 404");
+
 export type CloudRecord = {
 	id: string;
 	cwd: string;
 	name: string;
 	createdAt: number;
+	configDir?: string;
+	prompt?: string;
 };
 
 export type CloudSession = {
 	id: string;
 	cwd: string;
 	name: string;
+	configDir?: string;
 	url: string;
 	createdAt: number;
 	updatedAt: number;
@@ -255,13 +412,18 @@ const cloudIdPattern = /^session_[A-Za-z0-9]{1,128}$/;
 
 const isCloudRecord = (value: unknown): value is CloudRecord => {
 	if (typeof value !== "object" || value === null) return false;
-	const { id, cwd, name, createdAt } = value as Record<string, unknown>;
+	const { id, cwd, name, createdAt, configDir, prompt } = value as Record<
+		string,
+		unknown
+	>;
 	return (
 		typeof id === "string" &&
 		cloudIdPattern.test(id) &&
 		typeof cwd === "string" &&
 		typeof name === "string" &&
-		typeof createdAt === "number"
+		typeof createdAt === "number" &&
+		(configDir === undefined || typeof configDir === "string") &&
+		(prompt === undefined || typeof prompt === "string")
 	);
 };
 
@@ -297,13 +459,13 @@ type Tracked = {
 export const createCloudSessions = async ({
 	file,
 	dir,
-	api,
+	apiFor,
 	pollMs = 3000,
 	onChange,
 }: {
 	file: string;
 	dir: string;
-	api: CloudApi;
+	apiFor: (configDir?: string) => CloudApi;
 	pollMs?: number;
 	onChange: () => void;
 }): Promise<CloudSessions> => {
@@ -327,6 +489,15 @@ export const createCloudSessions = async ({
 			cursor: null,
 		});
 
+	const openingPrompt = ({ prompt, createdAt }: CloudRecord) =>
+		prompt === undefined
+			? ""
+			: `${JSON.stringify({
+					type: "user",
+					message: { role: "user", content: prompt },
+					timestamp: new Date(createdAt).toISOString(),
+				})}\n`;
+
 	const persist = () =>
 		stored.write([...tracked.values()].map(({ record }) => record));
 
@@ -335,6 +506,11 @@ export const createCloudSessions = async ({
 		reported.set(id, error);
 		console.error(`kanban cloud ${id}: ${error}`);
 	};
+
+	const untracked = (id: string) => ({
+		ok: false as const,
+		error: `${id} is not a cloud session on this board`,
+	});
 
 	const remove = (id: string) => {
 		if (!tracked.delete(id)) return;
@@ -359,9 +535,11 @@ export const createCloudSessions = async ({
 	};
 
 	const pollOne = async (item: Tracked) => {
-		const { id } = item.record;
+		const { id, configDir } = item.record;
+		const api = apiFor(configDir);
 		const got = await api.get(id);
 		if (tracked.get(id) !== item) return;
+		if (isGone(got)) return remove(id);
 		if (!got.ok) return report(id, got.error);
 		const info = got.value;
 		if (info.session_status === "archived") return remove(id);
@@ -393,7 +571,13 @@ export const createCloudSessions = async ({
 
 	let polling: Promise<void> | null = null;
 	const pollAll = () => {
-		polling ??= Promise.all([...tracked.values()].map(pollOne))
+		polling ??= Promise.all(
+			[...tracked.values()].map((item) =>
+				pollOne(item).catch((error: unknown) =>
+					report(item.record.id, String(error)),
+				),
+			),
+		)
 			.then(() => undefined)
 			.finally(() => {
 				polling = null;
@@ -404,7 +588,7 @@ export const createCloudSessions = async ({
 	await mkdir(dir, { recursive: true });
 	for (const record of await readState(file, parseCloudRecords)) {
 		track(record);
-		await writeFile(mirrorOf(record.id), "");
+		await writeFile(mirrorOf(record.id), openingPrompt(record));
 	}
 	const timer = setInterval(pollAll, pollMs);
 	void pollAll();
@@ -413,7 +597,7 @@ export const createCloudSessions = async ({
 		add(record) {
 			track(record);
 			persist();
-			void writeFile(mirrorOf(record.id), "", { flag: "a" })
+			void writeFile(mirrorOf(record.id), openingPrompt(record), { flag: "a" })
 				.then(pollAll)
 				.catch((error: unknown) => report(record.id, String(error)));
 			onChange();
@@ -422,28 +606,31 @@ export const createCloudSessions = async ({
 		sessions: () => [...tracked.values()].map(({ session }) => session),
 		transcriptPath: (id) => tracked.get(id)?.session.transcript ?? null,
 		async send(id, text) {
-			if (!tracked.has(id)) {
-				return {
-					ok: false,
-					error: `${id} is not a cloud session on this board`,
-				};
-			}
-			const sent = await api.send(id, text);
+			const item = tracked.get(id);
+			if (!item) return untracked(id);
+			const sent = await apiFor(item.record.configDir).send(id, text);
 			if (sent.ok) void pollAll();
 			return sent;
 		},
 		async archive(id) {
-			const archived = await api.archive(id);
-			if (archived.ok) remove(id);
-			return archived;
+			const item = tracked.get(id);
+			if (!item) return untracked(id);
+			const archived = await apiFor(item.record.configDir).archive(id);
+			if (!archived.ok && !isGone(archived)) return archived;
+			remove(id);
+			return { ok: true, value: null };
 		},
 		stop: () => clearInterval(timer),
 	};
 };
 
+export type CloudLaunch =
+	| { ok: true; id: string; configDir?: string }
+	| { ok: false; error: string };
+
 export type CloudLauncher = (
 	request: NewSessionRequest,
-) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+) => Promise<CloudLaunch>;
 
 export type CloudPty = {
 	onData(listener: (data: string) => void): unknown;
@@ -460,81 +647,244 @@ export type CloudPtySpawn = (
 const createdPattern =
 	/Created cloud session[\s\S]*?claude\.ai\/code\/(session_[A-Za-z0-9]+)[^A-Za-z0-9]/;
 
+const trustPromptPattern = /Yes,\s*I\s*trust\s*this\s*folder/;
+
 export const parseCloudCreated = (output: string): string | null =>
 	stripAnsi(output).match(createdPattern)?.[1] ?? null;
 
 const nodePtySpawn: CloudPtySpawn = (file, args, options) =>
 	pty.spawn(file, args, { name: "xterm-256color", ...options });
 
+export const cloudBlocker = (
+	cwd: string,
+	git = "git",
+): Promise<string | null> =>
+	new Promise((resolve) => {
+		if (!isAbsolute(cwd)) return resolve("cwd must be an absolute path");
+		execFile(
+			git,
+			["-C", cwd, "rev-parse", "--verify", "--quiet", "HEAD"],
+			{ timeout: 10_000 },
+			(error) =>
+				resolve(
+					!error
+						? null
+						: error.code === 1
+							? "This repository has no commits yet, so a cloud session has nothing to start from"
+							: "This folder isn't a git repository, so a cloud session would start without its files",
+				),
+		);
+	});
+
+export type CloudLauncherOptions = {
+	claudeBin: string;
+	cswapBin?: string;
+	defaultConfig?: string;
+	profileOf?: (account: number) => string | null;
+	blocker?: (cwd: string) => Promise<string | null>;
+	spawnPty?: CloudPtySpawn;
+	timeoutMs?: number;
+};
+
 export const cloudLauncher =
-	(
-		claudeBin: string,
-		spawnPty: CloudPtySpawn = nodePtySpawn,
+	({
+		claudeBin,
+		cswapBin = "cswap",
+		defaultConfig = join(homedir(), ".claude.json"),
+		profileOf = () => null,
+		blocker = cloudBlocker,
+		spawnPty = nodePtySpawn,
 		timeoutMs = 60_000,
-	): CloudLauncher =>
-	(request) =>
-		new Promise((resolve) => {
-			let output = "";
-			let settled = false;
-			const terminal = spawnPty(
-				claudeBin,
-				[
-					`--cloud=${request.prompt}`,
-					...(request.name ? ["--name", request.name] : []),
-				],
-				{ cwd: request.cwd, cols: 120, rows: 40, env: process.env },
-			);
-			const failed = () => {
-				const detail = lastLine(output);
-				return {
-					ok: false as const,
-					error: detail
-						? `claude --cloud failed: ${detail}`
-						: "claude --cloud failed",
-				};
-			};
-			const finish = (
-				result: { ok: true; id: string } | { ok: false; error: string },
-				running: boolean,
-			) => {
-				if (settled) return;
-				settled = true;
-				clearTimeout(timer);
-				if (running) {
-					try {
-						terminal.kill("SIGHUP");
-					} catch {}
-				}
-				resolve(result);
-			};
-			const timer = setTimeout(() => finish(failed(), true), timeoutMs);
-			terminal.onData((data) => {
-				output += data;
-				const id = parseCloudCreated(output);
-				if (id) finish({ ok: true, id }, true);
-			});
-			terminal.onExit(() => {
-				const id = parseCloudCreated(`${output}\n`);
-				finish(id ? { ok: true, id } : failed(), false);
-			});
+	}: CloudLauncherOptions): CloudLauncher =>
+	async (request) => {
+		const blocked = await blocker(request.cwd);
+		if (blocked) return { ok: false, error: blocked };
+		const profile =
+			request.account === undefined ? null : profileOf(request.account);
+		const { file, args, env } = accountCommand(
+			claudeBin,
+			cswapBin,
+			request.account,
+			[
+				`--cloud=${request.prompt}`,
+				...(request.name ? ["--name", request.name] : []),
+			],
+		);
+		const landed = (id: string): CloudLaunch => ({
+			ok: true,
+			id,
+			...(profile ? { configDir: profile } : {}),
 		});
+		const untrusted: CloudLaunch = {
+			ok: false,
+			error: untrustedHint(request.cwd, request.account),
+		};
+		const attempt = () =>
+			new Promise<CloudLaunch>((resolve) => {
+				let output = "";
+				let settled = false;
+				const terminal = spawnPty(file, args, {
+					cwd: request.cwd,
+					cols: 120,
+					rows: 40,
+					env,
+				});
+				const failed = (): CloudLaunch => {
+					const detail = lastLine(output);
+					return {
+						ok: false,
+						error: detail
+							? `claude --cloud failed: ${detail}`
+							: "claude --cloud failed",
+					};
+				};
+				const finish = (result: CloudLaunch, running: boolean) => {
+					if (settled) return;
+					settled = true;
+					clearTimeout(timer);
+					if (running) {
+						try {
+							terminal.kill("SIGHUP");
+						} catch {}
+					}
+					resolve(result);
+				};
+				const timer = setTimeout(() => finish(failed(), true), timeoutMs);
+				terminal.onData((data) => {
+					output += data;
+					const id = parseCloudCreated(output);
+					if (id) return finish(landed(id), true);
+					if (trustPromptPattern.test(stripAnsi(output))) {
+						finish(untrusted, true);
+					}
+				});
+				terminal.onExit(() => {
+					const id = parseCloudCreated(`${output}\n`);
+					finish(id ? landed(id) : failed(), false);
+				});
+			});
+		const launched = await attempt();
+		if (
+			launched === untrusted &&
+			profile &&
+			(await mirrorTrust(
+				defaultConfig,
+				profileConfig(profile),
+				request.cwd,
+			).catch(() => false))
+		) {
+			return attempt();
+		}
+		return launched;
+	};
+
+const realOrSame = (path: string) => realpath(path).catch(() => path);
+
+const mainCheckoutOf = (cwd: string, git: string): Promise<string | null> =>
+	new Promise((resolve) => {
+		execFile(
+			git,
+			["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+			{ timeout: 10_000 },
+			(error, stdout) => resolve(error ? null : dirname(stdout.trim())),
+		);
+	});
+
+export const remoteHostFor = async (
+	api: CloudApi,
+	hostId: string,
+	cwd: string,
+	git = "git",
+): Promise<CmuxResult<RemoteHost>> => {
+	const hosts = await api.hosts();
+	if (!hosts.ok) return hosts;
+	const host = hosts.value.find(({ id }) => id === hostId);
+	if (!host) {
+		return {
+			ok: false,
+			error: "That remote-control host is no longer running",
+		};
+	}
+	const mainCheckout = await mainCheckoutOf(cwd, git);
+	const served = await realOrSame(host.directory);
+	const folders = await Promise.all(
+		[cwd, ...(mainCheckout ? [mainCheckout] : [])].map(realOrSame),
+	);
+	return folders.includes(served)
+		? { ok: true, value: host }
+		: {
+				ok: false,
+				error: `${host.machine} serves ${host.directory}, not this folder`,
+			};
+};
+
+export const runsOnBlocker =
+	(
+		apiOf: (account?: number) => CloudApi,
+		blocker: (cwd: string) => Promise<string | null> = cloudBlocker,
+		git = "git",
+	) =>
+	async (
+		cwd: string,
+		runsOn: string,
+		account?: number,
+	): Promise<string | null> => {
+		if (runsOn === "local") return null;
+		if (!isRemoteHost(runsOn)) return blocker(cwd);
+		const host = await remoteHostFor(apiOf(account), runsOn, cwd, git);
+		return host.ok ? null : host.error;
+	};
+
+export type RemoteLauncherOptions = {
+	apiFor: (configDir?: string) => CloudApi;
+	profileOf?: (account: number) => string | null;
+	git?: string;
+};
+
+export const remoteLauncher =
+	({
+		apiFor,
+		profileOf = () => null,
+		git = "git",
+	}: RemoteLauncherOptions): CloudLauncher =>
+	async (request) => {
+		const profile =
+			request.account === undefined ? null : profileOf(request.account);
+		const api = apiFor(profile ?? undefined);
+		const host = await remoteHostFor(
+			api,
+			request.runsOn ?? "",
+			request.cwd,
+			git,
+		);
+		if (!host.ok) return host;
+		const created = await api.create(
+			host.value.id,
+			host.value.directory,
+			request.prompt,
+			request.name,
+		);
+		if (!created.ok) return created;
+		return {
+			ok: true,
+			id: created.value,
+			...(profile ? { configDir: profile } : {}),
+		};
+	};
 
 const cloudRefusal =
-	"Open this cloud session's terminal view on the board, or open it on claude.ai, to answer prompts or switch mode";
+	"Open this cloud session on claude.ai to answer prompts or switch mode";
 
 export const cloudTty = (
 	store: Pick<CloudSessions, "send">,
 	id: string,
-	live: () => PtyScreen | null = () => null,
 ): SessionTty => {
-	const terminal = sharedAttachTty({ live });
 	const refused = async () => ({ ok: false as const, error: cloudRefusal });
 	return {
-		screen: () =>
-			live() ? terminal.screen() : Promise.resolve({ ok: true, value: "" }),
+		screen: async () => ({ ok: true, value: "" }),
 		send: (text) => store.send(id, text),
-		keys: (keys) => (live() ? terminal.keys(keys) : refused()),
-		paste: (text) => (live() ? terminal.paste(text) : refused()),
+		keys: refused,
+		paste: refused,
 		isOpen: () => true,
 		close: () => {},
 	};

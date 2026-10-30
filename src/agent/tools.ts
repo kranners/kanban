@@ -2,6 +2,7 @@ import { isRegionColour, type RegionColour } from "../shared/colours.ts";
 import type { AskAnswer, PromptReply } from "../shared/conversation.ts";
 import {
 	defaultRunsOn,
+	type FixedRunsOn,
 	maxNoteText,
 	type NoteColor,
 	noteColors,
@@ -449,8 +450,8 @@ const name = (fields: Fields, key: string): string =>
 		: fail(`${key} must be a string of at most 60 characters`);
 
 const runsOn = (fields: Fields, key: string): RunsOn =>
-	runsOnChoices.includes(fields[key] as RunsOn)
-		? (fields[key] as RunsOn)
+	runsOnChoices.includes(fields[key] as FixedRunsOn)
+		? (fields[key] as FixedRunsOn)
 		: fail(`${key} must be one of ${runsOnChoices.join(", ")}`);
 
 const regionSize = (fields: Fields, key: string) =>

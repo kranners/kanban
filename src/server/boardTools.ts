@@ -2,13 +2,14 @@ import { randomUUID } from "node:crypto";
 import type { Placed, ToolCall } from "../agent/tools.ts";
 import { defaultRegionColour } from "../shared/colours.ts";
 import type { PromptReply } from "../shared/conversation.ts";
-import type {
-	Annotation,
-	Board,
-	LayoutUpdate,
-	Placement,
-	Region,
-	Session,
+import {
+	type Annotation,
+	type Board,
+	type LayoutUpdate,
+	landingId,
+	type Placement,
+	type Region,
+	type Session,
 } from "../shared/types.ts";
 import { snap } from "../web/grid.ts";
 import { groupsOf } from "../web/groups.ts";
@@ -44,11 +45,7 @@ import {
 	parseRegionPatch,
 	type RegionStore,
 } from "./regions.ts";
-import {
-	landingId,
-	type SessionLauncher,
-	validateNewSession,
-} from "./sessions.ts";
+import { type SessionLauncher, validateNewSession } from "./sessions.ts";
 
 export type ToolOutcome =
 	| { ok: true; text: string }

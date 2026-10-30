@@ -120,14 +120,6 @@ export const exitSession = async (
 	force: boolean,
 ): Promise<ExitResult> => {
 	if (session.cloud) {
-		if (!force) {
-			return {
-				ok: true,
-				exited: false,
-				reason:
-					"A cloud session's readiness can't be checked from the board; force it to archive",
-			};
-		}
 		const archived = await deps.archive(session.id);
 		return archived.ok ? { ok: true, exited: true } : archived;
 	}

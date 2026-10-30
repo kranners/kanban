@@ -100,8 +100,13 @@ export function ExitNotice(props: {
 }
 
 function consequences(sessions: readonly Session[]): string[] {
-	const kinds = new Set(sessions.map((session) => session.kind));
+	const kinds = new Set(
+		sessions.map((session) => (session.cloud ? "cloud" : session.kind)),
+	);
 	return [
+		...(kinds.has("cloud")
+			? ["Exiting a cloud session archives it on claude.ai."]
+			: []),
 		...(kinds.has("background")
 			? [
 					"Exiting a background session stops it, then removes it with claude rm, which keeps unpushed work and says so if it refuses.",

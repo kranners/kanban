@@ -133,6 +133,12 @@ const probes: Record<string, Probe> = {
 	"/api/accounts/default": async (backend) => {
 		await answers(backend, "POST", "/api/accounts/default", { account: 2 });
 	},
+	"/api/cloud-blocker": async (backend) => {
+		await answers(backend, "GET", "/api/cloud-blocker", null, "cwd=/Users/me");
+	},
+	"/api/remote-hosts": async (backend) => {
+		await answers(backend, "GET", "/api/remote-hosts", null, "account=2");
+	},
 	"/api/folder-picker": async (backend) => {
 		await answers(backend, "POST", "/api/folder-picker");
 	},

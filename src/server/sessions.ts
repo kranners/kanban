@@ -9,7 +9,8 @@ import {
 } from "../shared/promptImages.ts";
 import {
 	defaultRunsOn,
-	type Landing,
+	type FixedRunsOn,
+	isRemoteHost,
 	type NewSessionRequest,
 	type NewSessionResult,
 	type PromptImage,
@@ -111,19 +112,17 @@ export const validateNewSession = async (
 	if (account !== undefined && !isAccountNumber(account)) {
 		return { error: "account must be a positive whole number" };
 	}
-	if (runsOn !== undefined && !runsOnChoices.includes(runsOn as RunsOn)) {
-		return { error: "runsOn must be cloud or local" };
+	if (
+		runsOn !== undefined &&
+		!runsOnChoices.includes(runsOn as FixedRunsOn) &&
+		!(typeof runsOn === "string" && isRemoteHost(runsOn))
+	) {
+		return { error: "runsOn must be cloud, local or a remote-control host id" };
 	}
 	const where: RunsOn =
 		(runsOn as RunsOn | undefined) ??
-		(account !== undefined || attached.length ? "local" : defaultRunsOn);
-	if (where === "cloud" && account !== undefined) {
-		return {
-			error:
-				"Accounts apply only to sessions on this Mac; cloud sessions run on the default account",
-		};
-	}
-	if (where === "cloud" && attached.length) {
+		(attached.length ? "local" : defaultRunsOn);
+	if (where !== "local" && attached.length) {
 		return { error: "Images can only be sent to sessions on this Mac" };
 	}
 	if (where === "cloud" && cloudTargetPattern.test(prompt.trim())) {
@@ -149,7 +148,7 @@ export const parseBackgrounded = (stdout: string): string | null =>
 const isUntrusted = (output: string) =>
 	output.includes("Workspace not trusted");
 
-const untrustedHint = (cwd: string, account?: number) =>
+export const untrustedHint = (cwd: string, account?: number) =>
 	`Workspace not trusted: run ${account === undefined ? "claude" : `cswap run ${account}`} in ${cwd} once and accept the trust prompt, then try again`;
 
 export const launchResult = (
@@ -220,6 +219,21 @@ const withClaudeFirst = (
 			}
 		: env;
 
+export const accountCommand = (
+	claudeBin: string,
+	cswapBin: string,
+	account: number | undefined,
+	args: string[],
+	env: NodeJS.ProcessEnv = process.env,
+): LaunchCommand =>
+	account === undefined
+		? { file: claudeBin, args, env }
+		: {
+				file: cswapBin,
+				args: ["run", String(account), "--share-history", "--", ...args],
+				env: withClaudeFirst(claudeBin, env),
+			};
+
 export const launchCommand = (
 	claudeBin: string,
 	cswapBin: string,
@@ -228,19 +242,13 @@ export const launchCommand = (
 	env: NodeJS.ProcessEnv = process.env,
 	settings: string | null = null,
 ): LaunchCommand =>
-	request.account === undefined
-		? { file: claudeBin, args: launchArgs(request, saved, settings), env }
-		: {
-				file: cswapBin,
-				args: [
-					"run",
-					String(request.account),
-					"--share-history",
-					"--",
-					...launchArgs(request, saved, settings),
-				],
-				env: withClaudeFirst(claudeBin, env),
-			};
+	accountCommand(
+		claudeBin,
+		cswapBin,
+		request.account,
+		launchArgs(request, saved, settings),
+		env,
+	);
 
 export type LauncherOptions = {
 	cswapBin?: string;
@@ -302,24 +310,27 @@ export const claudeLauncher =
 		return launchResult(request.cwd, stdout, stderr, request.account);
 	};
 
-export const landingId = (landing: Landing): string =>
-	"short" in landing ? landing.short : landing.id;
-
 export const routedLauncher =
 	(
 		local: SessionLauncher,
 		cloud: CloudLauncher,
+		remote: CloudLauncher,
 		onCloud: (record: CloudRecord) => void,
+		accountHome: (account?: number) => string | undefined = () => undefined,
 	): SessionLauncher =>
 	async (request) => {
-		if ((request.runsOn ?? defaultRunsOn) === "local") return local(request);
-		const created = await cloud(request);
+		const where = request.runsOn ?? defaultRunsOn;
+		if (where === "local") return local(request);
+		const created = await (isRemoteHost(where) ? remote : cloud)(request);
 		if (!created.ok) return created;
+		const configDir = created.configDir ?? accountHome(request.account);
 		onCloud({
 			id: created.id,
 			cwd: request.cwd,
 			name: request.name ?? basename(request.cwd),
 			createdAt: Date.now(),
+			...(configDir ? { configDir } : {}),
+			...(isRemoteHost(where) ? {} : { prompt: request.prompt }),
 		});
 		return { ok: true, id: created.id };
 	};

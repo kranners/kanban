@@ -8,6 +8,8 @@ import {
 	filesUrl,
 	mirrorUrl,
 	needsTrust,
+	remoteHostsUrl,
+	runsOnBlockerUrl,
 } from "./paths.ts";
 
 test("attachUrl uses ws on http and wss on https", () => {
@@ -69,4 +71,20 @@ test("needsTrust spots workspace trust errors", () => {
 	assert.equal(needsTrust("workspace not trusted"), true);
 	assert.equal(needsTrust("Trust the folder first"), true);
 	assert.equal(needsTrust("claude exited 1"), false);
+});
+
+test("runsOnBlockerUrl carries the folder, where it runs and the account", () => {
+	assert.equal(
+		runsOnBlockerUrl("/Users/me/dev/a b&c", "cloud"),
+		"/api/cloud-blocker?cwd=%2FUsers%2Fme%2Fdev%2Fa+b%26c&runsOn=cloud",
+	);
+	assert.equal(
+		runsOnBlockerUrl("/x", "env_01host", 2),
+		"/api/cloud-blocker?cwd=%2Fx&runsOn=env_01host&account=2",
+	);
+});
+
+test("remoteHostsUrl asks for the account's hosts", () => {
+	assert.equal(remoteHostsUrl(), "/api/remote-hosts?");
+	assert.equal(remoteHostsUrl(3), "/api/remote-hosts?account=3");
 });

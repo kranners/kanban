@@ -12,6 +12,7 @@ import {
 	type Board,
 	type BoardFeed,
 	type ExitResult,
+	landingId,
 	maxNoteText,
 	type NewSessionRequest,
 	noDigests,
@@ -37,7 +38,6 @@ import { createIgnoreStore } from "./ignores.ts";
 import { createLayoutStore } from "./layout.ts";
 import { createRegionStore } from "./regions.ts";
 import { createRegionReportRunner, createReportRunner } from "./reports.ts";
-import { landingId } from "./sessions.ts";
 
 const route = (method: string, path: string) =>
 	matchRoute(method, new URL(path, "http://x"));
@@ -471,6 +471,26 @@ describe("createKanbanServer", () => {
 			commands: async (cwd) => [
 				{ name: "compact", description: cwd, source: "built-in" },
 			],
+			cloudBlocker: async (cwd, runsOn, account) =>
+				runsOn.startsWith("env_")
+					? `${runsOn} on account ${account} serves /elsewhere, not this folder`
+					: cwd === "/Users/me/notes"
+						? "This folder isn't a git repository"
+						: null,
+			remoteHosts: async (account) =>
+				account === 9
+					? { ok: false, error: "Cloud API unreachable: offline" }
+					: {
+							ok: true,
+							value: [
+								{
+									id: "env_01host",
+									name: "pilot:acme-api:6f62",
+									machine: `pilot-${account ?? "default"}`,
+									directory: "/Users/me/dev/acme-api",
+								},
+							],
+						},
 			pickFolder: async () => ({ ok: true, path: "/Users/me/dev/picked" }),
 			makeDefault: async (account) => {
 				madeDefault.push(account);
@@ -584,6 +604,58 @@ describe("createKanbanServer", () => {
 			headers: authed,
 		});
 		assert.equal(missing.status, 404);
+	});
+
+	it("says whether a folder can run in the cloud", async () => {
+		const check = (cwd: string, headers: Record<string, string> = authed) =>
+			fetch(`${base}/api/cloud-blocker?cwd=${encodeURIComponent(cwd)}`, {
+				headers,
+			});
+		const blocked = await check("/Users/me/notes");
+		assert.equal(blocked.status, 200);
+		assert.deepEqual(await blocked.json(), {
+			reason: "This folder isn't a git repository",
+		});
+		assert.deepEqual(await (await check("/Users/me/dev/acme-api")).json(), {
+			reason: null,
+		});
+		assert.equal((await check("/Users/me/notes", {})).status, 401);
+	});
+
+	it("checks a remote-control host against the folder on the chosen account", async () => {
+		const response = await fetch(
+			`${base}/api/cloud-blocker?cwd=%2FUsers%2Fme&runsOn=env_01host&account=2`,
+			{ headers: authed },
+		);
+		assert.deepEqual(await response.json(), {
+			reason: "env_01host on account 2 serves /elsewhere, not this folder",
+		});
+	});
+
+	it("lists the remote-control hosts an account can start sessions on", async () => {
+		const hosts = (query: string, headers: Record<string, string> = authed) =>
+			fetch(`${base}/api/remote-hosts${query}`, { headers });
+		const listed = await hosts("?account=2");
+		assert.equal(listed.status, 200);
+		assert.deepEqual(await listed.json(), {
+			hosts: [
+				{
+					id: "env_01host",
+					name: "pilot:acme-api:6f62",
+					machine: "pilot-2",
+					directory: "/Users/me/dev/acme-api",
+				},
+			],
+		});
+		const unnumbered = (await (await hosts("?account=junk")).json()) as {
+			hosts: { machine: string }[];
+		};
+		assert.equal(unnumbered.hosts[0]?.machine, "pilot-default");
+		assert.deepEqual(await (await hosts("?account=9")).json(), {
+			hosts: [],
+			error: "Cloud API unreachable: offline",
+		});
+		assert.equal((await hosts("", {})).status, 401);
 	});
 
 	it("opens the host's folder picker for same-origin requests", async () => {

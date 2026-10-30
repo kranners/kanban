@@ -58,12 +58,16 @@ describe("validateNewSession", () => {
 		);
 	});
 
-	it("keeps the account a session should run on", async () => {
+	it("keeps the account a session should run on, in the cloud or here", async () => {
 		assert.deepEqual(await validateNewSession({ ...valid, account: 3 }), {
 			...valid,
 			account: 3,
-			runsOn: "local",
+			runsOn: "cloud",
 		});
+		assert.deepEqual(
+			await validateNewSession({ ...valid, account: 3, runsOn: "local" }),
+			{ ...valid, account: 3, runsOn: "local" },
+		);
 	});
 
 	it("runs a session in the cloud unless asked or it needs this Mac", async () => {
@@ -96,6 +100,21 @@ describe("validateNewSession", () => {
 		);
 	});
 
+	it("accepts a remote-control host id as where it runs", async () => {
+		assert.deepEqual(
+			await validateNewSession({ ...valid, runsOn: "env_01T8abc", account: 2 }),
+			{ ...valid, account: 2, runsOn: "env_01T8abc" },
+		);
+		assert.deepEqual(
+			await validateNewSession({
+				...valid,
+				prompt: "session_01abc",
+				runsOn: "env_01T8abc",
+			}),
+			{ ...valid, prompt: "session_01abc", runsOn: "env_01T8abc" },
+		);
+	});
+
 	it("rejects bad input with a reason", async () => {
 		const cases: [unknown, RegExp][] = [
 			[null, /JSON object/],
@@ -111,8 +130,20 @@ describe("validateNewSession", () => {
 			[{ ...valid, account: 0 }, /account must be a positive/],
 			[{ ...valid, account: 1.5 }, /account must be a positive/],
 			[{ ...valid, account: "2" }, /account must be a positive/],
-			[{ ...valid, runsOn: "mars" }, /runsOn must be cloud or local/],
-			[{ ...valid, runsOn: "cloud", account: 2 }, /default account/],
+			[
+				{ ...valid, runsOn: "mars" },
+				/runsOn must be cloud, local or a remote-control host id/,
+			],
+			[{ ...valid, runsOn: "env_" }, /remote-control host id/],
+			[{ ...valid, runsOn: "env_01/../x" }, /remote-control host id/],
+			[
+				{
+					...valid,
+					runsOn: "env_01abc",
+					images: [{ type: "image/png", data: "cG5n" }],
+				},
+				/Images can only be sent to sessions on this Mac/,
+			],
 			[
 				{
 					...valid,
@@ -339,8 +370,16 @@ describe("routedLauncher", () => {
 		async (request) =>
 			request.prompt === "fail"
 				? { ok: false, error: "claude --cloud failed: nope" }
-				: { ok: true, id: "session_01cloud" },
+				: request.account === 2
+					? { ok: true, id: "session_01other", configDir: "/profiles/2" }
+					: { ok: true, id: "session_01cloud" },
+		async (request) => ({
+			ok: true,
+			id: `session_01${request.runsOn?.slice(4)}`,
+			configDir: "/profiles/3",
+		}),
 		(record) => records.push(record),
+		(account) => (account === 4 ? "/profiles/4" : undefined),
 	);
 
 	it("creates a cloud session and records it", async () => {
@@ -357,8 +396,45 @@ describe("routedLauncher", () => {
 				cwd: valid.cwd,
 				name: valid.name,
 				createdAt: record?.createdAt,
+				prompt: valid.prompt,
 			},
 		]);
+	});
+
+	it("records the account profile a cloud session runs on", async () => {
+		records.length = 0;
+		assert.deepEqual(await launch({ ...valid, runsOn: "cloud", account: 2 }), {
+			ok: true,
+			id: "session_01other",
+		});
+		assert.deepEqual(
+			(records as { configDir?: string }[]).map(({ configDir }) => configDir),
+			["/profiles/2"],
+		);
+	});
+
+	it("binds a cloud session on the default account to that account's profile", async () => {
+		records.length = 0;
+		await launch({ ...valid, runsOn: "cloud", account: 4 });
+		assert.deepEqual(
+			(records as { configDir?: string }[]).map(({ configDir }) => configDir),
+			["/profiles/4"],
+		);
+	});
+
+	it("starts a session on a remote-control host and records it like a cloud one", async () => {
+		records.length = 0;
+		assert.deepEqual(await launch({ ...valid, runsOn: "env_01host" }), {
+			ok: true,
+			id: "session_0101host",
+		});
+		assert.deepEqual(
+			(records as { id: string; configDir?: string }[]).map(
+				({ id, configDir }) => [id, configDir],
+			),
+			[["session_0101host", "/profiles/3"]],
+		);
+		assert.equal((records[0] as { prompt?: string }).prompt, undefined);
 	});
 
 	it("leaves local sessions and failed cloud launches alone", async () => {

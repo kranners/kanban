@@ -4,9 +4,23 @@ import type { SubagentCounts, SubagentState } from "./subagents.ts";
 
 export type SessionKind = "interactive" | "background";
 
-export type RunsOn = "cloud" | "local";
+export type FixedRunsOn = "cloud" | "local";
 
-export const runsOnChoices: readonly RunsOn[] = ["cloud", "local"];
+export type RunsOn = FixedRunsOn | `env_${string}`;
+
+export const runsOnChoices: readonly FixedRunsOn[] = ["cloud", "local"];
+
+const remoteHostPattern = /^env_[A-Za-z0-9]+$/;
+
+export const isRemoteHost = (runsOn: string): runsOn is `env_${string}` =>
+	remoteHostPattern.test(runsOn);
+
+export type RemoteHost = {
+	id: string;
+	name: string;
+	machine: string;
+	directory: string;
+};
 
 export const defaultRunsOn: RunsOn = "cloud";
 
@@ -304,6 +318,9 @@ export type Landing = { short: string } | { id: string };
 export type NewSessionResult =
 	| ({ ok: true } & Landing)
 	| { ok: false; error: string };
+
+export const landingId = (landing: Landing): string =>
+	"short" in landing ? landing.short : landing.id;
 
 export const hasLanded = (landing: Landing, session: Session): boolean =>
 	"short" in landing

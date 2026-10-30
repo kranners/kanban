@@ -739,6 +739,8 @@ export function createBackend(scenario: Scenario): Backend {
 					error: "The demo runs on one account",
 				}),
 		],
+		["GET", /^\/api\/cloud-blocker$/, () => json(200, { reason: null })],
+		["GET", /^\/api\/remote-hosts$/, () => json(200, { hosts: [] })],
 		[
 			"POST",
 			/^\/api\/folder-picker$/,

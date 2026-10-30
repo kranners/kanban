@@ -9,7 +9,7 @@ import {
 } from "../../shared/types.ts";
 import { AccountPicker } from "../AccountPicker.tsx";
 import { FolderPicker } from "../FolderPicker.tsx";
-import { RunsOnPicker } from "../RunsOnPicker.tsx";
+import { RunsOnPicker, useRunsOnBlocker } from "../RunsOnPicker.tsx";
 import { createSession } from "../spawns.ts";
 import { pickableAccounts, usage } from "../usage.ts";
 import { needsTrust } from "./paths.ts";
@@ -19,14 +19,13 @@ function Failure(props: {
 	error: string;
 	cwd: string;
 	account: number | undefined;
-	runsOn: RunsOn;
 }): JSX.Element {
 	return (
 		<div class="focus-form-error" role="alert">
 			<CircleAlert size={14} />
 			<div>
 				<p>{props.error}</p>
-				{props.runsOn === "local" && needsTrust(props.error) && (
+				{needsTrust(props.error) && (
 					<p class="focus-muted">
 						Claude needs to trust this folder first. Run{" "}
 						<code>
@@ -59,13 +58,14 @@ export function NewSession(props: {
 	const [error, setError] = useState<string | null>(null);
 	const [account, setAccount] = useState<number | undefined>(undefined);
 	const [runsOn, setRunsOn] = useState<RunsOn>(defaultRunsOn);
+	const blocker = useRunsOnBlocker(cwd, runsOn, account);
 
 	useEffect(() => {
 		dialog.current?.showModal();
 		folder.current?.focus();
 	}, []);
 
-	const ready = cwd !== "" && prompt.trim() !== "" && !busy;
+	const ready = cwd !== "" && prompt.trim() !== "" && !busy && !blocker;
 
 	const submit = async (event?: Event) => {
 		event?.preventDefault();
@@ -77,7 +77,7 @@ export function NewSession(props: {
 			...(name.trim() ? { name: name.trim() } : {}),
 			prompt: prompt.trim(),
 			runsOn,
-			...(runsOn === "local" && account !== undefined ? { account } : {}),
+			...(account !== undefined ? { account } : {}),
 		});
 		setBusy(false);
 		if (!result.ok) {
@@ -148,11 +148,17 @@ export function NewSession(props: {
 						<RunsOnPicker
 							labelledBy={`${listId}-runs-on`}
 							runsOn={runsOn}
+							account={account}
 							onPick={setRunsOn}
 							disabled={busy}
 						/>
 					</div>
 				</div>
+				{blocker && (
+					<p class="focus-runs-on-blocked" role="status">
+						{blocker}
+					</p>
+				)}
 
 				<label class="focus-field">
 					<span>Name</span>
@@ -166,7 +172,7 @@ export function NewSession(props: {
 					/>
 				</label>
 
-				{runsOn === "local" && pickableAccounts(usage.value) && (
+				{pickableAccounts(usage.value) && (
 					<div class="focus-field">
 						<span id={`${listId}-account`}>Account</span>
 						<AccountPicker
@@ -189,9 +195,7 @@ export function NewSession(props: {
 					/>
 				</label>
 
-				{error && (
-					<Failure error={error} cwd={cwd} account={account} runsOn={runsOn} />
-				)}
+				{error && <Failure error={error} cwd={cwd} account={account} />}
 
 				<footer class="focus-form-footer">
 					<span class="focus-muted focus-form-shortcut">

@@ -77,20 +77,14 @@ function outside(own: HTMLElement | null): HTMLElement[] {
 	return behind;
 }
 
-function attachKey(session: Session): string | null {
-	if (session.cloud) return session.id;
-	return session.attachable ? session.short : null;
-}
-
 function hasTerminal(session: Session): boolean {
-	return attachKey(session) !== null || session.cmux;
+	return (session.attachable && session.short !== null) || session.cmux;
 }
 
 function RawTerminal(props: { session: Session }) {
 	const { session } = props;
-	const key = attachKey(session);
-	return key ? (
-		<AttachedTerminal short={key} />
+	return session.attachable && session.short ? (
+		<AttachedTerminal short={session.short} />
 	) : (
 		<MirroredTerminal id={session.id} />
 	);

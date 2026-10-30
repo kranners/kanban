@@ -96,7 +96,7 @@ describe("exitSession", () => {
 		]);
 	});
 
-	it("archives a cloud session only when forced, since it can't be asked", async () => {
+	it("archives a cloud session on any exit, since it can't be asked", async () => {
 		const cloud: Session = {
 			...background,
 			id: "session_01cloud",
@@ -106,10 +106,7 @@ describe("exitSession", () => {
 			cloud: { url: "https://claude.ai/code/session_01cloud" },
 		};
 		const { deps, calls } = fakeDeps(ready);
-		const unforced = await exitSession(deps, cloud, false);
-		assert.equal(unforced.ok && unforced.exited, false);
-		assert.deepEqual(calls, []);
-		assert.deepEqual(await exitSession(deps, cloud, true), {
+		assert.deepEqual(await exitSession(deps, cloud, false), {
 			ok: true,
 			exited: true,
 		});

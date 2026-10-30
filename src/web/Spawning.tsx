@@ -12,6 +12,7 @@ import type { JSX } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import {
 	defaultRunsOn,
+	landingId,
 	type Point,
 	type PromptImage,
 	type RunsOn,
@@ -27,7 +28,7 @@ import { groupUnder, openRegionMenuAtPointer } from "./Groups.tsx";
 import { moveMenuFocus } from "./menuFocus.ts";
 import { sessionSize } from "./placement.ts";
 import { admit, dataUrl, imageFiles, readImages } from "./promptImages.ts";
-import { RunsOnPicker } from "./RunsOnPicker.tsx";
+import { RunsOnPicker, useRunsOnBlocker } from "./RunsOnPicker.tsx";
 import { regionDialog, regionMenu } from "./regionState.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 import type { QuickPrompt } from "./spawns.ts";
@@ -265,6 +266,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 	const [error, setError] = useState<string | null>(null);
 	const [account, setAccount] = useState<number | undefined>(undefined);
 	const [runsOn, setRunsOn] = useState<RunsOn>(defaultRunsOn);
+	const blocker = useRunsOnBlocker(open.cwd, runsOn, account);
 	const { k } = view.value;
 	const legible = Math.max(1, 1 / k);
 	useRestoreFocus();
@@ -311,7 +313,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 
 	const submit = async () => {
 		const text = prompt.trim();
-		if (!text || busy) return;
+		if (!text || busy || blocker) return;
 		setBusy(true);
 		setError(null);
 		await reading.current;
@@ -446,23 +448,27 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 				<RunsOnPicker
 					class="quick-prompt-runs-on"
 					runsOn={runsOn}
+					account={account}
 					disabled={busy || images.length > 0}
 					onPick={(picked) => {
 						setRunsOn(picked);
 						input.current?.focus({ preventScroll: true });
 					}}
 				/>
-				{runsOn === "local" && (
-					<AccountPicker
-						class="quick-prompt-account"
-						account={account}
-						disabled={busy}
-						onPick={(picked) => {
-							setAccount(picked);
-							input.current?.focus({ preventScroll: true });
-						}}
-					/>
+				{blocker && (
+					<span class="quick-prompt-blocked" role="status">
+						{blocker}
+					</span>
 				)}
+				<AccountPicker
+					class="quick-prompt-account"
+					account={account}
+					disabled={busy}
+					onPick={(picked) => {
+						setAccount(picked);
+						input.current?.focus({ preventScroll: true });
+					}}
+				/>
 				<span class="quick-prompt-hint">
 					<kbd>Enter</kbd> start · <kbd>Esc</kbd> cancel
 				</span>
@@ -482,9 +488,7 @@ function GhostCards(): JSX.Element {
 		<>
 			{ghosts.value.map((ghost) => (
 				<div
-					key={
-						"short" in ghost.landing ? ghost.landing.short : ghost.landing.id
-					}
+					key={landingId(ghost.landing)}
 					class="ghost-card"
 					data-no-pan
 					role="status"

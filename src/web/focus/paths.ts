@@ -35,6 +35,21 @@ export function commandsUrl(id: string): string {
 	return `/api/sessions/${encodeURIComponent(id)}/commands`;
 }
 
+export function runsOnBlockerUrl(
+	cwd: string,
+	runsOn: string,
+	account?: number,
+): string {
+	return `/api/cloud-blocker?${new URLSearchParams({ cwd, runsOn, ...accountQuery(account) })}`;
+}
+
+export function remoteHostsUrl(account?: number): string {
+	return `/api/remote-hosts?${new URLSearchParams(accountQuery(account))}`;
+}
+
+const accountQuery = (account?: number): Record<string, string> =>
+	account === undefined ? {} : { account: String(account) };
+
 export function directoryName(cwd: string): string {
 	return cwd.replace(/\/+$/, "").split("/").pop() ?? "";
 }

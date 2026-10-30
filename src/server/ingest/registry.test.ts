@@ -17,6 +17,7 @@ const entry = (status: string): RegistryEntry => ({
 	status,
 	waitingFor: null,
 	socket: null,
+	bridgeSessionId: null,
 	startedAt: 0,
 	updatedAt: 0,
 });

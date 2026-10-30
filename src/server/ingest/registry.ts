@@ -13,6 +13,7 @@ export type RegistryEntry = {
 	status: string | null;
 	waitingFor: string | null;
 	socket: string | null;
+	bridgeSessionId: string | null;
 	startedAt: number;
 	updatedAt: number;
 };
@@ -116,6 +117,7 @@ function toRegistryEntry(value: unknown): RegistryEntry | null {
 		status: asString(record.status),
 		waitingFor: asString(record.waitingFor) || null,
 		socket: asString(record.messagingSocketPath),
+		bridgeSessionId: asString(record.bridgeSessionId),
 		startedAt,
 		updatedAt: Math.max(
 			startedAt,
