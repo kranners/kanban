@@ -22,6 +22,7 @@
 }
 
 .world[data-detail="near"] .project-bar {
+	--bar-scale: var(--unzoom);
 	width: calc(100% / var(--unzoom));
 	transform-origin: 0 0;
 }

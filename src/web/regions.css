@@ -130,18 +130,20 @@
 }
 
 .project-bar {
+	--bar-rule: color-mix(in srgb, var(--region-border) 45%, transparent);
+	--bar-scale: 1;
 	position: absolute;
 	top: 0;
 	left: 0;
 	box-sizing: border-box;
 	display: flex;
-	align-items: center;
-	gap: 6px;
+	align-items: stretch;
 	width: 100%;
 	height: 32px;
-	padding: 0 8px 0 10px;
-	border-bottom: 1px solid
-		color-mix(in srgb, var(--region-border) 45%, transparent);
+	padding-left: 12px;
+	border-bottom: 1px solid var(--bar-rule);
+	border-radius: calc(15px / var(--bar-scale)) calc(15px / var(--bar-scale)) 0 0;
+	overflow: hidden;
 	pointer-events: auto;
 	cursor: grab;
 	touch-action: none;
@@ -152,21 +154,18 @@
 	flex: 0 1 auto;
 	min-width: 0;
 	max-width: none;
-	height: 22px;
-	padding: 0 8px;
-	border: 1px solid transparent;
-	border-radius: 999px;
-	background: var(--region-chip);
+	padding: 0;
+	border: 0;
+	background: none;
 	color: var(--region-ink);
 	font-family: inherit;
-	line-height: 20px;
 	cursor: pointer;
-	transition: border-color calc(120ms * var(--motion));
 }
 
 .group-frame .group-label:hover,
 .group-frame .group-label[aria-expanded="true"] {
-	border-color: var(--region-border);
+	text-decoration: underline;
+	text-underline-offset: 3px;
 }
 
 .group-label-text {
@@ -293,15 +292,17 @@
 .region-corner {
 	flex: none;
 	display: flex;
-	gap: 6px;
 	margin-left: auto;
+	padding-left: 12px;
 }
 
 .group-frame .region-corner .close-bubble {
-	width: 24px;
-	height: 24px;
-	border-color: transparent;
-	background: var(--region-chip);
+	width: 40px;
+	height: 100%;
+	border: 0;
+	border-left: 1px solid var(--bar-rule);
+	border-radius: 0;
+	background: none;
 	color: var(--region-ink);
 	box-shadow: none;
 	opacity: 1;
@@ -310,11 +311,11 @@
 }
 
 .group-frame .region-corner .close-bubble:hover:not(:disabled) {
-	border-color: var(--region-border);
+	background: var(--region-chip);
 }
 
-.group-frame .region-corner .close-bubble.force:not(:disabled) {
-	border-color: var(--red);
+.group-frame .region-corner .close-bubble:not(.report-bubble):hover,
+.group-frame .region-corner .close-bubble.force {
 	background: var(--red);
 	color: #ffffff;
 }

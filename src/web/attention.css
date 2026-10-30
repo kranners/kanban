@@ -406,10 +406,6 @@
 	box-shadow: 0 0 0 calc(1px * var(--unzoom) - 1px) var(--needs-edge);
 }
 
-.group-frame.wants-you .group-label {
-	border-color: var(--needs-edge);
-}
-
 .group-needs {
 	flex: none;
 	display: inline-flex;
