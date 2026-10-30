@@ -69,6 +69,21 @@ function GoalBody(props: { goal: string | null }) {
 	return <p class="goal goal-empty">No goal yet</p>;
 }
 
+function CardBody(props: { session: Session; workflows: readonly Workflow[] }) {
+	const { session } = props;
+	return (
+		<div class="body">
+			<WorkflowBars workflows={props.workflows} />
+			<GoalBody goal={session.goal} />
+			{session.activity === "needs-you" && session.needs && (
+				<div class="needs" title={session.needs}>
+					{session.needs}
+				</div>
+			)}
+		</div>
+	);
+}
+
 function BusyEdge() {
 	return <span class="busy-edge" aria-hidden="true" />;
 }
@@ -166,25 +181,6 @@ function TaskList(props: { tasks: readonly Task[] }) {
 	);
 }
 
-function RecentSteps(props: { steps: readonly Step[]; now: number }) {
-	if (props.steps.length === 0) return null;
-	return (
-		<section class="detail-section" aria-label="Recent steps">
-			<div class="detail-head">
-				<span>Recent</span>
-			</div>
-			<ol class="detail-list">
-				{[...props.steps].reverse().map((step, index) => (
-					<li key={`${step.at}-${index}`} class="step">
-						<span class="detail-text">{plainText(step.text)}</span>
-						<time class="num">{relativeTime(step.at, props.now)}</time>
-					</li>
-				))}
-			</ol>
-		</section>
-	);
-}
-
 function ProgressNote(props: {
 	digest: SessionDigest;
 	stuck: string | null;
@@ -219,7 +215,7 @@ function nearLanes(session: Session, now: number): Lane[] {
 		label: "Steps",
 		spans: [],
 		finish: null,
-		ticks: session.steps.map((step) => step.at),
+		events: session.steps,
 	};
 	const tasks = sessionLane(session, "Tasks", now, typical);
 	return [
@@ -228,27 +224,68 @@ function nearLanes(session: Session, now: number): Lane[] {
 	];
 }
 
-function NearDetail(props: { session: Session; now: number }) {
+function NearPanel(props: {
+	session: Session;
+	workflows: readonly Workflow[];
+	now: number;
+}) {
 	const { session } = props;
 	const digest = digests.value.sessions[session.id];
-	if (session.tasks.length === 0 && session.steps.length === 0 && !digest)
-		return null;
+	const KindIcon = session.kind === "interactive" ? Terminal : Server;
 	return (
-		<div class="detail" data-scrollable>
-			{digest && (
-				<ProgressNote
-					digest={digest}
-					stuck={stuckOf(session, digest)}
-					now={props.now}
-				/>
-			)}
-			<TaskList tasks={session.tasks} />
-			<Timeline
-				lanes={nearLanes(session, props.now)}
-				now={props.now}
-				label="Session timeline"
-			/>
-			<RecentSteps steps={session.steps} now={props.now} />
+		<div class="near-panel">
+			<header class="near-head">
+				<div class="near-meta">
+					<ActivityBadge activity={session.activity} />
+					{!repeatsGoal(session) && (
+						<span class="near-name">{session.name}</span>
+					)}
+					<span class="near-project" title={session.cwd}>
+						{session.project}
+					</span>
+					<span class="foot-end">
+						{session.configDir && <AccountChip configDir={session.configDir} />}
+						<KindIcon size={13} aria-hidden="true" />
+						<time class="num">
+							{relativeTime(session.updatedAt, props.now)}
+						</time>
+					</span>
+				</div>
+				<p class={`near-goal${session.goal ? "" : " goal-empty"}`}>
+					{session.goal ?? "No goal yet"}
+				</p>
+				{session.activity === "needs-you" && session.needs && (
+					<p class="near-needs">
+						<TriangleAlert size={14} aria-hidden="true" />
+						<span>{session.needs}</span>
+					</p>
+				)}
+				<p class="near-doing">
+					{session.doing ? plainText(session.doing) : activityHint(session)}
+				</p>
+				<WorkflowBars workflows={props.workflows} />
+			</header>
+			<div class="near-content" data-scrollable>
+				<div class="near-side">
+					{digest && (
+						<ProgressNote
+							digest={digest}
+							stuck={stuckOf(session, digest)}
+							now={props.now}
+						/>
+					)}
+					<TaskList tasks={session.tasks} />
+				</div>
+				<div class="near-main">
+					<Timeline
+						lanes={nearLanes(session, props.now)}
+						now={props.now}
+						label="Session timeline"
+						minuteEm={0.8}
+						labelled
+					/>
+				</div>
+			</div>
 		</div>
 	);
 }
@@ -367,42 +404,43 @@ export function SessionCard(props: {
 				aria-label={cardLabel(session, props.workflows)}
 				onClick={open}
 			>
-				<div class="body">
-					<WorkflowBars workflows={props.workflows} />
-					<GoalBody goal={session.goal} />
-					{session.activity === "needs-you" && session.needs && (
-						<div class="needs" title={session.needs}>
-							{session.needs}
+				{props.detail === "near" ? (
+					<NearPanel
+						session={session}
+						workflows={props.workflows}
+						now={props.now}
+					/>
+				) : (
+					<>
+						<CardBody session={session} workflows={props.workflows} />
+						<div class="foot">
+							<ActivityBadge activity={session.activity} />
+							<span class="foot-project" title={session.cwd}>
+								{session.project}
+							</span>
+							<span class="foot-end">
+								{session.configDir && (
+									<AccountChip configDir={session.configDir} />
+								)}
+								<span
+									class="foot-kind"
+									title={
+										session.kind === "background"
+											? "Background"
+											: session.cmux
+												? "Interactive · in cmux"
+												: "Interactive"
+									}
+								>
+									<KindIcon size={13} aria-hidden="true" />
+								</span>
+								<time class="num">
+									{relativeTime(session.updatedAt, props.now)}
+								</time>
+							</span>
 						</div>
-					)}
-					{props.detail === "near" && (
-						<NearDetail session={session} now={props.now} />
-					)}
-				</div>
-				<div class="foot">
-					<ActivityBadge activity={session.activity} />
-					<span class="foot-project" title={session.cwd}>
-						{session.project}
-					</span>
-					<span class="foot-end">
-						{session.configDir && <AccountChip configDir={session.configDir} />}
-						<span
-							class="foot-kind"
-							title={
-								session.kind === "background"
-									? "Background"
-									: session.cmux
-										? "Interactive · in cmux"
-										: "Interactive"
-							}
-						>
-							<KindIcon size={13} aria-hidden="true" />
-						</span>
-						<time class="num">
-							{relativeTime(session.updatedAt, props.now)}
-						</time>
-					</span>
-				</div>
+					</>
+				)}
 			</button>
 			<CardArtifacts artifacts={session.artifacts} onMore={open} />
 			{session.activity === "working" && <BusyEdge />}
@@ -451,25 +489,29 @@ export function SubagentCard(props: {
 			data-node={props.node.key}
 			title={subagent.description}
 		>
-			<span class="sub-icon">
-				{subagent.kind === "shell" ? (
-					<SquareTerminal size={14} aria-hidden="true" />
-				) : (
-					<Bot size={14} aria-hidden="true" />
-				)}
-			</span>
-			<div class="sub-text">
-				<div class="sub-title">
-					<span class="sub-name">{subagent.description || subagent.type}</span>
-					{subagent.live && (
-						<span class="pulse sub-pulse" role="img" aria-label="running" />
+			<div class="sub-inner">
+				<span class="sub-icon">
+					{subagent.kind === "shell" ? (
+						<SquareTerminal size={14} aria-hidden="true" />
+					) : (
+						<Bot size={14} aria-hidden="true" />
 					)}
+				</span>
+				<div class="sub-text">
+					<div class="sub-title">
+						<span class="sub-name">
+							{subagent.description || subagent.type}
+						</span>
+						{subagent.live && (
+							<span class="pulse sub-pulse" role="img" aria-label="running" />
+						)}
+					</div>
+					<div class="sub-kind">{subagent.type}</div>
 				</div>
-				<div class="sub-kind">{subagent.type}</div>
+				<time class="sub-time num">
+					{relativeTime(subagent.updatedAt, props.now)}
+				</time>
 			</div>
-			<time class="sub-time num">
-				{relativeTime(subagent.updatedAt, props.now)}
-			</time>
 			{subagent.live && <BusyEdge />}
 			{subagent.kind === "agent" && (
 				<button

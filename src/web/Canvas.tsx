@@ -8,7 +8,14 @@ import { dotGrid, snap, snapWithin } from "./grid.ts";
 import type { NodeKey } from "./layout.ts";
 import type { Bounds, Rect } from "./placement.ts";
 import { maxSessionSize, minSessionSize } from "./placement.ts";
-import { scrollsFurther } from "./scrolling.ts";
+import {
+	axisOf,
+	latchMs,
+	nextLatch,
+	scrollsAlong,
+	type WheelLatch,
+	type WheelMode,
+} from "./scrolling.ts";
 import type { Span, View } from "./viewport.ts";
 import {
 	centredOn,
@@ -148,19 +155,22 @@ export function Canvas(props: {
 	useEffect(() => {
 		const el = viewport.current;
 		if (!el) return;
-		const onWheel = (event: WheelEvent) => {
+		let latch: WheelLatch | null = null;
+		const freshMode = (event: WheelEvent): WheelMode => {
 			const target = event.target as Element;
-			const zooming = event.ctrlKey || event.metaKey;
 			const scroller = target.closest("[data-scrollable]");
-			if (scroller) {
-				const world = scroller.closest(".world");
-				if (!world) return;
-				if (
-					!zooming &&
-					scrollsFurther(target, world, event.deltaX, event.deltaY)
-				)
-					return;
-			}
+			if (!scroller) return "board";
+			const world = scroller.closest(".world");
+			if (!world) return "scroll";
+			const axis = axisOf(event.deltaX, event.deltaY);
+			return scrollsAlong(target, world, axis) ? "scroll" : "board";
+		};
+		const onWheel = (event: WheelEvent) => {
+			const zooming = event.ctrlKey || event.metaKey;
+			latch = zooming
+				? { mode: "board", until: event.timeStamp + latchMs }
+				: nextLatch(latch, event.timeStamp, () => freshMode(event));
+			if (latch.mode === "scroll") return;
 			event.preventDefault();
 			const rect = el.getBoundingClientRect();
 			const v = view.value;
@@ -433,7 +443,7 @@ export function Canvas(props: {
 				style={{
 					transform: `translate(${v.x}px, ${v.y}px) scale(${v.k})`,
 					"--zoom": v.k,
-					"--unzoom": Math.max(1, 1 / v.k),
+					"--unzoom": detail.value === "near" ? 1 / v.k : Math.max(1, 1 / v.k),
 				}}
 			>
 				{props.children}

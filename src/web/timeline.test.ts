@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { Activity, Session, Task, TaskStatus } from "../shared/types.ts";
 import {
 	averageTaskMs,
+	eventRows,
 	finishedSpans,
 	latestFinish,
 	marksOf,
@@ -144,7 +145,13 @@ test("a finished list has no finish ahead", () => {
 test("the window spans the lanes, at most three hours back, with room ahead", () => {
 	const lanes = [
 		sessionLane(session("working", tenMinuteTasks), "a", now, null),
-		{ key: "b", label: "b", spans: [], finish: null, ticks: [ago(600)] },
+		{
+			key: "b",
+			label: "b",
+			spans: [],
+			finish: null,
+			events: [{ at: ago(600), text: "old" }],
+		},
 	];
 	const range = windowOf(lanes, now);
 	assert.ok(range.start <= ago(180) && range.start > ago(200));
@@ -158,4 +165,13 @@ test("marks fall every quarter hour, or every hour on a long window", () => {
 		now,
 	]);
 	assert.equal(marksOf({ start: ago(300), end: now }).length, 6);
+});
+
+test("step labels share a row only when they don't overlap", () => {
+	const steps = [
+		{ at: ago(30), text: "Read: a.ts" },
+		{ at: ago(29), text: "Edit: a.ts" },
+		{ at: ago(10), text: "Bash: npm test" },
+	];
+	assert.deepEqual(eventRows(steps, 0.8), [0, 1, 0]);
 });

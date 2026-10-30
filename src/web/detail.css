@@ -1,28 +1,182 @@
-.world[data-detail="near"] .node.session .body:has(> .detail) .goal {
-	flex: none;
-	padding-bottom: 6px;
-	font-size: 17px;
-	-webkit-line-clamp: 2;
-	line-clamp: 2;
+.world[data-detail="near"] .node.session {
+	--label-height: 0px;
 }
 
-.detail {
+.world[data-detail="near"] .node.session > .label {
+	display: none;
+}
+
+.world[data-detail="near"] .node .frame {
+	border-width: calc(1px * var(--unzoom));
+	border-radius: calc(var(--radius) * var(--unzoom));
+}
+
+.world[data-detail="near"] .node.session .ribbon {
+	top: calc(-10px * var(--unzoom));
+	right: calc(22px * var(--unzoom));
+}
+
+.world[data-detail="near"]
+	:is(.group-label, .node-corner, .card-artifacts, .resize-handle) {
+	scale: var(--unzoom);
+}
+
+.world[data-detail="near"] .group-label {
+	top: calc(7px * var(--unzoom));
+	left: calc(14px * var(--unzoom));
+	max-width: calc(100% / var(--unzoom) - 28px);
+	transform-origin: 0 0;
+}
+
+.world[data-detail="near"] .node-corner {
+	top: calc(-10px * var(--unzoom));
+	right: calc(-10px * var(--unzoom));
+	transform-origin: 100% 0;
+}
+
+.world[data-detail="near"] .card-artifacts {
+	left: calc(9px * var(--unzoom));
+	right: auto;
+	bottom: calc(9px * var(--unzoom));
+	transform-origin: 0 100%;
+}
+
+.world[data-detail="near"] .resize-handle {
+	right: calc(-6px * var(--unzoom));
+	bottom: calc(-6px * var(--unzoom));
+	transform-origin: 100% 100%;
+}
+
+.sub-inner {
+	display: contents;
+}
+
+.world[data-detail="near"] .node.subagent {
+	padding: 0;
+	border-width: calc(1px * var(--unzoom));
+	border-radius: calc(var(--radius) * var(--unzoom));
+}
+
+.world[data-detail="near"] .sub-inner {
+	flex: none;
+	align-self: flex-start;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: calc(100% / var(--unzoom));
+	height: calc(100% / var(--unzoom));
+	padding: 0 12px 0 10px;
+	scale: var(--unzoom);
+	transform-origin: 0 0;
+}
+
+.near-panel {
+	flex: none;
+	width: calc(100% / var(--unzoom));
+	height: calc(100% / var(--unzoom));
+	scale: var(--unzoom);
+	transform-origin: 0 0;
+	container-type: inline-size;
+	display: flex;
+	flex-direction: column;
+	color: var(--muted);
+	font-size: 13px;
+	line-height: 1.4;
+}
+
+.near-head {
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 18px 18px 12px;
+	border-bottom: 1px solid var(--hairline);
+}
+
+.near-meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 10px;
+	font-size: 12px;
+}
+
+.near-meta .foot-end {
+	margin-left: auto;
+}
+
+.near-name {
+	color: var(--ink);
+	font-weight: 600;
+}
+
+.near-goal {
+	margin: 0;
+	color: var(--ink);
+	font-size: 20px;
+	font-weight: 650;
+	line-height: 1.25;
+	letter-spacing: -0.01em;
+	overflow-wrap: anywhere;
+}
+
+.near-goal.goal-empty {
+	color: var(--muted);
+	font-weight: 500;
+}
+
+.near-needs {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	margin: 2px 0;
+	padding: 8px 10px;
+	border-radius: var(--radius-sm);
+	background: var(--amber-soft);
+	color: var(--amber-ink);
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.near-needs svg {
+	flex: none;
+	margin-top: 2px;
+}
+
+.near-doing {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+.near-content {
 	flex: 1;
 	min-height: 0;
 	overflow: hidden auto;
 	overscroll-behavior: contain;
 	scrollbar-width: thin;
-	display: flex;
-	flex-direction: column;
-	gap: 0.7em;
-	padding: 0 14px 0.6em;
-	font-size: calc(12px / var(--zoom));
-	line-height: 1.4;
-	color: var(--muted);
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	align-content: start;
+	gap: 16px 28px;
+	padding: 14px 18px 18px;
 }
 
-.detail .timeline {
-	--tl-minute: 0.6em;
+@container (min-width: 760px) {
+	.near-content {
+		grid-template-columns: minmax(240px, 1fr) minmax(0, 2fr);
+	}
+}
+
+.near-side,
+.near-main {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	min-width: 0;
+}
+
+.near-side:empty {
+	display: none;
 }
 
 .detail-section {
@@ -97,14 +251,6 @@
 
 .task-completed svg {
 	color: var(--done-edge);
-}
-
-.step:first-child {
-	color: var(--ink);
-}
-
-.step time {
-	flex: none;
 }
 
 .progress p {

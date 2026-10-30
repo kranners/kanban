@@ -1,4 +1,4 @@
-import type { Activity, Session, Task } from "../shared/types.ts";
+import type { Activity, Session, Step, Task } from "../shared/types.ts";
 
 export type SpanKind = "done" | "active" | "planned";
 
@@ -14,7 +14,7 @@ export type Lane = {
 	label: string;
 	spans: Span[];
 	finish: number | null;
-	ticks: number[];
+	events: readonly Step[];
 };
 
 export type Window = { start: number; end: number };
@@ -112,14 +112,14 @@ export function sessionLane(
 			return span ? [{ ...span, title: task.subject }] : [];
 		}),
 		finish: finishOf(session, spans),
-		ticks: [],
+		events: [],
 	};
 }
 
 export function windowOf(lanes: readonly Lane[], now: number): Window {
 	const times = lanes.flatMap((lane) => [
 		...lane.spans.flatMap((span) => [span.start, span.end]),
-		...lane.ticks,
+		...lane.events.map((event) => event.at),
 		...(lane.finish === null ? [] : [lane.finish]),
 	]);
 	const start = Math.max(now - lookBehindMs, Math.min(now, ...times));
@@ -149,4 +149,19 @@ export function latestFinish(lanes: readonly Lane[]): number | null {
 		lane.finish === null ? [] : [lane.finish],
 	);
 	return finishes.length > 0 ? Math.max(...finishes) : null;
+}
+
+const labelCharEm = 0.5;
+const labelGapEm = 1.2;
+
+export function eventRows(events: readonly Step[], minuteEm: number): number[] {
+	const rowEnds: number[] = [];
+	return events.map((event) => {
+		const startEm = (event.at / minute) * minuteEm;
+		const endEm = startEm + event.text.length * labelCharEm + labelGapEm;
+		const free = rowEnds.findIndex((end) => end <= startEm);
+		const row = free === -1 ? rowEnds.length : free;
+		rowEnds[row] = endEm;
+		return row;
+	});
 }

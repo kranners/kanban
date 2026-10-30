@@ -89,9 +89,9 @@ function ProjectSummary(props: {
 	const lanes = summary.sessions
 		.map((session) => ({
 			...sessionLane(session, labelOf(session), at, typical),
-			ticks: session.steps.map((step) => step.at),
+			events: session.steps,
 		}))
-		.filter((lane) => lane.spans.length > 0 || lane.ticks.length > 0);
+		.filter((lane) => lane.spans.length > 0 || lane.events.length > 0);
 	const finish = latestFinish(lanes);
 	return (
 		<div
@@ -155,6 +155,7 @@ function ProjectSummary(props: {
 					lanes={lanes}
 					now={at}
 					label={`${summary.project} timeline`}
+					minuteEm={2 / 3}
 				/>
 			</div>
 		</div>

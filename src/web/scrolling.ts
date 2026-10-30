@@ -1,6 +1,6 @@
+export type Axis = "x" | "y";
+
 export type ScrollBox = {
-	scrollTop: number;
-	scrollLeft: number;
 	scrollHeight: number;
 	scrollWidth: number;
 	clientHeight: number;
@@ -9,34 +9,37 @@ export type ScrollBox = {
 	overflowY: string;
 };
 
+export type WheelMode = "scroll" | "board";
+
+export type WheelLatch = { mode: WheelMode; until: number };
+
+export const latchMs = 250;
+
+export function axisOf(dx: number, dy: number): Axis {
+	return Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+}
+
 const scrolls = (overflow: string) =>
 	overflow === "auto" || overflow === "scroll";
 
-function room(
-	delta: number,
-	position: number,
-	size: number,
-	view: number,
-): boolean {
-	if (delta > 0) return position + view < size - 1;
-	if (delta < 0) return position > 0;
-	return false;
+export function overflowsAlong(box: ScrollBox, axis: Axis): boolean {
+	return axis === "x"
+		? scrolls(box.overflowX) && box.scrollWidth > box.clientWidth + 1
+		: scrolls(box.overflowY) && box.scrollHeight > box.clientHeight + 1;
 }
 
-export function hasRoom(box: ScrollBox, dx: number, dy: number): boolean {
-	return (
-		(scrolls(box.overflowX) &&
-			room(dx, box.scrollLeft, box.scrollWidth, box.clientWidth)) ||
-		(scrolls(box.overflowY) &&
-			room(dy, box.scrollTop, box.scrollHeight, box.clientHeight))
-	);
+export function nextLatch(
+	latch: WheelLatch | null,
+	at: number,
+	fresh: () => WheelMode,
+): WheelLatch {
+	const mode = latch && at < latch.until ? latch.mode : fresh();
+	return { mode, until: at + latchMs };
 }
 
 function boxOf(element: Element): ScrollBox {
 	const style = getComputedStyle(element);
 	return {
-		scrollTop: element.scrollTop,
-		scrollLeft: element.scrollLeft,
 		scrollHeight: element.scrollHeight,
 		scrollWidth: element.scrollWidth,
 		clientHeight: element.clientHeight,
@@ -46,18 +49,17 @@ function boxOf(element: Element): ScrollBox {
 	};
 }
 
-export function scrollsFurther(
+export function scrollsAlong(
 	from: Element,
 	root: Element,
-	dx: number,
-	dy: number,
+	axis: Axis,
 ): boolean {
 	for (
 		let element: Element | null = from;
 		element && root.contains(element);
 		element = element.parentElement
 	) {
-		if (hasRoom(boxOf(element), dx, dy)) return true;
+		if (overflowsAlong(boxOf(element), axis)) return true;
 	}
 	return false;
 }

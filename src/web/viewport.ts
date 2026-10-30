@@ -19,7 +19,7 @@ export function fromOrigin(view: View, origin: Point): View {
 }
 
 export const minZoom = 0.15;
-export const maxZoom = 2;
+export const maxZoom = 6;
 
 export type Detail = "far" | "medium" | "near";
 

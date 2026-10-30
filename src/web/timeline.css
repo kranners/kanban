@@ -1,5 +1,4 @@
 .timeline {
-	--tl-minute: 8px;
 	flex: none;
 	display: flex;
 	flex-direction: column;
@@ -114,4 +113,27 @@
 	bottom: 0;
 	width: 1px;
 	background: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.timeline-events {
+	position: relative;
+	margin: 0.2em 0 0;
+	padding: 0;
+	list-style: none;
+}
+
+.timeline-event {
+	position: absolute;
+	height: 1.3em;
+	padding-left: 0.5em;
+	border-left: 2px solid var(--muted);
+	color: var(--ink);
+	font-size: 0.9em;
+	line-height: 1.3;
+	white-space: nowrap;
+}
+
+.timeline-event:last-child {
+	border-left-color: var(--busy-edge);
+	font-weight: 600;
 }

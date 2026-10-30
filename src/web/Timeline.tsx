@@ -2,6 +2,7 @@ import "./timeline.css";
 import { useLayoutEffect, useRef } from "preact/hooks";
 import { relativeTime } from "./time.ts";
 import {
+	eventRows,
 	type Lane,
 	latestFinish,
 	marksOf,
@@ -20,10 +21,43 @@ export function finishText(finish: number, now: number): string {
 	return `Done ~${clock(finish)}${left === "now" ? "" : ` · in ${left}`}`;
 }
 
+const eventRowEm = 1.5;
+
+function TimelineEvents(props: {
+	lane: Lane;
+	minuteEm: number;
+	at: (time: number) => string;
+}) {
+	const { events } = props.lane;
+	const rows = eventRows(events, props.minuteEm);
+	return (
+		<ol
+			class="timeline-events"
+			style={{ height: `${(Math.max(-1, ...rows) + 1) * eventRowEm}em` }}
+		>
+			{events.map((event, index) => (
+				<li
+					key={`${event.at}-${index}`}
+					class="timeline-event"
+					title={`${clock(event.at)} ${event.text}`}
+					style={{
+						left: props.at(event.at),
+						top: `${(rows[index] ?? 0) * eventRowEm}em`,
+					}}
+				>
+					{event.text}
+				</li>
+			))}
+		</ol>
+	);
+}
+
 export function Timeline(props: {
 	lanes: readonly Lane[];
 	now: number;
 	label: string;
+	minuteEm: number;
+	labelled?: boolean;
 }) {
 	const { lanes, now } = props;
 	const scroller = useRef<HTMLDivElement>(null);
@@ -41,7 +75,11 @@ export function Timeline(props: {
 		`calc(var(--tl-minute) * ${Math.max(0, minutesBetween(from, to))})`;
 	const finish = latestFinish(lanes);
 	return (
-		<section class="timeline" aria-label={props.label}>
+		<section
+			class="timeline"
+			aria-label={props.label}
+			style={{ "--tl-minute": `${props.minuteEm}em` }}
+		>
 			<div class="timeline-head">
 				<span>Timeline</span>
 				{finish !== null && (
@@ -81,13 +119,18 @@ export function Timeline(props: {
 									}}
 								/>
 							))}
-							{lane.ticks.map((tick, index) => (
-								<span
-									key={index}
-									class="timeline-tick"
-									style={{ left: at(tick) }}
-								/>
-							))}
+							{props.labelled ? (
+								<TimelineEvents lane={lane} minuteEm={props.minuteEm} at={at} />
+							) : (
+								lane.events.map((event, index) => (
+									<span
+										key={`${event.at}-${index}`}
+										class="timeline-tick"
+										title={`${clock(event.at)} ${event.text}`}
+										style={{ left: at(event.at) }}
+									/>
+								))
+							)}
 							{lane.finish !== null && (
 								<span
 									class="timeline-lane-finish num"
