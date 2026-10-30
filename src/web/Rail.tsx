@@ -62,7 +62,7 @@ function Badge(props: { view: RailView }): JSX.Element | null {
 			if (!current) return null;
 			const { level, stale } = usageGlance(current);
 			return level === "normal" && !stale ? null : (
-				<span class={`rail-dot usage-${stale ? "stale" : level}`} />
+				<span class={`rail-dot usage-${level}${stale ? " usage-stale" : ""}`} />
 			);
 		}
 		case "messages": {
@@ -73,8 +73,22 @@ function Badge(props: { view: RailView }): JSX.Element | null {
 }
 
 function hint(view: RailView, title: string): string {
-	const current = usage.value;
-	return view === "usage" && current ? usageGlance(current).label : title;
+	switch (view) {
+		case "search":
+			return search.value.trim() ? `${title}, filtering the board` : title;
+		case "status":
+			return activityFilter.value.size > 0 || workingSubagentsOnly.value
+				? `${title}, filtering the board`
+				: title;
+		case "usage": {
+			const current = usage.value;
+			return current ? usageGlance(current).label : title;
+		}
+		case "messages": {
+			const count = board.value?.messages.length ?? 0;
+			return count > 0 ? `${title}, ${count}` : title;
+		}
+	}
 }
 
 function Body(props: { view: RailView }): JSX.Element | null {

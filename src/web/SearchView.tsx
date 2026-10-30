@@ -2,7 +2,13 @@ import { Search } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import { ActivityIcon, activityLabel } from "./activity.tsx";
-import { board, openSession, search, sessionMatches } from "./state.ts";
+import {
+	activityFilter,
+	board,
+	openSession,
+	search,
+	sessionMatches,
+} from "./state.ts";
 
 export function SearchView(): JSX.Element {
 	const input = useRef<HTMLInputElement>(null);
@@ -31,45 +37,46 @@ export function SearchView(): JSX.Element {
 					aria-label="Search sessions"
 				/>
 			</label>
-			{!query ? (
+			{query ? (
+				<p class="rail-section num" aria-live="polite">
+					{matches.length === 0
+						? `No sessions match “${query}”`
+						: `${matches.length} of ${sessions.length} sessions`}
+					{activityFilter.value.size > 0 && " with the status filter"}
+				</p>
+			) : (
 				<p class="rail-empty">
 					Search by name, project, folder or what a session is doing. Sessions
 					that don't match fade on the board.
 				</p>
-			) : matches.length === 0 ? (
-				<p class="rail-empty">No sessions match “{query}”.</p>
-			) : (
-				<>
-					<p class="rail-section num" aria-live="polite">
-						{matches.length} of {sessions.length} sessions
-					</p>
-					<ul class="search-results">
-						{matches.map((session) => (
-							<li key={session.id}>
-								<button
-									type="button"
-									class={`search-result act-${session.activity}`}
-									title={activityLabel[session.activity]}
-									onClick={(event) =>
-										openSession(
-											session.id,
-											event.currentTarget.getBoundingClientRect(),
-										)
-									}
-								>
-									<span class="search-result-head">
-										<ActivityIcon activity={session.activity} size={11} />
-										<span class="search-result-name">{session.name}</span>
-										<span class="search-result-project">{session.project}</span>
-									</span>
-									{session.doing && (
-										<span class="search-result-doing">{session.doing}</span>
-									)}
-								</button>
-							</li>
-						))}
-					</ul>
-				</>
+			)}
+			{matches.length > 0 && (
+				<ul class="search-results">
+					{matches.map((session) => (
+						<li key={session.id}>
+							<button
+								type="button"
+								class={`search-result act-${session.activity}`}
+								title={activityLabel[session.activity]}
+								onClick={(event) =>
+									openSession(
+										session.id,
+										event.currentTarget.getBoundingClientRect(),
+									)
+								}
+							>
+								<span class="search-result-head">
+									<ActivityIcon activity={session.activity} size={11} />
+									<span class="search-result-name">{session.name}</span>
+									<span class="search-result-project">{session.project}</span>
+								</span>
+								{session.doing && (
+									<span class="search-result-doing">{session.doing}</span>
+								)}
+							</button>
+						</li>
+					))}
+				</ul>
 			)}
 		</div>
 	);
