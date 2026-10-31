@@ -989,10 +989,10 @@ describe("cloudBlocker", () => {
 
 	it("names why a folder can't seed a cloud session", async () => {
 		const plain = await mkdtemp(join(tmpdir(), "kanban-cloud-plain-"));
-		assert.match((await cloudBlocker(plain)) ?? "", /isn't a git repository/);
+		assert.match((await cloudBlocker(plain)) ?? "", /Not a git repository/);
 		const empty = await mkdtemp(join(tmpdir(), "kanban-cloud-empty-"));
 		await git(empty, "init", "-q");
-		assert.match((await cloudBlocker(empty)) ?? "", /no commits yet/);
+		assert.match((await cloudBlocker(empty)) ?? "", /Needs a first commit/);
 		assert.match((await cloudBlocker("relative")) ?? "", /absolute path/);
 	});
 });

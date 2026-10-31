@@ -1,34 +1,36 @@
+import { UserRound } from "lucide-preact";
 import type { JSX } from "preact";
+import { ChoiceMenu } from "./ChoiceMenu.tsx";
 import { accountLabel, pickableAccounts, usage } from "./usage.ts";
 
 export function AccountPicker(props: {
 	account: number | undefined;
 	onPick: (account: number | undefined) => void;
+	variant: "chip" | "field";
 	disabled?: boolean;
-	class?: string;
 	labelledBy?: string;
 }): JSX.Element | null {
 	const pickable = pickableAccounts(usage.value);
 	if (!pickable) return null;
 	const { accounts, fallback } = pickable;
 	return (
-		<select
-			aria-labelledby={props.labelledBy}
-			class={props.class}
+		<ChoiceMenu
+			choices={accounts.map((account) => ({
+				value: String(account.number),
+				label: accountLabel(account),
+				detail: `${account.email}${account.isDefault ? " (default)" : ""}`,
+				icon: UserRound,
+			}))}
 			value={String(props.account ?? fallback.number)}
-			disabled={props.disabled}
-			aria-label="Claude account"
-			title="Claude account for this session"
-			onChange={(event) => {
-				const picked = Number(event.currentTarget.value);
+			onPick={(value) => {
+				const picked = Number(value);
 				props.onPick(picked === fallback.number ? undefined : picked);
 			}}
-		>
-			{accounts.map((account) => (
-				<option key={account.id} value={String(account.number)}>
-					{`${accountLabel(account)} · ${account.email}${account.isDefault ? " (default)" : ""}`}
-				</option>
-			))}
-		</select>
+			label="Claude account"
+			title="Claude account for this session"
+			variant={props.variant}
+			labelledBy={props.labelledBy}
+			disabled={props.disabled}
+		/>
 	);
 }

@@ -2,14 +2,10 @@ import "./focus.css";
 import { CircleAlert, LoaderCircle, X } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
-import {
-	defaultRunsOn,
-	type Landing,
-	type RunsOn,
-} from "../../shared/types.ts";
+import type { Landing } from "../../shared/types.ts";
 import { AccountPicker } from "../AccountPicker.tsx";
 import { FolderPicker } from "../FolderPicker.tsx";
-import { RunsOnPicker, useRunsOnBlocker } from "../RunsOnPicker.tsx";
+import { RunsOnPicker, useRunsOn } from "../RunsOnPicker.tsx";
 import { createSession } from "../spawns.ts";
 import { pickableAccounts, usage } from "../usage.ts";
 import { needsTrust } from "./paths.ts";
@@ -42,6 +38,21 @@ function Failure(props: {
 	);
 }
 
+function AccountField(props: {
+	labelledBy: string;
+	account: number | undefined;
+	onPick: (account: number | undefined) => void;
+	disabled: boolean;
+}): JSX.Element | null {
+	if (!pickableAccounts(usage.value)) return null;
+	return (
+		<div class="focus-field">
+			<span id={props.labelledBy}>Account</span>
+			<AccountPicker variant="field" {...props} />
+		</div>
+	);
+}
+
 export function NewSession(props: {
 	cwds: string[];
 	onCreated: (landing: Landing) => void;
@@ -57,15 +68,14 @@ export function NewSession(props: {
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [account, setAccount] = useState<number | undefined>(undefined);
-	const [runsOn, setRunsOn] = useState<RunsOn>(defaultRunsOn);
-	const blocker = useRunsOnBlocker(cwd, runsOn, account);
+	const runs = useRunsOn(cwd, account);
 
 	useEffect(() => {
 		dialog.current?.showModal();
 		folder.current?.focus();
 	}, []);
 
-	const ready = cwd !== "" && prompt.trim() !== "" && !busy && !blocker;
+	const ready = cwd !== "" && prompt.trim() !== "" && !busy;
 
 	const submit = async (event?: Event) => {
 		event?.preventDefault();
@@ -76,7 +86,7 @@ export function NewSession(props: {
 			cwd,
 			...(name.trim() ? { name: name.trim() } : {}),
 			prompt: prompt.trim(),
-			runsOn,
+			runsOn: runs.runsOn,
 			...(account !== undefined ? { account } : {}),
 		});
 		setBusy(false);
@@ -146,19 +156,19 @@ export function NewSession(props: {
 					<div class="focus-field">
 						<span id={`${listId}-runs-on`}>Runs on</span>
 						<RunsOnPicker
+							variant="field"
 							labelledBy={`${listId}-runs-on`}
-							runsOn={runsOn}
-							account={account}
-							onPick={setRunsOn}
+							runs={runs}
 							disabled={busy}
 						/>
 					</div>
+					<AccountField
+						labelledBy={`${listId}-account`}
+						account={account}
+						onPick={setAccount}
+						disabled={busy}
+					/>
 				</div>
-				{blocker && (
-					<p class="focus-runs-on-blocked" role="status">
-						{blocker}
-					</p>
-				)}
 
 				<label class="focus-field">
 					<span>Name</span>
@@ -171,18 +181,6 @@ export function NewSession(props: {
 						autocomplete="off"
 					/>
 				</label>
-
-				{pickableAccounts(usage.value) && (
-					<div class="focus-field">
-						<span id={`${listId}-account`}>Account</span>
-						<AccountPicker
-							labelledBy={`${listId}-account`}
-							account={account}
-							onPick={setAccount}
-							disabled={busy}
-						/>
-					</div>
-				)}
 
 				<label class="focus-field">
 					<span>First prompt</span>

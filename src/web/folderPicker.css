@@ -188,3 +188,42 @@
 	width: max-content;
 	max-width: 320px;
 }
+
+.choice-menu .folder-menu {
+	position: absolute;
+	top: calc(100% + 4px);
+	left: 0;
+	z-index: 5;
+	width: max-content;
+	min-width: 180px;
+	max-width: 360px;
+	margin-top: 0;
+	box-shadow: var(--shadow-pop);
+	animation: menu-in calc(120ms * var(--motion)) ease-out;
+}
+
+.choice-menu.folder-picker-field .folder-menu {
+	right: 0;
+	left: auto;
+}
+
+.choice-menu.folder-picker-field .folder-picker-name {
+	max-width: none;
+}
+
+.choice-menu .folder-menu-name {
+	max-width: none;
+}
+
+.folder-menu-item:disabled {
+	cursor: not-allowed;
+	opacity: 0.55;
+}
+
+.folder-menu-item:disabled:hover {
+	background: transparent;
+}
+
+.folder-menu-item:disabled .folder-menu-path {
+	font-family: var(--sans);
+}

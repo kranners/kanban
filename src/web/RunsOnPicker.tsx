@@ -1,60 +1,77 @@
+import { Cloud, Laptop, RadioTower } from "lucide-preact";
 import type { JSX } from "preact";
 import { useCallback, useEffect, useState } from "preact/hooks";
 import {
-	type FixedRunsOn,
-	isRemoteHost,
+	defaultRunsOn,
 	type RemoteHost,
 	type RunsOn,
-	runsOnChoices,
 } from "../shared/types.ts";
+import { type Choice, ChoiceMenu } from "./ChoiceMenu.tsx";
 import {
 	directoryName,
 	remoteHostsUrl,
 	runsOnBlockerUrl,
 } from "./focus/paths.ts";
 
-const runsOnLabels: Record<FixedRunsOn, string> = {
-	cloud: "Cloud",
-	local: "This Mac",
+export type RunsOnChoices = {
+	runsOn: RunsOn;
+	choices: Choice<RunsOn>[];
+	pick: (runsOn: RunsOn) => void;
+	refresh: () => void;
 };
 
-const remoteHostLabel = (host: RemoteHost): string =>
-	`${host.machine} · ${directoryName(host.directory)}`;
+export function useRunsOn(cwd: string, account?: number): RunsOnChoices {
+	const [picked, pick] = useState<RunsOn>(defaultRunsOn);
+	const [hosts, refresh] = useRemoteHosts(account);
+	const unchecked: RunsOn[] = ["cloud", ...hosts.map(({ id }) => id as RunsOn)];
+	const blocked = useBlockers(cwd, unchecked, account);
+	const choices: Choice<RunsOn>[] = [
+		{
+			value: "cloud",
+			label: "Cloud",
+			icon: Cloud,
+			blocked: blocked.get("cloud"),
+		},
+		{ value: "local", label: "This Mac", icon: Laptop },
+		...hosts.map(
+			(host): Choice<RunsOn> => ({
+				value: host.id as RunsOn,
+				label: host.machine,
+				detail: directoryName(host.directory),
+				icon: RadioTower,
+				blocked: blocked.get(host.id as RunsOn),
+			}),
+		),
+	];
+	const usable = choices.some(
+		({ value, blocked }) => value === picked && !blocked,
+	);
+	return { runsOn: usable ? picked : "local", choices, pick, refresh };
+}
 
 export function RunsOnPicker(props: {
-	runsOn: RunsOn;
-	onPick: (runsOn: RunsOn) => void;
-	account?: number;
+	runs: RunsOnChoices;
+	variant: "chip" | "field";
 	disabled?: boolean;
-	class?: string;
 	labelledBy?: string;
+	onPicked?: () => void;
 }): JSX.Element {
-	const [hosts, refresh] = useRemoteHosts(props.account);
-	const lost =
-		isRemoteHost(props.runsOn) && !hosts.some(({ id }) => id === props.runsOn);
+	const { runs } = props;
 	return (
-		<select
-			aria-labelledby={props.labelledBy}
-			aria-label={props.labelledBy ? undefined : "Where it runs"}
-			class={props.class}
-			value={props.runsOn}
-			disabled={props.disabled}
+		<ChoiceMenu
+			choices={runs.choices}
+			value={runs.runsOn}
+			onPick={(runsOn) => {
+				runs.pick(runsOn);
+				props.onPicked?.();
+			}}
+			onOpen={runs.refresh}
+			label="Where it runs"
 			title="Where this session runs"
-			onFocus={refresh}
-			onChange={(event) => props.onPick(event.currentTarget.value as RunsOn)}
-		>
-			{runsOnChoices.map((choice) => (
-				<option key={choice} value={choice}>
-					{runsOnLabels[choice]}
-				</option>
-			))}
-			{hosts.map((host) => (
-				<option key={host.id} value={host.id} title={host.directory}>
-					{remoteHostLabel(host)}
-				</option>
-			))}
-			{lost && <option value={props.runsOn}>Stopped host</option>}
-		</select>
+			variant={props.variant}
+			labelledBy={props.labelledBy}
+			disabled={props.disabled}
+		/>
 	);
 }
 
@@ -77,28 +94,38 @@ function useRemoteHosts(account?: number): [RemoteHost[], () => void] {
 	return [hosts, refresh];
 }
 
-export function useRunsOnBlocker(
+function useBlockers(
 	cwd: string,
-	runsOn: RunsOn,
+	choices: RunsOn[],
 	account?: number,
-): string | null {
-	const key = `${cwd}\n${runsOn}\n${account ?? ""}`;
+): Map<RunsOn, string | null> {
+	const scope = `${cwd}\n${account ?? ""}`;
+	const key = [scope, ...choices].join("\n");
 	const [checked, setChecked] = useState<{
-		key: string;
-		reason: string | null;
+		scope: string;
+		reasons: Map<RunsOn, string | null>;
 	} | null>(null);
 	useEffect(() => {
-		if (runsOn === "local" || cwd === "") return;
+		if (cwd === "") return;
 		let current = true;
-		fetch(runsOnBlockerUrl(cwd, runsOn, account))
-			.then((response) => response.json())
-			.then(({ reason }: { reason: string | null }) => {
-				if (current) setChecked({ key, reason });
-			})
-			.catch(() => {});
+		const runsOns = key.split("\n").slice(2) as RunsOn[];
+		Promise.all(
+			runsOns.map((runsOn) =>
+				fetch(runsOnBlockerUrl(cwd, runsOn, account))
+					.then((response) => response.json())
+					.then(({ reason }: { reason: string | null }) => [runsOn, reason])
+					.catch(() => [runsOn, null]),
+			),
+		).then((reasons) => {
+			if (current)
+				setChecked({
+					scope,
+					reasons: new Map(reasons as [RunsOn, string | null][]),
+				});
+		});
 		return () => {
 			current = false;
 		};
-	}, [key, cwd, runsOn, account]);
-	return runsOn !== "local" && checked?.key === key ? checked.reason : null;
+	}, [key, scope, cwd, account]);
+	return checked?.scope === scope ? checked.reasons : new Map();
 }

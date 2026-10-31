@@ -10,13 +10,7 @@ import {
 } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import {
-	defaultRunsOn,
-	landingId,
-	type Point,
-	type PromptImage,
-	type RunsOn,
-} from "../shared/types.ts";
+import { landingId, type Point, type PromptImage } from "../shared/types.ts";
 import { AccountPicker } from "./AccountPicker.tsx";
 import { cwdChoices, isQuickPromptKey } from "./actions.ts";
 import { addNote, annotationMenu, stickerPicker } from "./annotations.ts";
@@ -28,7 +22,7 @@ import { groupUnder, openRegionMenuAtPointer } from "./Groups.tsx";
 import { moveMenuFocus } from "./menuFocus.ts";
 import { sessionSize } from "./placement.ts";
 import { admit, dataUrl, imageFiles, readImages } from "./promptImages.ts";
-import { RunsOnPicker, useRunsOnBlocker } from "./RunsOnPicker.tsx";
+import { RunsOnPicker, useRunsOn } from "./RunsOnPicker.tsx";
 import { regionDialog, regionMenu } from "./regionState.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 import type { QuickPrompt } from "./spawns.ts";
@@ -265,8 +259,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [account, setAccount] = useState<number | undefined>(undefined);
-	const [runsOn, setRunsOn] = useState<RunsOn>(defaultRunsOn);
-	const blocker = useRunsOnBlocker(open.cwd, runsOn, account);
+	const runs = useRunsOn(open.cwd, account);
 	const { k } = view.value;
 	const legible = Math.max(1, 1 / k);
 	useRestoreFocus();
@@ -298,7 +291,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 	const keepImages = (next: PromptImage[]) => {
 		held.current = next;
 		setImages(next);
-		if (next.length > 0) setRunsOn("local");
+		if (next.length > 0) runs.pick("local");
 	};
 
 	const addImages = (files: File[]) => {
@@ -313,13 +306,13 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 
 	const submit = async () => {
 		const text = prompt.trim();
-		if (!text || busy || blocker) return;
+		if (!text || busy) return;
 		setBusy(true);
 		setError(null);
 		await reading.current;
 		const failure = await spawnFromPrompt(text, held.current, {
 			account,
-			runsOn,
+			runsOn: runs.runsOn,
 		});
 		setBusy(false);
 		if (failure) {
@@ -446,22 +439,13 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 					}}
 				/>
 				<RunsOnPicker
-					class="quick-prompt-runs-on"
-					runsOn={runsOn}
-					account={account}
+					variant="chip"
+					runs={runs}
 					disabled={busy || images.length > 0}
-					onPick={(picked) => {
-						setRunsOn(picked);
-						input.current?.focus({ preventScroll: true });
-					}}
+					onPicked={() => input.current?.focus({ preventScroll: true })}
 				/>
-				{blocker && (
-					<span class="quick-prompt-blocked" role="status">
-						{blocker}
-					</span>
-				)}
 				<AccountPicker
-					class="quick-prompt-account"
+					variant="chip"
 					account={account}
 					disabled={busy}
 					onPick={(picked) => {

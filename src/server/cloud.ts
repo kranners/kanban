@@ -670,8 +670,8 @@ export const cloudBlocker = (
 					!error
 						? null
 						: error.code === 1
-							? "This repository has no commits yet, so a cloud session has nothing to start from"
-							: "This folder isn't a git repository, so a cloud session would start without its files",
+							? "Needs a first commit"
+							: "Not a git repository",
 				),
 		);
 	});
