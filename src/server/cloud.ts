@@ -680,7 +680,9 @@ export const createCloudSessions = async ({
 			updatedAt: Date.parse(info.updated_at) || item.session.updatedAt,
 		};
 		let mirrored = false;
-		if (info.updated_at !== item.seenUpdatedAt) {
+		const unread =
+			info.session_status === "requires_action" && item.prompts.size === 0;
+		if (info.updated_at !== item.seenUpdatedAt || unread) {
 			const events = await api.events(
 				id,
 				item.mirrored.at(-lateEventReach - 1) ?? null,
@@ -725,15 +727,23 @@ export const createCloudSessions = async ({
 		response: Record<string, unknown>,
 	): Promise<CmuxResult<null>> => {
 		const item = tracked.get(id);
-		if (!item) return untracked(id);
+		const prompt = item?.prompts.get(requestId);
+		if (!item || !prompt) return closed;
+		item.prompts.delete(requestId);
 		const sent = await apiFor(item.record.configDir).respond(
 			id,
 			requestId,
 			response,
 		);
-		if (!sent.ok) return sent;
+		if (!sent.ok) {
+			if (!item.settled.has(requestId)) item.prompts.set(requestId, prompt);
+			return sent;
+		}
 		item.settled.add(requestId);
-		item.prompts.delete(requestId);
+		if (item.prompts.size === 0) {
+			item.status = "running";
+			item.session = { ...item.session, activity: "working", detail: null };
+		}
 		onChange();
 		void pollAll();
 		return sent;

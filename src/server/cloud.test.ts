@@ -750,6 +750,51 @@ describe("createCloudSessions", () => {
 		store.stop();
 	});
 
+	it("rereads events while the session waits on a prompt it has not listed yet", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		fake.info.set(id, info("requires_action", "2026-10-30T12:00:00Z"));
+		fake.log.set(id, [event("e1", "2026-10-30T12:00:00Z")]);
+		const { store } = await storeIn(dir, fake);
+		store.add(record);
+		await until(() => fake.cursors.length > 0);
+		fake.log.get(id)?.push(asked("e2", "late", "Bash", { command: "ls" }));
+		await until(() => store.pending(id) !== null);
+		const fetches = fake.cursors.length;
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		assert.equal(fake.cursors.length, fetches, "stops once it has the prompt");
+		store.stop();
+	});
+
+	it("answers a prompt once, keeps it open when the answer fails, and shows the session working", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		fake.info.set(id, info("requires_action", "2026-10-30T12:00:00Z"));
+		fake.log.set(id, [asked("e1", "only", "Bash", { command: "ls" })]);
+		const { store } = await storeIn(dir, fake);
+		store.add(record);
+		await until(() => store.pending(id) !== null);
+		const respond = fake.api.respond;
+		fake.api.respond = async () => ({ ok: false, error: "HTTP 500" });
+		assert.deepEqual(await store.choose(id, "only", "Yes"), {
+			ok: false,
+			error: "HTTP 500",
+		});
+		assert.equal(store.pending(id)?.requestId, "only");
+		fake.api.respond = respond;
+		fake.down.add(id);
+		const [first, second] = await Promise.all([
+			store.choose(id, "only", "Yes"),
+			store.choose(id, "only", "No"),
+		]);
+		assert.equal(first.ok, true);
+		assert.equal(second.ok, false);
+		assert.equal(fake.responses.length, 1);
+		assert.equal(store.pending(id), null);
+		assert.equal(store.sessions()[0]?.activity, "working");
+		store.stop();
+	});
+
 	it("mirrors new events once each, then refetches them all after a restart", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
 		const fake = fakeCloud();
