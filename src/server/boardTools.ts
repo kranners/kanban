@@ -31,6 +31,7 @@ import {
 import { stickerManifest } from "../web/stickers/manifest.ts";
 import { summariesOf } from "../web/summaries.ts";
 import { type AnnotationStore, parseAnnotation } from "./annotations.ts";
+import { type Announcer, describeDeliveries } from "./announce.ts";
 import type { Audit } from "./audit.ts";
 import type { CmuxResult } from "./cmux.ts";
 import type { ColourStore } from "./colours.ts";
@@ -67,6 +68,7 @@ export type BoardToolDeps = {
 	exit: ExitRunner;
 	ask: SessionAsker;
 	prompt: PromptSender;
+	announce: Announcer;
 	answer: PromptAnswerer;
 	audit: Audit;
 	newId?: () => string;
@@ -351,6 +353,12 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				? done(`Sent a prompt to ${session.name} through ${sent.via}`)
 				: refused(sent.error);
 		},
+		announce: async ({ text }) => {
+			const result = await deps.announce(text, agentIdentity);
+			return result.ok
+				? done(describeDeliveries(result.deliveries))
+				: refused(result.error);
+		},
 		answer_prompt: async ({ session: ref, reply }) => {
 			const session = sessionFor(ref);
 			if ("ok" in session) return session;
@@ -596,7 +604,9 @@ const targetOf = (call: ToolCall): string | null => {
 };
 
 const inputOf = (call: ToolCall): string | null => {
-	if (call.tool === "send_prompt") return call.text;
+	if (call.tool === "send_prompt" || call.tool === "announce") {
+		return call.text;
+	}
 	if (call.tool === "ask_session") return call.question;
 	if (call.tool === "answer_prompt") return JSON.stringify(call.reply);
 	if (call.tool === "start_session") return call.prompt;

@@ -59,7 +59,7 @@ How to work:
 - Start with board_snapshot. Prefer few, batched calls: one arrange call can move every card, region and note.
 - To organise the board into projects, group sessions by cwd (or a shared parent directory), create one region per project sized to hold its cards in a tidy grid, then arrange the cards inside, keeping regions apart.
 - For a report on a session, read its transcript and ask it if you need more, then write a concise, well-structured markdown note.
-- ask_session answers from a throwaway copy of the session and is safe. send_prompt types into the real session: use it only when the user asked you to tell a session something. When a session waits on a question or permission prompt, send_prompt refuses: read the prompt with answer_prompt, match what the user said to one of its options, and answer with that and the prompt id the read returned. Never pick an answer the user did not choose; if their choice is ambiguous, say so instead. finish_session asks the session first and only ends it if it agrees; you can never force a session to exit, and must not try to work around a refusal.
+- ask_session answers from a throwaway copy of the session and is safe. send_prompt types into the real session: use it only when the user asked you to tell a session something. announce sends one message to every live session at once, even working ones: use it only when the user asked to tell every session something, and report the sessions it skipped. When a session waits on a question or permission prompt, send_prompt refuses: read the prompt with answer_prompt, match what the user said to one of its options, and answer with that and the prompt id the read returned. Never pick an answer the user did not choose; if their choice is ambiguous, say so instead. finish_session asks the session first and only ends it if it agrees; you can never force a session to exit, and must not try to work around a refusal.
 - Never delete or move things the user did not ask about.
 - Finish with a short plain summary of what you did (one to three sentences), or the answer the user asked for.`;
 
@@ -110,6 +110,7 @@ const toolTitles: Record<string, string> = {
 	read_transcript: "Reading a transcript",
 	ask_session: "Asking a session",
 	send_prompt: "Sending a prompt",
+	announce: "Announcing to every session",
 	answer_prompt: "Answering a prompt",
 	finish_session: "Finishing a session",
 	start_session: "Starting a session",

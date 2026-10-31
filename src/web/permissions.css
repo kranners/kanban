@@ -99,3 +99,29 @@
 	font-size: 12px;
 	overflow-wrap: anywhere;
 }
+
+.announce-results {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.announce-results li {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	min-width: 0;
+}
+
+.announce-results li svg {
+	flex: none;
+	align-self: center;
+	color: var(--green);
+}
+
+.announce-results li.missed svg {
+	color: var(--amber-ink);
+}

@@ -11,6 +11,8 @@ const clock = signal(0);
 const holds = new Map<string, ReturnType<typeof holdConversation>>();
 const wakeups = new Map<string, number>();
 const retryAt = new Map<string, number>();
+const lastActivity = new Map<string, string | null>();
+const quietSince = new Map<string, number>();
 
 export const editable = (entry: Outgoing): boolean =>
 	entry.state === "queued" || entry.state === "held";
@@ -70,6 +72,8 @@ const drive = (sessionId: string, outbox: Outgoing[]) => {
 		holds.delete(sessionId);
 		wakeAt(sessionId, null);
 		retryAt.delete(sessionId);
+		lastActivity.delete(sessionId);
+		quietSince.delete(sessionId);
 		setProblem(sessionId, null);
 		return;
 	}
@@ -83,18 +87,24 @@ const drive = (sessionId: string, outbox: Outgoing[]) => {
 		board.value?.sessions.find((session) => session.id === sessionId)
 			?.activity ?? null;
 	const now = Date.now();
+	if (lastActivity.get(sessionId) === "working" && activity !== "working") {
+		quietSince.set(sessionId, now);
+	}
+	lastActivity.set(sessionId, activity);
 	const paused = (retryAt.get(sessionId) ?? 0) > now;
+	const reachable =
+		activity !== null &&
+		current.drive?.mode === "drive" &&
+		current.connection === "open" &&
+		current.dialog === null &&
+		!paused;
 	const step = stepOutbox(outbox, {
 		items: current.window.items,
 		loaded: current.status !== null,
 		working: activity === "working",
-		deliverable:
-			activity !== null &&
-			activity !== "working" &&
-			current.drive?.mode === "drive" &&
-			current.connection === "open" &&
-			current.dialog === null &&
-			!paused,
+		deliverable: reachable && activity !== "working",
+		forceable: reachable,
+		quietSince: quietSince.get(sessionId) ?? null,
 		maxText: maxPromptText,
 		now,
 	});
@@ -133,13 +143,44 @@ addEventListener("beforeunload", (event) => {
 	if (undelivered) event.preventDefault();
 });
 
-export function queue(sessionId: string, text: string) {
+export function queue(sessionId: string, text: string, force = false) {
 	setProblem(sessionId, null);
 	const now = Date.now();
-	updateOutbox(sessionId, (current) => [
-		...current,
-		{ id: `${now}-${current.length}`, text, state: "queued", sentAt: now },
-	]);
+	updateOutbox(sessionId, (current) => {
+		const entry: Outgoing = {
+			id: `${now}-${current.length}`,
+			text,
+			state: "queued",
+			sentAt: now,
+			...(force ? { forced: true } : {}),
+		};
+		return force ? forcedFirst(current, entry) : [...current, entry];
+	});
+}
+
+const forcedFirst = (outbox: Outgoing[], entry: Outgoing): Outgoing[] => {
+	const at = outbox.findIndex((candidate) => editable(candidate));
+	const rest = outbox.filter((candidate) => candidate.id !== entry.id);
+	const before = at === -1 ? rest : rest.slice(0, at);
+	const after = at === -1 ? [] : rest.slice(at);
+	return [...before, entry, ...after];
+};
+
+export function forceSend(sessionId: string, id: string) {
+	setProblem(sessionId, null);
+	updateOutbox(sessionId, (current) => {
+		const entry = current.find(
+			(candidate) => candidate.id === id && editable(candidate),
+		);
+		return entry
+			? forcedFirst(current, {
+					...entry,
+					state: "queued",
+					forced: true,
+					tries: 0,
+				})
+			: current;
+	});
 }
 
 export function withdraw(sessionId: string, ids: string[]): string | null {

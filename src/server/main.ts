@@ -13,6 +13,7 @@ import {
 } from "./accounts.ts";
 import { createAgentTokens } from "./agentAuth.ts";
 import { createAnnotationStore, loadAnnotations } from "./annotations.ts";
+import { createAnnouncer } from "./announce.ts";
 import { claudeAttachPty, createAttachHub } from "./attach.ts";
 import { fileAudit } from "./audit.ts";
 import { authenticatorFor } from "./auth.ts";
@@ -377,6 +378,11 @@ const agent = createBoardAgent({
 	node: process.execPath,
 	timeoutMs: agentTimeoutMs,
 });
+const announce = createAnnouncer({
+	board: () => source.board(),
+	prompt: conversation.prompt,
+	audit,
+});
 const tools = createBoardTools({
 	source,
 	layout,
@@ -394,6 +400,7 @@ const tools = createBoardTools({
 		resolve: cmuxTargets.resolve,
 		cloudSend: cloud.send,
 	}),
+	announce,
 	answer: conversation.respond,
 	audit,
 });
@@ -437,6 +444,7 @@ const server = createKanbanServer({
 		isExiting: runExit.isExiting,
 		ask,
 	}),
+	announce,
 	feed,
 	audit,
 });

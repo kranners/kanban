@@ -114,6 +114,21 @@ const setup = async (shown: Board = board) => {
 		},
 		ask: async () => ({ ok: true, answer: "12" }),
 		prompt: async () => ({ ok: true, via: "claude attach" }),
+		announce: async (text) =>
+			text === "nobody"
+				? { ok: false, error: "There are no live sessions to announce to" }
+				: {
+						ok: true,
+						deliveries: [
+							{ id: "aaaaaaaa-1", name: "acme-aaa", ok: true, error: null },
+							{
+								id: "bbbbbbbb-2",
+								name: "acme-bbb",
+								ok: false,
+								error: "Waiting on a prompt",
+							},
+						],
+					},
 		answer: async (s, reply) => {
 			answered.push([s.id, reply]);
 			return reply
@@ -417,6 +432,28 @@ describe("board tools", () => {
 			),
 			[JSON.stringify(reply), "null"],
 		);
+	});
+
+	it("announces to every session and lists the ones it missed", async () => {
+		const { tools, events } = await setup();
+		assert.deepEqual(
+			await tools("t", { tool: "announce", text: "Pull main" }),
+			{
+				ok: true,
+				text: "Announced to 1 of 2 sessions\n- acme-bbb: Waiting on a prompt",
+			},
+		);
+		assert.deepEqual(await tools("t", { tool: "announce", text: "nobody" }), {
+			ok: false,
+			error: "There are no live sessions to announce to",
+		});
+		const audited = events.flatMap((event) =>
+			event.action === "board-agent" ? [[event.tool, event.input]] : [],
+		);
+		assert.deepEqual(audited, [
+			["announce", "Pull main"],
+			["announce", "nobody"],
+		]);
 	});
 
 	it("records what the agent typed, asked or started in the audit log", async () => {

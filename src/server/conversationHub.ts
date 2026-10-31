@@ -68,6 +68,7 @@ export type ConversationHub = {
 		session: Session,
 		reply: PromptReply | null,
 	): Promise<CmuxResult<string>>;
+	prompt(session: Session, text: string): Promise<Outcome>;
 	attached(): string[];
 	release(short: string): void;
 };
@@ -529,6 +530,7 @@ type Watch = {
 	join(viewer: Viewer, since: Since): void;
 	leave(viewer: Viewer): void;
 	respond(reply: PromptReply | null): Promise<CmuxResult<string>>;
+	prompt(text: string): Promise<Outcome>;
 	request(
 		viewer: Viewer,
 		frame: ConversationClientFrame,
@@ -986,6 +988,16 @@ export const createConversationHub = (
 					if (viewers.size === 0) stop();
 				});
 			},
+			prompt(text) {
+				held += 1;
+				const task = busy.then(() => perform({ type: "prompt", id: "", text }));
+				busy = task.catch(() => null);
+				return task.finally(() => {
+					held -= 1;
+					screenAt = 0;
+					if (viewers.size === 0) stop();
+				});
+			},
 			request(viewer, frame, identity) {
 				if (frame.type === "more") {
 					const items = itemsBefore(log, frame.before, windowSize);
@@ -1072,6 +1084,8 @@ export const createConversationHub = (
 		open,
 		respond: (session, reply) =>
 			watchOf({ kind: "session", session, path: null }).respond(reply),
+		prompt: (session, text) =>
+			watchOf({ kind: "session", session, path: null }).prompt(text),
 		attached: () => [
 			...new Set([
 				...viewed(),

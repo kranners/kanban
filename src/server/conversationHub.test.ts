@@ -1480,3 +1480,42 @@ describe("answering a prompt for the board agent", () => {
 		await until(() => tty.closed === 1);
 	});
 });
+
+describe("prompting a session without a viewer", () => {
+	it("types into a working session and lets the terminal go", async () => {
+		const working = session({ activity: "working" });
+		const tui = fakeTui({});
+		const typed: string[] = [];
+		const tty = Object.assign(drivable(tui), {
+			send: async (text: string) => {
+				typed.push(text);
+				return { ok: true as const, value: null };
+			},
+		});
+		const conversations = createConversationHub({
+			session: () => working,
+			tty: () => tty,
+			transcriptPath: () => null,
+			block: () => null,
+			audit: () => {},
+			pollMs: 5,
+			screenMs: 0,
+		});
+		assert.deepEqual(await conversations.prompt(working, "Pull main"), {
+			ok: true,
+			value: null,
+		});
+		assert.deepEqual(typed, ["Pull main"]);
+		assert.equal(tty.closed, 1);
+		assert.deepEqual(conversations.attached(), []);
+	});
+
+	it("refuses while a question or permission prompt is open", async () => {
+		const waiting = session({ activity: "needs-you" });
+		const tui = fakeTui({ permission: ["Yes", "No"] });
+		const { conversations } = answering(tui, null, waiting);
+		const refused = await conversations.prompt(waiting, "Pull main");
+		assert.equal(refused.ok, false);
+		assert.equal(tui.sent.length, 0);
+	});
+});

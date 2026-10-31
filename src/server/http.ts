@@ -23,6 +23,7 @@ import {
 } from "../shared/types.ts";
 import { type AgentTokens, fromLoopback } from "./agentAuth.ts";
 import { type AnnotationStore, parseAnnotation } from "./annotations.ts";
+import type { Announcer } from "./announce.ts";
 import {
 	type AttachHub,
 	type AttachTarget,
@@ -115,6 +116,7 @@ export type ServerDeps = {
 	pickFolder: FolderPicker;
 	makeDefault(account: number): Promise<AccountResult>;
 	permissions: Permissions;
+	announce: Announcer;
 	feed: Feed;
 	audit: Audit;
 	reportShots?: string;
@@ -135,6 +137,7 @@ export type Route =
 	| { kind: "report-session"; sessionId: string }
 	| { kind: "survey-permissions" }
 	| { kind: "grant-permissions" }
+	| { kind: "announce" }
 	| { kind: "update-layout" }
 	| { kind: "put-annotation"; id: string }
 	| { kind: "delete-annotation"; id: string }
@@ -288,6 +291,11 @@ export const matchRoute = (method: string, url: URL): Route => {
 	if (path === "/api/permissions/grant") {
 		return method === "POST"
 			? { kind: "grant-permissions" }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/announce") {
+		return method === "POST"
+			? { kind: "announce" }
 			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api/layout") {
@@ -712,6 +720,21 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		sendJson(res, 200, results);
 	};
 
+	const announce = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+		identity: string | null,
+	) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const text = (read.body as Record<string, unknown> | null)?.text;
+		if (typeof text !== "string") {
+			return sendJson(res, 400, { ok: false, error: "text must be a string" });
+		}
+		const result = await deps.announce(text, identity);
+		sendJson(res, result.ok ? 200 : 400, result);
+	};
+
 	const updateLayout = async (req: IncomingMessage, res: ServerResponse) => {
 		const read = await readBody(req, res);
 		if (!read) return;
@@ -1070,6 +1093,8 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return surveyPermissions(req, res);
 			case "grant-permissions":
 				return grantPermissions(req, res, auth.identity);
+			case "announce":
+				return announce(req, res, auth.identity);
 			case "update-layout":
 				return updateLayout(req, res);
 			case "put-annotation":

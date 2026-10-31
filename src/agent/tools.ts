@@ -25,6 +25,7 @@ export type ToolCall =
 	| { tool: "read_transcript"; session: string; limit: number }
 	| { tool: "ask_session"; session: string; question: string }
 	| { tool: "send_prompt"; session: string; text: string }
+	| { tool: "announce"; text: string }
 	| { tool: "answer_prompt"; session: string; reply: PromptReply | null }
 	| { tool: "finish_session"; session: string }
 	| {
@@ -184,6 +185,15 @@ export const toolDefinitions: ToolDefinition[] = [
 				text: { type: "string", maxLength: maxPromptText },
 			},
 			["session", "text"],
+		),
+	},
+	{
+		name: "announce",
+		description:
+			"Send the same message to every live session on the board at once, right away, even to sessions that are working (Claude reads it at its next step). Sessions waiting on a question or permission prompt, and ones the board cannot type into, are skipped and listed. The text cannot start with !, / or #. Use only when the user asked to tell every session something.",
+		inputSchema: object(
+			{ text: { type: "string", maxLength: maxPromptText } },
+			["text"],
 		),
 	},
 	{
@@ -483,6 +493,10 @@ const readers: { [K in ToolName]: (fields: Fields) => ToolCall } = {
 	send_prompt: (fields) => ({
 		tool: "send_prompt",
 		session: string(fields, "session", 128),
+		text: string(fields, "text", maxPromptText),
+	}),
+	announce: (fields) => ({
+		tool: "announce",
 		text: string(fields, "text", maxPromptText),
 	}),
 	answer_prompt: (fields) => {

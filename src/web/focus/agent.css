@@ -832,6 +832,10 @@
 	color: var(--red);
 }
 
+.av-send-now {
+	color: var(--amber-ink);
+}
+
 .av-composer-foot {
 	display: flex;
 	align-items: center;

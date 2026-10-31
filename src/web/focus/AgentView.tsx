@@ -29,6 +29,7 @@ import {
 import { DialogForm } from "./DialogForm.tsx";
 import {
 	editable,
+	forceSend,
 	outboxes,
 	outboxProblems,
 	queue,
@@ -239,11 +240,11 @@ export function AgentView(props: {
 	const working = props.activity === "working";
 	const waiting = view.dialog !== null;
 
-	const send = (text: string) => {
+	const send = (text: string, force: boolean) => {
 		if (!sessionId) return;
 		setProblem(null);
 		pinned.current = true;
-		queue(sessionId, text);
+		queue(sessionId, text, force);
 	};
 
 	const edit = (ids: string[]) => {
@@ -263,6 +264,13 @@ export function AgentView(props: {
 		if (!sessionId) return;
 		setProblem(null);
 		release(sessionId, id);
+	};
+
+	const sendNow = (id: string) => {
+		if (!sessionId) return;
+		setProblem(null);
+		pinned.current = true;
+		forceSend(sessionId, id);
 	};
 
 	const composing = props.node.kind === "session" && readOnly === null;
@@ -325,13 +333,23 @@ export function AgentView(props: {
 										</span>
 										{composing && editable(entry) && (
 											<>
-												{entry.state === "held" && (
+												{entry.state === "held" && !working && (
 													<button
 														type="button"
 														class="av-queued-action"
 														onClick={() => resend(entry.id)}
 													>
 														Send
+													</button>
+												)}
+												{working && (
+													<button
+														type="button"
+														class="av-queued-action"
+														onClick={() => sendNow(entry.id)}
+														title="Send without waiting for Claude to finish"
+													>
+														Send now
 													</button>
 												)}
 												<button

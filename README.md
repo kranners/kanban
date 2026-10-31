@@ -39,7 +39,7 @@ Sessions waiting on you glow amber, and project frames count them. The top bar c
 
 ### Conversation view
 
-Opening a card shows its conversation with the whole history: tool calls expand to their command and output, diff, checklist or answers, and a status bar shows model, branch, permission mode and tokens. Questions and permission prompts appear as native forms. The composer sends prompts, completes `/` commands and `@` files, interrupts with Esc and cycles the permission mode with Shift+Tab. Interactive sessions outside cmux and subagents open read-only.
+Opening a card shows its conversation with the whole history: tool calls expand to their command and output, diff, checklist or answers, and a status bar shows model, branch, permission mode and tokens. Questions and permission prompts appear as native forms. The composer sends prompts, queues them while Claude works or sends them now with Ctrl+Enter, completes `/` commands and `@` files, interrupts with Esc and cycles the permission mode with Shift+Tab. The megaphone in the top bar announces one message to every live session at once, and the board agent can do the same. Interactive sessions outside cmux and subagents open read-only.
 
 ![Opening a card that needs you, approving its permission prompt and watching it carry on](docs/media/clip-agent-view.gif)
 

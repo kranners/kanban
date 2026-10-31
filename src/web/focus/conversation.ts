@@ -335,20 +335,29 @@ const comparable = (value: string): string => value.replace(/\s+/g, " ").trim();
 export type Outgoing = Queued & {
 	state: "queued" | "held" | "sending" | "sent" | "echoed";
 	tries?: number;
+	forced?: boolean;
 };
 
 const isCommand = (text: string): boolean => /^[/!]/.test(text.trimStart());
 
-export function nextBatch(outbox: Outgoing[], maxText: number): Outgoing[] {
-	if (outbox.some((entry) => entry.state !== "queued")) return [];
-	const [head, ...rest] = outbox;
-	if (!head) return [];
+export function nextBatch(
+	outbox: Outgoing[],
+	maxText: number,
+	forcedOnly = false,
+): Outgoing[] {
+	const blocking = forcedOnly
+		? (entry: Outgoing) => entry.state === "sending" || entry.state === "held"
+		: (entry: Outgoing) => entry.state !== "queued";
+	if (outbox.some(blocking)) return [];
+	const [head, ...rest] = outbox.filter((entry) => entry.state === "queued");
+	if (!head || (forcedOnly && !head.forced)) return [];
 	const batch = [head];
 	if (isCommand(head.text)) return batch;
 	let length = head.text.length;
 	for (const entry of rest) {
 		length += entry.text.length + 1;
 		if (isCommand(entry.text) || length > maxText) break;
+		if (forcedOnly && !entry.forced) break;
 		batch.push(entry);
 	}
 	return batch;
@@ -395,6 +404,8 @@ export type OutboxScene = {
 	loaded: boolean;
 	working: boolean;
 	deliverable: boolean;
+	forceable?: boolean;
+	quietSince?: number | null;
 	maxText: number;
 	now: number;
 };
@@ -418,8 +429,13 @@ export function stepOutbox(outbox: Outgoing[], scene: OutboxScene): OutboxStep {
 				: entry,
 	);
 	if (scene.working) next = next.filter((entry) => entry.state !== "echoed");
+	const patient = (entry: Outgoing) => entry.forced === true && scene.working;
+	const waitFrom = (entry: Outgoing) =>
+		entry.forced ? Math.max(entry.sentAt, scene.quietSince ?? 0) : entry.sentAt;
 	const expired = (entry: Outgoing) =>
-		scene.loaded && scene.now - entry.sentAt >= echoWaitMs;
+		scene.loaded &&
+		!patient(entry) &&
+		scene.now - waitFrom(entry) >= echoWaitMs;
 	const lost = next.some((entry) => entry.state === "sent" && expired(entry));
 	next = next.flatMap((entry): Outgoing[] =>
 		!expired(entry)
@@ -431,7 +447,11 @@ export function stepOutbox(outbox: Outgoing[], scene: OutboxScene): OutboxStep {
 					: [entry],
 	);
 	let sending: Outgoing | null = null;
-	const batch = scene.deliverable ? nextBatch(next, scene.maxText) : [];
+	const batch = scene.deliverable
+		? nextBatch(next, scene.maxText)
+		: scene.forceable
+			? nextBatch(next, scene.maxText, true)
+			: [];
 	const head = batch[0];
 	if (head) {
 		sending = {
@@ -440,15 +460,17 @@ export function stepOutbox(outbox: Outgoing[], scene: OutboxScene): OutboxStep {
 			state: "sending",
 			sentAt: scene.now,
 			tries: head.tries,
+			...(batch.some((entry) => entry.forced) ? { forced: true } : {}),
 		};
 		next = [sending, ...next.filter((entry) => !batch.includes(entry))];
 	}
 	const delivered = next.filter(
-		(entry) => entry.state === "sent" || entry.state === "echoed",
+		(entry) =>
+			(entry.state === "sent" || entry.state === "echoed") && !patient(entry),
 	);
 	const due =
 		scene.loaded && delivered.length > 0
-			? Math.min(...delivered.map((entry) => entry.sentAt)) + echoWaitMs
+			? Math.min(...delivered.map(waitFrom)) + echoWaitMs
 			: null;
 	const same =
 		next.length === outbox.length &&

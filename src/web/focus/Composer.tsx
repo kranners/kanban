@@ -1,4 +1,4 @@
-import { CornerDownLeft, Square } from "lucide-preact";
+import { CornerDownLeft, Square, Zap } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { maxPromptText } from "../../shared/conversation.ts";
@@ -9,6 +9,7 @@ import {
 	type Token,
 } from "./conversation.ts";
 import { commandsUrl, filesUrl } from "./paths.ts";
+import { commandKey } from "./platform.ts";
 
 type Command = { name: string; description: string; source: string };
 
@@ -22,7 +23,7 @@ export function Composer(props: {
 	working: boolean;
 	disabled: string | null;
 	mode: string | null;
-	onSend: (text: string) => void;
+	onSend: (text: string, force: boolean) => void;
 	recalled: { text: string } | null;
 	onRecalled: () => void;
 	onEditQueued: (() => void) | null;
@@ -133,9 +134,9 @@ export function Composer(props: {
 		setValue(next.value, next.caret);
 	};
 
-	const submit = () => {
+	const submit = (force = false) => {
 		if (draft.trim() === "" || props.disabled) return;
-		props.onSend(draft);
+		props.onSend(draft, force);
 		recall.current = null;
 		setValue("", 0);
 	};
@@ -198,7 +199,7 @@ export function Composer(props: {
 		}
 		if (event.key === "Enter" && !event.shiftKey) {
 			event.preventDefault();
-			submit();
+			submit(event.ctrlKey || event.metaKey);
 			return;
 		}
 		if (event.key === "Tab" && event.shiftKey && props.onKey) {
@@ -276,7 +277,7 @@ export function Composer(props: {
 					placeholder={
 						props.disabled ??
 						(props.working
-							? "Claude is working. Messages you send are queued."
+							? `Claude is working. Enter queues, ${commandKey}Enter sends now.`
 							: "Message Claude. / for commands, @ for files")
 					}
 					aria-label="Message"
@@ -306,12 +307,28 @@ export function Composer(props: {
 							Stop
 						</button>
 					)}
+					{props.working && (
+						<button
+							type="button"
+							class="focus-button av-send-now"
+							disabled={props.disabled !== null || draft.trim() === ""}
+							onClick={() => submit(true)}
+							title={`Send now, without waiting for Claude to finish (${commandKey}Enter)`}
+						>
+							<Zap size={12} aria-hidden="true" />
+							Send now
+						</button>
+					)}
 					<button
 						type="button"
 						class="focus-button focus-button-primary"
 						disabled={props.disabled !== null || draft.trim() === ""}
-						onClick={submit}
-						title="Send (Enter)"
+						onClick={() => submit()}
+						title={
+							props.working
+								? "Queue until Claude finishes (Enter)"
+								: "Send (Enter)"
+						}
 					>
 						<CornerDownLeft size={14} aria-hidden="true" />
 						Send
@@ -332,7 +349,10 @@ export function Composer(props: {
 					</button>
 				)}
 				<span class="av-hint">
-					Enter sends · Shift+Enter new line ·{" "}
+					{props.working
+						? `Enter queues · ${commandKey}Enter sends now`
+						: "Enter sends"}
+					{" · Shift+Enter new line · "}
 					{props.onEditQueued ? "↑ edits queued" : "↑ history"}
 					{onKey && " · Esc interrupts"}
 				</span>

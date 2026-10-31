@@ -27,6 +27,7 @@ describe("tool definitions", () => {
 			read_transcript: { session: "abcd1234" },
 			ask_session: { session: "abcd1234", question: "What changed?" },
 			send_prompt: { session: "abcd1234", text: "carry on" },
+			announce: { text: "pull main" },
 			answer_prompt: { session: "abcd1234" },
 			finish_session: { session: "abcd1234" },
 			start_session: { cwd: "/tmp", prompt: "hi" },

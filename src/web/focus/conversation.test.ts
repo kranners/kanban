@@ -333,6 +333,79 @@ describe("conversation window", () => {
 		assert.deepEqual(ready.outbox, [ready.sending]);
 	});
 
+	it("force-sends forced messages while Claude works, leaving the rest queued", () => {
+		const forced: Outgoing = {
+			id: "1",
+			text: "stop and pull",
+			state: "queued",
+			sentAt: 0,
+			forced: true,
+		};
+		const queued: Outgoing = {
+			id: "2",
+			text: "later",
+			state: "queued",
+			sentAt: 0,
+		};
+		const scene = {
+			items: [],
+			loaded: true,
+			working: true,
+			deliverable: false,
+			forceable: true,
+			maxText: 100,
+			now: 5000,
+		};
+		const step = stepOutbox([forced, queued], scene);
+		assert.equal(step.sending?.text, "stop and pull");
+		assert.equal(step.sending?.forced, true);
+		assert.deepEqual(step.outbox.slice(1), [queued]);
+		assert.equal(stepOutbox([queued], scene).sending, null);
+		const again = stepOutbox(
+			[
+				{ ...forced, state: "sent" },
+				{ ...queued, forced: true },
+			],
+			scene,
+		);
+		assert.equal(again.sending?.text, "later", "a sent message does not block");
+		assert.equal(
+			stepOutbox([forced], { ...scene, forceable: false }).sending,
+			null,
+		);
+	});
+
+	it("waits for a forced message's echo until Claude stops working", () => {
+		const sent: Outgoing = {
+			id: "1",
+			text: "go",
+			state: "sent",
+			sentAt: 0,
+			forced: true,
+		};
+		const scene = {
+			items: [],
+			loaded: true,
+			working: true,
+			deliverable: false,
+			maxText: 100,
+			now: 60_000,
+		};
+		const working = stepOutbox([sent], scene);
+		assert.equal(working.lost, false);
+		assert.equal(working.due, null);
+		assert.deepEqual(working.outbox, [sent]);
+		const settling = stepOutbox([sent], {
+			...scene,
+			working: false,
+			quietSince: 58_000,
+		});
+		assert.equal(settling.lost, false, "Claude gets time to show it");
+		assert.equal(settling.due, 66_000);
+		const idle = stepOutbox([sent], { ...scene, working: false });
+		assert.equal(idle.lost, true);
+	});
+
 	it("waits for the echo from when the send was acknowledged", () => {
 		const sending: Outgoing = {
 			id: "1",

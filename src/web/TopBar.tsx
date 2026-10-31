@@ -2,6 +2,7 @@ import {
 	Bed,
 	Broom,
 	LoaderCircle,
+	Megaphone,
 	Moon,
 	Plus,
 	RotateCw,
@@ -12,6 +13,7 @@ import {
 import { useState } from "preact/hooks";
 import type { AgentButton } from "../shared/types.ts";
 import { NotifyToggle } from "./Alerts.tsx";
+import { AnnounceDialog } from "./Announce.tsx";
 import { closeButtonPanel } from "./Comments.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import {
@@ -162,6 +164,25 @@ function PermissionSurveyButton() {
 	);
 }
 
+function AnnounceButton() {
+	const [open, setOpen] = useState(false);
+	return (
+		<>
+			<button
+				type="button"
+				class="icon-button"
+				aria-haspopup="dialog"
+				aria-label="Announce to every session"
+				title="Announce to every session, sent right away even to working ones"
+				onClick={() => setOpen(true)}
+			>
+				<Megaphone size={16} />
+			</button>
+			{open && <AnnounceDialog onClose={() => setOpen(false)} />}
+		</>
+	);
+}
+
 export function TopBar() {
 	const ThemeIcon = themeIcon[theme.value];
 	return (
@@ -192,6 +213,7 @@ export function TopBar() {
 				<NextNeedingYou />
 				<BoardAgentButton button="tidy" />
 				<BoardAgentButton button="snooze" />
+				<AnnounceButton />
 				<PermissionSurveyButton />
 				<NotifyToggle />
 				<button

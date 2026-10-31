@@ -805,6 +805,24 @@ export function createBackend(scenario: Scenario): Backend {
 		],
 		[
 			"POST",
+			/^\/api\/announce$/,
+			() =>
+				json(200, {
+					ok: true,
+					deliveries: world.sessions
+						.filter(
+							(session) => !["failed", "stopped"].includes(session.activity),
+						)
+						.map((session) => ({
+							id: session.id,
+							name: session.name,
+							ok: false,
+							error: "The demo can't type into sessions",
+						})),
+				}),
+		],
+		[
+			"POST",
 			/^\/api\/sessions\/([^/]+)\/exit$/,
 			([id = ""], body) => exitSession(id, body),
 		],

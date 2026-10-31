@@ -68,6 +68,13 @@ export type AuditEvent =
 			result: string;
 	  }
 	| {
+			action: "announce";
+			sessionId: string;
+			chars: number;
+			identity: string | null;
+			result: string;
+	  }
+	| {
 			action: "board-agent";
 			thread: string;
 			tool: string;

@@ -150,6 +150,9 @@ const probes: Record<string, Probe> = {
 			{ sessionId, rules: ["Bash(npm test)"] },
 		]);
 	},
+	"/api/announce": async (backend) => {
+		await answers(backend, "POST", "/api/announce", { text: "Pull main" });
+	},
 	"/api/layout": async (backend) => {
 		await answers(backend, "PUT", "/api/layout", {
 			key: `session:${sessionId}`,

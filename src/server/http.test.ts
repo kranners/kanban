@@ -90,6 +90,10 @@ describe("matchRoute", () => {
 		assert.deepEqual(route("GET", "/api/permissions/grant"), {
 			kind: "method-not-allowed",
 		});
+		assert.deepEqual(route("POST", "/api/announce"), { kind: "announce" });
+		assert.deepEqual(route("GET", "/api/announce"), {
+			kind: "method-not-allowed",
+		});
 		assert.deepEqual(route("PUT", "/api/layout"), { kind: "update-layout" });
 		assert.deepEqual(route("POST", "/api/layout"), {
 			kind: "method-not-allowed",
@@ -273,6 +277,7 @@ describe("createKanbanServer", () => {
 	const toolCalls: [string, ToolCall][] = [];
 	const madeDefault: number[] = [];
 	const granted: PermissionGrant[] = [];
+	const announced: [string, string | null][] = [];
 	const agentTokens = createAgentTokens(60_000);
 	let base = "";
 	let origin = "";
@@ -480,6 +485,7 @@ describe("createKanbanServer", () => {
 					socket.close(1000, "fake");
 				},
 				respond: async () => ({ ok: false, error: "fake" }),
+				prompt: async () => ({ ok: false, error: "fake" }),
 				attached: () => [],
 				release() {},
 			},
@@ -519,6 +525,15 @@ describe("createKanbanServer", () => {
 						added: rules,
 					}));
 				},
+			},
+			announce: async (text, identity) => {
+				announced.push([text, identity]);
+				return text === "!rm"
+					? { ok: false, error: "A prompt cannot start with !" }
+					: {
+							ok: true,
+							deliveries: [{ id: "s1", name: "one", ok: true, error: null }],
+						};
 			},
 			makeDefault: async (account) => {
 				madeDefault.push(account);
@@ -937,6 +952,25 @@ describe("createKanbanServer", () => {
 			400,
 		);
 		assert.equal(granted.length, 1);
+	});
+
+	it("announces to every session for the signed-in user", async () => {
+		const response = await send("POST", "/api/announce", { text: "Pull main" });
+		assert.equal(response.status, 200);
+		assert.deepEqual(await response.json(), {
+			ok: true,
+			deliveries: [{ id: "s1", name: "one", ok: true, error: null }],
+		});
+		assert.deepEqual(announced, [["Pull main", "me@example.com"]]);
+		assert.equal(
+			(await send("POST", "/api/announce", { text: "!rm" })).status,
+			400,
+		);
+		assert.equal(
+			(await send("POST", "/api/announce", { text: 3 })).status,
+			400,
+		);
+		assert.equal(announced.length, 2);
 	});
 
 	it("asks for a status report and notes the answer beside the card", async () => {
