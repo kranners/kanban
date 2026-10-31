@@ -1,13 +1,20 @@
 import "./demo.css";
 import { createBackend } from "./backend.ts";
 import { calm } from "./calm.ts";
+import { docs, links } from "./clips.ts";
 import { headline } from "./headline.ts";
-import { install } from "./shim.ts";
+import { install, routeImages } from "./shim.ts";
+
+const scenarios = { headline, links, docs };
 
 const params = new URLSearchParams(location.search);
-const big = params.get("scenario") === "headline";
-const backend = createBackend(big ? headline : calm);
+const name = params.get("scenario") ?? "";
+const staged = Object.hasOwn(scenarios, name)
+	? scenarios[name as keyof typeof scenarios]
+	: null;
+const backend = createBackend(staged ?? calm);
 install(backend, location.href);
+routeImages(location.href);
 
 const settleMs = 300;
 
@@ -20,7 +27,7 @@ function fitOnceDrawn(): void {
 	else requestAnimationFrame(fitOnceDrawn);
 }
 
-if (big) requestAnimationFrame(fitOnceDrawn);
+if (staged) requestAnimationFrame(fitOnceDrawn);
 
 const badge = document.createElement("aside");
 badge.className = "demo-badge";

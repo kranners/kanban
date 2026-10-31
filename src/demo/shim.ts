@@ -111,3 +111,29 @@ export function install(backend: Backend, base: string): void {
 
 	globalThis.WebSocket = DemoSocket as unknown as typeof WebSocket;
 }
+
+export function routeImages(base: string): void {
+	const native = Object.getOwnPropertyDescriptor(
+		HTMLImageElement.prototype,
+		"src",
+	);
+	const assign = native?.set;
+	if (!native || !assign) return;
+	const wanted = new WeakMap<HTMLImageElement, string>();
+	Object.defineProperty(HTMLImageElement.prototype, "src", {
+		...native,
+		set(this: HTMLImageElement, value: string) {
+			wanted.set(this, value);
+			if (apiPath(new URL(value, base)) === null) {
+				assign.call(this, value);
+				return;
+			}
+			void fetch(value)
+				.then((response) => response.blob())
+				.then((blob) => {
+					if (wanted.get(this) === value)
+						assign.call(this, URL.createObjectURL(blob));
+				});
+		},
+	});
+}

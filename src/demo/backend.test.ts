@@ -6,6 +6,8 @@ import type { ConversationServerFrame } from "../shared/conversation.ts";
 import type { BoardFeed } from "../shared/types.ts";
 import { type Backend, createBackend, type Peer } from "./backend.ts";
 import { calm } from "./calm.ts";
+import { docs, links } from "./clips.ts";
+import { handbook } from "./handbook.ts";
 import { headline } from "./headline.ts";
 import { install } from "./shim.ts";
 
@@ -382,7 +384,12 @@ test("the shim answers /api requests in memory and passes the rest through", asy
 	}
 });
 
-for (const [name, scenario] of Object.entries({ calm, headline })) {
+for (const [name, scenario] of Object.entries({
+	calm,
+	headline,
+	links,
+	docs,
+})) {
 	test(`every ${name} session and subagent has a conversation`, async () => {
 		const backend = createBackend(scenario);
 		const feed = listening();
@@ -471,4 +478,158 @@ test("the calm digests describe the frames and sessions the board shows", () => 
 	assert.deepEqual(Object.keys(digests.projects).sort(), [...keys].sort());
 	const ids = new Set(board.sessions.map((session) => session.id));
 	for (const id of Object.keys(digests.sessions)) assert.ok(ids.has(id), id);
+});
+
+const docFrames = (frames: unknown[]) =>
+	(frames as BoardFeed[]).flatMap((frame) =>
+		frame.type === "docs" ? [frame.docs] : [],
+	);
+
+test("doc stores fill as the scenario writes and serve their files like the real server", async () => {
+	const backend = createBackend(docs);
+	const { frames, peer } = listening();
+	backend.socket("/api/feed")?.(peer);
+	assert.deepEqual(docFrames(frames), [{ [handbook.id]: [] }]);
+	for (const step of docs.timeline) step.run(backend.stage);
+	backend.stop();
+	const index = docFrames(frames).at(-1)?.[handbook.id] ?? [];
+	assert.deepEqual(
+		index.map((file) => file.path),
+		[
+			"assets/request-flow.svg",
+			"guides/migration.md",
+			"guides/orders.md",
+			"guides/payments.md",
+			"guides/rollout.md",
+			"index.md",
+		],
+	);
+	assert.equal(
+		index.find((file) => file.path === "index.md")?.size,
+		new TextEncoder().encode(handbook.index).length,
+	);
+	const file = (method: string, path: string) =>
+		backend.fetch(
+			method,
+			`/api/docs/${handbook.id}/files/${path}`,
+			new URLSearchParams("v=1"),
+			null,
+		);
+	const page = file("GET", "index.md");
+	assert.equal(page.status, 200);
+	assert.equal(
+		page.headers.get("content-type"),
+		"text/markdown; charset=utf-8",
+	);
+	assert.equal(await page.text(), handbook.index);
+	const image = file("HEAD", "assets/request-flow.svg");
+	assert.equal(image.status, 200);
+	assert.equal(image.headers.get("content-type"), "image/svg+xml");
+	assert.equal(await image.text(), "");
+	assert.equal(file("GET", "guides/missing.md").status, 404);
+	assert.equal(file("GET", "../index.md").status, 404);
+	assert.equal(
+		backend.fetch(
+			"GET",
+			"/api/docs/nowhere/files/index.md",
+			new URLSearchParams(),
+			null,
+		).status,
+		404,
+	);
+});
+
+test("a doc store's writes show in the writing session's conversation", () => {
+	const backend = createBackend(docs);
+	const [first] = docs.timeline;
+	first?.run(backend.stage);
+	const { frames, peer } = listening();
+	const [writer] = docs.world(0).sessions;
+	backend.socket(`/api/sessions/${writer?.id}/conversation`)?.(peer);
+	backend.stop();
+	const items = (frames as ConversationServerFrame[]).find(
+		(frame) => frame.type === "items",
+	);
+	const last = items?.type === "items" ? items.items.at(-1) : undefined;
+	assert.ok(last?.kind === "tool");
+	assert.equal(last.name, "mcp__kanban__write_doc");
+	assert.equal(last.input.path, "index.md");
+});
+
+test("deleting a doc store drops its files and links", async () => {
+	const backend = createBackend(docs);
+	for (const step of docs.timeline) step.run(backend.stage);
+	await answers(backend, "DELETE", `/api/annotations/${handbook.id}`);
+	const { frames, peer } = listening();
+	backend.socket("/api/feed")?.(peer);
+	backend.stop();
+	assert.deepEqual(docFrames(frames), [{}]);
+	const relations = (frames as BoardFeed[]).find(
+		(frame) => frame.type === "relations",
+	);
+	assert.deepEqual(relations?.type === "relations" && relations.relations, []);
+});
+
+test("a new session joins the doc stores picked for it", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const backend = createBackend(docs);
+	await answers(backend, "POST", "/api/sessions", {
+		cwd: "/Users/me/dev/acme-api",
+		prompt: "Document the search endpoint",
+		docs: [handbook.id, "nowhere"],
+	});
+	t.mock.timers.tick(1200);
+	const { frames, peer } = listening();
+	backend.socket("/api/feed")?.(peer);
+	backend.stop();
+	const relations = (frames as BoardFeed[]).find(
+		(frame) => frame.type === "relations",
+	);
+	assert.ok(relations?.type === "relations");
+	const joined = relations.relations.at(-1);
+	assert.deepEqual(joined?.to, { kind: "docs", id: handbook.id });
+	assert.equal(relations.relations.length, 4);
+});
+
+test("linking two sessions in the links clip sends a message along the link", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const backend = createBackend(links);
+	const [from, , , to] = links.world(0).sessions;
+	assert.ok(from && to);
+	await answers(backend, "POST", "/api/relations", {
+		from: { kind: "session", id: from.id },
+		to: { kind: "session", id: to.id },
+	});
+	t.mock.timers.tick(4000);
+	const { frames, peer } = listening();
+	backend.socket("/api/feed")?.(peer);
+	backend.stop();
+	const board = (frames as BoardFeed[]).find((frame) => frame.type === "board");
+	assert.ok(board?.type === "board");
+	assert.deepEqual(
+		board.board.messages.map((message) => [message.from.id, message.to.id]),
+		[
+			[from.id, to.id],
+			[to.id, from.id],
+		],
+	);
+});
+
+test("the headline links two sessions and fills a doc store linked to two more", () => {
+	const backend = createBackend(headline);
+	const { frames, peer } = listening();
+	backend.socket("/api/feed")?.(peer);
+	for (const step of headline.timeline) step.run(backend.stage);
+	backend.stop();
+	const relations = (frames as BoardFeed[]).findLast(
+		(frame) => frame.type === "relations",
+	);
+	assert.ok(relations?.type === "relations");
+	const kinds = relations.relations.map((relation) => relation.to.kind).sort();
+	assert.deepEqual(kinds, ["docs", "docs", "session"]);
+	const sizes = docFrames(frames).map(
+		(index) => index[handbook.id]?.length ?? 0,
+	);
+	assert.equal(sizes[0], 0);
+	assert.ok((sizes.at(-1) ?? 0) >= 5);
 });

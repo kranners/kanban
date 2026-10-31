@@ -1,14 +1,17 @@
 import { defaultRegionColour } from "../shared/colours.ts";
 import {
+	type DocStore,
 	type Layout,
 	type Link,
 	type Message,
 	type Note,
 	noDigests,
 	type Region,
+	type Relation,
 	type Session,
 	type Subagent,
 } from "../shared/types.ts";
+import { handbook } from "./handbook.ts";
 import {
 	a,
 	minute,
@@ -680,6 +683,18 @@ const pushStory: Turn[] = [
 	},
 ];
 
+const store: DocStore = {
+	id: handbook.id,
+	kind: "docs",
+	title: handbook.title,
+	x: projects.docs.x + 360,
+	y: projects.docs.y + rowPitch,
+	...card,
+	z: 1,
+};
+
+const docs = { kind: "docs", id: store.id } as const;
+
 function world(start: number): World {
 	const sessions = seats.map((seat, order) => sessionOf(start, seat, order));
 	const subagents = helpers
@@ -775,10 +790,19 @@ function world(start: number): World {
 				"Node pool general-a drains at 14:00.",
 			),
 		],
+		relations: ["orders v3", "v3 API reference"].map(
+			(name, n): Relation => ({
+				id: `relation-h${n + 1}`,
+				from: s(sid(name)),
+				to: docs,
+				createdAt: start - (30 - n * 10) * minute,
+			}),
+		),
+		docs: { [store.id]: [] },
 		layout,
 		regions: Object.values(projects).map(regionOf),
 		colours: {},
-		annotations: {},
+		annotations: { [store.id]: store },
 		comments: [],
 		digests: noDigests,
 		files: {},
@@ -816,6 +840,9 @@ const spawn = (seconds: number, helperId: string) =>
 const finish = (seconds: number, helperId: string, summary: string) =>
 	at(seconds, (stage) => stage.finish(helperId, summary));
 
+const write = (seconds: number, name: string, path: string, text: string) =>
+	at(seconds, (stage) => stage.write(store.id, path, text, sid(name)));
+
 const arrive = (seconds: number, name: string, parent: string) =>
 	at(seconds, (stage) => {
 		const seat = arriving.find((item) => item.name === name);
@@ -829,7 +856,7 @@ const checklist: Note = {
 	color: "yellow",
 	text: "### v3 launch\n\n- [x] Orders ported\n- [x] Contract tests green\n- [ ] Payments ported\n- [ ] Load test at 2x peak\n- [ ] Docs live",
 	x: projects.docs.x + 360,
-	y: projects.docs.y + rowPitch,
+	y: projects.docs.y,
 	w: 288,
 	h: 216,
 	z: 1,
@@ -845,6 +872,7 @@ const timeline: Step[] = [
 		"orders v3",
 		"Orders endpoints ported; 41 of 41 contract checks pass.",
 	),
+	write(1.0, "orders v3", "index.md", handbook.draft),
 	set(1.2, "worker: orders", { doing: "Running npm test -- orders" }),
 	spawn(1.8, "sa-pay-idem"),
 	say(
@@ -866,6 +894,9 @@ const timeline: Step[] = [
 		"orders v3",
 		"Is currency always present on v3 totals?",
 	),
+	at(4.6, (stage) =>
+		stage.relate(s(sid("checkout redesign")), s(sid("orders v3"))),
+	),
 	set(5.6, "flaky webhook test", { doing: "Reproduced: fails 3 of 50 runs" }),
 	say(
 		6.4,
@@ -881,6 +912,7 @@ const timeline: Step[] = [
 		"nightly ETL",
 		"Draining general-a now; pause the nightly ETL.",
 	),
+	write(8.0, "v3 API reference", "guides/orders.md", handbook.orders),
 	set(9.2, "nightly ETL", { doing: "Paused for the node pool drain" }),
 	set(9.8, "push opt-in", {
 		activity: "working",
@@ -905,6 +937,7 @@ const timeline: Step[] = [
 		"Payments contract: 3 fields renamed, see contracts/payments.json.",
 	),
 	finish(13.4, "sa-pay-map", "Refunds go through 4 code paths; all covered."),
+	write(13.0, "v3 API reference", "guides/payments.md", handbook.payments),
 	set(14.0, "flaky webhook test", {
 		activity: "failed",
 		doing: "2 of 212 tests failed: webhook retry timing",
@@ -937,6 +970,7 @@ const timeline: Step[] = [
 		doing: "Running dbt run --select marts.revenue",
 		needs: null,
 	}),
+	write(19.0, "orders v3", "assets/request-flow.svg", handbook.requestFlow),
 	spawn(19.4, "sa-backfill-verify"),
 	say(
 		20.0,
@@ -947,6 +981,7 @@ const timeline: Step[] = [
 	set(20.6, "k8s 1.34", { doing: "Upgrading the control plane" }),
 	say(21.4, "k8s 1.34", "nightly ETL", "Drain finished. Safe to resume."),
 	set(22.0, "nightly ETL", { doing: "Resuming from checkpoint 14 of 20" }),
+	write(22.2, "v3 API reference", "guides/migration.md", handbook.migration),
 	set(22.6, "worker: load test", {
 		activity: "working",
 		doing: "Running k6 at 2x peak",
@@ -971,6 +1006,7 @@ const timeline: Step[] = [
 		"sa-contract-pay",
 		"Payments contract verified against 3 consumers.",
 	),
+	write(27.0, "orders v3", "guides/rollout.md", handbook.rollout),
 	set(27.2, "hotfix 4.2.1", {
 		activity: "needs-you",
 		doing: "Waiting for approval",
@@ -1020,6 +1056,7 @@ const timeline: Step[] = [
 		"orders v3",
 		"p99 at 2x peak is 182 ms, under budget.",
 	),
+	write(33.8, "orders v3", "index.md", handbook.index),
 	set(34.0, "worker: load test", {
 		activity: "done",
 		doing: "p99 182 ms at 2x peak",

@@ -13,6 +13,8 @@ import type {
 	Message,
 	NodeRef,
 	Region,
+	Relation,
+	RelationEnd,
 	Session,
 	Subagent,
 } from "../shared/types.ts";
@@ -40,12 +42,16 @@ export type DemoWorkflow = {
 	agents: string[];
 };
 
+export type DocText = { path: string; text: string; updatedAt: number };
+
 export type World = {
 	sessions: Session[];
 	subagents: Subagent[];
 	workflows: DemoWorkflow[];
 	links: Link[];
 	messages: Message[];
+	relations: Relation[];
+	docs: Record<string, DocText[]>;
 	layout: Layout;
 	regions: Region[];
 	colours: RegionColours;
@@ -64,6 +70,8 @@ export type Stage = {
 	message(from: NodeRef, to: NodeRef, summary: string): void;
 	colour(cwd: string, colour: RegionColours[string]): void;
 	annotate(annotations: Annotations): void;
+	relate(from: RelationEnd, to: RelationEnd): void;
+	write(store: string, path: string, text: string, by?: string): void;
 	exit(id: string): void;
 };
 
@@ -72,10 +80,11 @@ export type Step = { at: number; run(stage: Stage): void };
 export type Scenario = {
 	world(start: number): World;
 	timeline: Step[];
+	linked?: (from: RelationEnd, to: RelationEnd) => Step[];
 	ambient?: { every: number; steps: ((stage: Stage) => void)[] };
 };
 
-export const s = (id: string): NodeRef => ({ kind: "session", id });
+export const s = (id: string) => ({ kind: "session", id }) as const;
 export const a = (id: string): NodeRef => ({ kind: "subagent", id });
 
 export const sessionKey = (id: string) => `session:${id}`;

@@ -8,6 +8,11 @@ import type {
 	Drive,
 	ToolResult,
 } from "../shared/conversation.ts";
+import {
+	docContentType,
+	isDocPath,
+	isMarkdownPath,
+} from "../shared/docPaths.ts";
 import type { ProjectIgnores } from "../shared/ignores.ts";
 import {
 	outstandingStates,
@@ -18,6 +23,7 @@ import type {
 	Board,
 	BoardFeed,
 	CommentThread,
+	DocIndex,
 	ExitResult,
 	MirrorClientFrame,
 	MirrorServerFrame,
@@ -27,6 +33,7 @@ import type {
 	Region,
 	Relation,
 	RelationDraft,
+	RelationEnd,
 	Session,
 	Subagent,
 } from "../shared/types.ts";
@@ -168,7 +175,6 @@ function screenOf(items: readonly ConversationItem[], newline: string): string {
 export function createBackend(scenario: Scenario): Backend {
 	let world: World = scenario.world(Date.now());
 	let ignores: ProjectIgnores = {};
-	let relations: Relation[] = [];
 	let conversations = new Map<string, Conversation>();
 	const feeds = new Set<Peer>();
 	const timers = new Set<ReturnType<typeof setTimeout>>();
@@ -438,6 +444,79 @@ export function createBackend(scenario: Scenario): Backend {
 		boardChanged();
 	};
 
+	const encoder = new TextEncoder();
+	const bytes = (text: string) => encoder.encode(text).buffer as ArrayBuffer;
+
+	const docIndex = (): DocIndex =>
+		Object.fromEntries(
+			Object.entries(world.docs).map(([store, files]) => [
+				store,
+				files
+					.map(({ path, text, updatedAt }) => ({
+						path,
+						size: encoder.encode(text).length,
+						updatedAt,
+					}))
+					.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
+			]),
+		);
+
+	const isDocStore = (id: string) => world.annotations[id]?.kind === "docs";
+
+	const relate = (from: RelationEnd, to: RelationEnd): Relation => {
+		const relation: Relation = {
+			id: `relation-${next()}`,
+			from,
+			to,
+			createdAt: Date.now(),
+		};
+		world.relations = [...world.relations, relation];
+		broadcast({ type: "relations", relations: world.relations });
+		return relation;
+	};
+
+	const writeDoc = (store: string, path: string, text: string, by?: string) => {
+		const files = (world.docs[store] ?? []).filter(
+			(file) => file.path !== path,
+		);
+		world.docs = {
+			...world.docs,
+			[store]: [...files, { path, text, updatedAt: Date.now() }],
+		};
+		broadcast({ type: "docs", docs: docIndex() });
+		if (!by) return;
+		const annotation = world.annotations[store];
+		const title = annotation?.kind === "docs" ? annotation.title : store;
+		const size = encoder.encode(text).length;
+		append({ kind: "session", id: by }, [
+			isMarkdownPath(path)
+				? {
+						tool: "mcp__kanban__write_doc",
+						input: { path, content: text },
+						result: `Wrote ${path} in "${title}" (${size} bytes)`,
+					}
+				: {
+						tool: "mcp__kanban__put_doc_asset",
+						input: { path },
+						result: `Saved ${path} in "${title}" (${size} bytes)`,
+					},
+		]);
+	};
+
+	const docFile = (store: string, path: string, head: boolean): Response => {
+		const file = isDocStore(store)
+			? world.docs[store]?.find((item) => item.path === path)
+			: undefined;
+		if (!isDocPath(path) || !file) return notFound();
+		return new Response(head ? null : file.text, {
+			status: 200,
+			headers: {
+				"content-type": docContentType(path),
+				"cache-control": "no-cache",
+			},
+		});
+	};
+
 	const stage: Stage = {
 		add(session, story, from) {
 			world.sessions.push(session);
@@ -521,6 +600,10 @@ export function createBackend(scenario: Scenario): Backend {
 			world.annotations = { ...world.annotations, ...annotations };
 			broadcast({ type: "annotations", annotations: world.annotations });
 		},
+		relate(from, to) {
+			relate(from, to);
+		},
+		write: writeDoc,
 		exit(id) {
 			removeSession(id);
 			later(400, () =>
@@ -608,6 +691,9 @@ export function createBackend(scenario: Scenario): Backend {
 				{ user: prompt },
 				{ tool: "Glob", input: { pattern: "**/*" } },
 			]);
+			for (const store of request?.docs ?? [])
+				if (isDocStore(store))
+					relate({ kind: "session", id }, { kind: "docs", id: store });
 			later(4000, () => {
 				update(id, { activity: "idle", doing: "Replied to the prompt" }, false);
 				settle({ kind: "session", id }, "README.md\npackage.json\nsrc/");
@@ -762,6 +848,16 @@ export function createBackend(scenario: Scenario): Backend {
 					error: "The demo runs on one account",
 				}),
 		],
+		[
+			"GET",
+			/^\/api\/docs\/([^/]+)\/files\/(.+)$/,
+			([store = "", path = ""]) => docFile(store, path, false),
+		],
+		[
+			"HEAD",
+			/^\/api\/docs\/([^/]+)\/files\/(.+)$/,
+			([store = "", path = ""]) => docFile(store, path, true),
+		],
 		["GET", /^\/api\/cloud-blocker$/, () => json(200, { reason: null })],
 		["GET", /^\/api\/remote-hosts$/, () => json(200, { hosts: [] })],
 		[
@@ -890,12 +986,17 @@ export function createBackend(scenario: Scenario): Backend {
 				const { [id]: _removed, ...rest } = world.annotations;
 				world.annotations = rest;
 				broadcast({ type: "annotations", annotations: world.annotations });
-				const kept = relations.filter((relation) =>
+				if (world.docs[id]) {
+					const { [id]: _files, ...kept } = world.docs;
+					world.docs = kept;
+					broadcast({ type: "docs", docs: docIndex() });
+				}
+				const kept = world.relations.filter((relation) =>
 					[relation.from, relation.to].every((end) => end.id !== id),
 				);
-				if (kept.length !== relations.length) {
-					relations = kept;
-					broadcast({ type: "relations", relations });
+				if (kept.length !== world.relations.length) {
+					world.relations = kept;
+					broadcast({ type: "relations", relations: world.relations });
 				}
 				return empty(204);
 			},
@@ -941,14 +1042,9 @@ export function createBackend(scenario: Scenario): Backend {
 						ok: false,
 						error: "from and to must each be a session or a doc store",
 					});
-				const relation: Relation = {
-					id: `relation-${next()}`,
-					from: draft.from,
-					to: draft.to,
-					createdAt: Date.now(),
-				};
-				relations = [...relations, relation];
-				broadcast({ type: "relations", relations });
+				const relation = relate(draft.from, draft.to);
+				for (const step of scenario.linked?.(draft.from, draft.to) ?? [])
+					later(step.at, () => step.run(stage));
 				return json(201, relation);
 			},
 		],
@@ -956,10 +1052,12 @@ export function createBackend(scenario: Scenario): Backend {
 			"DELETE",
 			/^\/api\/relations\/([^/]+)$/,
 			([id = ""]) => {
-				if (!relations.some((relation) => relation.id === id))
+				if (!world.relations.some((relation) => relation.id === id))
 					return notFound();
-				relations = relations.filter((relation) => relation.id !== id);
-				broadcast({ type: "relations", relations });
+				world.relations = world.relations.filter(
+					(relation) => relation.id !== id,
+				);
+				broadcast({ type: "relations", relations: world.relations });
 				return empty(204);
 			},
 		],
@@ -1075,8 +1173,8 @@ export function createBackend(scenario: Scenario): Backend {
 		sendFrame(peer, { type: "regions", regions: world.regions });
 		sendFrame(peer, { type: "comments", comments: world.comments });
 		sendFrame(peer, { type: "digests", digests: world.digests });
-		sendFrame(peer, { type: "relations", relations });
-		sendFrame(peer, { type: "docs", docs: {} });
+		sendFrame(peer, { type: "relations", relations: world.relations });
+		sendFrame(peer, { type: "docs", docs: docIndex() });
 		sendFrame(peer, { type: "board", board: snapshot() });
 		return { receive() {}, close: () => feeds.delete(peer) };
 	};
@@ -1249,9 +1347,6 @@ export function createBackend(scenario: Scenario): Backend {
 			};
 		};
 
-	const encoder = new TextEncoder();
-	const bytes = (text: string) => encoder.encode(text).buffer as ArrayBuffer;
-
 	const attachOpener =
 		(session: Session): Opener =>
 		(peer) => {
@@ -1372,9 +1467,9 @@ export function createBackend(scenario: Scenario): Backend {
 		cancel();
 		load(scenario.world(Date.now()));
 		ignores = {};
-		relations = [];
 		broadcast({ type: "ignores", ignores });
-		broadcast({ type: "relations", relations });
+		broadcast({ type: "relations", relations: world.relations });
+		broadcast({ type: "docs", docs: docIndex() });
 		broadcast({ type: "layout", layout: world.layout });
 		broadcast({ type: "annotations", annotations: world.annotations });
 		broadcast({ type: "colours", colours: world.colours });

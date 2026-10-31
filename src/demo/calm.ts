@@ -322,6 +322,8 @@ function world(start: number): World {
 				"Currency field added to OrderSummary; tests are running.",
 			),
 		],
+		relations: [],
+		docs: {},
 		layout: {},
 		regions: [],
 		colours: {},
