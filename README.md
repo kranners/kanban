@@ -61,6 +61,16 @@ Drag cards anywhere on a snapping grid and resize them; the layout is saved and 
 
 ![Dropping a markdown sticky note and a sticker, then adding a project region, resizing it and changing its colour](docs/media/clip-annotate.gif)
 
+### Link sessions
+
+Hovering a card shows a handle on each side. Drag from one onto another session to link the two, so they finish a piece of work together end to end; hover the line and press its unlink button to undo it. With each prompt, each subagent and whenever a link is drawn or removed mid-turn, a linked session is told the name, state, goal and current activity of every session linked to it, and to work with them through SendMessage: to share what it finds and decides, ask for what it needs and say when it finishes something they depend on. SendMessage only reaches sessions on the same Claude account, so a link to a session on another account, or to one that isn't running, is drawn in amber and the session is told it can't message that one. Cloud sessions and sessions started in a terminal can't be linked: they get none of the board's context, so their cards have no handles and the board refuses the link.
+
+### Doc stores
+
+D adds a doc store, a folder of shared docs on the board, as does Add doc store here in the board menu. Link a session to it by dragging from the session's handle onto it, or pick it under Docs when starting a session. A linked session is told which stores it has and what they hold, and it reads and writes them with the board's `kanban` MCP tools (`list_docs`, `read_doc`, `write_doc`, `delete_doc` and `put_doc_asset`): markdown pages in folders, relative links between them, mermaid diagrams and images copied from the Mac. Double-click a store, or press Enter with it selected, to open the viewer: a folder tree, the rendered pages with their diagrams and images, links that move between pages, and a live refresh as sessions write. Picking a doc store when starting a session runs it on This Mac, since only sessions there get the tools.
+
+The doc tools and the linked-session context reach only sessions the board starts on this Mac. Sessions started in a terminal or before the board gained these tools, cloud sessions and Remote Control sessions get neither. A session that runs `/clear` gets a new id that its doc tools don't know, so they stop working for it once its old id's links are pruned a day after it left the board.
+
 ### Ask the board
 
 Press / anywhere and type a request, such as "organise my board into projects". A pin stays where you pressed, and its thread shows each action as it happens and the reply. The board agent is headless Claude Code with only the board's own tools: it can move cards, write notes, ask or prompt sessions and start or finish them, but it cannot run commands or read files.
@@ -76,6 +86,7 @@ Press / anywhere and type a request, such as "organise my board into projects". 
 | `/`  | Ask the board                          |
 | `N`  | Add a note                             |
 | `S`  | Add a sticker                          |
+| `D`  | Add a doc store                        |
 | `R`  | Add a project region                   |
 | `⌘.` | Close the session view                 |
 
@@ -126,7 +137,9 @@ kanban is a remote terminal into every background Claude Code session and every 
 - The server binds to localhost; `KANBAN_AUTH=off` is refused on any other address.
 - WebSocket upgrades must come from the board's own origin.
 - Session keys, the daemon control key and other secrets under `~/.claude` are never read or served.
-- The peer hook endpoint answers only loopback requests with no browser `Origin`, and only says who shares a session's frame.
+- The peer hook endpoint answers only loopback requests with no browser `Origin`, and only says who shares a session's frame or is linked to it.
+- The session doc tool endpoint answers only loopback requests with no browser `Origin` and none of Cloudflare's headers, and acts only on doc stores linked to the session the request names at that moment.
+- Doc store files, which sessions write, are served with a content type from their extension, `nosniff` and a sandboxed content security policy that runs no scripts, so an SVG or page opened on its own can't act as the board.
 - The board agent behind / runs headless Claude Code with only the board's own tools, no shell or file access, and never force-exits; its tool endpoint takes a per-run token from loopback only, and every change it makes is audited.
 
 See [SECURITY.md](SECURITY.md) for the threat model and how to report a vulnerability.

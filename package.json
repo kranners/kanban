@@ -30,6 +30,7 @@
 		"lucide-preact": "^1.61.0",
 		"mdast-util-from-markdown": "^2.1.0",
 		"mdast-util-gfm": "^3.1.0",
+		"mermaid": "^12.2.0",
 		"micromark-extension-gfm": "^3.0.0",
 		"node-pty": "^1.1.0",
 		"preact": "^11.0.1",

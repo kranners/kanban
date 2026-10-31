@@ -15,6 +15,8 @@ kanban is a remote terminal into every background Claude Code session and every 
 - WebSocket upgrades must come from the board's own origin.
 - Session keys, the daemon control key and the other secrets under `~/.claude` are never read or served.
 - The board agent runs headless Claude Code with only the board's own tools: no shell, no file access and no forced exits. Its tool endpoint takes a per-run token from loopback only and refuses requests that came through the tunnel.
+- The session doc tool endpoint (`POST /api/docs/tools/:tool`), which the `kanban` MCP server of each session the board starts calls, answers only loopback requests with no browser `Origin` and refuses any that came through the tunnel. It trusts the session id the local process names, the same trust as the peer hook, and acts only on doc stores linked to that session at that moment; it grants nothing a local process couldn't already do by writing to the board's state directory.
+- Doc store files are written by sessions, so they are served with a content type from their extension, `nosniff`, `no-cache` and a sandboxed content security policy that runs no scripts and loads nothing from elsewhere.
 - Exits, new sessions, a person's sends and every change the board agent makes are written to an audit log (`KANBAN_AUDIT_LOG`, default `~/Library/Logs/kanban/audit.jsonl`); a person's sends are logged by length, never by text.
 
 In scope: anything that lets a request reach a session, a terminal, a file or a secret without passing these checks, or lets the board agent exceed its tools. Out of scope: an attacker who already runs code as the user on the machine, and the security of Claude Code, cmux or Cloudflare themselves.

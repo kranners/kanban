@@ -85,6 +85,14 @@ const region = async (backend: Backend): Promise<string> => {
 	return ((await created.json()) as { id: string }).id;
 };
 
+const relation = async (backend: Backend): Promise<string> => {
+	const created = await answers(backend, "POST", "/api/relations", {
+		from: { kind: "session", id: sessionId },
+		to: { kind: "session", id: "d4c3f5a6b8" },
+	});
+	return ((await created.json()) as { id: string }).id;
+};
+
 const thread = async (backend: Backend): Promise<string> => {
 	const created = await answers(backend, "POST", "/api/comments", {
 		x: 10,
@@ -196,6 +204,13 @@ const probes: Record<string, Probe> = {
 		const id = await region(backend);
 		await answers(backend, "POST", `/api/regions/${id}/report`);
 	},
+	"/api/relations": async (backend) => {
+		await relation(backend);
+	},
+	"/api/relations/:param": async (backend) => {
+		const id = await relation(backend);
+		await answers(backend, "DELETE", `/api/relations/${id}`);
+	},
 	"/api/comments": async (backend) => {
 		await thread(backend);
 	},
@@ -269,7 +284,7 @@ test("writes reach every feed socket as the real server's frames", async () => {
 	});
 	backend.stop();
 	const types = (frames as BoardFeed[]).map((frame) => frame.type);
-	assert.deepEqual(types.slice(0, 8), [
+	assert.deepEqual(types.slice(0, 10), [
 		"layout",
 		"annotations",
 		"colours",
@@ -277,9 +292,16 @@ test("writes reach every feed socket as the real server's frames", async () => {
 		"regions",
 		"comments",
 		"digests",
+		"relations",
+		"docs",
 		"board",
 	]);
-	assert.deepEqual(types.slice(8), ["colours", "ignores", "regions", "layout"]);
+	assert.deepEqual(types.slice(10), [
+		"colours",
+		"ignores",
+		"regions",
+		"layout",
+	]);
 });
 
 test("a top-bar button keeps one thread and refuses a rerun while it works", async () => {

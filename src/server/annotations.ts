@@ -1,6 +1,7 @@
 import {
 	type Annotation,
 	type Annotations,
+	maxDocTitle,
 	maxNoteText,
 	maxReportBytes,
 	type NoteColor,
@@ -46,6 +47,12 @@ const isNoteColor = (value: unknown): value is NoteColor =>
 
 const isRotation = (value: unknown): value is number =>
 	typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= 180;
+
+const isDocTitle = (value: unknown): value is string =>
+	typeof value === "string" &&
+	value.trim() !== "" &&
+	value.length <= maxDocTitle &&
+	!/\p{Cc}/u.test(value);
 
 const isLink = (value: unknown): value is string | undefined =>
 	value === undefined ||
@@ -132,7 +139,16 @@ export const parseAnnotation = (
 		}
 		return { ...placed, kind: "sticker", sticker, rotation };
 	}
-	return { error: "kind must be note or sticker" };
+	if (fields.kind === "docs") {
+		const { title } = fields;
+		if (!isDocTitle(title)) {
+			return {
+				error: `title must be 1 to ${maxDocTitle} characters on one line`,
+			};
+		}
+		return { ...placed, kind: "docs", title };
+	}
+	return { error: "kind must be note, sticker or docs" };
 };
 
 export const parseAnnotations = (value: unknown): Annotations => {
@@ -168,6 +184,12 @@ export const createAnnotationStore = ({
 		current: () => annotations,
 		put(annotation) {
 			const known = Object.hasOwn(annotations, annotation.id);
+			const kind = annotations[annotation.id]?.kind;
+			if (known && kind !== annotation.kind) {
+				return {
+					error: `${annotation.id} is a ${kind}: delete it to make a ${annotation.kind}`,
+				};
+			}
 			if (!known && Object.keys(annotations).length >= maxAnnotations) {
 				return {
 					error: `The board holds at most ${maxAnnotations} notes and stickers`,

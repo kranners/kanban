@@ -17,6 +17,7 @@ import {
 	type RunsOn,
 	runsOnChoices,
 } from "../shared/types.ts";
+import { annotationIdPattern } from "./annotations.ts";
 import { stripAnsi } from "./ansi.ts";
 import type { CloudLauncher, CloudRecord } from "./cloud.ts";
 import { parsePoint } from "./layout.ts";
@@ -72,6 +73,23 @@ const validateImages = (images: unknown): PromptImage[] | { error: string } => {
 	return images.map(({ type, data }) => ({ type, data }));
 };
 
+const maxSessionDocs = 20;
+
+const validateDocs = (docs: unknown): string[] | { error: string } => {
+	if (docs === undefined) return [];
+	if (
+		!Array.isArray(docs) ||
+		docs.length > maxSessionDocs ||
+		!docs.every(
+			(id) => typeof id === "string" && annotationIdPattern.test(id),
+		) ||
+		new Set(docs).size !== docs.length
+	) {
+		return { error: `docs must be up to ${maxSessionDocs} doc store ids` };
+	}
+	return [...docs];
+};
+
 export const isAccountNumber = (value: unknown): value is number =>
 	Number.isInteger(value) && (value as number) > 0;
 
@@ -81,10 +99,8 @@ export const validateNewSession = async (
 	if (typeof body !== "object" || body === null) {
 		return { error: "Expected a JSON object with cwd and prompt" };
 	}
-	const { cwd, name, prompt, images, at, account, runsOn } = body as Record<
-		string,
-		unknown
-	>;
+	const { cwd, name, prompt, images, at, account, runsOn, docs } =
+		body as Record<string, unknown>;
 	if (typeof cwd !== "string" || !isAbsolute(cwd)) {
 		return { error: "cwd must be an absolute path" };
 	}
@@ -109,6 +125,8 @@ export const validateNewSession = async (
 	if (point === null) {
 		return { error: "at must be a point with finite x and y" };
 	}
+	const linked = validateDocs(docs);
+	if ("error" in linked) return linked;
 	if (account !== undefined && !isAccountNumber(account)) {
 		return { error: "account must be a positive whole number" };
 	}
@@ -121,9 +139,12 @@ export const validateNewSession = async (
 	}
 	const where: RunsOn =
 		(runsOn as RunsOn | undefined) ??
-		(attached.length ? "local" : defaultRunsOn);
+		(attached.length || linked.length ? "local" : defaultRunsOn);
 	if (where !== "local" && attached.length) {
 		return { error: "Images can only be sent to sessions on this Mac" };
+	}
+	if (where !== "local" && linked.length) {
+		return { error: "Doc stores can only be linked to sessions on this Mac" };
 	}
 	if (where === "cloud" && cloudTargetPattern.test(prompt.trim())) {
 		return {
@@ -138,12 +159,13 @@ export const validateNewSession = async (
 		...(attached.length ? { images: attached } : {}),
 		...(point ? { at: point } : {}),
 		...(account !== undefined ? { account } : {}),
+		...(linked.length ? { docs: linked } : {}),
 		runsOn: where,
 	};
 };
 
 export const parseBackgrounded = (stdout: string): string | null =>
-	stdout.match(/backgrounded · ([0-9a-f]{8})/)?.[1] ?? null;
+	stripAnsi(stdout).match(/backgrounded · ([0-9a-f]{8})/)?.[1] ?? null;
 
 const isUntrusted = (output: string) =>
 	output.includes("Workspace not trusted");
@@ -189,17 +211,34 @@ export const saveImages = async (
 	return { folder, paths };
 };
 
+const docsNote = (docs: readonly string[]): string => {
+	const several = docs.length > 1;
+	return `The kanban board linked this session to doc store${several ? "s" : ""} ${docs.join(", ")}: shared docs for this area of work. Call mcp__kanban__list_docs before you start and read what's relevant with mcp__kanban__read_doc; keep ${several ? "them" : "it"} current with mcp__kanban__write_doc as you learn things others working here will need.`;
+};
+
+const promptText = (
+	request: NewSessionRequest,
+	saved: SavedImages | null,
+): string =>
+	[
+		request.prompt,
+		...(request.docs?.length ? [docsNote(request.docs)] : []),
+		...(saved?.paths ?? []),
+	].join("\n\n");
+
 export const launchArgs = (
 	request: NewSessionRequest,
 	saved: SavedImages | null = null,
 	settings: string | null = null,
+	mcpConfig: string | null = null,
 ): string[] => [
 	"--bg",
 	...(request.name ? [`--name=${request.name}`] : []),
 	...(saved ? [`--add-dir=${saved.folder}`] : []),
 	...(settings ? [`--settings=${settings}`] : []),
+	...(mcpConfig ? [`--mcp-config=${mcpConfig}`] : []),
 	"--",
-	saved ? [request.prompt, ...saved.paths].join("\n\n") : request.prompt,
+	promptText(request, saved),
 ];
 
 export type LaunchCommand = {
@@ -241,12 +280,13 @@ export const launchCommand = (
 	saved: SavedImages | null = null,
 	env: NodeJS.ProcessEnv = process.env,
 	settings: string | null = null,
+	mcpConfig: string | null = null,
 ): LaunchCommand =>
 	accountCommand(
 		claudeBin,
 		cswapBin,
 		request.account,
-		launchArgs(request, saved, settings),
+		launchArgs(request, saved, settings, mcpConfig),
 		env,
 	);
 
@@ -255,6 +295,7 @@ export type LauncherOptions = {
 	defaultConfig?: string;
 	profileOf?: (account: number) => string | null;
 	settings?: string | null;
+	mcpConfig?: string | null;
 };
 
 export const claudeLauncher =
@@ -266,6 +307,7 @@ export const claudeLauncher =
 			defaultConfig = join(homedir(), ".claude.json"),
 			profileOf = () => null,
 			settings = null,
+			mcpConfig = null,
 		}: LauncherOptions = {},
 	): SessionLauncher =>
 	async (request) => {
@@ -282,6 +324,7 @@ export const claudeLauncher =
 			saved,
 			process.env,
 			settings,
+			mcpConfig,
 		);
 		const run = () =>
 			new Promise<{ stdout: string; stderr: string }>((resolve) => {

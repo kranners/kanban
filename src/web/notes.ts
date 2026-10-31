@@ -1,6 +1,7 @@
 import type {
 	Annotation,
 	Annotations,
+	DocStore,
 	Note,
 	NoteColor,
 	Point,
@@ -19,6 +20,9 @@ export const minStickerSize = 32;
 export const maxAnnotationSize = 1200;
 export const noteTextLimit = 20_000;
 export const defaultNoteColor: NoteColor = "yellow";
+export const docStoreSize = { w: 288, h: 264 };
+export const minDocStoreSize = { w: 192, h: 144 };
+export const defaultDocTitle = "Docs";
 
 const notePadding = 14;
 const lineHeight = 1.3;
@@ -83,6 +87,16 @@ export function newSticker(
 		z,
 		sticker,
 	};
+}
+
+export function newDocStore(
+	id: string,
+	at: Point,
+	z: number,
+	title = defaultDocTitle,
+): DocStore {
+	const { w, h } = docStoreSize;
+	return { id, kind: "docs", ...centredAt(at, w, h), w, h, z, title };
 }
 
 function linesFor(text: string, charsPerLine: number): number {
@@ -152,6 +166,13 @@ export function resized<T extends Annotation>(
 			h: clampSize(annotation.h + dy, minNoteSize),
 		};
 	}
+	if (annotation.kind === "docs") {
+		return {
+			...annotation,
+			w: clampSize(annotation.w + dx, minDocStoreSize.w),
+			h: clampSize(annotation.h + dy, minDocStoreSize.h),
+		};
+	}
 	const scale = Math.max(
 		(annotation.w + dx) / annotation.w,
 		(annotation.h + dy) / annotation.h,
@@ -213,7 +234,7 @@ export function duplicated(
 	taken: readonly Rect[] = Object.values(annotations),
 ): Annotation[] {
 	const top = topZ(annotations);
-	const sources = selected(annotations, ids);
+	const sources = selected(annotations, ids).filter((a) => a.kind !== "docs");
 	const offset = clearShift(sources, taken, { x: gridSize, y: gridSize });
 	return sources.map((a, index) => {
 		const {
@@ -279,6 +300,8 @@ export function gridStep(
 export type AnnotationCommand =
 	| { kind: "note" }
 	| { kind: "sticker" }
+	| { kind: "docs" }
+	| { kind: "open" }
 	| { kind: "delete" }
 	| { kind: "duplicate" }
 	| { kind: "front" }
@@ -296,7 +319,7 @@ const nudges: Record<string, Point> = {
 
 export function annotationCommand(
 	press: KeyPress,
-	selection: { count: number; notes: number },
+	selection: { count: number; notes: number; docs: number },
 ): AnnotationCommand | null {
 	const command = press.metaKey || press.ctrlKey;
 	const key = press.key.toLowerCase();
@@ -316,11 +339,15 @@ export function annotationCommand(
 	if (press.shiftKey || press.repeat) return null;
 	if (key === "n") return { kind: "note" };
 	if (key === "s") return { kind: "sticker" };
+	if (key === "d") return { kind: "docs" };
 	if (selection.count === 0) return null;
 	if (key === "delete" || key === "backspace") return { kind: "delete" };
 	if (key === "escape") return { kind: "deselect" };
 	if (key === "enter" && selection.count === 1 && selection.notes === 1) {
 		return { kind: "edit" };
+	}
+	if (key === "enter" && selection.count === 1 && selection.docs === 1) {
+		return { kind: "open" };
 	}
 	return null;
 }

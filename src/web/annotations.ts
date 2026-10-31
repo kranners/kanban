@@ -7,11 +7,13 @@ import type {
 	Point,
 } from "../shared/types.ts";
 import { arrangement, reserved } from "./arrangement.ts";
+import { docDeletion, fileCount } from "./docState.ts";
 import {
 	broughtToFront,
 	clearOf,
 	duplicated,
 	moved,
+	newDocStore,
 	newNote,
 	newSticker,
 	recoloured,
@@ -174,8 +176,17 @@ export function addSticker(sticker: string, at: Point): void {
 	select([added.id]);
 }
 
-export function deleteSelection(): void {
-	const ids = [...selection.peek()].filter((id) => current.peek()[id]);
+export function addDocStore(at: Point): void {
+	const added = clearOf(
+		newDocStore(newId(), at, topZ(current.peek()) + 1),
+		taken(),
+	);
+	save([added]);
+	select([added.id]);
+	editing.value = added.id;
+}
+
+function remove(ids: readonly string[]): void {
 	setDrafts(ids.map((id) => [id, null]));
 	for (const id of ids) {
 		clearTimeout(settling.get(id));
@@ -185,8 +196,27 @@ export function deleteSelection(): void {
 	editing.value = null;
 }
 
+export function deleteSelection(): void {
+	const doomed = selected.peek();
+	const stores = doomed.flatMap((a) =>
+		a.kind === "docs" && fileCount(a.id) > 0
+			? [{ title: a.title, files: fileCount(a.id) }]
+			: [],
+	);
+	const ids = doomed.map((a) => a.id);
+	if (stores.length > 0) docDeletion.value = { ids, stores };
+	else remove(ids);
+}
+
+export function confirmDocDeletion(): void {
+	const asked = docDeletion.peek();
+	docDeletion.value = null;
+	if (asked) remove(asked.ids.filter((id) => current.peek()[id]));
+}
+
 export function duplicateSelection(): void {
 	const copies = duplicated(current.peek(), selection.peek(), newId, taken());
+	if (copies.length === 0) return;
 	save(copies);
 	select(copies.map((a) => a.id));
 }

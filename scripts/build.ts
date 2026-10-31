@@ -37,8 +37,10 @@ async function bundle(entry: string, outDir: string): Promise<void> {
 	await rm(next, { recursive: true, force: true });
 	await mkdir(next, { recursive: true });
 	await esbuild.build({
-		entryPoints: [entry],
-		outfile: `${next}app.js`,
+		entryPoints: { app: entry },
+		outdir: next,
+		splitting: true,
+		chunkNames: "chunks/[name]-[hash]",
 		bundle: true,
 		format: "esm",
 		minify: true,

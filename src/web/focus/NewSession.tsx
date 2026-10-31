@@ -4,9 +4,12 @@ import type { JSX } from "preact";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
 import type { Landing } from "../../shared/types.ts";
 import { AccountPicker } from "../AccountPicker.tsx";
+import { DocsPicker, pickedDocStores } from "../DocsPicker.tsx";
+import { docStoreChoices } from "../docsPicker.ts";
 import { FolderPicker } from "../FolderPicker.tsx";
 import { RunsOnPicker, useRunsOn } from "../RunsOnPicker.tsx";
 import { createSession } from "../spawns.ts";
+import { annotations } from "../state.ts";
 import { pickableAccounts, usage } from "../usage.ts";
 import { needsTrust } from "./paths.ts";
 import { commandKey } from "./platform.ts";
@@ -53,6 +56,21 @@ function AccountField(props: {
 	);
 }
 
+function DocsField(props: {
+	labelledBy: string;
+	value: string[];
+	onChange: (next: string[]) => void;
+	disabled: boolean;
+}): JSX.Element | null {
+	if (docStoreChoices(annotations.value).length === 0) return null;
+	return (
+		<div class="focus-field">
+			<span id={props.labelledBy}>Docs</span>
+			<DocsPicker variant="field" {...props} />
+		</div>
+	);
+}
+
 export function NewSession(props: {
 	cwds: string[];
 	onCreated: (landing: Landing) => void;
@@ -68,7 +86,9 @@ export function NewSession(props: {
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [account, setAccount] = useState<number | undefined>(undefined);
+	const [docs, setDocs] = useState<string[]>([]);
 	const runs = useRunsOn(cwd, account);
+	const linkedDocs = pickedDocStores(docs);
 
 	useEffect(() => {
 		dialog.current?.showModal();
@@ -88,6 +108,7 @@ export function NewSession(props: {
 			prompt: prompt.trim(),
 			runsOn: runs.runsOn,
 			...(account !== undefined ? { account } : {}),
+			...(linkedDocs.length ? { docs: linkedDocs } : {}),
 		});
 		setBusy(false);
 		if (!result.ok) {
@@ -160,12 +181,26 @@ export function NewSession(props: {
 							labelledBy={`${listId}-runs-on`}
 							runs={runs}
 							disabled={busy}
+							lockedBecause={
+								linkedDocs.length > 0
+									? "Sessions with doc stores run on this Mac"
+									: undefined
+							}
 						/>
 					</div>
 					<AccountField
 						labelledBy={`${listId}-account`}
 						account={account}
 						onPick={setAccount}
+						disabled={busy}
+					/>
+					<DocsField
+						labelledBy={`${listId}-docs`}
+						value={docs}
+						onChange={(next) => {
+							setDocs(next);
+							if (next.length > 0) runs.pick("local");
+						}}
 						disabled={busy}
 					/>
 				</div>

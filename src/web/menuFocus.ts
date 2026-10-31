@@ -5,7 +5,7 @@ export function moveMenuFocus(menu: HTMLElement, event: KeyboardEvent): void {
 	if (step === undefined) return;
 	const items = [
 		...menu.querySelectorAll<HTMLElement>(
-			"[role=menuitem], [role=menuitemradio]",
+			"[role=menuitem], [role=menuitemradio], [role=menuitemcheckbox]",
 		),
 	];
 	if (items.length === 0) return;

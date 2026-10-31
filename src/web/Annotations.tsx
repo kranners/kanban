@@ -1,5 +1,6 @@
 import "./annotations.css";
 import {
+	BookOpen,
 	BringToFront,
 	Copy,
 	Pencil,
@@ -14,6 +15,7 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { Annotation, Note, Point, Sticker } from "../shared/types.ts";
 import { noteColors } from "../shared/types.ts";
 import {
+	addDocStore,
 	addNote,
 	addSticker,
 	annotationMenu,
@@ -36,6 +38,8 @@ import {
 	typeText,
 } from "./annotations.ts";
 import { boardPointAt, detail, view } from "./Canvas.tsx";
+import { DocStoreBody } from "./DocStoreCard.tsx";
+import { openDocStore } from "./docState.ts";
 import { commandKey } from "./focus/platform.ts";
 import {
 	isPlain,
@@ -89,7 +93,7 @@ function onNoteControl(event: MouseEvent): boolean {
 			target.classList.contains("report-scroll") ||
 			target.classList.contains("timeline-scroll")) &&
 		(event.offsetX > target.clientWidth || event.offsetY > target.clientHeight);
-	return onScrollbar || target.closest("a, input, button") !== null;
+	return onScrollbar || target.closest("a, button, input") !== null;
 }
 
 function grab(event: PointerEvent, annotation: Annotation): void {
@@ -291,6 +295,7 @@ function annotationLabel(annotation: Annotation): string | undefined {
 	if (annotation.kind === "sticker") {
 		return stickerNames.get(annotation.sticker) ?? annotation.sticker;
 	}
+	if (annotation.kind === "docs") return annotation.title;
 	return annotation.text ? undefined : "Empty note";
 }
 
@@ -303,7 +308,7 @@ function AnnotationView(props: {
 	const kindClass =
 		annotation.kind === "note"
 			? `note note-${annotation.color}${annotation.report ? " report-note" : ""}`
-			: "sticker";
+			: annotation.kind;
 	return (
 		<div
 			class={`annotation ${kindClass}${props.selected ? " selected" : ""}${props.editing ? " editing" : ""}`}
@@ -316,20 +321,23 @@ function AnnotationView(props: {
 			onPointerDown={(event) => grab(event, annotation)}
 			onWheel={annotation.kind === "note" ? scrollNoteText : undefined}
 			onDblClick={(event) => {
-				if (annotation.kind !== "note" || onNoteControl(event)) return;
-				if (annotation.report) {
+				if (annotation.kind === "sticker" || onNoteControl(event)) return;
+				if (annotation.kind === "note" && annotation.report) {
 					openReport.value = annotation.id;
 					return;
 				}
 				select([annotation.id]);
-				editing.value = annotation.id;
+				if (annotation.kind === "docs") openDocStore(annotation.id);
+				else editing.value = annotation.id;
 			}}
 			onContextMenu={(event) => openMenu(event, annotation)}
 		>
 			{annotation.kind === "note" ? (
 				<NoteBody note={annotation} editing={props.editing} />
-			) : (
+			) : annotation.kind === "sticker" ? (
 				<StickerBody sticker={annotation} />
+			) : (
+				<DocStoreBody store={annotation} editing={props.editing} />
 			)}
 			{!props.editing && (
 				<span class="resize-handle" data-resize aria-hidden="true" />
@@ -398,7 +406,7 @@ function useDismiss(
 function MenuItem(props: {
 	icon: JSX.Element;
 	label: string;
-	shortcut: string;
+	shortcut?: string;
 	onSelect: () => void;
 	danger?: boolean;
 }): JSX.Element {
@@ -414,7 +422,7 @@ function MenuItem(props: {
 		>
 			{props.icon}
 			<span class="board-menu-label">{props.label}</span>
-			<kbd>{props.shortcut}</kbd>
+			{props.shortcut && <kbd>{props.shortcut}</kbd>}
 		</button>
 	);
 }
@@ -444,8 +452,12 @@ export function AnnotationMenu(): JSX.Element | null {
 	const chosen = selected.value;
 	const notes = chosen.filter((a): a is Note => a.kind === "note");
 	const single = chosen.length === 1 ? notes[0] : undefined;
+	const stores = chosen.filter((a) => a.kind === "docs");
+	const store = chosen.length === 1 ? stores[0] : undefined;
 	const left = Math.min(menu.client.x, innerWidth - 232);
-	const top = Math.min(menu.client.y, innerHeight - (notes.length ? 252 : 156));
+	const height =
+		(notes.length ? 252 : 156) + (store ? 80 : 0) - (stores.length ? 36 : 0);
+	const top = Math.min(menu.client.y, innerHeight - height);
 	return (
 		<div
 			class="board-menu annotation-menu"
@@ -471,6 +483,24 @@ export function AnnotationMenu(): JSX.Element | null {
 					}}
 				/>
 			)}
+			{store && (
+				<>
+					<MenuItem
+						icon={<BookOpen size={14} aria-hidden="true" />}
+						label="Open docs"
+						shortcut="Enter"
+						onSelect={() => openDocStore(store.id)}
+					/>
+					<MenuItem
+						icon={<Pencil size={14} aria-hidden="true" />}
+						label="Rename"
+						onSelect={() => {
+							editing.value = store.id;
+						}}
+					/>
+					<span class="board-menu-sep" />
+				</>
+			)}
 			{notes.length > 0 && (
 				<fieldset class="swatches" aria-label="Colour">
 					{noteColors.map((color) => (
@@ -490,12 +520,14 @@ export function AnnotationMenu(): JSX.Element | null {
 					))}
 				</fieldset>
 			)}
-			<MenuItem
-				icon={<Copy size={14} aria-hidden="true" />}
-				label="Duplicate"
-				shortcut={`${commandKey}D`}
-				onSelect={duplicateSelection}
-			/>
+			{stores.length === 0 && (
+				<MenuItem
+					icon={<Copy size={14} aria-hidden="true" />}
+					label="Duplicate"
+					shortcut={`${commandKey}D`}
+					onSelect={duplicateSelection}
+				/>
+			)}
 			<MenuItem
 				icon={<BringToFront size={14} aria-hidden="true" />}
 				label="Bring to front"
@@ -712,6 +744,18 @@ export function BoardTools(): JSX.Element {
 			>
 				<SquareDashed size={15} />
 			</button>
+			<button
+				type="button"
+				class="icon-button"
+				onClick={() => {
+					const at = centre();
+					if (at) addDocStore(at.board);
+				}}
+				aria-label="Add doc store"
+				title="Add doc store (D)"
+			>
+				<BookOpen size={15} />
+			</button>
 		</>
 	);
 }
@@ -728,6 +772,14 @@ const commands: {
 	sticker: () => {
 		const at = pointerTarget();
 		if (at) stickerPicker.value = at;
+	},
+	docs: () => {
+		const at = pointerTarget();
+		if (at) addDocStore(at.board);
+	},
+	open: () => {
+		const [only] = selected.peek();
+		if (only?.kind === "docs") openDocStore(only.id);
 	},
 	delete: deleteSelection,
 	duplicate: duplicateSelection,
@@ -762,15 +814,21 @@ export function useAnnotationGestures(): void {
 			const command = annotationCommand(event, {
 				count: chosen.length,
 				notes: chosen.filter((a) => a.kind === "note").length,
+				docs: chosen.filter((a) => a.kind === "docs").length,
 			});
 			if (!command) return;
 			if (
 				boardMenu.peek() &&
 				command.kind !== "note" &&
-				command.kind !== "sticker"
+				command.kind !== "sticker" &&
+				command.kind !== "docs"
 			)
 				return;
-			if (command.kind === "edit" && onActivatable(event.target)) return;
+			if (
+				(command.kind === "edit" || command.kind === "open") &&
+				onActivatable(event.target)
+			)
+				return;
 			if (command.kind === "deselect" && document.querySelector(".board-menu"))
 				return;
 			event.preventDefault();

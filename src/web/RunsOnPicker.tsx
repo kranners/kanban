@@ -53,6 +53,7 @@ export function RunsOnPicker(props: {
 	runs: RunsOnChoices;
 	variant: "chip" | "field";
 	disabled?: boolean;
+	lockedBecause?: string;
 	labelledBy?: string;
 	onPicked?: () => void;
 }): JSX.Element {
@@ -67,10 +68,10 @@ export function RunsOnPicker(props: {
 			}}
 			onOpen={runs.refresh}
 			label="Where it runs"
-			title="Where this session runs"
+			title={props.lockedBecause ?? "Where this session runs"}
 			variant={props.variant}
 			labelledBy={props.labelledBy}
-			disabled={props.disabled}
+			disabled={props.disabled || props.lockedBecause !== undefined}
 		/>
 	);
 }

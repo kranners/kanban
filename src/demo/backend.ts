@@ -25,6 +25,8 @@ import type {
 	NodeRef,
 	Placement,
 	Region,
+	Relation,
+	RelationDraft,
 	Session,
 	Subagent,
 } from "../shared/types.ts";
@@ -166,6 +168,7 @@ function screenOf(items: readonly ConversationItem[], newline: string): string {
 export function createBackend(scenario: Scenario): Backend {
 	let world: World = scenario.world(Date.now());
 	let ignores: ProjectIgnores = {};
+	let relations: Relation[] = [];
 	let conversations = new Map<string, Conversation>();
 	const feeds = new Set<Peer>();
 	const timers = new Set<ReturnType<typeof setTimeout>>();
@@ -887,6 +890,13 @@ export function createBackend(scenario: Scenario): Backend {
 				const { [id]: _removed, ...rest } = world.annotations;
 				world.annotations = rest;
 				broadcast({ type: "annotations", annotations: world.annotations });
+				const kept = relations.filter((relation) =>
+					[relation.from, relation.to].every((end) => end.id !== id),
+				);
+				if (kept.length !== relations.length) {
+					relations = kept;
+					broadcast({ type: "relations", relations });
+				}
 				return empty(204);
 			},
 		],
@@ -918,6 +928,38 @@ export function createBackend(scenario: Scenario): Backend {
 						? { ...rest, [update.cwd]: update.until }
 						: rest;
 				broadcast({ type: "ignores", ignores });
+				return empty(204);
+			},
+		],
+		[
+			"POST",
+			/^\/api\/relations$/,
+			(_, body) => {
+				const draft = body as RelationDraft;
+				if (!draft?.from?.id || !draft.to?.id)
+					return json(400, {
+						ok: false,
+						error: "from and to must each be a session or a doc store",
+					});
+				const relation: Relation = {
+					id: `relation-${next()}`,
+					from: draft.from,
+					to: draft.to,
+					createdAt: Date.now(),
+				};
+				relations = [...relations, relation];
+				broadcast({ type: "relations", relations });
+				return json(201, relation);
+			},
+		],
+		[
+			"DELETE",
+			/^\/api\/relations\/([^/]+)$/,
+			([id = ""]) => {
+				if (!relations.some((relation) => relation.id === id))
+					return notFound();
+				relations = relations.filter((relation) => relation.id !== id);
+				broadcast({ type: "relations", relations });
 				return empty(204);
 			},
 		],
@@ -1033,6 +1075,8 @@ export function createBackend(scenario: Scenario): Backend {
 		sendFrame(peer, { type: "regions", regions: world.regions });
 		sendFrame(peer, { type: "comments", comments: world.comments });
 		sendFrame(peer, { type: "digests", digests: world.digests });
+		sendFrame(peer, { type: "relations", relations });
+		sendFrame(peer, { type: "docs", docs: {} });
 		sendFrame(peer, { type: "board", board: snapshot() });
 		return { receive() {}, close: () => feeds.delete(peer) };
 	};
@@ -1328,7 +1372,9 @@ export function createBackend(scenario: Scenario): Backend {
 		cancel();
 		load(scenario.world(Date.now()));
 		ignores = {};
+		relations = [];
 		broadcast({ type: "ignores", ignores });
+		broadcast({ type: "relations", relations });
 		broadcast({ type: "layout", layout: world.layout });
 		broadcast({ type: "annotations", annotations: world.annotations });
 		broadcast({ type: "colours", colours: world.colours });

@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Board, Link, Session, Subagent } from "../shared/types.ts";
-import { drawnLinks, tetherLine } from "./geometry.ts";
+import {
+	drawnLinks,
+	facingSide,
+	facingSides,
+	previewPath,
+	relationPath,
+	sidePoint,
+	tetherLine,
+} from "./geometry.ts";
 import { arrange, seedsOf } from "./placement.ts";
 
 function session(id: string): Session {
@@ -109,4 +117,43 @@ test("a tether runs between the facing edges of a note and its card frame", () =
 		to: { x: card.x + card.w, y: note.y + note.h / 2 },
 	});
 	assert.equal(tetherLine({ ...note, x: card.x }, card), null);
+});
+
+const card = { x: 100, y: 200, w: 300, h: 100 };
+
+test("sidePoint finds the middle of each side", () => {
+	assert.deepEqual(sidePoint(card, "top"), { x: 250, y: 200 });
+	assert.deepEqual(sidePoint(card, "right"), { x: 400, y: 250 });
+	assert.deepEqual(sidePoint(card, "bottom"), { x: 250, y: 300 });
+	assert.deepEqual(sidePoint(card, "left"), { x: 100, y: 250 });
+});
+
+test("facingSides joins side by side cards across and stacked cards up and down", () => {
+	const right = { ...card, x: 700, y: 260 };
+	assert.deepEqual(facingSides(card, right), ["right", "left"]);
+	assert.deepEqual(facingSides(right, card), ["left", "right"]);
+	const below = { ...card, x: 160, y: 600 };
+	assert.deepEqual(facingSides(card, below), ["bottom", "top"]);
+	assert.deepEqual(facingSides(below, card), ["top", "bottom"]);
+	assert.equal(facingSide(card, { x: 250, y: -400 }), "top");
+});
+
+test("relationPath runs between facing sides with its middle on the curve", () => {
+	const right = { ...card, x: 700 };
+	const drawn = relationPath(card, right);
+	assert.deepEqual(drawn.from, { x: 400, y: 250 });
+	assert.deepEqual(drawn.to, { x: 700, y: 250 });
+	assert.deepEqual(drawn.mid, { x: 550, y: 250 });
+	assert.equal(drawn.path, "M400 250 C500 250 600 250 700 250");
+	const near = relationPath(card, { ...card, x: 430, y: 220 });
+	assert.equal(near.path, "M400 250 C440 250 390 270 430 270");
+	const far = relationPath(card, { ...card, x: 2000, y: 500 });
+	assert.match(far.path, /^M400 250 C560 250 /);
+});
+
+test("previewPath leaves the handle along its side", () => {
+	assert.equal(
+		previewPath({ x: 250, y: 300 }, "bottom", { x: 250, y: 600 }),
+		"M250 300 C250 400 250 600 250 600",
+	);
 });

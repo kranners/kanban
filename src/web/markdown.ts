@@ -1,4 +1,4 @@
-import type { Definition, ListItem, Nodes, Parents, Root } from "mdast";
+import type { Code, Definition, ListItem, Nodes, Parents, Root } from "mdast";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
@@ -6,10 +6,22 @@ import { type ComponentChildren, h } from "preact";
 
 export type TaskToggle = (marker: number) => void;
 
+export type MarkdownResolver = {
+	image?: (url: string, alt: string, title: string | null) => ComponentChildren;
+	link?: (
+		url: string,
+		title: string | null,
+		content: ComponentChildren,
+	) => ComponentChildren;
+	code?: (lang: string | null, value: string) => ComponentChildren;
+	headingId?: (text: string) => string;
+};
+
 type Context = {
 	source: string;
 	definitions: Map<string, Definition>;
 	onToggle: TaskToggle | undefined;
+	resolver: MarkdownResolver;
 	depth: number;
 };
 
@@ -38,7 +50,7 @@ export function parseMarkdown(source: string): Root {
 	}
 }
 
-export function plainText(source: string): string {
+function textOf(root: Nodes): string {
 	const parts: string[] = [];
 	const walk = (node: Nodes) => {
 		if (node.type === "text" || node.type === "inlineCode") {
@@ -48,8 +60,12 @@ export function plainText(source: string): string {
 			parts.push(" ");
 		}
 	};
-	walk(parseMarkdown(source));
+	walk(root);
 	return parts.join("").replace(/\s+/g, " ").trim();
+}
+
+export function plainText(source: string): string {
+	return textOf(parseMarkdown(source));
 }
 
 export function isPlain(root: Root): boolean {
@@ -104,7 +120,7 @@ function children(parent: Parents, context: Context): ComponentChildren[] {
 	return parent.children.map((child) => render(child, inner));
 }
 
-function link(
+function safeLink(
 	url: string,
 	title: string | null | undefined,
 	content: ComponentChildren,
@@ -123,12 +139,43 @@ function link(
 	);
 }
 
+function link(
+	url: string,
+	title: string | null | undefined,
+	content: ComponentChildren,
+	context: Context,
+): ComponentChildren {
+	return (
+		context.resolver.link?.(url, title ?? null, content) ??
+		safeLink(url, title, content)
+	);
+}
+
 function image(
 	url: string,
 	alt: string | null | undefined,
 	title: string | null | undefined,
+	context: Context,
 ): ComponentChildren {
-	return link(url, title, alt || url);
+	return (
+		context.resolver.image?.(url, alt ?? "", title ?? null) ??
+		safeLink(url, title, alt || url)
+	);
+}
+
+function code(node: Code, context: Context): ComponentChildren {
+	return (
+		context.resolver.code?.(node.lang ?? null, node.value) ??
+		h(
+			"pre",
+			null,
+			h(
+				"code",
+				{ class: node.lang ? `language-${node.lang}` : undefined },
+				node.value,
+			),
+		)
+	);
 }
 
 function listItem(
@@ -168,7 +215,13 @@ function render(node: Nodes, context: Context): ComponentChildren {
 		case "paragraph":
 			return h("p", null, children(node, context));
 		case "heading":
-			return h(`h${node.depth}`, null, children(node, context));
+			return h(
+				`h${node.depth}`,
+				context.resolver.headingId
+					? { id: context.resolver.headingId(textOf(node)) }
+					: null,
+				children(node, context),
+			);
 		case "thematicBreak":
 			return h("hr", null);
 		case "blockquote":
@@ -208,15 +261,7 @@ function render(node: Nodes, context: Context): ComponentChildren {
 			);
 		}
 		case "code":
-			return h(
-				"pre",
-				null,
-				h(
-					"code",
-					{ class: node.lang ? `language-${node.lang}` : undefined },
-					node.value,
-				),
-			);
+			return code(node, context);
 		case "inlineCode":
 			return h("code", null, node.value);
 		case "text":
@@ -231,17 +276,21 @@ function render(node: Nodes, context: Context): ComponentChildren {
 		case "break":
 			return h("br", null);
 		case "link":
-			return link(node.url, node.title, children(node, context));
+			return link(node.url, node.title, children(node, context), context);
 		case "linkReference": {
 			const target = context.definitions.get(node.identifier);
 			const content = children(node, context);
-			return target ? link(target.url, target.title, content) : content;
+			return target
+				? link(target.url, target.title, content, context)
+				: content;
 		}
 		case "image":
-			return image(node.url, node.alt, node.title);
+			return image(node.url, node.alt, node.title, context);
 		case "imageReference": {
 			const target = context.definitions.get(node.identifier);
-			return target ? image(target.url, node.alt, target.title) : node.alt;
+			return target
+				? image(target.url, node.alt, target.title, context)
+				: node.alt;
 		}
 		case "footnoteReference":
 			return h("sup", null, `[${node.label ?? node.identifier}]`);
@@ -261,11 +310,13 @@ export function renderMarkdown(
 	source: string,
 	root: Root = parseMarkdown(source),
 	onToggle?: TaskToggle,
+	resolver: MarkdownResolver = {},
 ): ComponentChildren {
 	return render(root, {
 		source,
 		definitions: definitionsIn(root),
 		onToggle,
+		resolver,
 		depth: 0,
 	});
 }

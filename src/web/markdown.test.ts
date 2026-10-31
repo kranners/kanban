@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { ComponentChildren, VNode } from "preact";
+import { type ComponentChildren, h, type VNode } from "preact";
 import {
 	isPlain,
+	type MarkdownResolver,
 	parseMarkdown,
 	plainText,
 	renderMarkdown,
@@ -254,5 +255,80 @@ describe("task lists", () => {
 	it("leaves text alone when the marker moved", () => {
 		assert.equal(toggledTask("- [ ] one", 0), "- [ ] one");
 		assert.equal(toggledTask("- [ ] one", 99), "- [ ] one");
+	});
+});
+
+describe("resolved markdown", () => {
+	const resolve = (source: string, resolver: MarkdownResolver) => {
+		const tree = renderMarkdown(
+			source,
+			parseMarkdown(source),
+			undefined,
+			resolver,
+		);
+		return { tree, elements: elements(tree), text: text(tree) };
+	};
+
+	it("renders images through the resolver", () => {
+		const seen: unknown[] = [];
+		const { elements: found } = resolve('![Flow](assets/flow.png "How")', {
+			image: (url, alt, title) => {
+				seen.push([url, alt, title]);
+				return h("img", { src: `/files/${url}`, alt });
+			},
+		});
+		assert.deepEqual(seen, [["assets/flow.png", "Flow", "How"]]);
+		const image = found.find((element) => element.type === "img");
+		assert.equal(image?.props.src, "/files/assets/flow.png");
+	});
+
+	it("hands links to the resolver, which can open another page", () => {
+		const opened: string[] = [];
+		const { elements: found, text: shown } = resolve(
+			"See [setup](guides/setup.md#install) and [site](https://example.com).",
+			{
+				link: (url, _title, content) =>
+					url.startsWith("https:")
+						? undefined
+						: h("a", { onClick: () => opened.push(url) }, content),
+			},
+		);
+		assert.equal(shown, "See setup and site.");
+		const [local, web] = found.filter((element) => element.type === "a");
+		assert.ok(local);
+		(local.props.onClick as () => void)();
+		assert.deepEqual(opened, ["guides/setup.md#install"]);
+		assert.equal(web?.props.href, "https://example.com/");
+		assert.equal(web?.props.target, "_blank");
+	});
+
+	it("gives headings ids", () => {
+		let count = 0;
+		const { elements: found } = resolve("# One\n\n## Two *parts*", {
+			headingId: (heading) => `h${++count}-${heading}`,
+		});
+		assert.deepEqual(
+			found
+				.filter((element) => /^h\d$/.test(element.type))
+				.map((element) => element.props.id),
+			["h1-One", "h2-Two parts"],
+		);
+		const plain = rendered("# One").elements.find((e) => e.type === "h1");
+		assert.equal(plain?.props.id, undefined);
+	});
+
+	it("sends mermaid blocks to the code hook and keeps other code", () => {
+		const { elements: found } = resolve(
+			"```mermaid\ngraph TD; A-->B\n```\n\n```ts\nconst a = 1;\n```",
+			{
+				code: (lang, value) =>
+					lang === "mermaid" ? h("figure", { "data-code": value }) : undefined,
+			},
+		);
+		const diagram = found.find((element) => element.type === "figure");
+		assert.equal(diagram?.props["data-code"], "graph TD; A-->B");
+		const code = found.find((element) => element.type === "code");
+		assert.equal(code?.props.class, "language-ts");
+		assert.ok(found.some((element) => element.type === "pre"));
 	});
 });

@@ -13,6 +13,7 @@ import {
 } from "lucide-preact";
 import type { ComponentChildren, JSX } from "preact";
 import type { RegionColour } from "../shared/colours.ts";
+import { linkRefusal } from "../shared/reach.ts";
 import type {
 	Artifact,
 	Session,
@@ -31,6 +32,7 @@ import { unreachable } from "./arrangement.ts";
 import { digests, stuckOf } from "./digests.ts";
 import type { PlacedNode } from "./layout.ts";
 import { plainText } from "./markdown.ts";
+import { RelationHandles } from "./RelationHandles.tsx";
 import { unreachableText } from "./reach.ts";
 import { board } from "./state.ts";
 import { Timeline } from "./Timeline.tsx";
@@ -471,6 +473,9 @@ export function SessionCard(props: {
 			{session.activity === "working" && <BusyEdge />}
 			{props.notice}
 			<span class="resize-handle" data-resize aria-hidden="true" />
+			{linkRefusal(session) === null && (
+				<RelationHandles end={{ kind: "session", id: session.id }} />
+			)}
 		</div>
 	);
 }

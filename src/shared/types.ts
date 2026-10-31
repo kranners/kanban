@@ -237,9 +237,28 @@ export type Sticker = Annotated & {
 	rotation?: number;
 };
 
-export type Annotation = Note | Sticker;
+export const maxDocTitle = 60;
+
+export type DocStore = Annotated & {
+	kind: "docs";
+	title: string;
+};
+
+export type Annotation = Note | Sticker | DocStore;
 
 export type Annotations = Record<string, Annotation>;
+
+export type RelationEnd =
+	| { kind: "session"; id: string }
+	| { kind: "docs"; id: string };
+
+export type RelationDraft = { from: RelationEnd; to: RelationEnd };
+
+export type Relation = RelationDraft & { id: string; createdAt: number };
+
+export type DocFile = { path: string; size: number; updatedAt: number };
+
+export type DocIndex = Record<string, DocFile[]>;
 
 export type Region = {
 	id: string;
@@ -351,7 +370,9 @@ export type BoardFeed =
 	| { type: "comments"; comments: CommentThread[] }
 	| { type: "comment"; comment: CommentThread }
 	| { type: "usage"; usage: Usage }
-	| { type: "digests"; digests: Digests };
+	| { type: "digests"; digests: Digests }
+	| { type: "relations"; relations: Relation[] }
+	| { type: "docs"; docs: DocIndex };
 
 export type NewSessionRequest = {
 	cwd: string;
@@ -361,6 +382,7 @@ export type NewSessionRequest = {
 	at?: Point;
 	account?: number;
 	runsOn?: RunsOn;
+	docs?: string[];
 };
 
 export type PromptImage = { type: string; data: string };

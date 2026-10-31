@@ -1,17 +1,21 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { Annotations, Note, Sticker } from "../shared/types.ts";
+import type { Annotations, DocStore, Note, Sticker } from "../shared/types.ts";
 import { gridSize } from "./grid.ts";
 import {
 	annotationCommand,
 	broughtToFront,
+	defaultDocTitle,
+	docStoreSize,
 	duplicated,
 	gridStep,
 	matchingStickers,
 	maxAnnotationSize,
+	minDocStoreSize,
 	minNoteSize,
 	minStickerSize,
 	moved,
+	newDocStore,
 	newNote,
 	newSticker,
 	noteFontSize,
@@ -36,7 +40,10 @@ const note = (id: string, z: number): Note => ({
 const sticker = (id: string, z: number): Sticker =>
 	newSticker(id, "rocket", { x: 0, y: 0 }, z);
 
-const board = (...list: (Note | Sticker)[]): Annotations =>
+const docStore = (id: string, z: number): DocStore =>
+	newDocStore(id, { x: 0, y: 0 }, z);
+
+const board = (...list: (Note | Sticker | DocStore)[]): Annotations =>
 	Object.fromEntries(list.map((a) => [a.id, a]));
 
 const press = (key: string, modifiers: Partial<KeyboardEvent> = {}) => ({
@@ -66,6 +73,41 @@ describe("new annotations", () => {
 		assert.equal(added.text, "");
 		const placed = newSticker("b", "fire", { x: 0, y: 0 }, 1);
 		assert.deepEqual([placed.x, placed.w], [-stickerSize / 2, stickerSize]);
+	});
+});
+
+describe("doc stores", () => {
+	it("centre on the point with the default size and title", () => {
+		assert.deepEqual(newDocStore("d", { x: 500, y: 300 }, 3), {
+			id: "d",
+			kind: "docs",
+			x: 500 - docStoreSize.w / 2,
+			y: 300 - docStoreSize.h / 2,
+			w: docStoreSize.w,
+			h: docStoreSize.h,
+			z: 3,
+			title: defaultDocTitle,
+		});
+	});
+
+	it("resize freely down to their minimum", () => {
+		const store = docStore("d", 1);
+		assert.deepEqual(
+			[resized(store, 100, -10).w, resized(store, 100, -10).h],
+			[docStoreSize.w + 100, docStoreSize.h - 10],
+		);
+		assert.deepEqual(
+			[resized(store, -999, -999).w, resized(store, -999, -999).h],
+			[minDocStoreSize.w, minDocStoreSize.h],
+		);
+		assert.equal(resized(store, 9999, 0).w, maxAnnotationSize);
+	});
+
+	it("are never duplicated", () => {
+		assert.deepEqual(
+			duplicated(board(docStore("d", 1)), ["d"], () => "copy"),
+			[],
+		);
 	});
 });
 
@@ -266,8 +308,9 @@ describe("sticker picker", () => {
 });
 
 describe("annotationCommand", () => {
-	const none = { count: 0, notes: 0 };
-	const oneNote = { count: 1, notes: 1 };
+	const none = { count: 0, notes: 0, docs: 0 };
+	const oneNote = { count: 1, notes: 1, docs: 0 };
+	const oneDocStore = { count: 1, notes: 0, docs: 1 };
 
 	it("adds notes and stickers without a selection", () => {
 		assert.deepEqual(annotationCommand(press("n"), none), { kind: "note" });
@@ -328,12 +371,33 @@ describe("annotationCommand", () => {
 		}
 		assert.equal(annotationCommand(press("d", { metaKey: true }), none), null);
 		assert.equal(
-			annotationCommand(press("Enter"), { count: 1, notes: 0 }),
+			annotationCommand(press("Enter"), { count: 1, notes: 0, docs: 0 }),
 			null,
 		);
 		assert.equal(
-			annotationCommand(press("Enter"), { count: 2, notes: 2 }),
+			annotationCommand(press("Enter"), { count: 2, notes: 2, docs: 0 }),
 			null,
+		);
+		assert.equal(
+			annotationCommand(press("Enter"), { count: 2, notes: 0, docs: 2 }),
+			null,
+		);
+	});
+
+	it("adds and opens doc stores", () => {
+		assert.deepEqual(annotationCommand(press("d"), none), { kind: "docs" });
+		assert.deepEqual(annotationCommand(press("D"), oneNote), { kind: "docs" });
+		assert.deepEqual(annotationCommand(press("Enter"), oneDocStore), {
+			kind: "open",
+		});
+		assert.deepEqual(
+			annotationCommand(press("d", { metaKey: true }), oneDocStore),
+			{ kind: "duplicate" },
+		);
+		const stores = board(note("a", 1), docStore("b", 2));
+		assert.deepEqual(
+			duplicated(stores, ["a", "b"], () => "copy").map((a) => a.kind),
+			["note"],
 		);
 	});
 });

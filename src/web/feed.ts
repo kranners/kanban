@@ -2,9 +2,11 @@ import { type BoardFeed, hasLanded } from "../shared/types.ts";
 import { receiveColours } from "./colours.ts";
 import { receiveComment, receiveComments } from "./comments.ts";
 import { digests } from "./digests.ts";
+import { docIndex } from "./docState.ts";
 import { receiveExit } from "./exits.ts";
 import { receiveIgnores } from "./ignoreState.ts";
 import { regions } from "./regionState.ts";
+import { relations } from "./relationState.ts";
 import {
 	forgetAskingReports,
 	receiveReport,
@@ -82,6 +84,14 @@ function receive(frame: BoardFeed): void {
 	}
 	if (frame.type === "digests") {
 		digests.value = frame.digests;
+		return;
+	}
+	if (frame.type === "relations") {
+		relations.value = frame.relations;
+		return;
+	}
+	if (frame.type === "docs") {
+		docIndex.value = frame.docs;
 		return;
 	}
 	receiveComment(frame.comment);

@@ -6,9 +6,11 @@ import type {
 	BoardFeed,
 	CommentThread,
 	Digests,
+	DocIndex,
 	ExitResult,
 	Layout,
 	Region,
+	Relation,
 	ReportResult,
 	Usage,
 } from "../shared/types.ts";
@@ -34,6 +36,8 @@ export type Feed = {
 	comment(comment: CommentThread): void;
 	usage(usage: Usage): void;
 	digests(digests: Digests): void;
+	relations(relations: Relation[]): void;
+	docs(docs: DocIndex): void;
 	size(): number;
 };
 
@@ -47,6 +51,8 @@ export type FeedOptions = {
 	comments: () => CommentThread[];
 	usage: () => Usage;
 	digests: () => Digests;
+	relations: () => Relation[];
+	docs: () => DocIndex;
 };
 
 const socketOpen = 1;
@@ -61,6 +67,8 @@ export const createFeed = ({
 	comments,
 	usage,
 	digests,
+	relations,
+	docs,
 }: FeedOptions): Feed => {
 	const clients = new Set<FeedSocket>();
 
@@ -86,6 +94,8 @@ export const createFeed = ({
 			send(socket, { type: "comments", comments: comments() });
 			send(socket, { type: "usage", usage: usage() });
 			send(socket, { type: "digests", digests: digests() });
+			send(socket, { type: "relations", relations: relations() });
+			send(socket, { type: "docs", docs: docs() });
 			send(socket, { type: "board", board: board() });
 		},
 		board: (next) => broadcast({ type: "board", board: next }),
@@ -104,6 +114,8 @@ export const createFeed = ({
 		comment: (comment) => broadcast({ type: "comment", comment }),
 		usage: (next) => broadcast({ type: "usage", usage: next }),
 		digests: (next) => broadcast({ type: "digests", digests: next }),
+		relations: (next) => broadcast({ type: "relations", relations: next }),
+		docs: (next) => broadcast({ type: "docs", docs: next }),
 		size: () => clients.size,
 	};
 };

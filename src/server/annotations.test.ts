@@ -55,6 +55,21 @@ describe("parseAnnotation", () => {
 		});
 	});
 
+	it("accepts doc stores with a one-line title", () => {
+		const docs = { kind: "docs", x: 0, y: 0, w: 288, h: 216, z: 2 };
+		assert.deepEqual(parseAnnotation("d1", { ...docs, title: "API guide" }), {
+			id: "d1",
+			...docs,
+			title: "API guide",
+		});
+		for (const title of [undefined, "", "  ", "a\nb", "x".repeat(61)]) {
+			assert.ok(
+				"error" in parseAnnotation("d1", { ...docs, title }),
+				JSON.stringify(title),
+			);
+		}
+	});
+
 	it("holds a long report in one note", () => {
 		assert.ok(maxNoteText >= 20_000);
 		const text = "## Report\n\n".padEnd(maxNoteText, "x");
@@ -182,6 +197,14 @@ describe("createAnnotationStore", () => {
 		assert.deepEqual(store.put(parsed("n0", { ...note, x: 99 })), {
 			ok: true,
 		});
+	});
+
+	it("refuses to change an annotation's kind", async () => {
+		const { store, changes } = await setup();
+		store.put(parsed("a", { ...sticker, x: 0 }));
+		assert.ok("error" in store.put(parsed("a", note)));
+		assert.equal(store.current().a?.kind, "sticker");
+		assert.equal(changes.length, 1);
 	});
 
 	it("does not mistake inherited keys for annotations", async () => {

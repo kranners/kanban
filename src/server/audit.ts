@@ -15,6 +15,7 @@ export type AuditEvent =
 			cwd: string;
 			name: string | null;
 			images?: number;
+			docs?: number;
 			account?: number | null;
 			runsOn?: RunsOn;
 			identity: string | null;

@@ -5,6 +5,18 @@ export type ToolReply = { text: string; isError: boolean };
 
 export type CallTool = (name: string, args: unknown) => Promise<ToolReply>;
 
+export type McpServer = {
+	name: string;
+	tools: readonly object[];
+	parse(name: string, args: unknown): object | { error: string };
+};
+
+export const boardServer: McpServer = {
+	name: "kanban",
+	tools: toolDefinitions,
+	parse: parseToolCall,
+};
+
 type Request = {
 	jsonrpc: "2.0";
 	id?: string | number;
@@ -38,6 +50,7 @@ const isRequest = (value: unknown): value is Request =>
 export const handleMessage = async (
 	message: unknown,
 	call: CallTool,
+	server: McpServer = boardServer,
 ): Promise<object | null> => {
 	if (!isRequest(message)) return failure(null, -32600, "Invalid request");
 	const { id, method } = message;
@@ -51,17 +64,17 @@ export const handleMessage = async (
 						? params.protocolVersion
 						: fallbackProtocol,
 				capabilities: { tools: {} },
-				serverInfo: { name: "kanban", version: "1.0.0" },
+				serverInfo: { name: server.name, version: "1.0.0" },
 			});
 		case "ping":
 			return reply(id, {});
 		case "tools/list":
-			return reply(id, { tools: toolDefinitions });
+			return reply(id, { tools: server.tools });
 		case "tools/call": {
 			const name = typeof params.name === "string" ? params.name : "";
-			const parsed = parseToolCall(name, params.arguments);
+			const parsed = server.parse(name, params.arguments);
 			const result =
-				"error" in parsed
+				"error" in parsed && typeof parsed.error === "string"
 					? { text: parsed.error, isError: true }
 					: await call(name, params.arguments ?? {});
 			return reply(id, {
@@ -74,43 +87,50 @@ export const handleMessage = async (
 	}
 };
 
+export const postTool = async (
+	endpoint: string,
+	headers: Record<string, string>,
+	args: unknown,
+	send: typeof fetch = fetch,
+): Promise<ToolReply> => {
+	try {
+		const response = await send(endpoint, {
+			method: "POST",
+			headers: { ...headers, "content-type": "application/json" },
+			body: JSON.stringify(args),
+		});
+		const body = (await response.json().catch(() => null)) as {
+			text?: unknown;
+			error?: unknown;
+		} | null;
+		if (response.ok && typeof body?.text === "string") {
+			return { text: body.text, isError: false };
+		}
+		const error = typeof body?.error === "string" ? body.error : "";
+		return {
+			text: error || `The board answered HTTP ${response.status}`,
+			isError: true,
+		};
+	} catch (error) {
+		return {
+			text: `Could not reach the board: ${(error as Error).message}`,
+			isError: true,
+		};
+	}
+};
+
 export const boardCaller =
 	(url: string, token: string): CallTool =>
-	async (name, args) => {
-		try {
-			const response = await fetch(
-				`${url}/api/agent/tools/${encodeURIComponent(name)}`,
-				{
-					method: "POST",
-					headers: {
-						authorization: `Bearer ${token}`,
-						"content-type": "application/json",
-					},
-					body: JSON.stringify(args),
-				},
-			);
-			const body = (await response.json().catch(() => null)) as {
-				text?: unknown;
-				error?: unknown;
-			} | null;
-			if (response.ok && typeof body?.text === "string") {
-				return { text: body.text, isError: false };
-			}
-			const error = typeof body?.error === "string" ? body.error : "";
-			return {
-				text: error || `The board answered HTTP ${response.status}`,
-				isError: true,
-			};
-		} catch (error) {
-			return {
-				text: `Could not reach the board: ${(error as Error).message}`,
-				isError: true,
-			};
-		}
-	};
+	(name, args) =>
+		postTool(
+			`${url}/api/agent/tools/${encodeURIComponent(name)}`,
+			{ authorization: `Bearer ${token}` },
+			args,
+		);
 
-const serve = (call: CallTool) => {
+export const serve = (call: CallTool, server: McpServer) => {
 	const lines = createInterface({ input: process.stdin });
+	const pending = new Set<Promise<void>>();
 	lines.on("line", (line) => {
 		if (line.trim() === "") return;
 		let message: unknown;
@@ -122,7 +142,7 @@ const serve = (call: CallTool) => {
 			);
 			return;
 		}
-		handleMessage(message, call).then(
+		const answered = handleMessage(message, call, server).then(
 			(response) => {
 				if (response) process.stdout.write(`${JSON.stringify(response)}\n`);
 			},
@@ -133,8 +153,12 @@ const serve = (call: CallTool) => {
 				);
 			},
 		);
+		pending.add(answered);
+		answered.finally(() => pending.delete(answered));
 	});
-	lines.on("close", () => process.exit(0));
+	lines.on("close", () =>
+		Promise.allSettled(pending).then(() => process.exit(0)),
+	);
 };
 
 if (import.meta.main) {
@@ -146,5 +170,5 @@ if (import.meta.main) {
 		);
 		process.exit(1);
 	}
-	serve(boardCaller(url, token));
+	serve(boardCaller(url, token), boardServer);
 }

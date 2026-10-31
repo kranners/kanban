@@ -4,7 +4,7 @@ import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { after, before, describe, it } from "node:test";
+import { after, before, describe, it, type TestContext } from "node:test";
 import WebSocket from "ws";
 import type { ToolCall } from "../agent/tools.ts";
 import type { PermissionGrant } from "../shared/permissions.ts";
@@ -18,6 +18,8 @@ import {
 	type NewSessionRequest,
 	noDigests,
 	type Point,
+	type Relation,
+	type Session,
 } from "../shared/types.ts";
 import { createAgentTokens } from "./agentAuth.ts";
 import { createAnnotationStore } from "./annotations.ts";
@@ -26,6 +28,8 @@ import type { AuditEvent } from "./audit.ts";
 import type { Authenticate } from "./auth.ts";
 import { createColourStore } from "./colours.ts";
 import { type CommentStore, createCommentStore } from "./comments.ts";
+import { loadDocFiles } from "./docs.ts";
+import { createDocsHttp } from "./docsHttp.ts";
 import { type Answer, createExitRunner } from "./exit.ts";
 import { createFeed } from "./feed.ts";
 import {
@@ -38,6 +42,7 @@ import {
 import { createIgnoreStore } from "./ignores.ts";
 import { createLayoutStore } from "./layout.ts";
 import { createRegionStore } from "./regions.ts";
+import { createRelationStore } from "./relations.ts";
 import { createRegionReportRunner, createReportRunner } from "./reports.ts";
 
 const route = (method: string, path: string) =>
@@ -174,6 +179,42 @@ describe("matchRoute", () => {
 		assert.equal(upgrade("/api/other"), null);
 	});
 
+	it("parses link and doc store routes", () => {
+		assert.deepEqual(route("POST", "/api/relations"), {
+			kind: "create-relation",
+		});
+		assert.deepEqual(route("DELETE", "/api/relations/rel-1"), {
+			kind: "delete-relation",
+			relationId: "rel-1",
+		});
+		assert.deepEqual(route("GET", "/api/relations"), {
+			kind: "method-not-allowed",
+		});
+		assert.deepEqual(route("POST", "/api/docs/tools/write_doc"), {
+			kind: "docs-tool",
+			tool: "write_doc",
+		});
+		assert.deepEqual(route("GET", "/api/docs/tools/write_doc"), {
+			kind: "method-not-allowed",
+		});
+		assert.deepEqual(route("GET", "/api/docs/d-1/files/guides/setup.md"), {
+			kind: "doc-file",
+			store: "d-1",
+			path: "guides/setup.md",
+		});
+		assert.deepEqual(route("HEAD", "/api/docs/d-1/files/a%20b.png"), {
+			kind: "doc-file",
+			store: "d-1",
+			path: "a%20b.png",
+		});
+		assert.deepEqual(route("PUT", "/api/docs/d-1/files/index.md"), {
+			kind: "method-not-allowed",
+		});
+		assert.deepEqual(route("GET", "/api/docs/d-1/files/"), {
+			kind: "not-found",
+		});
+	});
+
 	it("keeps static paths inside dist", () => {
 		assert.equal(staticFile("/srv/dist", "/app.js"), "/srv/dist/app.js");
 		assert.equal(staticFile("/srv/dist", "/"), "/srv/dist/");
@@ -239,6 +280,22 @@ const board: Board = {
 	generatedAt: 1,
 };
 
+const backgroundPair = (t: TestContext) => {
+	const worker: Session = {
+		...(board.sessions[1] as Session),
+		id: "66666666-7777-8888-9999-111111111111",
+		name: "acme-worker",
+		kind: "background",
+	};
+	board.sessions.push(worker);
+	t.after(() => {
+		board.sessions.pop();
+	});
+	return [board.sessions[0], worker].map(
+		(session) => ({ kind: "session", id: session?.id ?? "" }) as const,
+	);
+};
+
 describe("createKanbanServer", () => {
 	const token = "good";
 	const authenticate: Authenticate = async (req) => {
@@ -265,6 +322,9 @@ describe("createKanbanServer", () => {
 	let coloursSaved = () => Promise.resolve();
 	let ignoresFile = "";
 	let ignoresSaved = () => Promise.resolve();
+	let relationsFile = "";
+	let relationsSaved = () => Promise.resolve();
+	let relationsNow = (): Relation[] => [];
 	const attached: string[] = [];
 	const mirrored: string[] = [];
 	const conversed: string[] = [];
@@ -336,6 +396,18 @@ describe("createKanbanServer", () => {
 			onChange: (next) => feed?.regions(next),
 			newId: () => "region-1",
 		});
+		relationsFile = join(dist, "state", "relations.json");
+		const relations = createRelationStore({
+			file: relationsFile,
+			initial: [],
+			onChange: (next) => feed?.relations(next),
+		});
+		relationsSaved = relations.saved;
+		relationsNow = relations.current;
+		const docFiles = await loadDocFiles({
+			dir: join(dist, "state", "docs"),
+			onChange: (next) => feed?.docs(next),
+		});
 		comments = createCommentStore({
 			file: join(dist, "state", "comments.json"),
 			initial: [],
@@ -360,6 +432,8 @@ describe("createKanbanServer", () => {
 				accounts: [],
 			}),
 			digests: () => noDigests,
+			relations: relations.current,
+			docs: docFiles.index,
 		});
 		const server = createKanbanServer({
 			origins,
@@ -440,6 +514,8 @@ describe("createKanbanServer", () => {
 			colours,
 			ignores,
 			regions,
+			relations,
+			docs: createDocsHttp({ files: docFiles, relations, annotations }),
 			comments,
 			agent: {
 				ask: (threadId, text) => {
@@ -605,6 +681,17 @@ describe("createKanbanServer", () => {
 		assert.match(app.headers.get("etag") ?? "", /^"\d+-\d+"$/);
 		const page = await fetch(`${base}/`, { headers: authed });
 		assert.equal(page.headers.get("cache-control"), "no-cache");
+	});
+
+	it("refuses a missing chunk instead of serving the page", async () => {
+		const missing = await fetch(`${base}/chunks/chunk-GONE.js`, {
+			headers: authed,
+		});
+		assert.equal(missing.status, 404);
+		assert.equal(
+			(await fetch(`${base}/assets/gone.svg`, { headers: authed })).status,
+			404,
+		);
 	});
 
 	it("answers a matching If-None-Match with 304 and no body", async () => {
@@ -829,6 +916,219 @@ describe("createKanbanServer", () => {
 			headers: { ...authed, "content-type": "application/json", origin },
 			body: JSON.stringify(body),
 		});
+
+	it("links two cards and unlinks them", async (t) => {
+		const [api, web] = backgroundPair(t);
+		const created = await send("POST", "/api/relations", {
+			from: api,
+			to: web,
+		});
+		assert.equal(created.status, 201);
+		const relation = (await created.json()) as Relation;
+		assert.deepEqual(
+			{ from: relation.from, to: relation.to },
+			{ from: api, to: web },
+		);
+		const again = await send("POST", "/api/relations", { from: web, to: api });
+		assert.equal(again.status, 409);
+		const missing = await send("POST", "/api/relations", {
+			from: api,
+			to: { kind: "docs", id: "nowhere" },
+		});
+		assert.equal(missing.status, 422);
+		assert.deepEqual(await missing.json(), {
+			ok: false,
+			error: "No doc store nowhere on the board",
+		});
+		const self = await send("POST", "/api/relations", { from: api, to: api });
+		assert.equal(self.status, 400);
+		const remove = (headers: Record<string, string> = {}) =>
+			fetch(`${base}/api/relations/${relation.id}`, {
+				method: "DELETE",
+				headers: { ...authed, origin, ...headers },
+			});
+		assert.equal(
+			(await remove({ origin: "https://evil.example" })).status,
+			403,
+		);
+		assert.equal((await remove()).status, 204);
+		assert.equal((await remove()).status, 404);
+	});
+
+	it("refuses to link a cloud session", async () => {
+		const cloudy: Session = {
+			...(board.sessions[0] as Session),
+			id: "session_01cloudy",
+			short: null,
+			name: "acme-cloud",
+			cloud: { url: "https://claude.ai/code/session_01cloudy" },
+		};
+		board.sessions.push(cloudy);
+		try {
+			const refused = await send("POST", "/api/relations", {
+				from: { kind: "session", id: board.sessions[0]?.id },
+				to: { kind: "session", id: cloudy.id },
+			});
+			assert.equal(refused.status, 422);
+			assert.deepEqual(await refused.json(), {
+				ok: false,
+				error:
+					"acme-cloud runs in the cloud, where the board can't brief it or give it doc tools",
+			});
+		} finally {
+			board.sessions.pop();
+		}
+	});
+
+	it("refuses to link a terminal session", async () => {
+		const terminal: Session = {
+			...(board.sessions[0] as Session),
+			id: "terminal-session",
+			name: "acme-terminal",
+			kind: "interactive",
+		};
+		board.sessions.push(terminal);
+		try {
+			const refused = await send("POST", "/api/relations", {
+				from: { kind: "session", id: board.sessions[0]?.id },
+				to: { kind: "session", id: terminal.id },
+			});
+			assert.equal(refused.status, 422);
+			assert.deepEqual(await refused.json(), {
+				ok: false,
+				error:
+					"acme-terminal runs in a terminal, where the board can't brief it or give it doc tools",
+			});
+		} finally {
+			board.sessions.pop();
+		}
+	});
+
+	it("broadcasts and saves links as they are made and removed", async (t) => {
+		const [api, web] = backgroundPair(t);
+		const socket = new WebSocket(`${base.replace("http", "ws")}/api/feed`, {
+			headers: { ...authed, origin },
+		});
+		const frames: Relation[][] = [];
+		let notify = () => {};
+		socket.on("message", (data) => {
+			const frame = JSON.parse(String(data)) as BoardFeed;
+			if (frame.type !== "relations") return;
+			frames.push(frame.relations);
+			notify();
+		});
+		const relationFrame = (index: number) =>
+			new Promise<Relation[]>((resolve) => {
+				const check = () => {
+					const frame = frames[index];
+					if (frame) resolve(frame);
+					else notify = check;
+				};
+				check();
+			});
+		assert.deepEqual(await relationFrame(0), []);
+		const response = await send("POST", "/api/relations", {
+			from: api,
+			to: web,
+		});
+		const relation = (await response.json()) as Relation;
+		assert.deepEqual(await relationFrame(1), [relation]);
+		await relationsSaved();
+		assert.deepEqual(JSON.parse(await readFile(relationsFile, "utf8")), [
+			relation,
+		]);
+		const deleted = await fetch(`${base}/api/relations/${relation.id}`, {
+			method: "DELETE",
+			headers: { ...authed, origin },
+		});
+		assert.equal(deleted.status, 204);
+		assert.deepEqual(await relationFrame(2), []);
+		await relationsSaved();
+		assert.deepEqual(JSON.parse(await readFile(relationsFile, "utf8")), []);
+		socket.close();
+	});
+
+	it("links a session spawned with doc stores once it lands", async () => {
+		const store = {
+			kind: "docs",
+			x: 0,
+			y: 0,
+			w: 288,
+			h: 216,
+			z: 1,
+			title: "Docs",
+		};
+		assert.equal(
+			(await send("PUT", "/api/annotations/d-spawn", store)).status,
+			204,
+		);
+		const request = {
+			cwd: tmpdir(),
+			prompt: "write the docs",
+			docs: ["d-spawn"],
+		};
+		const landed: Session = {
+			...(board.sessions[0] as Session),
+			id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+			short: "feedbeef",
+			name: "acme-docs",
+		};
+		board.sessions.push(landed);
+		try {
+			const created = await send("POST", "/api/sessions", request);
+			assert.equal(created.status, 201);
+			assert.deepEqual(launched.at(-1), { ...request, runsOn: "local" });
+			assert.deepEqual(events.at(-1), {
+				action: "session-create",
+				cwd: request.cwd,
+				name: null,
+				images: 0,
+				docs: 1,
+				account: null,
+				runsOn: "local",
+				identity: "me@example.com",
+				result: "feedbeef",
+			});
+			const [relation] = relationsNow();
+			assert.equal(relationsNow().length, 1);
+			assert.deepEqual(
+				{ from: relation?.from, to: relation?.to },
+				{
+					from: { kind: "session", id: landed.id },
+					to: { kind: "docs", id: "d-spawn" },
+				},
+			);
+
+			const launches = launched.length;
+			const unknown = await send("POST", "/api/sessions", {
+				...request,
+				docs: ["nowhere"],
+			});
+			assert.equal(unknown.status, 400);
+			assert.deepEqual(await unknown.json(), {
+				ok: false,
+				error: "No doc store nowhere on the board",
+			});
+			const cloud = await send("POST", "/api/sessions", {
+				...request,
+				runsOn: "cloud",
+			});
+			assert.equal(cloud.status, 400);
+			assert.equal(launched.length, launches);
+
+			const removed = await fetch(`${base}/api/relations/${relation?.id}`, {
+				method: "DELETE",
+				headers: { ...authed, origin },
+			});
+			assert.equal(removed.status, 204);
+		} finally {
+			board.sessions.pop();
+			await fetch(`${base}/api/annotations/d-spawn`, {
+				method: "DELETE",
+				headers: { ...authed, origin },
+			});
+		}
+	});
 
 	it("makes another account the default and audits it", async () => {
 		const made = await send("POST", "/api/accounts/default", { account: 2 });
@@ -1479,7 +1779,7 @@ describe("createKanbanServer", () => {
 			});
 			socket.on("message", (data) => {
 				received.push(JSON.parse(String(data)));
-				if (received.length === 8) {
+				if (received.length === 11) {
 					socket.close();
 					resolve(received);
 				}
@@ -1496,6 +1796,8 @@ describe("createKanbanServer", () => {
 				"comments",
 				"usage",
 				"digests",
+				"relations",
+				"docs",
 				"board",
 			],
 		);

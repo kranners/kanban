@@ -51,7 +51,7 @@ function frameEdgeToward(frame: Frame, target: Point): Point {
 	return { x: frame.centre.x + dx * scale, y: frame.centre.y + dy * scale };
 }
 
-type Rect = { x: number; y: number; w: number; h: number };
+export type Rect = { x: number; y: number; w: number; h: number };
 
 function rectFrame(rect: Rect): Frame {
 	return {
@@ -136,4 +136,101 @@ export function drawnLinks(
 		({ from, to }) =>
 			!to.follows || to.y <= (firstFollowerRow.get(from.key) ?? to.y),
 	);
+}
+
+export type Side = "top" | "right" | "bottom" | "left";
+
+export const sides: readonly Side[] = ["top", "right", "bottom", "left"];
+
+const normals: Record<Side, Point> = {
+	top: { x: 0, y: -1 },
+	right: { x: 1, y: 0 },
+	bottom: { x: 0, y: 1 },
+	left: { x: -1, y: 0 },
+};
+
+export function sidePoint(rect: Rect, side: Side): Point {
+	switch (side) {
+		case "top":
+			return { x: rect.x + rect.w / 2, y: rect.y };
+		case "right":
+			return { x: rect.x + rect.w, y: rect.y + rect.h / 2 };
+		case "bottom":
+			return { x: rect.x + rect.w / 2, y: rect.y + rect.h };
+		case "left":
+			return { x: rect.x, y: rect.y + rect.h / 2 };
+	}
+}
+
+function centreOf(rect: Rect): Point {
+	return { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 };
+}
+
+export function facingSides(a: Rect, b: Rect): [Side, Side] {
+	const from = centreOf(a);
+	const to = centreOf(b);
+	const dx = to.x - from.x;
+	const dy = to.y - from.y;
+	if (Math.abs(dx) >= Math.abs(dy)) {
+		return dx >= 0 ? ["right", "left"] : ["left", "right"];
+	}
+	return dy >= 0 ? ["bottom", "top"] : ["top", "bottom"];
+}
+
+export function facingSide(rect: Rect, toward: Point): Side {
+	const [side] = facingSides(rect, { ...toward, w: 0, h: 0 });
+	return side;
+}
+
+function pull(point: Point, side: Side, by: number): Point {
+	const normal = normals[side];
+	return { x: point.x + normal.x * by, y: point.y + normal.y * by };
+}
+
+function bezierAt(p: readonly Point[], t: number): Point {
+	const u = 1 - t;
+	const [a, b, c, d] = p as [Point, Point, Point, Point];
+	return {
+		x:
+			u * u * u * a.x +
+			3 * u * u * t * b.x +
+			3 * u * t * t * c.x +
+			t * t * t * d.x,
+		y:
+			u * u * u * a.y +
+			3 * u * u * t * b.y +
+			3 * u * t * t * c.y +
+			t * t * t * d.y,
+	};
+}
+
+function curve(from: Point, fromSide: Side, to: Point, toSide: Side | null) {
+	const reach = Math.min(
+		160,
+		Math.max(40, Math.hypot(to.x - from.x, to.y - from.y) / 3),
+	);
+	const points = [
+		from,
+		pull(from, fromSide, reach),
+		toSide ? pull(to, toSide, reach) : to,
+		to,
+	];
+	const [, c1, c2] = points as [Point, Point, Point, Point];
+	return {
+		path: `M${from.x} ${from.y} C${c1.x} ${c1.y} ${c2.x} ${c2.y} ${to.x} ${to.y}`,
+		mid: bezierAt(points, 0.5),
+	};
+}
+
+export type RelationPath = { path: string; mid: Point; from: Point; to: Point };
+
+export function relationPath(a: Rect, b: Rect): RelationPath {
+	const [fromSide, toSide] = facingSides(a, b);
+	const from = sidePoint(a, fromSide);
+	const to = sidePoint(b, toSide);
+	return { ...curve(from, fromSide, to, toSide), from, to };
+}
+
+export function previewPath(start: Point, side: Side, to: Point): string {
+	return curve(start, side, to, null).path;
 }

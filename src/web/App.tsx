@@ -28,6 +28,7 @@ import {
 } from "./Comments.tsx";
 import { arrangeCard } from "./carrying.ts";
 import { colourOf } from "./colours.ts";
+import { DocOverlays } from "./DocOverlays.tsx";
 import { Arcs, Links, messagePairs, Tethers } from "./Edges.tsx";
 import {
 	CloseButton,
@@ -49,6 +50,7 @@ import type { Arrangement } from "./placement.ts";
 import { Rail } from "./Rail.tsx";
 import { RegionNotices } from "./RegionControls.tsx";
 import { ProjectFrames, RegionLayer } from "./Regions.tsx";
+import { RelationLayer, RelationPreview } from "./Relations.tsx";
 import { ReportButton, ReportNotice } from "./ReportControls.tsx";
 import { reports } from "./reports.ts";
 import { BoardMenu, SpawnLayer, useBoardGestures } from "./Spawning.tsx";
@@ -205,6 +207,7 @@ function World(props: { board: Board; layout: Arrangement }) {
 				regions={regionFrames}
 			/>
 			<Links board={edges} layout={props.layout} visible={visible} />
+			<RelationLayer layout={props.layout} visible={visible} />
 			{level !== "far" &&
 				sessionCards(props.board, props.layout).map(({ session, node }) =>
 					card(session, node, exiting.get(session.id)),
@@ -321,6 +324,7 @@ function Stage() {
 		>
 			<World board={withoutSessions(current, departed.value)} layout={placed} />
 			<SpawnLayer />
+			<RelationPreview />
 		</Canvas>
 	);
 }
@@ -380,6 +384,7 @@ export function App() {
 				<IgnoreMenu />
 				<RegionLayer />
 				<CommentOverlays />
+				<DocOverlays />
 			</div>
 			<AlertToasts />
 		</>

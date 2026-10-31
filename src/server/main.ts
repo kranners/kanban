@@ -12,7 +12,11 @@ import {
 	withAccounts,
 } from "./accounts.ts";
 import { createAgentTokens } from "./agentAuth.ts";
-import { createAnnotationStore, loadAnnotations } from "./annotations.ts";
+import {
+	type AnnotationStore,
+	createAnnotationStore,
+	loadAnnotations,
+} from "./annotations.ts";
 import { createAnnouncer } from "./announce.ts";
 import { claudeAttachPty, createAttachHub } from "./attach.ts";
 import { fileAudit } from "./audit.ts";
@@ -50,6 +54,8 @@ import {
 	digestTimeoutMs,
 	loadDigests,
 } from "./digests.ts";
+import { loadDocFiles } from "./docs.ts";
+import { createDocsHttp, sessionMcpConfig } from "./docsHttp.ts";
 import {
 	claudeAsker,
 	claudeExitDeps,
@@ -70,6 +76,7 @@ import { createPeerHook, peerHookSettings } from "./peers.ts";
 import { createPermissions } from "./permissions.ts";
 import { createPromptSender } from "./prompts.ts";
 import { createRegionStore, loadRegions } from "./regions.ts";
+import { createRelationStore, loadRelations } from "./relations.ts";
 import { collectShots, reportShotsDir } from "./reportShots.ts";
 import {
 	cardsOf,
@@ -98,6 +105,7 @@ const configOrExit = (): Config => {
 const config = configOrExit();
 const cmuxSyncMs = 5000;
 const agentTimeoutMs = 15 * 60_000;
+const docsFrameMs = 250;
 const audit = fileAudit(config.auditLog);
 
 let feed: Feed | null = null;
@@ -132,6 +140,49 @@ const regions = createRegionStore({
 	initial: await loadRegions(regionsFile),
 	onChange: (next) => feed?.regions(next),
 });
+const relationsFile = join(config.stateDir, "relations.json");
+const relations = createRelationStore({
+	file: relationsFile,
+	initial: await loadRelations(relationsFile),
+	onChange: (next) => feed?.relations(next),
+});
+let docsFrame: NodeJS.Timeout | undefined;
+const docs = await loadDocFiles({
+	dir: join(config.stateDir, "docs"),
+	onChange: () => {
+		docsFrame ??= setTimeout(() => {
+			docsFrame = undefined;
+			feed?.docs(docs.index());
+		}, docsFrameMs);
+	},
+});
+const annotationsWithDocs: AnnotationStore = {
+	...annotations,
+	put(annotation) {
+		const fresh = !Object.hasOwn(annotations.current(), annotation.id);
+		const stored = annotations.put(annotation);
+		if (fresh && annotation.kind === "docs" && "ok" in stored) {
+			void docs.drop(annotation.id);
+		}
+		return stored;
+	},
+	remove(id) {
+		const removed = annotations.current()[id];
+		if (!annotations.remove(id)) return false;
+		if (removed?.kind === "docs") {
+			relations.removeEnd({ kind: "docs", id });
+			void docs.drop(id);
+		}
+		return true;
+	},
+};
+for (const { from, to } of relations.current()) {
+	for (const end of [from, to]) {
+		if (end.kind === "docs" && annotations.current()[end.id]?.kind !== "docs") {
+			relations.removeEnd(end);
+		}
+	}
+}
 const commentsFile = join(config.stateDir, "comments.json");
 const comments = createCommentStore({
 	file: commentsFile,
@@ -231,6 +282,7 @@ const source = startBoard({
 	inCmux: cmuxTargets.has,
 	onChange: (board) => {
 		layout.observe(board);
+		relations.observe(board);
 		feed?.board(board);
 		syncCmuxOnNewPids(board);
 	},
@@ -238,6 +290,7 @@ const source = startBoard({
 void syncCmux();
 const cmuxPoll = setInterval(syncCmux, cmuxSyncMs);
 layout.observe(source.board());
+relations.observe(source.board());
 const agentDir = join(config.stateDir, "agent");
 await mkdir(agentDir, { recursive: true });
 await writeFile(join(agentDir, agentMarker), "");
@@ -263,6 +316,8 @@ feed = createFeed({
 	comments: comments.current,
 	usage: currentUsage,
 	digests: digests.current,
+	relations: relations.current,
+	docs: docs.index,
 });
 const digestTick = setInterval(digests.pump, digestTickMs);
 
@@ -317,6 +372,11 @@ const launch = routedLauncher(
 		cswapBin: config.cswapBin,
 		profileOf,
 		settings: peerHookSettings(boardUrl),
+		mcpConfig: sessionMcpConfig(
+			process.execPath,
+			resolve(import.meta.dirname, "../agent/sessionMcp.ts"),
+			boardUrl,
+		),
 	}),
 	cloudLauncher({
 		claudeBin: config.claudeBin,
@@ -386,7 +446,7 @@ const announce = createAnnouncer({
 const tools = createBoardTools({
 	source,
 	layout,
-	annotations,
+	annotations: annotationsWithDocs,
 	colours,
 	regions,
 	comments,
@@ -416,10 +476,12 @@ const server = createKanbanServer({
 	regionReport: runRegionReport,
 	reportShots: shotsDir,
 	layout,
-	annotations,
+	annotations: annotationsWithDocs,
 	colours,
 	ignores,
 	regions,
+	relations,
+	docs: createDocsHttp({ files: docs, relations, annotations }),
 	comments,
 	agent,
 	agentTokens,
@@ -428,6 +490,10 @@ const server = createKanbanServer({
 		units: () =>
 			summariesOfBoard(source.board(), { layout, annotations, regions }),
 		digests: digests.current,
+		sessions: () => source.board().sessions,
+		relations: relations.current,
+		annotations: annotations.current,
+		docs: docs.index,
 	}),
 	attach,
 	mirror: createMirrorHub({ cmux, resolve: cmuxTargets.resolve, audit }),

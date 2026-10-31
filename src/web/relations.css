@@ -1,0 +1,164 @@
+.relation-handle {
+	position: absolute;
+	z-index: 3;
+	width: calc(12px * var(--unzoom));
+	height: calc(12px * var(--unzoom));
+	border: calc(2px * var(--unzoom)) solid var(--accent);
+	border-radius: 50%;
+	background: var(--surface);
+	cursor: crosshair;
+	touch-action: none;
+	opacity: 0;
+	transform: translate(-50%, -50%);
+	transition:
+		opacity calc(140ms * var(--motion)),
+		background-color calc(140ms * var(--motion));
+}
+
+.relation-handle[data-side="top"] {
+	left: 50%;
+	top: calc(-6px * var(--unzoom));
+}
+
+.relation-handle[data-side="right"] {
+	left: calc(100% + 6px * var(--unzoom));
+	top: 50%;
+}
+
+.relation-handle[data-side="bottom"] {
+	left: 50%;
+	top: calc(100% + 6px * var(--unzoom));
+}
+
+.relation-handle[data-side="left"] {
+	left: calc(-6px * var(--unzoom));
+	top: 50%;
+}
+
+.viewport.panning .relation-handle,
+.world[data-detail="far"] .relation-handle {
+	display: none;
+}
+
+.relation-handle:hover {
+	background: var(--accent);
+}
+
+.node:hover .relation-handle,
+.annotation.docs:hover .relation-handle {
+	opacity: 1;
+}
+
+@media (hover: none) {
+	.relation-handle {
+		opacity: 1;
+	}
+}
+
+.relations {
+	position: absolute;
+	left: 0;
+	top: 0;
+	overflow: visible;
+	pointer-events: none;
+}
+
+.relation-line {
+	fill: none;
+	stroke: var(--muted);
+	stroke-width: calc(1.5px * var(--unzoom));
+	stroke-dasharray: 0 calc(5px * var(--unzoom));
+	stroke-linecap: round;
+}
+
+.relation.sessions .relation-line {
+	stroke: var(--accent);
+	stroke-width: calc(2px * var(--unzoom));
+	stroke-dasharray: calc(8px * var(--unzoom)) calc(6px * var(--unzoom));
+	stroke-linecap: butt;
+}
+
+.relation.unreachable .relation-line {
+	stroke: var(--amber);
+}
+
+.relation.dimmed {
+	opacity: 0.25;
+}
+
+.relation-hit {
+	fill: none;
+	stroke: transparent;
+	stroke-width: calc(14px * var(--unzoom));
+	pointer-events: stroke;
+}
+
+.world:has(.node:hover, .annotation.docs:hover) .relation-hit {
+	pointer-events: none;
+}
+
+.relation-unlink {
+	display: grid;
+	place-items: center;
+	width: 100%;
+	height: 100%;
+	padding: 0;
+	border: 1px solid var(--hairline-strong);
+	border-radius: 50%;
+	background: var(--surface);
+	box-shadow: var(--shadow-pop);
+	color: var(--muted);
+	cursor: pointer;
+	opacity: 0;
+	pointer-events: auto;
+	transition: opacity calc(140ms * var(--motion));
+}
+
+.relation:hover .relation-unlink,
+.relation:focus-within .relation-unlink {
+	opacity: 1;
+}
+
+@media (hover: none) {
+	.relation-unlink {
+		opacity: 1;
+	}
+}
+
+.relation-unlink:hover {
+	color: var(--accent);
+}
+
+.viewport.panning .relation-unlink,
+.viewport.arranging .relation-unlink {
+	visibility: hidden;
+}
+
+.relations.relation-preview .relation-line {
+	stroke: var(--accent);
+	stroke-width: calc(2px * var(--unzoom));
+	stroke-dasharray: none;
+}
+
+.relation-target {
+	fill: var(--accent-soft);
+	stroke: var(--accent);
+	stroke-width: calc(2px * var(--unzoom));
+}
+
+.relation-error {
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: max-content;
+	max-width: 280px;
+	padding: 6px 10px;
+	border-radius: 8px;
+	background:
+		linear-gradient(var(--amber-soft), var(--amber-soft)), var(--surface);
+	box-shadow: var(--shadow-pop);
+	color: var(--amber-ink);
+	font-size: 13px;
+	pointer-events: none;
+	transform-origin: 0 0;
+}

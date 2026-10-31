@@ -1,0 +1,38 @@
+.mermaid-diagram {
+	margin: 0.75em 0;
+}
+
+.mermaid-figure {
+	overflow-x: auto;
+	text-align: center;
+}
+
+.mermaid-figure svg {
+	max-width: 100%;
+	height: auto;
+}
+
+.mermaid-error {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin: 6px 0 0;
+	color: var(--amber-ink);
+	font-size: 12px;
+	white-space: pre-wrap;
+}
+
+.mermaid-error button {
+	padding: 2px 10px;
+	border: 1px solid var(--hairline-strong);
+	border-radius: var(--radius-sm);
+	background: var(--surface);
+	color: var(--ink);
+	font: inherit;
+	cursor: pointer;
+}
+
+.mermaid-error button:hover {
+	border-color: var(--accent);
+}

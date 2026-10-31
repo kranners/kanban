@@ -12,11 +12,13 @@ import { type Duplex, pipeline } from "node:stream";
 import { WebSocketServer } from "ws";
 import { parseToolCall } from "../agent/tools.ts";
 import { maxImageBytes, maxPromptImages } from "../shared/promptImages.ts";
+import { linkRefusal } from "../shared/reach.ts";
 import {
 	type AccountResult,
 	type Board,
 	landingId,
 	type NodeRef,
+	type RelationEnd,
 	type RemoteHost,
 	type Session,
 	type TranscriptEntry,
@@ -51,6 +53,7 @@ import {
 	parseSince,
 	type Since,
 } from "./conversationHub.ts";
+import type { DocsHttp } from "./docsHttp.ts";
 import type { ExitRunner } from "./exit.ts";
 import type { Feed } from "./feed.ts";
 import type { FileListing } from "./files.ts";
@@ -67,6 +70,11 @@ import {
 	parseRegionPatch,
 	type RegionStore,
 } from "./regions.ts";
+import {
+	isRelationId,
+	parseRelationDraft,
+	type RelationStore,
+} from "./relations.ts";
 import { reportShotContentType, reportShotName } from "./reportShots.ts";
 import type { RegionReportRunner, ReportRunner } from "./reports.ts";
 import {
@@ -95,6 +103,8 @@ export type ServerDeps = {
 	colours: ColourStore;
 	ignores: IgnoreStore;
 	regions: RegionStore;
+	relations: RelationStore;
+	docs: DocsHttp;
 	comments: CommentStore;
 	agent: Omit<BoardAgent, "stopAll">;
 	agentTokens: AgentTokens;
@@ -147,6 +157,10 @@ export type Route =
 	| { kind: "update-region"; regionId: string }
 	| { kind: "delete-region"; regionId: string }
 	| { kind: "report-region"; regionId: string }
+	| { kind: "create-relation" }
+	| { kind: "delete-relation"; relationId: string }
+	| { kind: "docs-tool"; tool: string }
+	| { kind: "doc-file"; store: string; path: string }
 	| { kind: "create-comment" }
 	| { kind: "reply-comment"; threadId: string }
 	| { kind: "cancel-comment"; threadId: string }
@@ -362,6 +376,31 @@ export const matchRoute = (method: string, url: URL): Route => {
 			return { kind: "delete-comment", threadId: comment[1] };
 		return { kind: "method-not-allowed" };
 	}
+	if (path === "/api/relations") {
+		return method === "POST"
+			? { kind: "create-relation" }
+			: { kind: "method-not-allowed" };
+	}
+	const relation = path.match(/^\/api\/relations\/([^/]+)$/);
+	if (relation?.[1] && isRelationId(relation[1])) {
+		return method === "DELETE"
+			? { kind: "delete-relation", relationId: relation[1] }
+			: { kind: "method-not-allowed" };
+	}
+	const docsTool = path.match(/^\/api\/docs\/tools\/([a-z_]{1,64})$/);
+	if (docsTool?.[1]) {
+		return method === "POST"
+			? { kind: "docs-tool", tool: docsTool[1] }
+			: { kind: "method-not-allowed" };
+	}
+	const docFile = path.match(
+		/^\/api\/docs\/([A-Za-z0-9][A-Za-z0-9_-]{0,63})\/files\/(.+)$/,
+	);
+	if (docFile?.[1] && docFile[2]) {
+		return method === "GET" || method === "HEAD"
+			? { kind: "doc-file", store: docFile[1], path: docFile[2] }
+			: { kind: "method-not-allowed" };
+	}
 	const tool = path.match(/^\/api\/agent\/tools\/([a-z_]{1,64})$/);
 	if (tool?.[1]) {
 		return method === "POST"
@@ -471,10 +510,11 @@ const isFile = async (path: string): Promise<boolean> => {
 	}
 };
 
-// Hashed assets never change under their name; app.js and app.css keep
-// fixed names, so they revalidate on every load and a rebuild shows at once.
+const hashedStatic = /^\/(?:chunks|assets)\//;
+
 export const cacheControlFor = (dist: string, file: string): string =>
-	file.startsWith(join(dist, "assets", sep))
+	file.startsWith(join(dist, "assets", sep)) ||
+	file.startsWith(join(dist, "chunks", sep))
 		? "public, max-age=31536000, immutable"
 		: "no-cache";
 
@@ -487,7 +527,9 @@ const serveStatic = async (
 ) => {
 	const requested = staticFile(dist, urlPath);
 	if (requested === null) return sendError(res, 404);
-	const file = (await isFile(requested)) ? requested : join(dist, "index.html");
+	const found = await isFile(requested);
+	if (!found && hashedStatic.test(urlPath)) return sendError(res, 404);
+	const file = found ? requested : join(dist, "index.html");
 	let info: Stats;
 	try {
 		info = await stat(file);
@@ -618,13 +660,28 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if ("error" in request) {
 			return sendJson(res, 400, { ok: false, error: request.error });
 		}
+		const missing = request.docs?.find(
+			(id) => deps.annotations.current()[id]?.kind !== "docs",
+		);
+		if (missing) {
+			return sendJson(res, 400, {
+				ok: false,
+				error: `No doc store ${missing} on the board`,
+			});
+		}
 		const settle = request.at && deps.layout.expect(request.cwd, request.at);
+		const link = request.docs?.length
+			? deps.relations.expect(
+					request.docs.map((id): RelationEnd => ({ kind: "docs", id })),
+				)
+			: null;
 		const result = await deps.launch(request);
 		deps.audit({
 			action: "session-create",
 			cwd: request.cwd,
 			name: request.name ?? null,
 			images: request.images?.length ?? 0,
+			...(request.docs?.length ? { docs: request.docs.length } : {}),
 			account: request.account ?? null,
 			runsOn: request.runsOn,
 			identity,
@@ -633,6 +690,10 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if (settle) {
 			settle(result.ok ? result : null);
 			deps.layout.observe(deps.source.board());
+		}
+		if (link) {
+			link(result.ok ? result : null);
+			deps.relations.observe(deps.source.board());
 		}
 		sendJson(res, result.ok ? 201 : 422, result);
 	};
@@ -899,6 +960,45 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		sendJson(res, 202, { ok: true });
 	};
 
+	const unlinkable = (end: RelationEnd): string | null => {
+		if (end.kind === "docs") {
+			return deps.annotations.current()[end.id]?.kind === "docs"
+				? null
+				: `No doc store ${end.id} on the board`;
+		}
+		const session = deps.source
+			.board()
+			.sessions.find(({ id }) => id === end.id);
+		return session ? linkRefusal(session) : `No session ${end.id} on the board`;
+	};
+
+	const createRelation = async (req: IncomingMessage, res: ServerResponse) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const draft = parseRelationDraft(read.body);
+		if ("error" in draft) {
+			return sendJson(res, 400, { ok: false, error: draft.error });
+		}
+		const refusal = unlinkable(draft.from) ?? unlinkable(draft.to);
+		if (refusal) return sendJson(res, 422, { ok: false, error: refusal });
+		const relation = deps.relations.create(draft);
+		if ("error" in relation) {
+			return sendJson(res, 409, { ok: false, error: relation.error });
+		}
+		sendJson(res, 201, relation);
+	};
+
+	const deleteRelation = (
+		req: IncomingMessage,
+		res: ServerResponse,
+		relationId: string,
+	) => {
+		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		if (!deps.relations.remove(relationId)) return sendError(res, 404);
+		res.writeHead(204, { "cache-control": "no-store" });
+		res.end();
+	};
+
 	const createComment = async (req: IncomingMessage, res: ServerResponse) => {
 		const read = await readBody(req, res);
 		if (!read) return;
@@ -1046,6 +1146,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if (route.kind === "healthz") return sendJson(res, 200, { ok: true });
 		if (route.kind === "agent-tool") return agentTool(req, res, route.tool);
 		if (route.kind === "peer-hook") return peerHook(req, res);
+		if (route.kind === "docs-tool") return deps.docs.tool(req, res, route.tool);
 		const auth = await deps.authenticate(req);
 		if (!auth.ok) return sendError(res, auth.status);
 		switch (route.kind) {
@@ -1134,6 +1235,12 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return deleteRegion(req, res, route.regionId);
 			case "report-region":
 				return reportRegion(req, res, route.regionId, auth.identity);
+			case "create-relation":
+				return createRelation(req, res);
+			case "delete-relation":
+				return deleteRelation(req, res, route.relationId);
+			case "doc-file":
+				return deps.docs.file(req, res, route.store, route.path);
 			case "create-comment":
 				return createComment(req, res);
 			case "reply-comment":

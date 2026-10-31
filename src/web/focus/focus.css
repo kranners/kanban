@@ -514,6 +514,7 @@
 
 .focus-field-row {
 	display: flex;
+	flex-wrap: wrap;
 	gap: 8px;
 }
 
@@ -523,7 +524,7 @@
 }
 
 .focus-field-row > .focus-field:first-child {
-	flex: 1;
+	flex: 1 1 180px;
 }
 
 .focus-field input,

@@ -43,6 +43,16 @@ describe("validateNewSession", () => {
 			"say hi",
 		]);
 		assert.deepEqual(launchArgs(unnamed), ["--bg", "--", "say hi"]);
+		assert.deepEqual(
+			launchArgs(unnamed, null, '{"hooks":{}}', '{"mcpServers":{}}'),
+			[
+				"--bg",
+				'--settings={"hooks":{}}',
+				'--mcp-config={"mcpServers":{}}',
+				"--",
+				"say hi",
+			],
+		);
 		assert.deepEqual(launchArgs(valid), [
 			"--bg",
 			"--name=acme-api fix",
@@ -161,6 +171,84 @@ describe("validateNewSession", () => {
 	});
 });
 
+describe("doc stores at spawn", () => {
+	it("runs a session with doc stores on this Mac", async () => {
+		assert.deepEqual(
+			await validateNewSession({ ...valid, docs: ["d1", "d2"] }),
+			{
+				...valid,
+				docs: ["d1", "d2"],
+				runsOn: "local",
+			},
+		);
+		assert.deepEqual(
+			await validateNewSession({ ...valid, docs: ["d1"], runsOn: "local" }),
+			{ ...valid, docs: ["d1"], runsOn: "local" },
+		);
+	});
+
+	it("treats an empty list as no doc stores", async () => {
+		assert.deepEqual(await validateNewSession({ ...valid, docs: [] }), {
+			...valid,
+			runsOn: "cloud",
+		});
+	});
+
+	it("refuses doc stores for sessions elsewhere", async () => {
+		for (const runsOn of ["cloud", "env_01T8abc"]) {
+			const result = await validateNewSession({
+				...valid,
+				docs: ["d1"],
+				runsOn,
+			});
+			assert.ok("error" in result, runsOn);
+			assert.equal(
+				result.error,
+				"Doc stores can only be linked to sessions on this Mac",
+			);
+		}
+	});
+
+	it("refuses malformed, duplicate or too many ids", async () => {
+		for (const docs of [
+			"d1",
+			[7],
+			[""],
+			["../d1"],
+			["-d1"],
+			["d1", "d1"],
+			Array.from({ length: 21 }, (_, index) => `d${index}`),
+		]) {
+			const result = await validateNewSession({ ...valid, docs });
+			assert.ok("error" in result, JSON.stringify(docs));
+			assert.equal(result.error, "docs must be up to 20 doc store ids");
+		}
+		assert.ok(
+			!(
+				"error" in
+				(await validateNewSession({
+					...valid,
+					docs: Array.from({ length: 20 }, (_, index) => `d${index}`),
+				}))
+			),
+		);
+	});
+
+	it("tells the session about its doc stores after the prompt", () => {
+		assert.deepEqual(launchArgs({ ...valid, docs: ["d1"] }), [
+			"--bg",
+			"--name=acme-api fix",
+			"--",
+			"say hi\n\nThe kanban board linked this session to doc store d1: shared docs for this area of work. Call mcp__kanban__list_docs before you start and read what's relevant with mcp__kanban__read_doc; keep it current with mcp__kanban__write_doc as you learn things others working here will need.",
+		]);
+		const saved = { folder: "/tmp/p", paths: ["/tmp/p/image-1.png"] };
+		assert.deepEqual(
+			launchArgs({ ...valid, docs: ["d1", "d2"] }, saved).at(-1),
+			"say hi\n\nThe kanban board linked this session to doc stores d1, d2: shared docs for this area of work. Call mcp__kanban__list_docs before you start and read what's relevant with mcp__kanban__read_doc; keep them current with mcp__kanban__write_doc as you learn things others working here will need.\n\n/tmp/p/image-1.png",
+		);
+	});
+});
+
 describe("launchResult", () => {
 	it("parses the short from claude --bg output", () => {
 		assert.equal(
@@ -173,6 +261,13 @@ describe("launchResult", () => {
 				ok: true,
 				short: "1ca86d73",
 			},
+		);
+	});
+
+	it("parses a coloured short", () => {
+		assert.equal(
+			parseBackgrounded("backgrounded · \x1b[36ma2471401\x1b[39m · probe\n"),
+			"a2471401",
 		);
 	});
 
