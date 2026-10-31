@@ -177,7 +177,11 @@ export type CloudSessionInfo = {
 	session_status: string;
 	session_url?: string;
 	updated_at: string;
-	external_metadata?: { post_turn_summary?: PostTurnSummary };
+	external_metadata?: {
+		post_turn_summary?: PostTurnSummary;
+		pending_action?: unknown;
+		pending_actions?: unknown;
+	};
 };
 
 export type CloudEvent = {
@@ -480,41 +484,61 @@ export const refuseOnce = "No";
 export const rejection =
 	"The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.";
 
+type OpenAction = Omit<RemotePrompt, "options">;
+type Asked = { suggestions: unknown[]; remembers: boolean };
 type CloudPrompt = RemotePrompt & { suggestions: unknown[] };
 
-const promptOf = (event: CloudEvent): CloudPrompt | null => {
+const waitingOn = (info: CloudSessionInfo): OpenAction[] => {
+	if (info.session_status !== "requires_action") return [];
+	const metadata = info.external_metadata;
+	const listed = Array.isArray(metadata?.pending_actions)
+		? metadata.pending_actions
+		: [metadata?.pending_action];
+	return listed.flatMap((value) => {
+		const action = asObject(value);
+		const requestId = asString(action?.request_id);
+		const toolName = asString(action?.tool_name);
+		if (!action || !requestId || !toolName) return [];
+		return [
+			{
+				requestId,
+				toolUseId: asString(action.tool_use_id),
+				toolName,
+				title: asString(action.display_tool_name) ?? toolName,
+				input: asObject(action.input) ?? {},
+			},
+		];
+	});
+};
+
+const askedOf = (event: CloudEvent): [string, Asked] | null => {
 	const request = asObject(event.request);
 	const requestId = asString(event.request_id);
-	const toolName = asString(request?.tool_name);
-	if (request?.subtype !== "can_use_tool" || !requestId || !toolName) {
-		return null;
-	}
+	if (request?.subtype !== "can_use_tool" || !requestId) return null;
 	const suggestions = Array.isArray(request.permission_suggestions)
 		? request.permission_suggestions
 		: [];
-	const remembers =
-		suggestions.length > 0 && request.server_policy_ask_only !== true;
-	return {
+	return [
 		requestId,
-		toolUseId: asString(request.tool_use_id),
-		toolName,
-		title: asString(request.display_name) ?? toolName,
-		input: asObject(request.input) ?? {},
-		options: remembers
-			? [allowOnce, allowAlways, refuseOnce]
-			: [allowOnce, refuseOnce],
-		suggestions,
-	};
+		{
+			suggestions,
+			remembers:
+				suggestions.length > 0 && request.server_policy_ask_only !== true,
+		},
+	];
 };
 
-const settledBy = (event: CloudEvent): string | null => {
-	if (event.type === "control_response") {
-		return asString(asObject(event.response)?.request_id);
-	}
-	return event.type === "control_cancel_request"
-		? asString(event.request_id)
-		: null;
-};
+const promptFor = (action: OpenAction, asked?: Asked): CloudPrompt => ({
+	...action,
+	options: asked?.remembers
+		? [allowOnce, allowAlways, refuseOnce]
+		: [allowOnce, refuseOnce],
+	suggestions: asked?.suggestions ?? [],
+});
+
+const answering = (prompt: CloudPrompt) => ({
+	...(prompt.toolUseId !== null && { toolUseID: prompt.toolUseId }),
+});
 
 const decisionFor = (
 	prompt: CloudPrompt,
@@ -522,12 +546,21 @@ const decisionFor = (
 ): Record<string, unknown> | null => {
 	if (!prompt.options.includes(label)) return null;
 	if (label === refuseOnce) {
-		return { behavior: "deny", message: rejection, interrupt: true };
+		return {
+			behavior: "deny",
+			message: rejection,
+			interrupt: true,
+			...answering(prompt),
+			decisionClassification: "user_reject",
+		};
 	}
+	const always = label === allowAlways;
 	return {
 		behavior: "allow",
 		updatedInput: prompt.input,
-		...(label === allowAlways && { updatedPermissions: prompt.suggestions }),
+		...(always && { updatedPermissions: prompt.suggestions }),
+		...answering(prompt),
+		decisionClassification: always ? "user_permanent" : "user_temporary",
 		tool_name: prompt.toolName,
 	};
 };
@@ -535,12 +568,12 @@ const decisionFor = (
 type Tracked = {
 	record: CloudRecord;
 	session: CloudSession;
-	status: string | null;
 	seenUpdatedAt: string | null;
 	mirrored: string[];
 	echoes: string[];
-	prompts: Map<string, CloudPrompt>;
-	settled: Set<string>;
+	waiting: OpenAction[];
+	asked: Map<string, Asked>;
+	answered: Map<string, number>;
 };
 
 const lateEventReach = 50;
@@ -550,12 +583,14 @@ export const createCloudSessions = async ({
 	dir,
 	apiFor,
 	pollMs = 3000,
+	answerGraceMs = 60_000,
 	onChange,
 }: {
 	file: string;
 	dir: string;
 	apiFor: (configDir?: string) => CloudApi;
 	pollMs?: number;
+	answerGraceMs?: number;
 	onChange: () => void;
 }): Promise<CloudSessions> => {
 	const stored = createStateFile<CloudRecord[]>(file);
@@ -574,12 +609,12 @@ export const createCloudSessions = async ({
 				detail: null,
 				transcript: mirrorOf(record.id),
 			},
-			status: null,
 			seenUpdatedAt: null,
 			mirrored: [],
 			echoes: record.prompt === undefined ? [] : [record.prompt],
-			prompts: new Map(),
-			settled: new Set(),
+			waiting: [],
+			asked: new Map(),
+			answered: new Map(),
 		});
 
 	const promptLine = (text: string, at: number) =>
@@ -628,16 +663,20 @@ export const createCloudSessions = async ({
 
 	const trackPrompts = (item: Tracked, events: CloudEvent[]) => {
 		for (const event of events) {
-			const settled = settledBy(event);
-			if (settled) {
-				item.settled.add(settled);
-				item.prompts.delete(settled);
-			}
-			const prompt = promptOf(event);
-			if (prompt && !item.settled.has(prompt.requestId)) {
-				item.prompts.set(prompt.requestId, prompt);
-			}
+			const asked = askedOf(event);
+			if (asked) item.asked.set(...asked);
 		}
+	};
+
+	const openPrompts = (item: Tracked): CloudPrompt[] => {
+		const now = Date.now();
+		return item.waiting
+			.filter(
+				({ requestId }) =>
+					now - (item.answered.get(requestId) ?? -answerGraceMs) >=
+					answerGraceMs,
+			)
+			.map((action) => promptFor(action, item.asked.get(action.requestId)));
 	};
 
 	const mirror = async (item: Tracked, events: CloudEvent[]) => {
@@ -670,7 +709,7 @@ export const createCloudSessions = async ({
 		const info = got.value;
 		if (info.session_status === "archived") return remove(id);
 		const before = JSON.stringify(item.session);
-		item.status = info.session_status;
+		item.waiting = waitingOn(info);
 		item.session = {
 			...item.session,
 			name: info.title?.trim() || item.record.name,
@@ -680,8 +719,9 @@ export const createCloudSessions = async ({
 			updatedAt: Date.parse(info.updated_at) || item.session.updatedAt,
 		};
 		let mirrored = false;
-		const unread =
-			info.session_status === "requires_action" && item.prompts.size === 0;
+		const unread = item.waiting.some(
+			({ requestId }) => !item.asked.has(requestId),
+		);
 		if (info.updated_at !== item.seenUpdatedAt || unread) {
 			const events = await api.events(
 				id,
@@ -724,24 +764,25 @@ export const createCloudSessions = async ({
 	const respond = async (
 		id: string,
 		requestId: string,
-		response: Record<string, unknown>,
+		decide: (prompt: CloudPrompt) => Record<string, unknown> | null,
 	): Promise<CmuxResult<null>> => {
 		const item = tracked.get(id);
-		const prompt = item?.prompts.get(requestId);
-		if (!item || !prompt) return closed;
-		item.prompts.delete(requestId);
+		const prompt = item
+			? openPrompts(item).find((open) => open.requestId === requestId)
+			: undefined;
+		const response = prompt ? decide(prompt) : null;
+		if (!item || !response) return closed;
+		item.answered.set(requestId, Date.now());
 		const sent = await apiFor(item.record.configDir).respond(
 			id,
 			requestId,
 			response,
 		);
 		if (!sent.ok) {
-			if (!item.settled.has(requestId)) item.prompts.set(requestId, prompt);
+			item.answered.delete(requestId);
 			return sent;
 		}
-		item.settled.add(requestId);
-		if (item.prompts.size === 0) {
-			item.status = "running";
+		if (openPrompts(item).length === 0) {
 			item.session = { ...item.session, activity: "working", detail: null };
 		}
 		onChange();
@@ -771,29 +812,21 @@ export const createCloudSessions = async ({
 		transcriptPath: (id) => tracked.get(id)?.session.transcript ?? null,
 		pending(id) {
 			const item = tracked.get(id);
-			if (item?.status !== "requires_action") return null;
-			const prompt = [...item.prompts.values()].at(-1);
+			const prompt = item ? openPrompts(item).at(-1) : undefined;
 			if (!prompt) return null;
 			const { suggestions: _, ...shown } = prompt;
 			return shown;
 		},
-		choose(id, requestId, label) {
-			const prompt = tracked.get(id)?.prompts.get(requestId);
-			const decision = prompt ? decisionFor(prompt, label) : null;
-			return decision
-				? respond(id, requestId, decision)
-				: Promise.resolve(closed);
-		},
-		answer(id, requestId, answers) {
-			const prompt = tracked.get(id)?.prompts.get(requestId);
-			return prompt
-				? respond(id, requestId, {
-						behavior: "allow",
-						updatedInput: { ...prompt.input, answers },
-						tool_name: prompt.toolName,
-					})
-				: Promise.resolve(closed);
-		},
+		choose: (id, requestId, label) =>
+			respond(id, requestId, (prompt) => decisionFor(prompt, label)),
+		answer: (id, requestId, answers) =>
+			respond(id, requestId, (prompt) => ({
+				behavior: "allow",
+				updatedInput: { ...prompt.input, answers },
+				...answering(prompt),
+				decisionClassification: "user_temporary",
+				tool_name: prompt.toolName,
+			})),
 		async send(id, text) {
 			const item = tracked.get(id);
 			if (!item) return untracked(id);

@@ -505,6 +505,26 @@ const asked = (
 	},
 });
 
+const listed = (
+	requestId: string,
+	toolName: string,
+	input: Record<string, unknown>,
+) => ({
+	request_id: requestId,
+	tool_name: toolName,
+	tool_use_id: `toolu_${requestId}`,
+	display_tool_name: `Shown ${toolName}`,
+	input,
+});
+
+const waitingOn = (
+	updatedAt: string,
+	actions: ReturnType<typeof listed>[],
+): CloudSessionInfo => ({
+	...info("requires_action", updatedAt),
+	external_metadata: { pending_actions: actions },
+});
+
 const info = (
 	status: string,
 	updatedAt: string,
@@ -614,7 +634,7 @@ describe("createCloudSessions", () => {
 		store.stop();
 	});
 
-	it("shows the open permission prompt and answers it through the api", async () => {
+	it("shows the prompt the session lists and answers it through the api", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
 		const fake = fakeCloud();
 		const suggestion = {
@@ -623,41 +643,36 @@ describe("createCloudSessions", () => {
 			destination: "localSettings",
 			rules: [{ toolName: "mcp__remote__add_repo" }],
 		};
-		fake.info.set(id, info("requires_action", "2026-10-30T12:00:00Z"));
+		fake.info.set(
+			id,
+			waitingOn("2026-10-30T12:00:00Z", [
+				listed("repo", "mcp__remote__add_repo", { owner: "acme", repo: "api" }),
+			]),
+		);
 		fake.log.set(id, [
-			asked("e1", "old", "Bash", { command: "ls" }),
-			{
-				uuid: "e2",
-				type: "control_cancel_request",
-				created_at: "2026-10-30T12:00:00Z",
-				request_id: "old",
-			},
 			asked(
-				"e3",
+				"e1",
 				"repo",
 				"mcp__remote__add_repo",
 				{ owner: "acme", repo: "api" },
-				{ display_name: "Add Repo", permission_suggestions: [suggestion] },
+				{ permission_suggestions: [suggestion] },
 			),
 		]);
 		const { store } = await storeIn(dir, fake);
 		store.add(record);
-		await until(() => store.pending(id) !== null);
+		await until(() => store.pending(id)?.options.length === 3);
 		assert.deepEqual(store.pending(id), {
 			requestId: "repo",
 			toolUseId: "toolu_repo",
 			toolName: "mcp__remote__add_repo",
-			title: "Add Repo",
+			title: "Shown mcp__remote__add_repo",
 			input: { owner: "acme", repo: "api" },
 			options: ["Yes", "Yes, and don't ask again", "No"],
 		});
 		assert.equal((await store.choose(id, "repo", "Maybe")).ok, false);
 		assert.deepEqual(
 			await store.choose(id, "repo", "Yes, and don't ask again"),
-			{
-				ok: true,
-				value: null,
-			},
+			{ ok: true, value: null },
 		);
 		assert.deepEqual(fake.responses, [
 			[
@@ -667,6 +682,8 @@ describe("createCloudSessions", () => {
 					behavior: "allow",
 					updatedInput: { owner: "acme", repo: "api" },
 					updatedPermissions: [suggestion],
+					toolUseID: "toolu_repo",
+					decisionClassification: "user_permanent",
 					tool_name: "mcp__remote__add_repo",
 				},
 			],
@@ -676,11 +693,18 @@ describe("createCloudSessions", () => {
 		store.stop();
 	});
 
-	it("denies, answers questions, and hides prompts while the session is not waiting", async () => {
+	it("denies, answers questions, and shows nothing while the session is not waiting", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
 		const fake = fakeCloud();
 		const questions = [{ question: "Which?", options: [{ label: "A" }] }];
-		fake.info.set(id, info("running", "2026-10-30T12:00:00Z"));
+		const actions = [
+			listed("bash", "Bash", { command: "rm -rf build" }),
+			listed("ask", "AskUserQuestion", { questions }),
+		];
+		fake.info.set(id, {
+			...waitingOn("2026-10-30T12:00:00Z", actions),
+			session_status: "running",
+		});
 		fake.log.set(id, [
 			asked(
 				"e1",
@@ -699,11 +723,12 @@ describe("createCloudSessions", () => {
 		await until(() => fake.cursors.length > 0);
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		assert.equal(store.pending(id), null);
-		fake.info.set(id, info("requires_action", "2026-10-30T12:00:01Z"));
+		fake.info.set(id, waitingOn("2026-10-30T12:00:01Z", actions));
 		await until(() => store.pending(id) !== null);
 		assert.equal(store.pending(id)?.requestId, "ask");
 		await store.answer(id, "ask", { "Which?": "A" });
 		assert.deepEqual(store.pending(id)?.options, ["Yes", "No"]);
+		assert.equal(store.sessions()[0]?.activity, "needs-you");
 		await store.choose(id, "bash", "No");
 		assert.deepEqual(fake.responses, [
 			[
@@ -712,54 +737,80 @@ describe("createCloudSessions", () => {
 				{
 					behavior: "allow",
 					updatedInput: { questions, answers: { "Which?": "A" } },
+					toolUseID: "toolu_ask",
+					decisionClassification: "user_temporary",
 					tool_name: "AskUserQuestion",
 				},
 			],
-			[id, "bash", { behavior: "deny", message: rejection, interrupt: true }],
+			[
+				id,
+				"bash",
+				{
+					behavior: "deny",
+					message: rejection,
+					interrupt: true,
+					toolUseID: "toolu_bash",
+					decisionClassification: "user_reject",
+				},
+			],
 		]);
 		assert.equal(store.pending(id), null);
 		store.stop();
 	});
 
-	it("drops a prompt answered elsewhere, even when the answer is listed first", async () => {
+	it("offers a prompt again when the session still lists it after an answer", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
 		const fake = fakeCloud();
-		fake.info.set(id, info("requires_action", "2026-10-30T12:00:00Z"));
-		fake.log.set(id, [
-			{
-				uuid: "e1",
-				type: "control_response",
-				created_at: "2026-10-30T12:00:00Z",
-				response: { subtype: "success", request_id: "late" },
-			},
-			asked("e2", "late", "Bash", { command: "ls" }),
-			asked("e3", "open", "Bash", { command: "pwd" }),
-		]);
-		const { store } = await storeIn(dir, fake);
+		fake.info.set(
+			id,
+			waitingOn("2026-10-30T12:00:00Z", [
+				listed("open", "Bash", { command: "pwd" }),
+			]),
+		);
+		const store = await createCloudSessions({
+			file: join(dir, "cloud.json"),
+			dir: join(dir, "cloud"),
+			apiFor: () => fake.api,
+			pollMs: 5,
+			answerGraceMs: 80,
+			onChange: () => {},
+		});
 		store.add(record);
 		await until(() => store.pending(id) !== null);
-		assert.equal(store.pending(id)?.requestId, "open");
-		fake.log.get(id)?.push({
-			uuid: "e4",
-			type: "control_response",
-			created_at: "2026-10-30T12:00:01Z",
-			response: { subtype: "success", request_id: "open" },
-		});
-		fake.info.set(id, info("requires_action", "2026-10-30T12:00:01Z"));
+		await store.choose(id, "open", "Yes");
+		assert.equal(store.pending(id), null);
+		await until(() => store.pending(id)?.requestId === "open");
+		fake.info.set(id, info("running", "2026-10-30T12:00:01Z"));
 		await until(() => store.pending(id) === null);
 		store.stop();
 	});
 
-	it("rereads events while the session waits on a prompt it has not listed yet", async () => {
+	it("rereads events while the session waits on a prompt they do not hold yet", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
 		const fake = fakeCloud();
-		fake.info.set(id, info("requires_action", "2026-10-30T12:00:00Z"));
+		fake.info.set(
+			id,
+			waitingOn("2026-10-30T12:00:00Z", [
+				listed("late", "Bash", { command: "ls" }),
+			]),
+		);
 		fake.log.set(id, [event("e1", "2026-10-30T12:00:00Z")]);
 		const { store } = await storeIn(dir, fake);
 		store.add(record);
-		await until(() => fake.cursors.length > 0);
-		fake.log.get(id)?.push(asked("e2", "late", "Bash", { command: "ls" }));
 		await until(() => store.pending(id) !== null);
+		assert.deepEqual(store.pending(id)?.options, ["Yes", "No"]);
+		fake.log
+			.get(id)
+			?.push(
+				asked(
+					"e2",
+					"late",
+					"Bash",
+					{ command: "ls" },
+					{ permission_suggestions: [{ type: "addRules" }] },
+				),
+			);
+		await until(() => store.pending(id)?.options.length === 3);
 		const fetches = fake.cursors.length;
 		await new Promise((resolve) => setTimeout(resolve, 30));
 		assert.equal(fake.cursors.length, fetches, "stops once it has the prompt");
@@ -769,8 +820,12 @@ describe("createCloudSessions", () => {
 	it("answers a prompt once, keeps it open when the answer fails, and shows the session working", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
 		const fake = fakeCloud();
-		fake.info.set(id, info("requires_action", "2026-10-30T12:00:00Z"));
-		fake.log.set(id, [asked("e1", "only", "Bash", { command: "ls" })]);
+		fake.info.set(
+			id,
+			waitingOn("2026-10-30T12:00:00Z", [
+				listed("only", "Bash", { command: "ls" }),
+			]),
+		);
 		const { store } = await storeIn(dir, fake);
 		store.add(record);
 		await until(() => store.pending(id) !== null);
