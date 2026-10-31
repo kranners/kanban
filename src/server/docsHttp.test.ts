@@ -5,7 +5,13 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
-import type { Annotations, Relation } from "../shared/types.ts";
+import { samePair } from "../shared/relations.ts";
+import type {
+	Annotations,
+	Relation,
+	RelationDraft,
+	Session,
+} from "../shared/types.ts";
 import { loadDocFiles } from "./docs.ts";
 import { createDocsHttp, sessionMcpConfig } from "./docsHttp.ts";
 import { matchRoute } from "./http.ts";
@@ -21,7 +27,29 @@ const docStore = (id: string, title: string) => ({
 	z: 0,
 });
 
-const annotations: Annotations = {
+const session = (id: string, patch: Partial<Session> = {}): Session => ({
+	id,
+	short: null,
+	pid: 1,
+	name: `name-${id}`,
+	cwd: "/dev/acme",
+	project: "acme",
+	kind: "background",
+	activity: "working",
+	doing: null,
+	needs: null,
+	goal: null,
+	startedAt: 0,
+	updatedAt: 0,
+	attachable: true,
+	cmux: false,
+	artifacts: [],
+	tasks: [],
+	steps: [],
+	...patch,
+});
+
+const initialAnnotations: Annotations = {
 	d1: docStore("d1", "Setup"),
 	d2: docStore("d2", "Design"),
 	n1: {
@@ -47,6 +75,11 @@ const relation = (session: string, store: string): Relation => ({
 describe("docs http", () => {
 	let base = "";
 	let relations: Relation[] = [];
+	let annotations: Annotations = {};
+	let sessions: Session[] = [];
+	let posted: [string, string][] = [];
+	let woken: [string, string][] = [];
+	let ids = 0;
 	const server = createServer();
 
 	before(async () => {
@@ -56,8 +89,36 @@ describe("docs http", () => {
 		});
 		const docs = createDocsHttp({
 			files,
-			relations: { current: () => relations },
-			annotations: { current: () => annotations },
+			relations: {
+				current: () => relations,
+				create: (draft: RelationDraft) => {
+					if (relations.some((other) => samePair(other, draft))) {
+						return { error: "These two are already linked" };
+					}
+					const made = { id: `r${relations.length}`, createdAt: 0, ...draft };
+					relations = [...relations, made];
+					return made;
+				},
+				remove: (id: string) => {
+					const before = relations.length;
+					relations = relations.filter((relation) => relation.id !== id);
+					return relations.length < before;
+				},
+			},
+			annotations: {
+				current: () => annotations,
+				put: (annotation) => {
+					annotations = { ...annotations, [annotation.id]: annotation };
+					return { ok: true };
+				},
+			},
+			sessions: () => sessions,
+			place: () => ({ x: 480, y: 96 }),
+			notices: { post: (to, text) => posted.push([to, text]) },
+			wake: async (target, text) => {
+				woken.push([target.id, text]);
+			},
+			newId: () => `new${++ids}`,
 		});
 		server.on("request", (req, res) => {
 			const route = matchRoute(
@@ -77,6 +138,16 @@ describe("docs http", () => {
 	after(() => server.close());
 
 	beforeEach(() => {
+		annotations = { ...initialAnnotations };
+		sessions = [
+			session("s1"),
+			session("s2", { activity: "idle", short: "s2short" }),
+			session("s3"),
+			session("s4", { activity: "idle", kind: "interactive" }),
+			session("s5", { pid: null }),
+		];
+		posted = [];
+		woken = [];
 		relations = [
 			relation("s1", "d1"),
 			relation("s2", "d1"),
@@ -269,6 +340,124 @@ describe("docs http", () => {
 			(await fetch(`${base}/api/docs/d1/files/%E0%A4%A.md`)).status,
 			400,
 		);
+	});
+
+	it("finds every store on the board with who it's linked to", async () => {
+		const found = await answer(await tool("find_doc_stores", {}));
+		assert.equal(
+			found.body.text?.replace(/\d+ files?/g, "N files"),
+			[
+				"Doc stores on the board:",
+				'- "Design" (d2): N files · linked to name-s2',
+				'- "Setup" (d1): N files · linked to you, name-s2',
+			].join("\n"),
+		);
+		assert.equal(
+			(await tool("find_doc_stores", {}, { "x-kanban-session": "ghost" }))
+				.status,
+			422,
+		);
+	});
+
+	it("creates a store beside the caller and links it", async () => {
+		const made = await answer(
+			await tool("create_doc_store", { title: "  API notes " }),
+		);
+		assert.equal(made.status, 200);
+		assert.match(made.body.text ?? "", /"API notes" \((new\d+)\)/);
+		const id = /\((new\d+)\)/.exec(made.body.text ?? "")?.[1] ?? "";
+		assert.deepEqual(
+			{ ...annotations[id], z: 0 },
+			{
+				id,
+				kind: "docs",
+				x: 480,
+				y: 96,
+				w: 288,
+				h: 264,
+				z: 0,
+				title: "API notes",
+			},
+		);
+		assert.ok(
+			relations.some((relation) =>
+				samePair(relation, {
+					from: { kind: "session", id: "s1" },
+					to: { kind: "docs", id },
+				}),
+			),
+		);
+		const listed = await answer(await tool("list_docs", { store: id }));
+		assert.equal(listed.body.text, `"API notes" (${id}) is empty.`);
+		assert.equal(
+			(await tool("create_doc_store", { title: "a\nb" })).status,
+			400,
+		);
+	});
+
+	it("joins and leaves stores", async () => {
+		const joined = await answer(await tool("join_doc_store", { store: "d2" }));
+		assert.match(joined.body.text ?? "", /^Joined "Design" \(d2\)\./);
+		assert.equal(
+			(await answer(await tool("list_docs", { store: "d2" }))).status,
+			200,
+		);
+		const again = await answer(await tool("join_doc_store", { store: "d2" }));
+		assert.equal(again.body.text, '"Design" (d2) is already linked to you.');
+		assert.equal((await tool("join_doc_store", { store: "n1" })).status, 422);
+		const left = await answer(await tool("leave_doc_store", { store: "d2" }));
+		assert.equal(left.body.text, 'Left "Design" (d2).');
+		assert.equal((await tool("list_docs", { store: "d2" })).status, 422);
+		assert.equal((await tool("leave_doc_store", { store: "d2" })).status, 422);
+	});
+
+	it("shares a store with another session and passes on the note", async () => {
+		const working = await answer(
+			await tool("share_doc_store", {
+				session: "name-s3",
+				note: "The API decisions",
+			}),
+		);
+		assert.equal(
+			working.body.text,
+			'"Setup" (d1) is now linked to name-s3. It gets your note at its next step.',
+		);
+		assert.deepEqual(woken, []);
+		assert.equal(posted.length, 1);
+		assert.equal(posted[0]?.[0], "s3");
+		assert.match(posted[0]?.[1] ?? "", /^name-s1 \(session s1\) linked/);
+		assert.match(posted[0]?.[1] ?? "", /for reference\. Their note: The API/);
+
+		const idle = await answer(
+			await tool("share_doc_store", {
+				store: "d1",
+				session: "s2",
+				contribute: true,
+			}),
+		);
+		assert.equal(
+			idle.body.text,
+			'"Setup" (d1) was already linked to name-s2. It was idle, so the board woke it to read your note.',
+		);
+		assert.equal(woken[0]?.[0], "s2");
+		assert.match(posted[1]?.[1] ?? "", /asks you to contribute/);
+
+		for (const [target, pattern] of [
+			["s1", /your own session/],
+			["s4", /runs in a terminal/],
+			["s5", /isn't running/],
+			["nobody", /^No session nobody on the board\. Live sessions: /],
+		] as const) {
+			const refused = await answer(
+				await tool("share_doc_store", { session: target }),
+			);
+			assert.equal(refused.status, 422, target);
+			assert.match(refused.body.error ?? "", pattern, target);
+		}
+		const unlinked = await answer(
+			await tool("share_doc_store", { store: "d2", session: "s3" }),
+		);
+		assert.match(unlinked.body.error ?? "", /isn't linked to this session/);
 	});
 });
 

@@ -8,10 +8,21 @@ import {
 } from "./docTools.ts";
 
 describe("doc tool definitions", () => {
-	it("are closed objects for the five tools", () => {
+	it("are closed objects for every doc tool", () => {
 		assert.deepEqual(
 			docToolDefinitions.map((tool) => tool.name),
-			["list_docs", "read_doc", "write_doc", "delete_doc", "put_doc_asset"],
+			[
+				"list_docs",
+				"read_doc",
+				"write_doc",
+				"delete_doc",
+				"put_doc_asset",
+				"find_doc_stores",
+				"create_doc_store",
+				"join_doc_store",
+				"leave_doc_store",
+				"share_doc_store",
+			],
 		);
 		for (const tool of docToolDefinitions) {
 			assert.equal(tool.inputSchema.type, "object");

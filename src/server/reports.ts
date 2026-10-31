@@ -82,6 +82,18 @@ const spotBeside = (
 	return nearestFree(start, fits) ?? start;
 };
 
+export const spotBesideSession = (
+	sessionId: string,
+	size: { w: number; h: number },
+	annotations: Annotations,
+	cards: ReadonlyMap<NodeKey, Rect>,
+): Point => {
+	const card = cards.get(nodeKey({ kind: "session", id: sessionId }));
+	return card
+		? spotBeside(card, size, [...cards.values(), ...Object.values(annotations)])
+		: { x: 0, y: 0 };
+};
+
 export const reportSize = { w: gridSize * 30, h: gridSize * 20 };
 
 const ownedNote = (

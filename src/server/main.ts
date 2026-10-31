@@ -54,6 +54,7 @@ import {
 	digestTimeoutMs,
 	loadDigests,
 } from "./digests.ts";
+import { createDocNotices } from "./docNotices.ts";
 import { loadDocFiles } from "./docs.ts";
 import { createDocsHttp, sessionMcpConfig } from "./docsHttp.ts";
 import {
@@ -83,6 +84,7 @@ import {
 	createRegionReportRunner,
 	createReportRunner,
 	regionMembersOf,
+	spotBesideSession,
 } from "./reports.ts";
 import { claudeLauncher, routedLauncher } from "./sessions.ts";
 import { attachTty, cmuxTty, sharedAttachTty } from "./terminals.ts";
@@ -443,6 +445,7 @@ const announce = createAnnouncer({
 	prompt: conversation.prompt,
 	audit,
 });
+const docNotices = createDocNotices();
 const tools = createBoardTools({
 	source,
 	layout,
@@ -481,7 +484,24 @@ const server = createKanbanServer({
 	ignores,
 	regions,
 	relations,
-	docs: createDocsHttp({ files: docs, relations, annotations }),
+	docs: createDocsHttp({
+		files: docs,
+		relations,
+		annotations: annotationsWithDocs,
+		sessions: () => source.board().sessions,
+		place: (sessionId, size) =>
+			spotBesideSession(
+				sessionId,
+				size,
+				annotations.current(),
+				cardsOf(source.board(), layout.current()),
+			),
+		notices: docNotices,
+		wake: async (session, text) => {
+			const sent = await conversation.prompt(session, text);
+			if (!sent.ok) throw new Error(sent.error);
+		},
+	}),
 	comments,
 	agent,
 	agentTokens,
@@ -494,6 +514,7 @@ const server = createKanbanServer({
 		relations: relations.current,
 		annotations: annotations.current,
 		docs: docs.index,
+		notices: docNotices,
 	}),
 	attach,
 	mirror: createMirrorHub({ cmux, resolve: cmuxTargets.resolve, audit }),

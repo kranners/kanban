@@ -38,7 +38,7 @@ const callTool = (
 	) as Promise<{ result: { content: { text: string }[]; isError: boolean } }>;
 
 describe("session mcp", () => {
-	it("lists the five doc tools under the name kanban", async () => {
+	it("lists the doc tools under the name kanban", async () => {
 		const { call } = recorder();
 		const initialised = (await handleMessage(
 			{ jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
@@ -53,7 +53,18 @@ describe("session mcp", () => {
 		)) as { result: { tools: { name: string }[] } };
 		assert.deepEqual(
 			listed.result.tools.map((tool) => tool.name),
-			["list_docs", "read_doc", "write_doc", "delete_doc", "put_doc_asset"],
+			[
+				"list_docs",
+				"read_doc",
+				"write_doc",
+				"delete_doc",
+				"put_doc_asset",
+				"find_doc_stores",
+				"create_doc_store",
+				"join_doc_store",
+				"leave_doc_store",
+				"share_doc_store",
+			],
 		);
 	});
 

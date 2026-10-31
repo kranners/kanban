@@ -1,9 +1,14 @@
+import { randomUUID } from "node:crypto";
 import {
 	type IncomingMessage,
 	type ServerResponse,
 	STATUS_CODES,
 } from "node:http";
-import { type DocToolCall, parseDocToolCall } from "../agent/docTools.ts";
+import {
+	type DocToolCall,
+	parseDocToolCall,
+	type StoreCall,
+} from "../agent/docTools.ts";
 import {
 	docContentType,
 	isDocPath,
@@ -11,10 +16,20 @@ import {
 	maxDocBytes,
 	maxDocTextBytes,
 } from "../shared/docPaths.ts";
-import { linkedTo } from "../shared/relations.ts";
-import type { DocFile, DocStore } from "../shared/types.ts";
+import { linkRefusal, live } from "../shared/reach.ts";
+import { linkedTo, samePair } from "../shared/relations.ts";
+import type {
+	DocFile,
+	DocStore,
+	Point,
+	RelationDraft,
+	Session,
+} from "../shared/types.ts";
+import { docStoreSize, topZ } from "../web/notes.ts";
 import { fromLoopback } from "./agentAuth.ts";
 import type { AnnotationStore } from "./annotations.ts";
+import { skipReason } from "./announce.ts";
+import type { DocNotices } from "./docNotices.ts";
 import type { DocFiles } from "./docs.ts";
 import type { RelationStore } from "./relations.ts";
 
@@ -30,9 +45,19 @@ export type DocsHttp = {
 
 export type DocsHttpDeps = {
 	files: DocFiles;
-	relations: Pick<RelationStore, "current">;
-	annotations: Pick<AnnotationStore, "current">;
+	relations: Pick<RelationStore, "current" | "create" | "remove">;
+	annotations: Pick<AnnotationStore, "current" | "put">;
+	sessions(): readonly Session[];
+	place(session: string, size: { w: number; h: number }): Point;
+	notices: Pick<DocNotices, "post">;
+	wake(session: Session, text: string): Promise<unknown>;
+	newId?: () => string;
 };
+
+export const wakeText =
+	"Another session on the kanban board shared a doc store with you. Its message is in the board's note on this prompt: read it, and act on it if it fits your work.";
+
+const wakeable = new Set<Session["activity"]>(["idle", "done", "watching"]);
 
 export const maxDocToolBytes = Math.ceil((maxDocBytes * 4) / 3) + 64 * 1024;
 
@@ -81,6 +106,17 @@ const readJson = (req: IncomingMessage, limit: number): Promise<unknown> =>
 		req.on("error", reject);
 	});
 
+const storeTools = new Set<string>([
+	"find_doc_stores",
+	"create_doc_store",
+	"join_doc_store",
+	"leave_doc_store",
+	"share_doc_store",
+]);
+
+const isStoreCall = (call: DocToolCall): call is StoreCall =>
+	storeTools.has(call.tool);
+
 const named = (store: DocStore) => `"${store.title}" (${store.id})`;
 
 const counted = (n: number, noun: string) =>
@@ -93,13 +129,23 @@ const fileLine = (file: DocFile) =>
 
 const noneLinked = {
 	error:
-		"No doc stores are linked to this session. Ask the user to link one on the kanban board: drag from a handle on this session's card to a doc store.",
+		"No doc stores are linked to this session. Make one with create_doc_store, or find one with find_doc_stores and join it with join_doc_store.",
 };
+
+const linkOf = (session: string, store: string): RelationDraft => ({
+	from: { kind: "session", id: session },
+	to: { kind: "docs", id: store },
+});
 
 export const createDocsHttp = ({
 	files,
 	relations,
 	annotations,
+	sessions,
+	place,
+	notices,
+	wake,
+	newId = randomUUID,
 }: DocsHttpDeps): DocsHttp => {
 	const docStore = (id: string): DocStore | null => {
 		const annotation = annotations.current()[id];
@@ -149,7 +195,10 @@ export const createDocsHttp = ({
 		error: `No file ${path} in ${named(store)}`,
 	});
 
-	const run = async (call: DocToolCall, store: DocStore): Promise<Outcome> => {
+	const run = async (
+		call: Exclude<DocToolCall, StoreCall>,
+		store: DocStore,
+	): Promise<Outcome> => {
 		switch (call.tool) {
 			case "list_docs":
 				return { text: listing(store) };
@@ -200,6 +249,189 @@ export const createDocsHttp = ({
 		}
 	};
 
+	const sessionOf = (id: string) =>
+		sessions().find((session) => session.id === id) ?? null;
+
+	const allStores = (): DocStore[] =>
+		Object.values(annotations.current()).filter(
+			(annotation): annotation is DocStore => annotation.kind === "docs",
+		);
+
+	const isLinked = (session: string, store: string) =>
+		relations
+			.current()
+			.some((relation) => samePair(relation, linkOf(session, store)));
+
+	const link = (session: string, store: string): Outcome => {
+		if (isLinked(session, store)) return { text: "" };
+		const made = relations.create(linkOf(session, store));
+		return "error" in made ? made : { text: "" };
+	};
+
+	const storeLine = (store: DocStore, caller: string) => {
+		const names = linkedTo(relations.current(), { kind: "docs", id: store.id })
+			.flatMap((end) => {
+				if (end.kind !== "session") return [];
+				if (end.id === caller) return ["you"];
+				const session = sessionOf(end.id);
+				return session ? [session.name] : [];
+			})
+			.sort((a, b) => (a === "you" ? -1 : b === "you" ? 1 : 0));
+		const linked =
+			names.length === 0
+				? "linked to no session"
+				: `linked to ${names.join(", ")}`;
+		return `- ${named(store)}: ${counted(filesOf(store).length, "file")} · ${linked}`;
+	};
+
+	const targetOf = (
+		caller: Session,
+		ref: string,
+	): Session | { error: string } => {
+		const all = sessions();
+		const exact =
+			all.find((session) => session.id === ref) ??
+			all.find((session) => session.short === ref);
+		const wanted = ref.trim().toLowerCase();
+		const named_ = all.filter(
+			(session) => session.name.toLowerCase() === wanted,
+		);
+		const running = named_.filter(live);
+		const candidates = running.length > 0 ? running : named_;
+		if (!exact && candidates.length > 1) {
+			return {
+				error: `Several sessions are named ${ref}, so give its id: ${candidates.map((session) => session.id).join(", ")}`,
+			};
+		}
+		const found = exact ?? candidates[0];
+		if (!found) {
+			const others = all
+				.filter((session) => session.id !== caller.id && live(session))
+				.map((session) => `${session.name} (${session.id})`);
+			return {
+				error: `No session ${ref} on the board.${others.length > 0 ? ` Live sessions: ${others.join(", ")}` : ""}`,
+			};
+		}
+		if (found.id === caller.id) return { error: "That's your own session" };
+		const refused = linkRefusal(found);
+		if (refused) return { error: refused };
+		if (!live(found)) return { error: `${found.name} isn't running` };
+		return found;
+	};
+
+	const noticeOf = (
+		caller: Session,
+		store: DocStore,
+		call: Extract<StoreCall, { tool: "share_doc_store" }>,
+	) =>
+		[
+			call.contribute
+				? `${caller.name} (session ${caller.id}) linked the doc store ${named(store)} to you and asks you to contribute to it.`
+				: `${caller.name} (session ${caller.id}) linked the doc store ${named(store)} to you for reference.`,
+			call.note ? `Their note: ${call.note}` : null,
+			call.contribute
+				? `Read it with mcp__kanban__list_docs and mcp__kanban__read_doc, then add what they ask with mcp__kanban__write_doc, reading a page again before you change it. If it doesn't fit your work, or when you're done, tell ${caller.name} with SendMessage where you can.`
+				: "Read what's relevant with mcp__kanban__list_docs and mcp__kanban__read_doc.",
+		]
+			.filter(Boolean)
+			.join(" ");
+
+	const runStore = async (
+		call: StoreCall,
+		caller: Session,
+	): Promise<Outcome> => {
+		switch (call.tool) {
+			case "find_doc_stores": {
+				const stores = allStores().sort((a, b) =>
+					a.title.localeCompare(b.title),
+				);
+				return stores.length === 0
+					? {
+							text: "There are no doc stores on the board. Make one with create_doc_store.",
+						}
+					: {
+							text: [
+								"Doc stores on the board:",
+								...stores.map((store) => storeLine(store, caller.id)),
+							].join("\n"),
+						};
+			}
+			case "create_doc_store": {
+				const id = newId();
+				const store: DocStore = {
+					id,
+					kind: "docs",
+					...place(caller.id, docStoreSize),
+					...docStoreSize,
+					z: topZ(annotations.current()) + 1,
+					title: call.title,
+				};
+				const put = annotations.put(store);
+				if ("error" in put) return put;
+				const linked = link(caller.id, id);
+				if ("error" in linked) return linked;
+				return {
+					text: `Made the doc store ${named(store)} beside your card and linked it to you. Start it with an index.md that explains what it covers, and tell sessions that need it with share_doc_store.`,
+				};
+			}
+			case "join_doc_store": {
+				const store = docStore(call.store);
+				if (!store)
+					return {
+						error: `No doc store ${call.store} on the board; see find_doc_stores`,
+					};
+				if (isLinked(caller.id, store.id)) {
+					return { text: `${named(store)} is already linked to you.` };
+				}
+				const linked = link(caller.id, store.id);
+				return "error" in linked
+					? linked
+					: { text: `Joined ${named(store)}.\n\n${listing(store)}` };
+			}
+			case "leave_doc_store": {
+				const relation = relations
+					.current()
+					.find((relation) =>
+						samePair(relation, linkOf(caller.id, call.store)),
+					);
+				if (!relation) {
+					return {
+						error: `Doc store ${call.store} isn't linked to this session`,
+					};
+				}
+				relations.remove(relation.id);
+				const store = docStore(call.store);
+				return { text: `Left ${store ? named(store) : call.store}.` };
+			}
+			case "share_doc_store": {
+				const store = chosen(caller.id, call.store);
+				if ("error" in store) return store;
+				const target = targetOf(caller, call.session);
+				if ("error" in target) return target;
+				const already = isLinked(target.id, store.id);
+				const linked = link(target.id, store.id);
+				if ("error" in linked) return linked;
+				notices.post(target.id, noticeOf(caller, store, call));
+				const woken =
+					wakeable.has(target.activity) && skipReason(target) === null
+						? await wake(target, wakeText).then(
+								() => true,
+								() => false,
+							)
+						: false;
+				const linkedText = already
+					? "was already linked to"
+					: "is now linked to";
+				const when = woken
+					? "It was idle, so the board woke it to read your note."
+					: "It gets your note at its next step.";
+				return {
+					text: `${named(store)} ${linkedText} ${target.name}. ${when}`,
+				};
+			}
+		}
+	};
+
 	const listLinked = (session: string): Outcome => {
 		const linked = linkedStores(session);
 		const [only, ...others] = linked;
@@ -237,6 +469,15 @@ export const createDocsHttp = ({
 			const call = parseDocToolCall(tool, body);
 			if ("error" in call) {
 				return sendJson(res, 400, { ok: false, error: call.error });
+			}
+			if (isStoreCall(call)) {
+				const caller = sessionOf(session);
+				const outcome = caller
+					? await runStore(call, caller)
+					: { error: "This session isn't on the kanban board" };
+				return "error" in outcome
+					? sendJson(res, 422, { ok: false, error: outcome.error })
+					: sendJson(res, 200, { ok: true, text: outcome.text });
 			}
 			const store =
 				call.tool === "list_docs" && call.store === undefined

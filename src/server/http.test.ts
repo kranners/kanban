@@ -515,7 +515,15 @@ describe("createKanbanServer", () => {
 			ignores,
 			regions,
 			relations,
-			docs: createDocsHttp({ files: docFiles, relations, annotations }),
+			docs: createDocsHttp({
+				files: docFiles,
+				relations,
+				annotations,
+				sessions: () => [],
+				place: () => ({ x: 0, y: 0 }),
+				notices: { post: () => {} },
+				wake: async () => {},
+			}),
 			comments,
 			agent: {
 				ask: (threadId, text) => {

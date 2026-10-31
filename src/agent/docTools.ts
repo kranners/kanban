@@ -7,13 +7,19 @@ import {
 	maxDocBytes,
 	maxDocTextBytes,
 } from "../shared/docPaths.ts";
+import { maxDocTitle } from "../shared/types.ts";
 
 export type DocToolName =
 	| "list_docs"
 	| "read_doc"
 	| "write_doc"
 	| "delete_doc"
-	| "put_doc_asset";
+	| "put_doc_asset"
+	| "find_doc_stores"
+	| "create_doc_store"
+	| "join_doc_store"
+	| "leave_doc_store"
+	| "share_doc_store";
 
 type Located = { store?: string; path: string };
 
@@ -22,7 +28,23 @@ export type DocToolCall =
 	| ({ tool: "read_doc" } & Located)
 	| ({ tool: "write_doc"; content: string } & Located)
 	| ({ tool: "delete_doc" } & Located)
-	| ({ tool: "put_doc_asset"; data: string } & Located);
+	| ({ tool: "put_doc_asset"; data: string } & Located)
+	| StoreCall;
+
+export type StoreCall =
+	| { tool: "find_doc_stores" }
+	| { tool: "create_doc_store"; title: string }
+	| { tool: "join_doc_store"; store: string }
+	| { tool: "leave_doc_store"; store: string }
+	| {
+			tool: "share_doc_store";
+			store?: string;
+			session: string;
+			note?: string;
+			contribute: boolean;
+	  };
+
+export const maxShareNote = 2000;
 
 export type DocToolInput =
 	| Exclude<DocToolCall, { tool: "put_doc_asset" }>
@@ -47,6 +69,11 @@ const store = {
 const path = {
 	type: "string",
 	description: "The file's path in the store, like guides/setup.md",
+};
+
+const storeId = {
+	type: "string",
+	description: "A doc store id from find_doc_stores or list_docs",
 };
 
 const object = (
@@ -114,6 +141,65 @@ export const docToolDefinitions: DocToolDefinition[] = [
 				},
 			},
 			["path", "file"],
+		),
+	},
+	{
+		name: "find_doc_stores",
+		description:
+			"List every doc store on the kanban board, not just yours: its id, title, file count, which sessions it is linked to, and whether it is linked to you. Join one with join_doc_store to read and write it.",
+		inputSchema: object({}),
+	},
+	{
+		name: "create_doc_store",
+		description:
+			"Make a new, empty doc store on the kanban board, placed beside your card and linked to you, so you can write docs to it right away. Start it with an index.md that explains what it covers. Returns its id.",
+		inputSchema: object(
+			{
+				title: {
+					type: "string",
+					maxLength: maxDocTitle,
+					description: "A short name for what the docs cover, one line",
+				},
+			},
+			["title"],
+		),
+	},
+	{
+		name: "join_doc_store",
+		description:
+			"Link an existing doc store to your session, so the doc tools can read and write it. Find ids with find_doc_stores.",
+		inputSchema: object({ store: storeId }, ["store"]),
+	},
+	{
+		name: "leave_doc_store",
+		description:
+			"Unlink a doc store from your session. The store and its files stay on the board for others.",
+		inputSchema: object({ store: storeId }, ["store"]),
+	},
+	{
+		name: "share_doc_store",
+		description:
+			"Tell another session on the board about one of your doc stores. It links the store to that session, so it can use the doc tools on it, and passes your note on at its next step (an idle session is woken to read it). With contribute it is asked to add to the docs, not only read them. Say in the note what the docs hold and, when asking for help, exactly what you want it to write.",
+		inputSchema: object(
+			{
+				store,
+				session: {
+					type: "string",
+					description:
+						"The other session's name, as other sessions are named to you, or its id",
+				},
+				note: {
+					type: "string",
+					maxLength: maxShareNote,
+					description: "What to tell it about the docs, or what to add",
+				},
+				contribute: {
+					type: "boolean",
+					description:
+						"Ask it to write to the docs too, not only read them; default false",
+				},
+			},
+			["session"],
 		),
 	},
 ];
@@ -196,6 +282,32 @@ const file = (fields: Fields, target: string): string => {
 		: fail(`file and path must have the same extension`);
 };
 
+const title = (fields: Fields): string => {
+	const value = string(fields, "title").trim();
+	return value.length > maxDocTitle || /\p{Cc}/u.test(value)
+		? fail(`title must be at most ${maxDocTitle} characters on one line`)
+		: value;
+};
+
+const requiredStore = (fields: Fields): string =>
+	storeOf(fields).store ?? fail("store must be a non-empty string");
+
+const note = (fields: Fields): { note?: string } => {
+	if (fields.note === undefined) return {};
+	const value = fields.note;
+	if (typeof value !== "string" || value.length > maxShareNote) {
+		return fail(`note must be a string of at most ${maxShareNote} characters`);
+	}
+	return value.trim() === "" ? {} : { note: value.trim() };
+};
+
+const flag = (fields: Fields, key: string): boolean => {
+	const value = fields[key] ?? false;
+	return typeof value === "boolean"
+		? value
+		: fail(`${key} must be true or false`);
+};
+
 const image = "an image (.png .jpg .jpeg .gif .webp .svg)";
 const text = "a text page (.md .txt .json .csv .svg)";
 
@@ -217,6 +329,30 @@ const common = {
 		tool: "delete_doc" as const,
 		...located(fields),
 	}),
+	find_doc_stores: (): StoreCall => ({ tool: "find_doc_stores" }),
+	create_doc_store: (fields: Fields): StoreCall => ({
+		tool: "create_doc_store",
+		title: title(fields),
+	}),
+	join_doc_store: (fields: Fields): StoreCall => ({
+		tool: "join_doc_store",
+		store: requiredStore(fields),
+	}),
+	leave_doc_store: (fields: Fields): StoreCall => ({
+		tool: "leave_doc_store",
+		store: requiredStore(fields),
+	}),
+	share_doc_store: (fields: Fields): StoreCall => {
+		const session = string(fields, "session");
+		return {
+			tool: "share_doc_store",
+			...storeOf(fields),
+			session:
+				session.length > 128 ? fail("session must be a session") : session,
+			...note(fields),
+			contribute: flag(fields, "contribute"),
+		};
+	},
 };
 
 const forms = {
@@ -247,6 +383,11 @@ const httpArguments: Record<DocToolName, string[]> = {
 	write_doc: ["store", "path", "content"],
 	delete_doc: ["store", "path"],
 	put_doc_asset: ["store", "path", "data"],
+	find_doc_stores: [],
+	create_doc_store: ["title"],
+	join_doc_store: ["store"],
+	leave_doc_store: ["store"],
+	share_doc_store: ["store", "session", "note", "contribute"],
 };
 
 const isDocToolName = (name: string): name is DocToolName =>
