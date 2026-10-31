@@ -721,18 +721,7 @@ button.reconnecting {
 	line-clamp: 3;
 }
 
-.node.has-artifacts .card-doing {
-	flex: none;
-	padding: 0 14px 10px;
-	color: var(--muted);
-	font-size: 12.5px;
-	line-height: 18px;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-.body:has(.needs) .goal {
+.node.has-artifacts .body:has(.needs) .goal {
 	-webkit-line-clamp: 2;
 	line-clamp: 2;
 }

@@ -1,6 +1,6 @@
 import type { Link } from "../shared/types.ts";
 import type { NodeKey, PlacedNode } from "./layout.ts";
-import { nodeKey, sessionLabelHeight } from "./layout.ts";
+import { nodeKey } from "./layout.ts";
 
 export type Point = { x: number; y: number };
 
@@ -32,8 +32,7 @@ export function treeMidpoint(from: PlacedNode, to: PlacedNode): Point {
 type Frame = { centre: Point; halfWidth: number; halfHeight: number };
 
 function frameOf(node: PlacedNode): Frame {
-	const top =
-		node.ref.kind === "session" ? node.y + sessionLabelHeight : node.y;
+	const top = node.y;
 	return {
 		centre: { x: node.x + node.w / 2, y: (top + node.y + node.h) / 2 },
 		halfWidth: node.w / 2,

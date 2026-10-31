@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Board, Link, Session, Subagent } from "../shared/types.ts";
 import { drawnLinks, tetherLine } from "./geometry.ts";
-import { sessionLabelHeight } from "./layout.ts";
 import { arrange, seedsOf } from "./placement.ts";
 
 function session(id: string): Session {
@@ -98,7 +97,7 @@ test("a tether runs between the facing edges of a note and its card frame", () =
 		"session:root",
 	);
 	assert.ok(card);
-	const frameTop = card.y + sessionLabelHeight;
+	const frameTop = card.y;
 	const note = {
 		x: card.x + card.w + 48,
 		y: frameTop,
