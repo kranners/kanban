@@ -685,3 +685,58 @@ describe("steps", () => {
 		);
 	});
 });
+
+describe("token usage", () => {
+	const usage = (id: string, input: number, output: number) => ({
+		type: "assistant",
+		message: {
+			id,
+			content: [{ type: "text", text: "hi" }],
+			usage: {
+				input_tokens: input,
+				output_tokens: output,
+				cache_read_input_tokens: 1000,
+				cache_creation_input_tokens: 200,
+			},
+		},
+	});
+
+	test("sums usage across messages, counting each message id once", () => {
+		const facts = apply(
+			usage("msg_1", 10, 5),
+			usage("msg_1", 10, 5),
+			usage("msg_2", 3, 40),
+		);
+		assert.deepEqual(facts.tokens, {
+			input: 13,
+			output: 45,
+			cacheRead: 2000,
+			cacheWrite: 400,
+		});
+	});
+
+	test("ignores records without usage and missing or bad counts", () => {
+		const facts = apply(
+			{ type: "assistant", message: { id: "msg_1", content: [] } },
+			{
+				type: "assistant",
+				message: {
+					id: "msg_2",
+					usage: { input_tokens: "7", output_tokens: 4 },
+				},
+			},
+			{ type: "user", message: { usage: { input_tokens: 99 } } },
+		);
+		assert.deepEqual(facts.tokens, {
+			input: 0,
+			output: 4,
+			cacheRead: 0,
+			cacheWrite: 0,
+		});
+	});
+
+	test("skips usage inherited from a forked parent", () => {
+		const facts = apply({ ...usage("msg_1", 10, 5), session_id: "other" });
+		assert.equal(facts.tokens.input, 0);
+	});
+});
