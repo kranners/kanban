@@ -1,7 +1,13 @@
 import { UserRound } from "lucide-preact";
 import type { JSX } from "preact";
 import { ChoiceMenu } from "./ChoiceMenu.tsx";
-import { accountLabel, pickableAccounts, usage } from "./usage.ts";
+import {
+	accountLabel,
+	accountRemaining,
+	accountSeverity,
+	pickableAccounts,
+	usage,
+} from "./usage.ts";
 
 export function AccountPicker(props: {
 	account: number | undefined;
@@ -15,12 +21,19 @@ export function AccountPicker(props: {
 	const { accounts, fallback } = pickable;
 	return (
 		<ChoiceMenu
-			choices={accounts.map((account) => ({
-				value: String(account.number),
-				label: accountLabel(account),
-				detail: `${account.email}${account.isDefault ? " (default)" : ""}`,
-				icon: UserRound,
-			}))}
+			choices={accounts.map((account) => {
+				const detail = `${account.email}${account.isDefault ? " (default)" : ""}`;
+				const meta = accountRemaining(account);
+				return {
+					value: String(account.number),
+					label: accountLabel(account),
+					detail,
+					meta,
+					metaClass: `usage-${accountSeverity(account)}`,
+					title: `${detail} · ${meta} left`,
+					icon: UserRound,
+				};
+			})}
 			value={String(props.account ?? fallback.number)}
 			onPick={(value) => {
 				const picked = Number(value);

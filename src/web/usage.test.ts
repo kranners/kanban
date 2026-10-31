@@ -4,6 +4,8 @@ import type { AccountUsage, Usage } from "../shared/types.ts";
 import {
 	accountChip,
 	accountOf,
+	accountRemaining,
+	accountSeverity,
 	linePath,
 	nearestSample,
 	pickableAccounts,
@@ -119,4 +121,21 @@ test("accounts are pickable only with a default and a choice", () => {
 		accounts: [account(1), chosen],
 		fallback: chosen,
 	});
+});
+
+test("an account shows the 5h and weekly limit left, rounded", () => {
+	const left = account(1, {
+		session: { percent: 38.4, resetsAt: null },
+		week: { percent: 82.6, resetsAt: null },
+	});
+	assert.equal(accountRemaining(left), "5h 62% · wk 17%");
+	assert.equal(accountSeverity(left), "warning");
+	const spent = account(2, {
+		session: { percent: 104, resetsAt: null },
+		week: null,
+	});
+	assert.equal(accountRemaining(spent), "5h 0% · wk –");
+	assert.equal(accountSeverity(spent), "critical");
+	assert.equal(accountRemaining(account(3)), "5h – · wk –");
+	assert.equal(accountSeverity(account(3)), "normal");
 });

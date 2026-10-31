@@ -4,6 +4,7 @@ import type {
 	AccountUsage,
 	Usage,
 	UsageSample,
+	UsageWindow,
 } from "../shared/types.ts";
 
 export const usage = signal<Usage | null>(null);
@@ -94,6 +95,15 @@ export const accountChip = (
 	const slot = configDir.split("/").at(-1)?.match(/^\d+/)?.[0];
 	return slot ? `#${slot}` : "#?";
 };
+
+const remaining = (window: UsageWindow | null): string =>
+	window ? `${Math.max(0, Math.round(100 - window.percent))}%` : "–";
+
+export const accountRemaining = (account: AccountUsage): string =>
+	`5h ${remaining(account.session)} · wk ${remaining(account.week)}`;
+
+export const accountSeverity = (account: AccountUsage): Severity =>
+	severity(Math.max(account.session?.percent ?? 0, account.week?.percent ?? 0));
 
 export const accountLabel = (account: AccountUsage): string =>
 	account.alias ?? `#${account.number}`;

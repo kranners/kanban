@@ -196,7 +196,7 @@
 	z-index: 5;
 	width: max-content;
 	min-width: 180px;
-	max-width: 360px;
+	max-width: min(360px, calc(100vw - 16px));
 	margin-top: 0;
 	box-shadow: var(--shadow-pop);
 	animation: menu-in calc(120ms * var(--motion)) ease-out;
@@ -213,6 +213,27 @@
 
 .choice-menu .folder-menu-name {
 	max-width: none;
+}
+
+.folder-menu-meta {
+	flex: none;
+	color: var(--muted);
+	font-family: var(--mono);
+	font-size: 11px;
+	white-space: nowrap;
+}
+
+.folder-menu-check {
+	flex: none;
+	width: 13px;
+}
+
+.folder-menu-meta.usage-warning {
+	color: var(--amber);
+}
+
+.folder-menu-meta.usage-critical {
+	color: var(--failed-edge);
 }
 
 .folder-menu-item:disabled {

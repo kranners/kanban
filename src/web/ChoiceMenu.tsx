@@ -1,13 +1,25 @@
 import "./folderPicker.css";
 import { Check, ChevronDown, type LucideIcon } from "lucide-preact";
 import type { JSX } from "preact";
-import { useEffect, useId, useRef, useState } from "preact/hooks";
+import {
+	useEffect,
+	useId,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "preact/hooks";
 import { moveMenuFocus } from "./menuFocus.ts";
+import { fitPadding } from "./viewport.ts";
 
 export type Choice<Value extends string> = {
 	value: Value;
 	label: string;
 	detail?: string;
+	/** Short text that never truncates, shown after the detail. */
+	meta?: string;
+	metaClass?: string;
+	/** Tooltip; defaults to the detail and meta. */
+	title?: string;
 	icon?: LucideIcon;
 	blocked?: string | null;
 };
@@ -30,6 +42,30 @@ export function ChoiceMenu<Value extends string>(props: {
 	const [open, setOpen] = useState(false);
 	const current = props.choices.find(({ value }) => value === props.value);
 	const Icon = current?.icon;
+
+	// Keep the open menu inside the board (or the window), so a wide menu
+	// near the edge shifts over instead of the board panning to reach it.
+	useLayoutEffect(() => {
+		const element = menu.current;
+		const anchor = root.current;
+		if (!open || !element || !anchor) return;
+		const board = anchor.closest(".viewport")?.getBoundingClientRect();
+		const margin = board ? fitPadding : 8;
+		const from = (board?.left ?? 0) + margin;
+		const to = (board?.right ?? innerWidth) - margin;
+		// Measure from the anchor, since the menu's opening animation scales it.
+		const at = anchor.getBoundingClientRect();
+		const scale = at.width / (anchor.offsetWidth || at.width) || 1;
+		element.style.translate = "";
+		element.style.maxWidth = "";
+		const room = (to - from) / scale;
+		if (element.offsetWidth > room) element.style.maxWidth = `${room}px`;
+		const left = at.left + element.offsetLeft * scale;
+		const right = left + element.offsetWidth * scale;
+		let shift = Math.min(0, to - right);
+		if (left + shift < from) shift = from - left;
+		if (shift !== 0) element.style.translate = `${shift / scale}px 0`;
+	}, [open]);
 
 	useEffect(() => {
 		if (!open) return;
@@ -101,7 +137,11 @@ export function ChoiceMenu<Value extends string>(props: {
 								role="menuitemradio"
 								aria-checked={choice.value === props.value}
 								class="folder-menu-item"
-								title={choice.blocked ?? choice.detail}
+								title={
+									choice.blocked ??
+									choice.title ??
+									[choice.detail, choice.meta].filter(Boolean).join(" · ")
+								}
 								disabled={Boolean(choice.blocked)}
 								onClick={() => {
 									close();
@@ -113,8 +153,17 @@ export function ChoiceMenu<Value extends string>(props: {
 								<span class="folder-menu-path">
 									{choice.blocked ?? choice.detail}
 								</span>
-								{choice.value === props.value && (
+								{choice.meta && !choice.blocked && (
+									<span
+										class={`folder-menu-meta${choice.metaClass ? ` ${choice.metaClass}` : ""}`}
+									>
+										{choice.meta}
+									</span>
+								)}
+								{choice.value === props.value ? (
 									<Check size={13} aria-hidden="true" />
+								) : (
+									choice.meta && <span class="folder-menu-check" />
 								)}
 							</button>
 						);

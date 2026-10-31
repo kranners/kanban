@@ -423,7 +423,7 @@
 
 .quick-prompt-hint {
 	grid-column: 1 / -1;
-	justify-self: end;
+	justify-self: start;
 	white-space: nowrap;
 }
 

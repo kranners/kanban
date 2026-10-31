@@ -422,6 +422,9 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 				)}
 			</div>
 			<div class="quick-prompt-meta">
+				<span class="quick-prompt-hint">
+					<kbd>Enter</kbd> start · <kbd>Esc</kbd> cancel
+				</span>
 				<FolderPicker
 					variant="chip"
 					value={open.cwd}
@@ -453,9 +456,6 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 						input.current?.focus({ preventScroll: true });
 					}}
 				/>
-				<span class="quick-prompt-hint">
-					<kbd>Enter</kbd> start · <kbd>Esc</kbd> cancel
-				</span>
 			</div>
 			{error && (
 				<div class="quick-prompt-error" role="alert">
