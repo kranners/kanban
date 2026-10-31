@@ -9,12 +9,13 @@ import type { NodeKey } from "./layout.ts";
 import type { Bounds, Rect } from "./placement.ts";
 import { maxSessionSize, minSessionSize } from "./placement.ts";
 import {
-	axisOf,
+	boardRoute,
 	latchMs,
 	nextLatch,
-	scrollsAlong,
+	scrollerAlong,
+	splitWheel,
 	type WheelLatch,
-	type WheelMode,
+	type WheelRoute,
 } from "./scrolling.ts";
 import type { Span, View } from "./viewport.ts";
 import {
@@ -155,26 +156,32 @@ export function Canvas(props: {
 	useEffect(() => {
 		const el = viewport.current;
 		if (!el) return;
-		let latch: WheelLatch | null = null;
-		const freshMode = (event: WheelEvent): WheelMode => {
+		// A gesture that starts over a scrollable region gives that region the
+		// axes it can scroll and pans the board along the rest. One that starts
+		// on the board keeps panning it when a region slides under the cursor.
+		let latch: WheelLatch<Element> | null = null;
+		const freshRoute = (event: WheelEvent): WheelRoute<Element> => {
 			const target = event.target as Element;
 			const scroller = target.closest("[data-scrollable]");
-			if (!scroller) return "board";
+			if (!scroller) return boardRoute;
 			const world = scroller.closest(".world");
-			if (!world) return "scroll";
-			const axis = axisOf(event.deltaX, event.deltaY);
-			return scrollsAlong(target, world, axis) ? "scroll" : "board";
+			if (!world) return "native";
+			return {
+				x: scrollerAlong(target, world, "x"),
+				y: scrollerAlong(target, world, "y"),
+			};
 		};
 		const onWheel = (event: WheelEvent) => {
 			const zooming = event.ctrlKey || event.metaKey;
 			latch = zooming
-				? { mode: "board", until: event.timeStamp + latchMs }
-				: nextLatch(latch, event.timeStamp, () => freshMode(event));
-			if (latch.mode === "scroll") return;
-			event.preventDefault();
+				? { route: boardRoute, until: event.timeStamp + latchMs }
+				: nextLatch(latch, event.timeStamp, () => freshRoute(event));
+			const route = latch.route;
+			if (route === "native") return;
 			const rect = el.getBoundingClientRect();
 			const v = view.value;
 			if (zooming) {
+				event.preventDefault();
 				const factor = Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.002));
 				view.value = zoomAround(
 					v,
@@ -182,9 +189,15 @@ export function Canvas(props: {
 					event.clientX - rect.left,
 					event.clientY - rect.top,
 				);
-			} else {
-				view.value = { ...v, x: v.x - event.deltaX, y: v.y - event.deltaY };
+				return;
 			}
+			const { board, scroll } = splitWheel(route, event.deltaX, event.deltaY);
+			// Only the region's axes moved: let the browser scroll it natively.
+			if (board.dx === 0 && board.dy === 0) return;
+			event.preventDefault();
+			scroll.x?.scrollBy({ left: scroll.dx });
+			scroll.y?.scrollBy({ top: scroll.dy });
+			view.value = { ...v, x: v.x - board.dx, y: v.y - board.dy };
 		};
 		el.addEventListener("wheel", onWheel, { passive: false });
 
