@@ -792,10 +792,6 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				error: "The board agent is still working on this",
 			});
 		}
-		if (previous) {
-			deps.agent.cancel(previous.id);
-			deps.comments.remove(previous.id);
-		}
 		const thread = deps.comments.create(draft);
 		if (!thread) {
 			return sendJson(res, 409, {
@@ -805,8 +801,10 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		}
 		const asked = deps.agent.ask(thread.id, draft.text);
 		if ("error" in asked) {
+			if (draft.button) deps.comments.remove(thread.id);
 			return sendJson(res, asked.status, { ok: false, error: asked.error });
 		}
+		if (previous) deps.comments.remove(previous.id);
 		sendJson(res, 201, deps.comments.get(thread.id) ?? thread);
 	};
 

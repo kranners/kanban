@@ -14,11 +14,7 @@ import {
 } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type {
-	AgentButton,
-	CommentEvent,
-	CommentThread,
-} from "../shared/types.ts";
+import type { CommentEvent, CommentThread } from "../shared/types.ts";
 import { boardPointAt, clientPointOf, view } from "./Canvas.tsx";
 import {
 	buttonThreads,
@@ -506,7 +502,8 @@ function ButtonPanel(): JSX.Element | null {
 			class="comment-thread agent-panel"
 			ref={panel}
 			style={{ left: `${left}px`, top: `${box.bottom + 6}px` }}
-			aria-label={agentButtonLabels[button]}
+			role="dialog"
+			aria-label="Board agent"
 			onKeyDown={(event) => {
 				if (event.key === "Escape") {
 					event.preventDefault();
@@ -618,19 +615,6 @@ export function CommentOverlays(): JSX.Element {
 		</>
 	);
 }
-
-export const agentButtonLabels = {
-	tidy: "Tidy the board",
-	snooze: "Leave for a while",
-} satisfies Record<AgentButton, string>;
-
-export const tidyPrompt =
-	"Tidy up the board: group the sessions into project regions by directory, lay out each region's cards in a neat grid, and keep notes and stickers beside what they are about.";
-
-const awayMessage =
-	"I'm stepping away for an extended period and won't be around to answer. Ask me now, in one message, for everything you will need to carry on unattended until your task is done: permissions, credentials, decisions and approvals. Once I've answered, keep working without me.";
-
-export const snoozePrompt = `The user is leaving for an extended period. Start with board_snapshot, then call send_prompt on every session whose activity is working, watching or idle, with exactly this text: "${awayMessage}" Skip every session whose activity is needs-you: it is waiting on a question or permission prompt, so send it nothing and never answer its prompt with answer_prompt. Skip sessions that are done, failed or stopped. If send_prompt refuses a session, do not retry or work around it. Do not move, note or change anything on the board. Finish with a short summary: the sessions you told, then each session you skipped because it was waiting on the user (by name, with what it is waiting on), then each session send_prompt refused (by name, with the reason).`;
 
 function centreTarget() {
 	const stage = document.querySelector(".viewport");

@@ -11,12 +11,7 @@ import {
 import { useState } from "preact/hooks";
 import type { AgentButton } from "../shared/types.ts";
 import { NotifyToggle } from "./Alerts.tsx";
-import {
-	agentButtonLabels,
-	closeButtonPanel,
-	snoozePrompt,
-	tidyPrompt,
-} from "./Comments.tsx";
+import { closeButtonPanel } from "./Comments.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import {
 	buttonThreads,
@@ -38,11 +33,16 @@ const themeName = {
 	dark: "Dark theme",
 };
 
+const awayMessage =
+	"I'm stepping away for an extended period and won't be around to answer. Ask me now, in one message, for everything you will need to carry on unattended until your task is done: permissions, credentials, decisions and approvals. Once I've answered, keep working without me.";
+
 const agentButtonCopy = {
 	tidy: {
 		icon: Broom,
+		label: "Tidy the board",
 		busy: "Tidying the board",
-		prompt: tidyPrompt,
+		prompt:
+			"Tidy up the board: group the sessions into project regions by directory, lay out each region's cards in a neat grid, and keep notes and stickers beside what they are about.",
 		ask: "Tidy the board?",
 		confirmLabel: "Tidy",
 		detail:
@@ -51,8 +51,9 @@ const agentButtonCopy = {
 	},
 	snooze: {
 		icon: Bed,
+		label: "Leave for a while",
 		busy: "Telling sessions you're leaving",
-		prompt: snoozePrompt,
+		prompt: `The user is leaving for an extended period. Start with board_snapshot, then call send_prompt on every session whose activity is working, watching or idle, with exactly this text: "${awayMessage}" Skip every session whose activity is needs-you: it is waiting on a question or permission prompt, so send it nothing and never answer its prompt with answer_prompt. Skip sessions that are done, failed or stopped. If send_prompt refuses a session, do not retry or work around it. Do not move, note or change anything on the board. Finish with a short summary: the sessions you told, then each session you skipped because it was waiting on the user (by name, with what it is waiting on), then each session send_prompt refused (by name, with the reason).`,
 		ask: "Leave for a while?",
 		confirmLabel: "Tell sessions",
 		detail:
@@ -64,7 +65,7 @@ const agentButtonCopy = {
 function BoardAgentButton(props: { button: AgentButton }) {
 	const { button } = props;
 	const copy = agentButtonCopy[button];
-	const label = agentButtonLabels[button];
+	const { label } = copy;
 	const thread = buttonThreads.value.get(button);
 	const state = thread ? pinState(thread) : null;
 	const unseen = state === "answered" || state === "failed";

@@ -427,6 +427,9 @@ describe("createKanbanServer", () => {
 			agent: {
 				ask: (threadId, text) => {
 					asked.push([threadId, text]);
+					if (text === "no room") {
+						return { error: "At most 4 board agents run at once", status: 409 };
+					}
 					return comments.get(threadId)
 						? { ok: true }
 						: { error: "No such comment", status: 404 };
@@ -1447,7 +1450,7 @@ describe("createKanbanServer", () => {
 		);
 	});
 
-	it("keeps one thread per top-bar button and refuses a rerun while it works", async () => {
+	it("keeps one thread per top-bar button, refuses a rerun while it works, and keeps the last result when a run can't start", async () => {
 		const post = (button: unknown, text: string) =>
 			send("POST", "/api/comments", { x: 0, y: 0, button, text });
 		const first = await post("snooze", "leaving");
@@ -1472,7 +1475,11 @@ describe("createKanbanServer", () => {
 			buttons().map((thread) => thread.id),
 			[replaced.id],
 		);
-		assert.equal(cancelled.at(-1), snooze.id);
+		assert.equal((await post("snooze", "no room")).status, 409);
+		assert.deepEqual(
+			buttons().map((thread) => thread.id),
+			[replaced.id],
+		);
 		assert.ok(comments.get(tidy.id));
 		assert.equal((await post("nap", "x")).status, 400);
 	});

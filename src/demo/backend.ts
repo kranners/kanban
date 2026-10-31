@@ -28,6 +28,7 @@ import type {
 	Session,
 	Subagent,
 } from "../shared/types.ts";
+import { agentButtons } from "../shared/types.ts";
 import {
 	closing,
 	dialogOf,
@@ -700,10 +701,7 @@ export function createBackend(scenario: Scenario): Backend {
 			draft.text.trim() === ""
 		)
 			return json(400, { ok: false, error: "x, y and text are required" });
-		const button =
-			draft.button === "tidy" || draft.button === "snooze"
-				? draft.button
-				: undefined;
+		const button = agentButtons.find((name) => name === draft.button);
 		const previous = button
 			? world.comments.find((thread) => thread.button === button)
 			: undefined;
@@ -712,10 +710,6 @@ export function createBackend(scenario: Scenario): Backend {
 				ok: false,
 				error: "The board agent is still working on this",
 			});
-		if (previous) {
-			world.comments = world.comments.filter((thread) => thread !== previous);
-			broadcast({ type: "comments", comments: world.comments });
-		}
 		const at = Date.now();
 		const n = next();
 		const thread: CommentThread = {
@@ -734,6 +728,10 @@ export function createBackend(scenario: Scenario): Backend {
 		world.comments.push(thread);
 		broadcast({ type: "comment", comment: thread });
 		ask(thread.id, draft.text);
+		if (previous) {
+			world.comments = world.comments.filter((item) => item !== previous);
+			broadcast({ type: "comments", comments: world.comments });
+		}
 		return json(
 			201,
 			world.comments.find((item) => item.id === thread.id) ?? thread,

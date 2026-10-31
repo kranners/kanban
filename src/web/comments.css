@@ -323,6 +323,7 @@
 
 .agent-panel {
 	z-index: 61;
+	max-height: min(520px, calc(100vh - var(--topbar) - 16px));
 }
 
 .agent-dot {
