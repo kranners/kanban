@@ -176,11 +176,16 @@ Security. The agent acts with the user's reach on the board but no further: it c
 
 ## Infrastructure
 
-The host runs two launchd user agents:
-- `kanban`: `node src/server/main.ts` from the checkout, with `~/.config/kanban/env` in its environment and a `PATH` that reaches `claude` (or `CLAUDE_BIN` set).
-- `kanban-tunnel`: `cloudflared tunnel run` for the `kanban` tunnel.
+The host runs three launchd user agents, installed by `npm run launchd-setup` (`scripts/launchd-setup.ts`) from the main checkout, logging to `~/Library/Logs/kanban/`:
+- `kanban`: plain `node src/server/main.ts` from the main checkout on `main`, with `~/.config/kanban/env` in its environment and a `PATH` that reaches `claude` (or `CLAUDE_BIN` set). KeepAlive; `kanban-sync` restarts it.
+- `kanban-tunnel`: `cloudflared tunnel run --token-file ~/.config/kanban/tunnel-token` for the `kanban` tunnel.
+- `kanban-sync`: `scripts/sync.ts` every 60 seconds. It only fast-forwards, and refuses, with a log line and one notification per `origin/main` commit, when the checkout is off `main`, has uncommitted tracked changes or holds commits `origin/main` lacks; it never resets or stashes. A lock in the git dir keeps runs apart. When `package.json` or the lockfile changed it runs `npm ci` in the git dir before fast-forwarding and swaps the result into `node_modules`, so a failed install leaves the checkout alone. It builds into `dist.next/` and swaps it in, then records the built commit in `dist/.commit`. It restarts `kanban` once with `launchctl kickstart -k`, unless every change is page-only (components, styles and assets in `src/web/`, `docs/`, `site/`, `.github/` and Markdown), so a page-only change keeps terminals open; the server imports `src/web/*.ts`, so those restart it. After a restart it waits up to 30 seconds for `/healthz` and notifies if the server doesn't answer. A failed build keeps the old `dist/`, posts a notification and is not retried until `origin/main` moves. `KANBAN_SYNC=off` in the environment or `~/.config/kanban/env` pauses it. Its log is `sync.log`.
 
-A hostname such as `kanban.example.com` routes through the tunnel and is gated by Cloudflare Access on your Access team, allowing one identity. Defence in depth: cloudflared requires the Access token before proxying, the server verifies `Cf-Access-Jwt-Assertion` against the team's keys and audience, and WebSocket upgrades must come from the board's own origin. Local development runs with `KANBAN_AUTH=off`, which binds to localhost only.
+`app.js` and `app.css` keep fixed names, so they are served `no-cache` with an ETag and a rebuild shows on the next load; hashed files under `assets/` are cached as immutable.
+
+A hostname such as `kanban.example.com` routes through the tunnel and is gated by Cloudflare Access on your Access team, allowing one identity. Defence in depth: cloudflared requires the Access token before proxying, the server verifies `Cf-Access-Jwt-Assertion` against the team's keys and audience, and WebSocket upgrades must come from the board's own origin.
+
+Development happens in worktrees or cloud clones with `KANBAN_AUTH=off`, which binds to localhost only, on another `KANBAN_PORT`; only the main checkout serves the live board. Changes reach it through `origin/main`: `npm run land` pushes, `kanban-sync` pulls.
 
 `scripts/cloudflare-setup.ts` creates the tunnel, its DNS record and the Access application from an API token and the account, zone, hostname, Access team and allowed email it is given, idempotently, and writes the tunnel token and audience to `~/.config/kanban/`.
 

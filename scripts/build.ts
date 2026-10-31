@@ -1,4 +1,4 @@
-import { copyFile, cp, mkdir, rm } from "node:fs/promises";
+import { copyFile, cp, mkdir, rename, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
 
@@ -17,12 +17,28 @@ const siteFiles = {
 	media: `${root}docs/media`,
 };
 
-async function bundle(entry: string, out: string): Promise<void> {
-	await rm(out, { recursive: true, force: true });
-	await mkdir(out, { recursive: true });
+// Swap a finished build in place of `out`, so a failed build leaves the
+// served copy alone.
+export async function swapIn(next: string, out: string): Promise<void> {
+	const old = `${out}.old`;
+	await rm(old, { recursive: true, force: true });
+	try {
+		await rename(out, old);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+	}
+	await rename(next, out);
+	await rm(old, { recursive: true, force: true });
+}
+
+async function bundle(entry: string, outDir: string): Promise<void> {
+	const out = outDir.replace(/\/$/, "");
+	const next = `${out}.next/`;
+	await rm(next, { recursive: true, force: true });
+	await mkdir(next, { recursive: true });
 	await esbuild.build({
 		entryPoints: [entry],
-		outfile: `${out}app.js`,
+		outfile: `${next}app.js`,
 		bundle: true,
 		format: "esm",
 		minify: true,
@@ -36,8 +52,9 @@ async function bundle(entry: string, out: string): Promise<void> {
 		logLevel: "warning",
 	});
 	await Promise.all(
-		staticFiles.map((file) => copyFile(`${web}${file}`, `${out}${file}`)),
+		staticFiles.map((file) => copyFile(`${web}${file}`, `${next}${file}`)),
 	);
+	await swapIn(next, out);
 }
 
 export const build = (): Promise<void> => bundle(`${web}main.tsx`, dist);

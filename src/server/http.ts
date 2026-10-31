@@ -1,4 +1,4 @@
-import { createReadStream } from "node:fs";
+import { createReadStream, type Stats } from "node:fs";
 import { stat } from "node:fs/promises";
 import {
 	createServer,
@@ -471,7 +471,15 @@ const isFile = async (path: string): Promise<boolean> => {
 	}
 };
 
+// Hashed assets never change under their name; app.js and app.css keep
+// fixed names, so they revalidate on every load and a rebuild shows at once.
+export const cacheControlFor = (dist: string, file: string): string =>
+	file.startsWith(join(dist, "assets", sep))
+		? "public, max-age=31536000, immutable"
+		: "no-cache";
+
 const serveStatic = async (
+	req: IncomingMessage,
 	res: ServerResponse,
 	dist: string,
 	urlPath: string,
@@ -480,16 +488,29 @@ const serveStatic = async (
 	const requested = staticFile(dist, urlPath);
 	if (requested === null) return sendError(res, 404);
 	const file = (await isFile(requested)) ? requested : join(dist, "index.html");
-	if (!(await isFile(file))) return sendError(res, 404);
-	res.writeHead(200, {
+	let info: Stats;
+	try {
+		info = await stat(file);
+		if (!info.isFile()) return sendError(res, 404);
+	} catch {
+		return sendError(res, 404);
+	}
+	const headers: Record<string, string> = {
 		"content-type": contentTypeFor(file),
-		"cache-control": file.endsWith(".html")
-			? "no-cache"
-			: "public, max-age=3600",
+		"cache-control": cacheControlFor(dist, file),
 		"x-content-type-options": "nosniff",
 		"content-security-policy": "frame-ancestors 'none'",
 		"x-frame-options": "DENY",
-	});
+	};
+	if (!file.endsWith(".html")) {
+		const etag = `"${info.size}-${Math.floor(info.mtimeMs)}"`;
+		headers.etag = etag;
+		if (req.headers["if-none-match"] === etag) {
+			res.writeHead(304, headers);
+			return res.end();
+		}
+	}
+	res.writeHead(200, headers);
 	if (head) return res.end();
 	pipeline(createReadStream(file), res, (error) => {
 		if (error) res.destroy();
@@ -1124,7 +1145,13 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			case "delete-comment":
 				return deleteComment(req, res, route.threadId);
 			case "static":
-				return serveStatic(res, deps.dist, route.path, req.method === "HEAD");
+				return serveStatic(
+					req,
+					res,
+					deps.dist,
+					route.path,
+					req.method === "HEAD",
+				);
 		}
 	};
 

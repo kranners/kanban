@@ -288,6 +288,7 @@ describe("createKanbanServer", () => {
 		await mkdir(join(dist, "assets"));
 		await writeFile(join(dist, "index.html"), "<!doctype html>board");
 		await writeFile(join(dist, "assets", "app.js"), "export {}");
+		await writeFile(join(dist, "app.js"), "export const app = 1");
 		await writeFile(join(dist, "locked.js"), "export {}");
 		await chmod(join(dist, "locked.js"), 0o000);
 		const attach: AttachHub = {
@@ -591,6 +592,35 @@ describe("createKanbanServer", () => {
 			"frame-ancestors 'none'",
 		);
 		assert.equal(deep.headers.get("x-frame-options"), "DENY");
+	});
+
+	it("caches hashed assets for good and revalidates app.js", async () => {
+		const asset = await fetch(`${base}/assets/app.js`, { headers: authed });
+		assert.equal(
+			asset.headers.get("cache-control"),
+			"public, max-age=31536000, immutable",
+		);
+		const app = await fetch(`${base}/app.js`, { headers: authed });
+		assert.equal(app.headers.get("cache-control"), "no-cache");
+		assert.match(app.headers.get("etag") ?? "", /^"\d+-\d+"$/);
+		const page = await fetch(`${base}/`, { headers: authed });
+		assert.equal(page.headers.get("cache-control"), "no-cache");
+	});
+
+	it("answers a matching If-None-Match with 304 and no body", async () => {
+		const first = await fetch(`${base}/app.js`, { headers: authed });
+		await first.text();
+		const etag = first.headers.get("etag") ?? "";
+		const again = await fetch(`${base}/app.js`, {
+			headers: { ...authed, "if-none-match": etag },
+		});
+		assert.equal(again.status, 304);
+		assert.equal(await again.text(), "");
+		const stale = await fetch(`${base}/app.js`, {
+			headers: { ...authed, "if-none-match": '"0-0"' },
+		});
+		assert.equal(stale.status, 200);
+		assert.equal(await stale.text(), "export const app = 1");
 	});
 
 	const rootReadsEveryFile = process.getuid?.() === 0;

@@ -98,6 +98,10 @@ KANBAN_AUTH=off npm start
 
 Then open <http://127.0.0.1:7420>. `npm run dev` rebuilds and restarts on change; `npm run check` runs tsc, Biome and the tests. `npm run demo` serves a board of fictional sessions at <http://127.0.0.1:7421/demo/>, with no Claude Code needed.
 
+### Keep a board running
+
+Run `npm run launchd-setup` from a checkout of `main`. It installs launchd agents for the server, the tunnel and `kanban-sync`, which fast-forwards to `origin/main` every minute and reinstalls, rebuilds and restarts as needed. `npm run sync` does one round by hand. Logs are in `~/Library/Logs/kanban/`. See [Infrastructure](docs/design.md#infrastructure).
+
 ## Configuration
 
 | Variable           | Default                                        | Purpose                                                       |
@@ -112,6 +116,7 @@ Then open <http://127.0.0.1:7420>. `npm run dev` rebuilds and restarts on change
 | `KANBAN_STATE`     | `~/.local/state/kanban`, or `kanban-<port>`    | Where the layout, notes, colours, regions and threads live    |
 | `KANBAN_AUDIT_LOG` | `~/Library/Logs/kanban/audit.jsonl`            | Audit log of exits, new sessions, sends and board agent edits |
 | `KANBAN_DIST`      | `dist`                                         | Built page                                                    |
+| `KANBAN_SYNC`      | `on`                                           | Set `off` to pause `kanban-sync`                              |
 
 The default, `access`, verifies Cloudflare Access tokens and refuses to start without `KANBAN_ACCESS_TEAM` (the Access team name), `KANBAN_ACCESS_AUD` (the Access application's audience tag) and `KANBAN_ORIGIN` (the board's public origin, such as `https://kanban.example.com`); the [design notes](docs/design.md#infrastructure) describe the tunnel and Access setup. Run locally with `KANBAN_AUTH=off`.
 
@@ -128,7 +133,7 @@ See [SECURITY.md](SECURITY.md) for the threat model and how to report a vulnerab
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). The [design notes](docs/design.md) cover where each piece of data comes from and how sessions are driven.
+Changes land directly on `main` with `npm run land`. See [CONTRIBUTING.md](CONTRIBUTING.md). The [design notes](docs/design.md) cover where each piece of data comes from and how sessions are driven.
 
 ## License
 

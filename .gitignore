@@ -1,5 +1,10 @@
 node_modules
+node_modules.old
 dist
+dist.next
+dist.old
 .DS_Store
 .claude/worktrees
 _site
+_site.next
+_site.old
