@@ -715,6 +715,16 @@ describe("token usage", () => {
 		});
 	});
 
+	test("keeps the largest usage seen for a message streamed over several records", () => {
+		const facts = apply(usage("msg_1", 10, 1), usage("msg_1", 10, 30));
+		assert.deepEqual(facts.tokens, {
+			input: 10,
+			output: 30,
+			cacheRead: 1000,
+			cacheWrite: 200,
+		});
+	});
+
 	test("ignores records without usage and missing or bad counts", () => {
 		const facts = apply(
 			{ type: "assistant", message: { id: "msg_1", content: [] } },

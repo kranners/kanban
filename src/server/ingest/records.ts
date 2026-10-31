@@ -63,7 +63,7 @@ export type TranscriptFacts = {
 	steps: Step[];
 	entries: TranscriptEntry[];
 	tokens: TokenUsage;
-	countedMessages: Set<string>;
+	countedMessages: Map<string, TokenUsage>;
 };
 
 export const entryLimit = 2000;
@@ -95,7 +95,7 @@ export function createFacts(): TranscriptFacts {
 		steps: [],
 		entries: [],
 		tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		countedMessages: new Set(),
+		countedMessages: new Map(),
 	};
 }
 
@@ -210,15 +210,20 @@ function applyAssistant(facts: TranscriptFacts, record: Json, at: number) {
 function countTokens(facts: TranscriptFacts, message: Json | null) {
 	const usage = asObject(message?.usage);
 	if (!usage) return;
+	const next: TokenUsage = {
+		input: tokenCount(usage.input_tokens),
+		output: tokenCount(usage.output_tokens),
+		cacheRead: tokenCount(usage.cache_read_input_tokens),
+		cacheWrite: tokenCount(usage.cache_creation_input_tokens),
+	};
 	const id = asString(message?.id);
-	if (id) {
-		if (facts.countedMessages.has(id)) return;
-		facts.countedMessages.add(id);
+	const seen = id ? facts.countedMessages.get(id) : undefined;
+	for (const key of ["input", "output", "cacheRead", "cacheWrite"] as const) {
+		const counted = seen?.[key] ?? 0;
+		if (next[key] > counted) facts.tokens[key] += next[key] - counted;
+		else next[key] = counted;
 	}
-	facts.tokens.input += tokenCount(usage.input_tokens);
-	facts.tokens.output += tokenCount(usage.output_tokens);
-	facts.tokens.cacheRead += tokenCount(usage.cache_read_input_tokens);
-	facts.tokens.cacheWrite += tokenCount(usage.cache_creation_input_tokens);
+	if (id) facts.countedMessages.set(id, next);
 }
 
 function tokenCount(value: unknown): number {
