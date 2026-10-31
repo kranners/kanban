@@ -77,13 +77,18 @@ function GoalBody(props: { goal: string | null }) {
 
 function CardBody(props: { session: Session; workflows: readonly Workflow[] }) {
 	const { session } = props;
+	const needs = session.activity === "needs-you" && session.needs;
 	return (
 		<div class="body">
 			<WorkflowBars workflows={props.workflows} />
 			<GoalBody goal={session.goal} />
-			{session.activity === "needs-you" && session.needs && (
-				<div class="needs" title={session.needs}>
-					{session.needs}
+			{needs ? (
+				<div class="needs" title={needs}>
+					{needs}
+				</div>
+			) : (
+				<div class="card-doing">
+					{session.doing ? plainText(session.doing) : activityHint(session)}
 				</div>
 			)}
 		</div>
@@ -408,12 +413,6 @@ export function SessionCard(props: {
 			style={position(props.node)}
 			data-node={props.node.key}
 		>
-			<div class="label">
-				{!repeatsGoal(session) && <div class="label-name">{session.name}</div>}
-				<div class="label-doing">
-					{session.doing ? plainText(session.doing) : activityHint(session)}
-				</div>
-			</div>
 			<button
 				type="button"
 				class="frame"
@@ -430,7 +429,6 @@ export function SessionCard(props: {
 					<>
 						<CardBody session={session} workflows={props.workflows} />
 						<div class="foot">
-							<ActivityBadge activity={session.activity} />
 							<span class="foot-project" title={session.cwd}>
 								{session.project}
 							</span>
@@ -462,11 +460,17 @@ export function SessionCard(props: {
 				)}
 			</button>
 			<CardArtifacts artifacts={session.artifacts} onMore={open} />
+			<div class="card-bar">
+				<span class="card-bar-label" title={session.name}>
+					<ActivityIcon activity={session.activity} size={13} />
+					<span class="card-bar-name">{session.name}</span>
+				</span>
+				<Ribbon session={session} now={props.now} />
+				{props.corner && <div class="card-corner">{props.corner}</div>}
+			</div>
 			{session.activity === "working" && <BusyEdge />}
-			<Ribbon session={session} now={props.now} />
 			{props.notice}
 			<span class="resize-handle" data-resize aria-hidden="true" />
-			{props.corner && <div class="node-corner">{props.corner}</div>}
 		</div>
 	);
 }

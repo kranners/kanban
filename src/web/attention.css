@@ -172,10 +172,7 @@
 }
 
 .ribbon {
-	position: absolute;
-	top: calc(var(--label-height) - 10px);
-	right: 22px;
-	z-index: 1;
+	flex: none;
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
@@ -189,14 +186,6 @@
 	font-weight: 600;
 	white-space: nowrap;
 	pointer-events: none;
-	transform-origin: 100% 0;
-	scale: var(--unzoom);
-	transition: translate calc(180ms * var(--motion))
-		cubic-bezier(0.2, 0.7, 0.2, 1);
-}
-
-.node.session:has(> .ribbon) .goal:first-child {
-	padding-top: max(12px, calc(22px * var(--unzoom) - 14px));
 }
 
 .ribbon.act-needs-you {
@@ -279,10 +268,6 @@
 	);
 }
 
-.node.session:has(> .ribbon) .workflows {
-	padding-top: max(10px, calc(22px * var(--unzoom) - 6px));
-}
-
 .ribbon:is(.act-done, .act-idle) .ribbon-text {
 	display: none;
 }
@@ -293,11 +278,6 @@
 
 .node:is(:hover, :focus-within) .ribbon:is(.act-done, .act-idle) .ribbon-text {
 	display: inline;
-}
-
-.node.session.act-idle:hover .ribbon,
-.node.session.act-done:hover .ribbon {
-	translate: 0 -3px;
 }
 
 .node.session.beckoned .frame {

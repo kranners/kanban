@@ -425,13 +425,102 @@ button.reconnecting {
 	border-color: var(--accent);
 }
 
-.node-corner {
+.node.session {
+	--label-height: 0px;
+	--card-bar: 32px;
+}
+
+.node.session .frame {
+	padding-top: var(--card-bar);
+}
+
+.card-bar {
+	--bar-rule: var(--hairline);
 	position: absolute;
-	top: calc(var(--label-height) - 10px);
-	right: -10px;
+	top: 0;
+	left: 0;
 	z-index: 1;
+	box-sizing: border-box;
 	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	height: var(--card-bar);
+	padding-left: 12px;
+	border-bottom: 1px solid var(--bar-rule);
+	pointer-events: none;
+}
+
+.card-bar-label {
+	flex: 0 1 auto;
+	min-width: 0;
+	display: inline-flex;
+	align-items: center;
 	gap: 6px;
+	font-size: 12.5px;
+	font-weight: 600;
+	letter-spacing: 0.005em;
+}
+
+.card-bar-label svg {
+	flex: none;
+	color: var(--act);
+}
+
+.card-bar:has(.ribbon) .card-bar-label svg {
+	display: none;
+}
+
+.card-bar-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.card-corner {
+	flex: none;
+	align-self: stretch;
+	display: flex;
+	margin-left: auto;
+}
+
+.card-corner .close-bubble {
+	width: 36px;
+	height: 100%;
+	border: 0;
+	border-left: 1px solid var(--bar-rule);
+	border-radius: 0;
+	background: none;
+	box-shadow: none;
+	opacity: 1;
+	scale: 1;
+	pointer-events: auto;
+}
+
+.card-corner .close-bubble:last-child {
+	border-top-right-radius: calc(var(--radius) - 1px);
+}
+
+.card-corner .close-bubble:hover:not(:disabled) {
+	background: var(--surface-2);
+	color: var(--ink);
+}
+
+.card-corner .close-bubble:not(.report-bubble, .ignore-bubble):hover,
+.card-corner .close-bubble.force:not(:disabled) {
+	background: var(--red);
+	color: #ffffff;
+}
+
+.card-corner .close-bubble:disabled:not(.asking) {
+	opacity: 0.45;
+}
+
+.viewport.panning .card-corner .close-bubble,
+.viewport.arranging .card-corner .close-bubble,
+.node.exit-leaving .card-corner .close-bubble {
+	pointer-events: none;
 }
 
 .group-frames {
@@ -589,6 +678,17 @@ button.reconnecting {
 	overflow-wrap: anywhere;
 }
 
+.card-doing {
+	flex: none;
+	padding: 0 14px 10px;
+	color: var(--muted);
+	font-size: 12.5px;
+	line-height: 18px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
 .body:has(.needs) .goal {
 	-webkit-line-clamp: 3;
 	line-clamp: 3;
@@ -621,7 +721,18 @@ button.reconnecting {
 	line-clamp: 3;
 }
 
-.node.has-artifacts .body:has(.needs) .goal {
+.node.has-artifacts .card-doing {
+	flex: none;
+	padding: 0 14px 10px;
+	color: var(--muted);
+	font-size: 12.5px;
+	line-height: 18px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.body:has(.needs) .goal {
 	-webkit-line-clamp: 2;
 	line-clamp: 2;
 }

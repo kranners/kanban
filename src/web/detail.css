@@ -2,22 +2,13 @@
 	--label-height: 0px;
 }
 
-.world[data-detail="near"] .node.session > .label {
-	display: none;
-}
-
 .world[data-detail="near"] .node .frame {
 	border-width: calc(1px * var(--unzoom));
 	border-radius: calc(var(--radius) * var(--unzoom));
 }
 
-.world[data-detail="near"] .node.session .ribbon {
-	top: calc(-10px * var(--unzoom));
-	right: calc(22px * var(--unzoom));
-}
-
 .world[data-detail="near"]
-	:is(.project-bar, .node-corner, .card-artifacts, .resize-handle) {
+	:is(.project-bar, .card-bar, .card-artifacts, .resize-handle) {
 	scale: var(--unzoom);
 }
 
@@ -27,10 +18,13 @@
 	transform-origin: 0 0;
 }
 
-.world[data-detail="near"] .node-corner {
-	top: calc(-10px * var(--unzoom));
-	right: calc(-10px * var(--unzoom));
-	transform-origin: 100% 0;
+.world[data-detail="near"] .card-bar {
+	width: calc(100% / var(--unzoom));
+	transform-origin: 0 0;
+}
+
+.world[data-detail="near"] .node.session .frame {
+	padding-top: calc(var(--card-bar) * var(--unzoom));
 }
 
 .world[data-detail="near"] .card-artifacts {
