@@ -908,7 +908,7 @@ describe("createKanbanServer", () => {
 		assert.equal(note?.kind === "note" && note.x, 336);
 		assert.match(
 			note?.kind === "note" ? note.text : "",
-			/^\*\*Status · 14:05\*\*\n\n- Tests pass$/,
+			/^\*\*Status · 14:05\*\*\n\n- Tests pass\n\n\*\*Stats\*\*/,
 		);
 		assert.deepEqual(events.at(-1), {
 			action: "session-report",
@@ -1210,12 +1210,14 @@ describe("createKanbanServer", () => {
 		assert.equal(note?.kind === "note" && note.session, undefined);
 		assert.equal(note?.kind === "note" && note.x, 528);
 		const names = board.sessions.map((session) => session.name);
-		assert.equal(
-			note?.kind === "note" ? note.text : "",
-			[
-				"**Status · 14:05**",
-				...names.map((name) => `**${name}**\n\n- Tests pass`),
-			].join("\n\n"),
+		assert.ok(
+			(note?.kind === "note" ? note.text : "").startsWith(
+				[
+					"**Status · 14:05**",
+					...names.map((name) => `**${name}**\n\n- Tests pass`),
+					"**Stats**",
+				].join("\n\n"),
+			),
 		);
 		const audited = events.at(-1);
 		assert.equal(

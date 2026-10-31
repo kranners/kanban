@@ -59,6 +59,13 @@ export type Task = {
 
 export type Step = { at: number; text: string };
 
+export type TokenUsage = {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+};
+
 export type Session = {
 	id: string;
 	short: string | null;
@@ -80,6 +87,7 @@ export type Session = {
 	steps: Step[];
 	configDir?: string;
 	cloud?: { url: string };
+	tokens?: TokenUsage;
 };
 
 export type Subagent = {
