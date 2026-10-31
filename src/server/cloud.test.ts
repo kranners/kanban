@@ -18,6 +18,7 @@ import {
 	createCloudApi,
 	createCloudSessions,
 	parseCloudCreated,
+	rejection,
 	remoteLauncher,
 	runsOnBlocker,
 } from "./cloud.ts";
@@ -99,7 +100,11 @@ describe("createCloudApi", () => {
 			value: null,
 		});
 		assert.deepEqual(await api.archive(id), { ok: true, value: null });
-		const [send, archive] = calls;
+		assert.deepEqual(
+			await api.respond(id, "req-1", { behavior: "allow", updatedInput: {} }),
+			{ ok: true, value: null },
+		);
+		const [send, archive, respond] = calls;
 		assert.equal(
 			send?.url,
 			`https://api.anthropic.com/v1/sessions/${id}/events?beta=true`,
@@ -130,6 +135,23 @@ describe("createCloudApi", () => {
 		);
 		assert.equal(archive?.method, "POST");
 		assert.deepEqual(archive?.body, {});
+		assert.equal(respond?.url, send?.url);
+		const [answer] =
+			(respond?.body as { events: Record<string, unknown>[] } | undefined)
+				?.events ?? [];
+		assert.match(String(answer?.uuid), /^[0-9a-f-]{36}$/);
+		assert.deepEqual(
+			{ ...answer, uuid: "u" },
+			{
+				uuid: "u",
+				type: "control_response",
+				response: {
+					subtype: "success",
+					request_id: "req-1",
+					response: { behavior: "allow", updatedInput: {} },
+				},
+			},
+		);
 	});
 
 	it("pages through events and names the status of a failure", async () => {
@@ -401,6 +423,7 @@ type FakeCloud = {
 	cursors: (string | null)[];
 	archived: string[];
 	down: Set<string>;
+	responses: [string, string, Record<string, unknown>][];
 };
 
 const event = (uuid: string, at: string): CloudEvent => ({
@@ -424,6 +447,7 @@ const fakeCloud = (): FakeCloud => {
 		cursors: [],
 		archived: [],
 		down: new Set(),
+		responses: [],
 		api: {
 			get: async (sessionId) => {
 				if (fake.down.has(sessionId)) {
@@ -445,6 +469,10 @@ const fakeCloud = (): FakeCloud => {
 			hosts: async () => ({ ok: true, value: [] }),
 			create: async () => ({ ok: false, error: "not a host" }),
 			send: async () => ({ ok: true, value: null }),
+			respond: async (sessionId, requestId, response) => {
+				fake.responses.push([sessionId, requestId, response]);
+				return { ok: true, value: null };
+			},
 			archive: async (sessionId) => {
 				if (!fake.info.has(sessionId)) {
 					return { ok: false, error: "Cloud API POST failed with HTTP 404" };
@@ -456,6 +484,26 @@ const fakeCloud = (): FakeCloud => {
 	};
 	return fake;
 };
+
+const asked = (
+	uuid: string,
+	requestId: string,
+	toolName: string,
+	input: Record<string, unknown>,
+	extra: Record<string, unknown> = {},
+): CloudEvent => ({
+	uuid,
+	type: "control_request",
+	created_at: "2026-10-30T12:00:00Z",
+	request_id: requestId,
+	request: {
+		subtype: "can_use_tool",
+		tool_name: toolName,
+		tool_use_id: `toolu_${requestId}`,
+		input,
+		...extra,
+	},
+});
 
 const info = (
 	status: string,
@@ -563,6 +611,142 @@ describe("createCloudSessions", () => {
 		assert.deepEqual(await store.archive(id), { ok: true, value: null });
 		assert.deepEqual(fake.archived, [id]);
 		assert.deepEqual(store.sessions(), []);
+		store.stop();
+	});
+
+	it("shows the open permission prompt and answers it through the api", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		const suggestion = {
+			type: "addRules",
+			behavior: "allow",
+			destination: "localSettings",
+			rules: [{ toolName: "mcp__remote__add_repo" }],
+		};
+		fake.info.set(id, info("requires_action", "2026-10-30T12:00:00Z"));
+		fake.log.set(id, [
+			asked("e1", "old", "Bash", { command: "ls" }),
+			{
+				uuid: "e2",
+				type: "control_cancel_request",
+				created_at: "2026-10-30T12:00:00Z",
+				request_id: "old",
+			},
+			asked(
+				"e3",
+				"repo",
+				"mcp__remote__add_repo",
+				{ owner: "acme", repo: "api" },
+				{ display_name: "Add Repo", permission_suggestions: [suggestion] },
+			),
+		]);
+		const { store } = await storeIn(dir, fake);
+		store.add(record);
+		await until(() => store.pending(id) !== null);
+		assert.deepEqual(store.pending(id), {
+			requestId: "repo",
+			toolUseId: "toolu_repo",
+			toolName: "mcp__remote__add_repo",
+			title: "Add Repo",
+			input: { owner: "acme", repo: "api" },
+			options: ["Yes", "Yes, and don't ask again", "No"],
+		});
+		assert.equal((await store.choose(id, "repo", "Maybe")).ok, false);
+		assert.deepEqual(
+			await store.choose(id, "repo", "Yes, and don't ask again"),
+			{
+				ok: true,
+				value: null,
+			},
+		);
+		assert.deepEqual(fake.responses, [
+			[
+				id,
+				"repo",
+				{
+					behavior: "allow",
+					updatedInput: { owner: "acme", repo: "api" },
+					updatedPermissions: [suggestion],
+					tool_name: "mcp__remote__add_repo",
+				},
+			],
+		]);
+		assert.equal(store.pending(id), null);
+		assert.equal((await store.choose(id, "repo", "Yes")).ok, false);
+		store.stop();
+	});
+
+	it("denies, answers questions, and hides prompts while the session is not waiting", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		const questions = [{ question: "Which?", options: [{ label: "A" }] }];
+		fake.info.set(id, info("running", "2026-10-30T12:00:00Z"));
+		fake.log.set(id, [
+			asked(
+				"e1",
+				"bash",
+				"Bash",
+				{ command: "rm -rf build" },
+				{
+					permission_suggestions: [{ type: "addRules" }],
+					server_policy_ask_only: true,
+				},
+			),
+			asked("e2", "ask", "AskUserQuestion", { questions }),
+		]);
+		const { store } = await storeIn(dir, fake);
+		store.add(record);
+		await until(() => fake.cursors.length > 0);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		assert.equal(store.pending(id), null);
+		fake.info.set(id, info("requires_action", "2026-10-30T12:00:01Z"));
+		await until(() => store.pending(id) !== null);
+		assert.equal(store.pending(id)?.requestId, "ask");
+		await store.answer(id, "ask", { "Which?": "A" });
+		assert.deepEqual(store.pending(id)?.options, ["Yes", "No"]);
+		await store.choose(id, "bash", "No");
+		assert.deepEqual(fake.responses, [
+			[
+				id,
+				"ask",
+				{
+					behavior: "allow",
+					updatedInput: { questions, answers: { "Which?": "A" } },
+					tool_name: "AskUserQuestion",
+				},
+			],
+			[id, "bash", { behavior: "deny", message: rejection, interrupt: true }],
+		]);
+		assert.equal(store.pending(id), null);
+		store.stop();
+	});
+
+	it("drops a prompt answered elsewhere, even when the answer is listed first", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		fake.info.set(id, info("requires_action", "2026-10-30T12:00:00Z"));
+		fake.log.set(id, [
+			{
+				uuid: "e1",
+				type: "control_response",
+				created_at: "2026-10-30T12:00:00Z",
+				response: { subtype: "success", request_id: "late" },
+			},
+			asked("e2", "late", "Bash", { command: "ls" }),
+			asked("e3", "open", "Bash", { command: "pwd" }),
+		]);
+		const { store } = await storeIn(dir, fake);
+		store.add(record);
+		await until(() => store.pending(id) !== null);
+		assert.equal(store.pending(id)?.requestId, "open");
+		fake.log.get(id)?.push({
+			uuid: "e4",
+			type: "control_response",
+			created_at: "2026-10-30T12:00:01Z",
+			response: { subtype: "success", request_id: "open" },
+		});
+		fake.info.set(id, info("requires_action", "2026-10-30T12:00:01Z"));
+		await until(() => store.pending(id) === null);
 		store.stop();
 	});
 
@@ -1211,6 +1395,9 @@ describe("cloudTty", () => {
 					sent.push([sessionId, text]);
 					return { ok: true, value: null };
 				},
+				pending: () => null,
+				choose: async () => ({ ok: true, value: null }),
+				answer: async () => ({ ok: true, value: null }),
 			},
 			id,
 		);

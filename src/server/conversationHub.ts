@@ -18,6 +18,7 @@ import {
 	type Outcome,
 	type QuestionShape,
 	readQuestionShapes,
+	validAnswers,
 } from "./answer.ts";
 import type { AttachSocket } from "./attach.ts";
 import type { Audit } from "./audit.ts";
@@ -37,7 +38,7 @@ import {
 	readDialog,
 	type ScreenDialog,
 } from "./screen.ts";
-import type { SessionTty } from "./terminals.ts";
+import type { RemotePrompt, RemotePrompts, SessionTty } from "./terminals.ts";
 
 export type ConversationTarget =
 	| { kind: "session"; session: Session; path: string | null }
@@ -312,10 +313,9 @@ const answered = (answers: AskAnswer[]): string =>
 		.join("; ");
 
 const choosePermissionLabel = (
-	tty: SessionTty,
-	log: ConversationLog,
 	dialog: Extract<Dialog, { kind: "permission" }>,
 	answers: AskAnswer[],
+	choose: (choice: number, option: string) => Promise<Outcome>,
 ): Promise<Outcome> => {
 	const [answer] = answers;
 	const label = answer?.selected[0];
@@ -336,7 +336,61 @@ const choosePermissionLabel = (
 	const option = dialog.options[choice];
 	return option === undefined
 		? Promise.resolve({ ok: false, error: "That is not one of the choices" })
-		: choosePermission(tty, choice, option, promptFor(log, dialog.toolUseId));
+		: choose(choice, option);
+};
+
+const answerRemote = (
+	prompts: RemotePrompts,
+	requestId: string,
+	questions: AskQuestion[],
+	answers: AskAnswer[],
+): Promise<Outcome> => {
+	const invalid = validAnswers(questions, answers);
+	if (invalid) return Promise.resolve({ ok: false, error: invalid });
+	return prompts.answer(
+		requestId,
+		Object.fromEntries(
+			questions.map((question, at) => {
+				const answer = answers[at];
+				const other = answer?.other?.trim();
+				return [
+					question.question,
+					[...(answer?.selected ?? []), ...(other ? [other] : [])].join(", "),
+				];
+			}),
+		),
+	);
+};
+
+const remoteContextLimit = 2000;
+
+const remoteDialog = (
+	log: ConversationLog,
+	remote: RemotePrompt,
+): { dialog: Dialog; answerable: boolean } => {
+	const questions =
+		remote.toolName === "AskUserQuestion" ? askQuestions(remote.input) : null;
+	if (questions && remote.toolUseId) {
+		return {
+			dialog: { kind: "question", toolUseId: remote.toolUseId, questions },
+			answerable: true,
+		};
+	}
+	const shown = remote.toolUseId !== null && log.tools.has(remote.toolUseId);
+	return {
+		dialog: {
+			kind: "permission",
+			toolUseId: remote.toolUseId,
+			title: remote.title,
+			context: shown
+				? null
+				: JSON.stringify(remote.input).slice(0, remoteContextLimit),
+			question: "Do you want to proceed?",
+			options: remote.options,
+			complete: true,
+		},
+		answerable: true,
+	};
 };
 
 const toolName = (log: ConversationLog, id: string | null): string | null => {
@@ -350,7 +404,9 @@ export const dialogOf = (
 	session: Session | null,
 	screen: string | null,
 	block: Record<string, unknown> | null = null,
+	remote: RemotePrompt | null = null,
 ): { dialog: Dialog | null; answerable: boolean } => {
+	if (remote) return remoteDialog(log, remote);
 	const waiting = session?.activity === "needs-you";
 	const shown = screen === null ? null : readDialog(screen);
 	const question = pendingQuestion(log, block);
@@ -637,18 +693,23 @@ export const createConversationHub = (
 			}
 			const wantsScreen =
 				drive.mode === "drive" &&
-				(drive.via === "cmux" || waiting || ttys.has(current.id));
+				(drive.via === "cmux" ||
+					drive.via === "cloud" ||
+					waiting ||
+					ttys.has(current.id));
 			let screen: string | null = null;
+			let remote: RemotePrompt | null = null;
 			if (wantsScreen) {
 				const tty = ttyFor(current);
 				const read = tty ? await tty.screen() : null;
 				screen = read?.ok ? read.value : null;
+				remote = tty?.prompts?.pending() ?? null;
 				if (tty && waiting) await learnShapes(tty, screen);
 			}
 			if (drive.mode === "drive" && drive.via === "attach" && !waiting) {
 				if (Date.now() - lastUse > 30_000) releaseTty(current.id);
 			}
-			publishDialog(dialogOf(log, current, screen, block()));
+			publishDialog(dialogOf(log, current, screen, block(), remote));
 			const mode =
 				screen === null || readDialog(screen) !== null
 					? modeKey
@@ -764,13 +825,19 @@ export const createConversationHub = (
 				case "permission": {
 					const screen = await tty.screen();
 					if (!screen.ok) return screen;
-					const fresh = dialogOf(log, current, screen.value);
+					const remote = tty.prompts?.pending() ?? null;
+					const fresh = dialogOf(log, current, screen.value, null, remote);
 					if (
 						fresh.dialog?.kind !== "permission" ||
 						!fresh.answerable ||
 						fresh.dialog.toolUseId !== frame.toolUseId
 					) {
 						return { ok: false, error: "That prompt is no longer open" };
+					}
+					if (remote && tty.prompts) {
+						return fresh.dialog.options[frame.choice] === frame.label
+							? tty.prompts.choose(remote.requestId, frame.label)
+							: { ok: false, error: "That is not one of the choices" };
 					}
 					return choosePermission(
 						tty,
@@ -780,6 +847,22 @@ export const createConversationHub = (
 					);
 				}
 				case "answer": {
+					const remote = tty.prompts?.pending() ?? null;
+					if (remote && tty.prompts) {
+						const { dialog } = remoteDialog(log, remote);
+						if (
+							dialog.kind !== "question" ||
+							dialog.toolUseId !== frame.toolUseId
+						) {
+							return { ok: false, error: "That question is no longer open" };
+						}
+						return answerRemote(
+							tty.prompts,
+							remote.requestId,
+							dialog.questions,
+							frame.answers,
+						);
+					}
 					const question = pendingQuestion(log, block());
 					if (!question || question.toolUseId !== frame.toolUseId) {
 						return { ok: false, error: "That question is no longer open" };
@@ -805,11 +888,13 @@ export const createConversationHub = (
 			const screen = await tty.screen();
 			if (!screen.ok) return screen;
 			await learnShapes(tty, screen.value);
+			const remote = tty.prompts?.pending() ?? null;
 			const { dialog, answerable } = dialogOf(
 				log,
 				current,
 				screen.value,
 				block(),
+				remote,
 			);
 			if (!dialog || dialog.kind === "menu") {
 				return {
@@ -832,10 +917,29 @@ export const createConversationHub = (
 					error: `The prompt is not on ${current.name}'s screen, so it cannot be answered from the board yet.\n${shown}`,
 				};
 			}
+			const { prompts } = tty;
 			const outcome =
-				dialog.kind === "question"
-					? await answerQuestions(tty, dialog.questions, answers)
-					: await choosePermissionLabel(tty, log, dialog, answers);
+				remote && prompts
+					? dialog.kind === "question"
+						? await answerRemote(
+								prompts,
+								remote.requestId,
+								dialog.questions,
+								answers,
+							)
+						: await choosePermissionLabel(dialog, answers, (_, option) =>
+								prompts.choose(remote.requestId, option),
+							)
+					: dialog.kind === "question"
+						? await answerQuestions(tty, dialog.questions, answers)
+						: await choosePermissionLabel(dialog, answers, (choice, option) =>
+								choosePermission(
+									tty,
+									choice,
+									option,
+									promptFor(log, dialog.toolUseId),
+								),
+							);
 			return outcome.ok
 				? {
 						ok: true,

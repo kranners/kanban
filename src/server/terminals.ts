@@ -5,10 +5,29 @@ import { type AttachPty, escapeGuard, type PtyFactory } from "./attach.ts";
 import type { Cmux, CmuxResult, CmuxSurface } from "./cmux.ts";
 import { readDialog } from "./screen.ts";
 
+export type RemotePrompt = {
+	requestId: string;
+	toolUseId: string | null;
+	toolName: string;
+	title: string;
+	input: Record<string, unknown>;
+	options: string[];
+};
+
+export type RemotePrompts = {
+	pending(): RemotePrompt | null;
+	choose(requestId: string, label: string): Promise<CmuxResult<null>>;
+	answer(
+		requestId: string,
+		answers: Record<string, string>,
+	): Promise<CmuxResult<null>>;
+};
+
 export type SessionTty = Tty & {
 	send(text: string): Promise<CmuxResult<null>>;
 	isOpen(): boolean;
 	close(): void;
+	prompts?: RemotePrompts;
 };
 
 export const attachColumns = 120;

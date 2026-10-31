@@ -24,7 +24,7 @@ import {
 	promptRefusal,
 } from "./conversationHub.ts";
 import { type FakeTui, fakeTui } from "./fakeTui.ts";
-import type { SessionTty } from "./terminals.ts";
+import type { RemotePrompt, SessionTty } from "./terminals.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "kanban-hub-"));
 after(() => rmSync(dir, { recursive: true, force: true }));
@@ -281,6 +281,9 @@ describe("conversation stream", () => {
 						sent.push([id, text]);
 						return { ok: true, value: null };
 					},
+					pending: () => null,
+					choose: async () => ({ ok: true, value: null }),
+					answer: async () => ({ ok: true, value: null }),
 				},
 				cloud.id,
 			),
@@ -312,11 +315,159 @@ describe("conversation stream", () => {
 				[
 					"k1",
 					false,
-					"Open this cloud session on claude.ai to answer prompts or switch mode",
+					"Open this cloud session on claude.ai to interrupt it or switch mode",
 				],
 			],
 		);
 		assert.deepEqual(sent, [["session_01cloud", "Run the tests"]]);
+		socket.hangUp();
+	});
+
+	it("answers a cloud session's permission prompts and questions through its store", async () => {
+		const path = join(dir, "cloud-prompt.jsonl");
+		writeFileSync(
+			path,
+			prompt("a") +
+				line({
+					type: "assistant",
+					message: {
+						id: "m1",
+						content: [
+							{
+								type: "tool_use",
+								id: "toolu_repo",
+								name: "mcp__remote__add_repo",
+								input: { owner: "acme", repo: "api" },
+							},
+						],
+					},
+				}),
+		);
+		const cloud = session({
+			id: "session_01cloud",
+			activity: "needs-you",
+			kind: "background",
+			cmux: false,
+			cloud: { url: "https://claude.ai/code/session_01cloud" },
+		});
+		const questions = [
+			{
+				question: "Which branch?",
+				header: "Branch",
+				multiSelect: true,
+				options: [
+					{ label: "main", description: "" },
+					{ label: "dev", description: "" },
+				],
+			},
+		];
+		let open: RemotePrompt | null = {
+			requestId: "req-repo",
+			toolUseId: "toolu_repo",
+			toolName: "mcp__remote__add_repo",
+			title: "Add Repo",
+			input: { owner: "acme", repo: "api" },
+			options: ["Yes", "No"],
+		};
+		const chosen: unknown[] = [];
+		const tty = {
+			...fakeTty(),
+			...cloudTty(
+				{
+					send: async () => ({ ok: true, value: null }),
+					pending: () => open,
+					choose: async (_, requestId, label) => {
+						chosen.push([requestId, label]);
+						open = {
+							requestId: "req-ask",
+							toolUseId: "toolu_ask",
+							toolName: "AskUserQuestion",
+							title: "AskUserQuestion",
+							input: { questions },
+							options: ["Yes", "No"],
+						};
+						return { ok: true, value: null };
+					},
+					answer: async (_, requestId, answers) => {
+						chosen.push([requestId, answers]);
+						open = null;
+						return { ok: true, value: null };
+					},
+				},
+				cloud.id,
+			),
+		};
+		const { hub: conversations } = hub(() => cloud, tty);
+		const socket = fakeSocket();
+		conversations.open(
+			socket,
+			{ kind: "session", session: cloud, path },
+			null,
+			"me",
+		);
+		const lastDialog = () =>
+			socket.frames.findLast((frame) => frame.type === "dialog");
+		await until(() => {
+			const frame = lastDialog();
+			return frame?.type === "dialog" && frame.answerable;
+		});
+		assert.deepEqual(lastDialog(), {
+			type: "dialog",
+			dialog: {
+				kind: "permission",
+				toolUseId: "toolu_repo",
+				title: "Add Repo",
+				context: null,
+				question: "Do you want to proceed?",
+				options: ["Yes", "No"],
+				complete: true,
+			},
+			answerable: true,
+		});
+		socket.receive({
+			type: "permission",
+			id: "p1",
+			toolUseId: "toolu_repo",
+			choice: 1,
+			label: "Yes",
+		});
+		socket.receive({
+			type: "permission",
+			id: "p2",
+			toolUseId: "toolu_repo",
+			choice: 0,
+			label: "Yes",
+		});
+		await until(
+			() => socket.frames.filter((frame) => frame.type === "done").length === 2,
+		);
+		await until(() => {
+			const frame = lastDialog();
+			return frame?.type === "dialog" && frame.dialog?.kind === "question";
+		});
+		socket.receive({
+			type: "answer",
+			id: "a1",
+			toolUseId: "toolu_ask",
+			answers: [{ selected: ["main", "dev"], other: "both" }],
+		});
+		await until(
+			() => socket.frames.filter((frame) => frame.type === "done").length === 3,
+		);
+		assert.deepEqual(
+			socket.frames.flatMap((frame) =>
+				frame.type === "done" ? [[frame.id, frame.ok, frame.error]] : [],
+			),
+			[
+				["p1", false, "That is not one of the choices"],
+				["p2", true, null],
+				["a1", true, null],
+			],
+		);
+		assert.deepEqual(chosen, [
+			["req-repo", "Yes"],
+			["req-ask", { "Which branch?": "main, dev, both" }],
+		]);
 		socket.hangUp();
 	});
 
@@ -1185,6 +1336,47 @@ describe("answering a prompt for the board agent", () => {
 		]);
 		assert.equal(declined.ok, true);
 		assert.equal(tui.chosen, "No");
+	});
+
+	it("answers a cloud session's permission prompt by its label", async () => {
+		const cloud = session({
+			id: "session_01cloud",
+			activity: "needs-you",
+			kind: "background",
+			cmux: false,
+			cloud: { url: "https://claude.ai/code/session_01cloud" },
+		});
+		const chosen: string[] = [];
+		const tty = {
+			...fakeTty(),
+			...cloudTty(
+				{
+					send: async () => ({ ok: true, value: null }),
+					pending: () => ({
+						requestId: "req-1",
+						toolUseId: null,
+						toolName: "Bash",
+						title: "Bash",
+						input: { command: "ls" },
+						options: ["Yes", "No"],
+					}),
+					choose: async (_, requestId, label) => {
+						chosen.push(`${requestId}:${label}`);
+						return { ok: true, value: null };
+					},
+					answer: async () => ({ ok: true, value: null }),
+				},
+				cloud.id,
+			),
+		};
+		const { hub: conversations } = hub(() => cloud, tty);
+		const read = await conversations.respond(cloud, null);
+		assert.match(read.ok ? read.value : "", /\{"command":"ls"\}/);
+		const declined = await readAndAnswer(conversations, cloud, [
+			{ selected: ["No"], other: null },
+		]);
+		assert.equal(declined.ok, true);
+		assert.deepEqual(chosen, ["req-1:No"]);
 	});
 
 	it("refuses to answer a prompt other than the one it read", async () => {

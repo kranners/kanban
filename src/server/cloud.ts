@@ -20,9 +20,10 @@ import {
 import { claudeEnv } from "./accounts.ts";
 import { lastLine, stripAnsi } from "./ansi.ts";
 import type { CmuxResult } from "./cmux.ts";
+import { asObject, asString } from "./ingest/json.ts";
 import { accountCommand, untrustedHint } from "./sessions.ts";
 import { createStateFile, readState } from "./stateFile.ts";
-import type { SessionTty } from "./terminals.ts";
+import type { RemotePrompt, SessionTty } from "./terminals.ts";
 import { mirrorTrust, profileConfig } from "./trust.ts";
 import { keychainService } from "./usage.ts";
 
@@ -208,6 +209,11 @@ export type CloudApi = {
 	get(id: string): Promise<CmuxResult<CloudSessionInfo>>;
 	events(id: string, afterId: string | null): Promise<CmuxResult<CloudEvent[]>>;
 	send(id: string, text: string): Promise<CmuxResult<null>>;
+	respond(
+		id: string,
+		requestId: string,
+		response: Record<string, unknown>,
+	): Promise<CmuxResult<null>>;
 	archive(id: string): Promise<CmuxResult<null>>;
 };
 
@@ -264,6 +270,16 @@ export const createCloudApi = ({
 	});
 
 	const sessionPath = (id: string) => `/v1/sessions/${encodeURIComponent(id)}`;
+
+	const post = async (
+		id: string,
+		event: Record<string, unknown>,
+	): Promise<CmuxResult<null>> => {
+		const sent = await call("POST", `${sessionPath(id)}/events?beta=true`, {
+			events: [{ uuid: randomUUID(), ...event }],
+		});
+		return sent.ok ? { ok: true, value: null } : sent;
+	};
 
 	return {
 		async hosts() {
@@ -348,20 +364,18 @@ export const createCloudApi = ({
 				cursor = last.uuid;
 			}
 		},
-		async send(id, text) {
-			const sent = await call("POST", `${sessionPath(id)}/events?beta=true`, {
-				events: [
-					{
-						type: "user",
-						uuid: randomUUID(),
-						session_id: id,
-						parent_tool_use_id: null,
-						message: { role: "user", content: text },
-					},
-				],
-			});
-			return sent.ok ? { ok: true, value: null } : sent;
-		},
+		send: (id, text) =>
+			post(id, {
+				type: "user",
+				session_id: id,
+				parent_tool_use_id: null,
+				message: { role: "user", content: text },
+			}),
+		respond: (id, requestId, response) =>
+			post(id, {
+				type: "control_response",
+				response: { subtype: "success", request_id: requestId, response },
+			}),
 		async archive(id) {
 			const archived = await call(
 				"POST",
@@ -404,6 +418,17 @@ export type CloudSessions = {
 	sessions(): CloudSession[];
 	transcriptPath(id: string): string | null;
 	send(id: string, text: string): Promise<CmuxResult<null>>;
+	pending(id: string): RemotePrompt | null;
+	choose(
+		id: string,
+		requestId: string,
+		label: string,
+	): Promise<CmuxResult<null>>;
+	answer(
+		id: string,
+		requestId: string,
+		answers: Record<string, string>,
+	): Promise<CmuxResult<null>>;
 	archive(id: string): Promise<CmuxResult<null>>;
 	stop(): void;
 };
@@ -449,12 +474,73 @@ const cloudDetail = (info: CloudSessionInfo): string | null => {
 
 export const cloudUrl = (id: string) => `https://claude.ai/code/${id}`;
 
+export const allowOnce = "Yes";
+export const allowAlways = "Yes, and don't ask again";
+export const refuseOnce = "No";
+export const rejection =
+	"The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.";
+
+type CloudPrompt = RemotePrompt & { suggestions: unknown[] };
+
+const promptOf = (event: CloudEvent): CloudPrompt | null => {
+	const request = asObject(event.request);
+	const requestId = asString(event.request_id);
+	const toolName = asString(request?.tool_name);
+	if (request?.subtype !== "can_use_tool" || !requestId || !toolName) {
+		return null;
+	}
+	const suggestions = Array.isArray(request.permission_suggestions)
+		? request.permission_suggestions
+		: [];
+	const remembers =
+		suggestions.length > 0 && request.server_policy_ask_only !== true;
+	return {
+		requestId,
+		toolUseId: asString(request.tool_use_id),
+		toolName,
+		title: asString(request.display_name) ?? toolName,
+		input: asObject(request.input) ?? {},
+		options: remembers
+			? [allowOnce, allowAlways, refuseOnce]
+			: [allowOnce, refuseOnce],
+		suggestions,
+	};
+};
+
+const settledBy = (event: CloudEvent): string | null => {
+	if (event.type === "control_response") {
+		return asString(asObject(event.response)?.request_id);
+	}
+	return event.type === "control_cancel_request"
+		? asString(event.request_id)
+		: null;
+};
+
+const decisionFor = (
+	prompt: CloudPrompt,
+	label: string,
+): Record<string, unknown> | null => {
+	if (!prompt.options.includes(label)) return null;
+	if (label === refuseOnce) {
+		return { behavior: "deny", message: rejection, interrupt: true };
+	}
+	return {
+		behavior: "allow",
+		updatedInput: prompt.input,
+		...(label === allowAlways && { updatedPermissions: prompt.suggestions }),
+		tool_name: prompt.toolName,
+	};
+};
+
 type Tracked = {
 	record: CloudRecord;
 	session: CloudSession;
+	status: string | null;
 	seenUpdatedAt: string | null;
 	mirrored: string[];
 	echoes: string[];
+	prompts: Map<string, CloudPrompt>;
+	settled: Set<string>;
 };
 
 const lateEventReach = 50;
@@ -488,9 +574,12 @@ export const createCloudSessions = async ({
 				detail: null,
 				transcript: mirrorOf(record.id),
 			},
+			status: null,
 			seenUpdatedAt: null,
 			mirrored: [],
 			echoes: record.prompt === undefined ? [] : [record.prompt],
+			prompts: new Map(),
+			settled: new Set(),
 		});
 
 	const promptLine = (text: string, at: number) =>
@@ -537,9 +626,24 @@ export const createCloudSessions = async ({
 		return true;
 	};
 
+	const trackPrompts = (item: Tracked, events: CloudEvent[]) => {
+		for (const event of events) {
+			const settled = settledBy(event);
+			if (settled) {
+				item.settled.add(settled);
+				item.prompts.delete(settled);
+			}
+			const prompt = promptOf(event);
+			if (prompt && !item.settled.has(prompt.requestId)) {
+				item.prompts.set(prompt.requestId, prompt);
+			}
+		}
+	};
+
 	const mirror = async (item: Tracked, events: CloudEvent[]) => {
 		const known = new Set(item.mirrored);
 		const fresh = events.filter((event) => !known.has(event.uuid));
+		trackPrompts(item, fresh);
 		const shown = fresh.filter((event) => !echoed(item, event));
 		if (shown.length > 0) {
 			await appendFile(
@@ -566,6 +670,7 @@ export const createCloudSessions = async ({
 		const info = got.value;
 		if (info.session_status === "archived") return remove(id);
 		const before = JSON.stringify(item.session);
+		item.status = info.session_status;
 		item.session = {
 			...item.session,
 			name: info.title?.trim() || item.record.name,
@@ -609,6 +714,31 @@ export const createCloudSessions = async ({
 		return polling;
 	};
 
+	const closed = {
+		ok: false as const,
+		error: "That prompt is no longer open",
+	};
+
+	const respond = async (
+		id: string,
+		requestId: string,
+		response: Record<string, unknown>,
+	): Promise<CmuxResult<null>> => {
+		const item = tracked.get(id);
+		if (!item) return untracked(id);
+		const sent = await apiFor(item.record.configDir).respond(
+			id,
+			requestId,
+			response,
+		);
+		if (!sent.ok) return sent;
+		item.settled.add(requestId);
+		item.prompts.delete(requestId);
+		onChange();
+		void pollAll();
+		return sent;
+	};
+
 	await mkdir(dir, { recursive: true });
 	for (const record of await readState(file, parseCloudRecords)) {
 		track(record);
@@ -629,6 +759,31 @@ export const createCloudSessions = async ({
 		remove,
 		sessions: () => [...tracked.values()].map(({ session }) => session),
 		transcriptPath: (id) => tracked.get(id)?.session.transcript ?? null,
+		pending(id) {
+			const item = tracked.get(id);
+			if (item?.status !== "requires_action") return null;
+			const prompt = [...item.prompts.values()].at(-1);
+			if (!prompt) return null;
+			const { suggestions: _, ...shown } = prompt;
+			return shown;
+		},
+		choose(id, requestId, label) {
+			const prompt = tracked.get(id)?.prompts.get(requestId);
+			const decision = prompt ? decisionFor(prompt, label) : null;
+			return decision
+				? respond(id, requestId, decision)
+				: Promise.resolve(closed);
+		},
+		answer(id, requestId, answers) {
+			const prompt = tracked.get(id)?.prompts.get(requestId);
+			return prompt
+				? respond(id, requestId, {
+						behavior: "allow",
+						updatedInput: { ...prompt.input, answers },
+						tool_name: prompt.toolName,
+					})
+				: Promise.resolve(closed);
+		},
 		async send(id, text) {
 			const item = tracked.get(id);
 			if (!item) return untracked(id);
@@ -912,16 +1067,21 @@ export const remoteLauncher =
 	};
 
 const cloudRefusal =
-	"Open this cloud session on claude.ai to answer prompts or switch mode";
+	"Open this cloud session on claude.ai to interrupt it or switch mode";
 
 export const cloudTty = (
-	store: Pick<CloudSessions, "send">,
+	store: Pick<CloudSessions, "send" | "pending" | "choose" | "answer">,
 	id: string,
 ): SessionTty => {
 	const refused = async () => ({ ok: false as const, error: cloudRefusal });
 	return {
 		screen: async () => ({ ok: true, value: "" }),
 		send: (text) => store.send(id, text),
+		prompts: {
+			pending: () => store.pending(id),
+			choose: (requestId, label) => store.choose(id, requestId, label),
+			answer: (requestId, answers) => store.answer(id, requestId, answers),
+		},
 		keys: refused,
 		paste: refused,
 		isOpen: () => true,
