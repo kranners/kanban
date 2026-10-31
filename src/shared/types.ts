@@ -179,12 +179,56 @@ type Annotated = {
 	z: number;
 };
 
+export type ReportSectionKey = "done" | "goal" | "left" | "needs";
+
+export type ReportSpan = {
+	start: number;
+	end: number;
+	kind: "done" | "active" | "planned";
+	title?: string;
+};
+
+export type ReportLane = {
+	key: string;
+	label: string;
+	spans: ReportSpan[];
+	finish: number | null;
+	events: Step[];
+};
+
+export type ReportShot = { url: string; caption: string; at: number };
+
+export type ReportPart = {
+	name: string;
+	activity: Activity;
+	error?: string;
+	answer?: string;
+	sections: Partial<Record<ReportSectionKey, string>>;
+	plan: { ms: number; text: string }[];
+	tasks: { done: number; active: number; pending: number };
+	burnup: { at: number; done: number }[];
+	tokens: TokenUsage | null;
+	startedAt: number;
+	finish: number | null;
+};
+
+export type StatusReport = {
+	at: number;
+	title: string;
+	parts: ReportPart[];
+	lanes: ReportLane[];
+	shots: ReportShot[];
+};
+
+export const maxReportBytes = 400_000;
+
 export type Note = Annotated & {
 	kind: "note";
 	text: string;
 	color: NoteColor;
 	session?: string;
 	region?: string;
+	report?: StatusReport;
 };
 
 export type Sticker = Annotated & {

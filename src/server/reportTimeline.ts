@@ -1,5 +1,14 @@
-import type { Session, TokenUsage } from "../shared/types.ts";
-import { averageTaskMs } from "../web/timeline.ts";
+import type {
+	ReportLane,
+	ReportPart,
+	ReportShot,
+	ReportSpan,
+	Session,
+	StatusReport,
+	Task,
+	TokenUsage,
+} from "../shared/types.ts";
+import { averageTaskMs, sessionLane } from "../web/timeline.ts";
 
 export type SectionKey = "done" | "goal" | "left" | "needs";
 
@@ -300,4 +309,105 @@ export const regionReportBody = (
 			finishes.length > 0 ? Math.max(...finishes) : null,
 		),
 	].join("\n\n");
+};
+
+const laneEvents = 12;
+
+export const burnupOf = (session: Session): { at: number; done: number }[] => {
+	const ends = session.tasks
+		.flatMap((t) =>
+			t.status === "completed" && t.endedAt !== null ? [t.endedAt] : [],
+		)
+		.sort((a, b) => a - b);
+	return [
+		{ at: session.startedAt, done: 0 },
+		...ends.map((at, index) => ({ at, done: index + 1 })),
+	];
+};
+
+export const reportLane = (
+	session: Session,
+	plan: readonly PlanStep[],
+	now: number,
+	fallbackMs: number | null,
+): ReportLane => {
+	const lane = sessionLane(session, session.name, now, fallbackMs);
+	const events = session.steps.slice(-laneEvents).map((s) => ({
+		at: s.at,
+		text: entryText(s.text).replace(/\\([~\\])/g, "$1"),
+	}));
+	if (plan.length === 0) return { ...lane, events };
+	const spans: ReportSpan[] = lane.spans
+		.filter((span) => span.kind === "done")
+		.concat(
+			lane.spans
+				.filter((span) => span.kind === "active")
+				.map((span) => ({ ...span, end: now })),
+		);
+	let cursor = now;
+	for (const step of plan) {
+		spans.push({
+			start: cursor,
+			end: cursor + step.ms,
+			kind: "planned",
+			title: step.text,
+		});
+		cursor += step.ms;
+	}
+	return { ...lane, spans, finish: cursor, events };
+};
+
+export const reportPart = (
+	reply: RegionAnswer,
+	now: number,
+	fallbackMs: number | null,
+): { part: ReportPart; lane: ReportLane } => {
+	const { session, answer } = reply;
+	const parsed = answer.ok ? parseReport(answer.answer) : null;
+	const plan = parsed?.plan ?? [];
+	const lane = reportLane(session, plan, now, fallbackMs);
+	const count = (status: Task["status"]) =>
+		session.tasks.filter((t) => t.status === status).length;
+	const { finish } =
+		plan.length > 0
+			? { finish: lane.finish }
+			: futureEntries(session, [], now, fallbackMs);
+	return {
+		lane,
+		part: {
+			name: session.name,
+			activity: session.activity,
+			...(answer.ok ? {} : { error: answer.error }),
+			...(answer.ok && !parsed ? { answer: answer.answer.trim() } : {}),
+			sections: parsed?.sections ?? {},
+			plan: plan.map((s) => ({ ms: s.ms, text: entryText(s.text) })),
+			tasks: {
+				done: count("completed"),
+				active: count("in_progress"),
+				pending: count("pending"),
+			},
+			burnup: burnupOf(session),
+			tokens: session.tokens ?? null,
+			startedAt: session.startedAt,
+			finish: finish ?? lane.finish,
+		},
+	};
+};
+
+export const buildReport = (
+	title: string,
+	replies: readonly RegionAnswer[],
+	now: Date,
+	shots: readonly ReportShot[],
+): StatusReport => {
+	const at = now.getTime();
+	const fallback = averageTaskMs(replies.map((r) => r.session));
+	const built = replies.map((reply) => reportPart(reply, at, fallback));
+	return {
+		at,
+		title,
+		parts: built.map((b) => b.part),
+		lanes: built.map((b) => b.lane),
+		shots: [...shots].sort((a, b) => a.at - b.at),
+	};
 };

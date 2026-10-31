@@ -7,7 +7,9 @@ import type {
 	Point,
 	Region,
 	ReportResult,
+	ReportShot,
 	Session,
+	StatusReport,
 } from "../shared/types.ts";
 import { maxNoteText } from "../shared/types.ts";
 import { gridSize, snap } from "../web/grid.ts";
@@ -18,7 +20,11 @@ import { arrange, near, nearestFree, seedsOf } from "../web/placement.ts";
 import { type AnnotationStore, maxAnnotations } from "./annotations.ts";
 import type { Audit } from "./audit.ts";
 import type { Answer, SessionAsker } from "./exit.ts";
-import { regionReportBody, sessionReportBody } from "./reportTimeline.ts";
+import {
+	buildReport,
+	regionReportBody,
+	sessionReportBody,
+} from "./reportTimeline.ts";
 
 export const reportPrompt = [
 	"The kanban board wants a status report on this session. Do not do any more work.",
@@ -76,6 +82,8 @@ const spotBeside = (
 	return nearestFree(start, fits) ?? start;
 };
 
+export const reportSize = { w: gridSize * 30, h: gridSize * 20 };
+
 const ownedNote = (
 	owner: Owner,
 	beside: Rect | undefined,
@@ -83,10 +91,16 @@ const ownedNote = (
 	annotations: Annotations,
 	cards: ReadonlyMap<NodeKey, Rect>,
 	newId: () => string,
+	report?: StatusReport,
 ): Note => {
-	const size = noteSizeFor(text);
+	const size = report ? reportSize : noteSizeFor(text);
 	const previous = previousReport(annotations, owner);
-	if (previous) return { ...previous, ...size, text };
+	const extra = report ? { report } : {};
+	if (previous) {
+		const kept = previous.report && report ? {} : size;
+		const { report: _old, ...rest } = previous;
+		return { ...rest, ...kept, text, ...extra };
+	}
 	const spot = beside
 		? spotBeside(beside, size, [
 				...cards.values(),
@@ -102,6 +116,7 @@ const ownedNote = (
 		text,
 		color: "blue",
 		...owner,
+		...extra,
 	};
 };
 
@@ -111,6 +126,7 @@ export const reportNote = (
 	annotations: Annotations,
 	cards: ReadonlyMap<NodeKey, Rect>,
 	newId: () => string,
+	report?: StatusReport,
 ): Note =>
 	ownedNote(
 		{ session: session.id },
@@ -119,6 +135,7 @@ export const reportNote = (
 		annotations,
 		cards,
 		newId,
+		report,
 	);
 
 export const regionReportNote = (
@@ -128,8 +145,33 @@ export const regionReportNote = (
 	annotations: Annotations,
 	cards: ReadonlyMap<NodeKey, Rect>,
 	newId: () => string,
+	report?: StatusReport,
 ): Note =>
-	ownedNote({ region: region.id }, frame, text, annotations, cards, newId);
+	ownedNote(
+		{ region: region.id },
+		frame,
+		text,
+		annotations,
+		cards,
+		newId,
+		report,
+	);
+
+export type ShotCollector = (session: Session) => Promise<ReportShot[]>;
+
+const maxShots = 6;
+
+const shotsOf = async (
+	collect: ShotCollector | undefined,
+	sessions: readonly Session[],
+): Promise<ReportShot[]> => {
+	if (!collect) return [];
+	const all = await Promise.all(
+		sessions.map((s) => collect(s).catch(() => [] as ReportShot[])),
+	);
+	const unique = new Map(all.flat().map((shot) => [shot.url, shot]));
+	return [...unique.values()].sort((a, b) => a.at - b.at).slice(-maxShots);
+};
 
 export const cardsOf = (
 	board: Board,
@@ -203,6 +245,7 @@ export const createReportRunner = (deps: {
 	cards: () => ReadonlyMap<NodeKey, Rect>;
 	audit: Audit;
 	announce: (sessionId: string, result: ReportResult) => void;
+	shots?: ShotCollector;
 	now?: () => Date;
 	newId?: () => string;
 }): ReportRunner =>
@@ -257,6 +300,7 @@ export const createRegionReportRunner = (deps: {
 	cards: () => ReadonlyMap<NodeKey, Rect>;
 	audit: Audit;
 	announce: (regionId: string, result: ReportResult) => void;
+	shots?: ShotCollector;
 	now?: () => Date;
 	newId?: () => string;
 }): RegionReportRunner =>

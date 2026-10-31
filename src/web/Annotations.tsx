@@ -35,7 +35,7 @@ import {
 	toggleSelected,
 	typeText,
 } from "./annotations.ts";
-import { boardPointAt, view } from "./Canvas.tsx";
+import { boardPointAt, detail, view } from "./Canvas.tsx";
 import { commandKey } from "./focus/platform.ts";
 import {
 	isPlain,
@@ -55,6 +55,13 @@ import {
 	noteTextLimit,
 	resized,
 } from "./notes.ts";
+import {
+	openReport,
+	ReportDashboard,
+	ReportHeader,
+	ReportModal,
+	ReportTimeline,
+} from "./ReportView.tsx";
 import { regionDialog } from "./regionState.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 import { blocked, isTyping, pointerTarget } from "./Spawning.tsx";
@@ -78,9 +85,11 @@ function position(annotation: Annotation) {
 function onNoteControl(event: MouseEvent): boolean {
 	const target = event.target as HTMLElement;
 	const onScrollbar =
-		target.classList.contains("note-text") &&
+		(target.classList.contains("note-text") ||
+			target.classList.contains("report-scroll") ||
+			target.classList.contains("timeline-scroll")) &&
 		(event.offsetX > target.clientWidth || event.offsetY > target.clientHeight);
-	return onScrollbar || target.closest("a, input") !== null;
+	return onScrollbar || target.closest("a, input, button") !== null;
 }
 
 function grab(event: PointerEvent, annotation: Annotation): void {
@@ -214,9 +223,35 @@ function NoteMarkdown(props: { note: Note }): JSX.Element {
 	);
 }
 
+function ReportNoteBody(props: { note: Note }): JSX.Element | null {
+	const { report } = props.note;
+	if (!report) return null;
+	const open = () => {
+		openReport.value = props.note.id;
+	};
+	const level = detail.value;
+	return (
+		<div class={`report-note-body report-${level}`}>
+			<div class="report-scroll" data-scrollable>
+				{level === "near" ? (
+					<ReportDashboard report={report} onOpen={open} />
+				) : (
+					<div class="report-dashboard">
+						<ReportHeader report={report} onOpen={open} />
+						{level === "medium" && (
+							<ReportTimeline report={report} minuteEm={1} />
+						)}
+					</div>
+				)}
+			</div>
+		</div>
+	);
+}
+
 function NoteBody(props: { note: Note; editing: boolean }): JSX.Element {
 	const { note } = props;
 	if (props.editing) return <NoteEditor note={note} />;
+	if (note.report) return <ReportNoteBody note={note} />;
 	if (!note.text) {
 		return <div class="note-text empty">Double-click to write</div>;
 	}
@@ -225,7 +260,9 @@ function NoteBody(props: { note: Note; editing: boolean }): JSX.Element {
 
 function scrollNoteText(event: WheelEvent): void {
 	if (event.ctrlKey || event.metaKey) return;
-	const body = (event.currentTarget as Element).querySelector(".note-text");
+	const body = (event.currentTarget as Element).querySelector(
+		".note-text, .report-scroll",
+	);
 	if (
 		body &&
 		(body.scrollHeight > body.clientHeight ||
@@ -264,7 +301,9 @@ function AnnotationView(props: {
 }): JSX.Element {
 	const { annotation } = props;
 	const kindClass =
-		annotation.kind === "note" ? `note note-${annotation.color}` : "sticker";
+		annotation.kind === "note"
+			? `note note-${annotation.color}${annotation.report ? " report-note" : ""}`
+			: "sticker";
 	return (
 		<div
 			class={`annotation ${kindClass}${props.selected ? " selected" : ""}${props.editing ? " editing" : ""}`}
@@ -278,6 +317,10 @@ function AnnotationView(props: {
 			onWheel={annotation.kind === "note" ? scrollNoteText : undefined}
 			onDblClick={(event) => {
 				if (annotation.kind !== "note" || onNoteControl(event)) return;
+				if (annotation.report) {
+					openReport.value = annotation.id;
+					return;
+				}
 				select([annotation.id]);
 				editing.value = annotation.id;
 			}}
@@ -292,6 +335,20 @@ function AnnotationView(props: {
 				<span class="resize-handle" data-resize aria-hidden="true" />
 			)}
 		</div>
+	);
+}
+
+export function ReportModalHost(): JSX.Element | null {
+	const id = openReport.value;
+	const note = ordered.value.find((a) => a.id === id);
+	const report = note?.kind === "note" ? (note.report ?? null) : null;
+	return (
+		<ReportModal
+			report={report}
+			onClose={() => {
+				openReport.value = null;
+			}}
+		/>
 	);
 }
 

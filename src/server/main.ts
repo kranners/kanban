@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { Board } from "../shared/types.ts";
+import type { Board, Session } from "../shared/types.ts";
 import {
 	accountsIntervalMs,
 	createAccountMonitor,
@@ -69,6 +69,7 @@ import { createPeerHook, peerHookSettings } from "./peers.ts";
 import { createPermissions } from "./permissions.ts";
 import { createPromptSender } from "./prompts.ts";
 import { createRegionStore, loadRegions } from "./regions.ts";
+import { collectShots, reportShotsDir } from "./reportShots.ts";
 import {
 	cardsOf,
 	createRegionReportRunner,
@@ -276,8 +277,12 @@ const runExit = createExitRunner({
 	announce: (sessionId, result) => feed?.exit(sessionId, result),
 });
 const ask = claudeAsker({ claudeBin: config.claudeBin, probes });
+const shotsDir = reportShotsDir(config.stateDir);
+const shots = (session: Session) =>
+	collectShots(session, { dir: shotsDir, claudeHome: config.claudeHome });
 const runReport = createReportRunner({
 	ask,
+	shots,
 	annotations,
 	cards: () => cardsOf(source.board(), layout.current()),
 	audit,
@@ -285,6 +290,7 @@ const runReport = createReportRunner({
 });
 const runRegionReport = createRegionReportRunner({
 	ask,
+	shots,
 	annotations,
 	members: (regionId) =>
 		regionMembersOf(
@@ -401,6 +407,7 @@ const server = createKanbanServer({
 	exit: runExit,
 	report: runReport,
 	regionReport: runRegionReport,
+	reportShots: shotsDir,
 	layout,
 	annotations,
 	colours,

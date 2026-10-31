@@ -2,8 +2,10 @@ import {
 	type Annotation,
 	type Annotations,
 	maxNoteText,
+	maxReportBytes,
 	type NoteColor,
 	noteColors,
+	type StatusReport,
 } from "../shared/types.ts";
 import { stickerIds } from "../web/stickers/manifest.ts";
 import { parsePoint } from "./layout.ts";
@@ -49,6 +51,29 @@ const isLink = (value: unknown): value is string | undefined =>
 	value === undefined ||
 	(typeof value === "string" && annotationIdPattern.test(value));
 
+const shotUrl = /^\/api\/report-shots\/[0-9a-f]{64}\.(?:png|jpg|gif|webp)$/;
+
+const isReport = (value: unknown): boolean => {
+	if (typeof value !== "object" || value === null) return false;
+	const report = value as Record<string, unknown>;
+	if (
+		typeof report.at !== "number" ||
+		typeof report.title !== "string" ||
+		!Array.isArray(report.parts) ||
+		!Array.isArray(report.lanes) ||
+		!Array.isArray(report.shots)
+	)
+		return false;
+	const shotsOk = report.shots.every(
+		(shot) =>
+			typeof shot === "object" &&
+			shot !== null &&
+			typeof (shot as { url?: unknown }).url === "string" &&
+			shotUrl.test((shot as { url: string }).url),
+	);
+	return shotsOk && JSON.stringify(report).length <= maxReportBytes;
+};
+
 export const parseAnnotation = (
 	id: string,
 	body: unknown,
@@ -80,6 +105,12 @@ export const parseAnnotation = (
 		}
 		if (!isLink(session)) return { error: "session must be a session id" };
 		if (!isLink(region)) return { error: "region must be a region id" };
+		const { report } = fields;
+		if (report !== undefined && !isReport(report)) {
+			return {
+				error: `report must be a status report of at most ${maxReportBytes} bytes`,
+			};
+		}
 		return {
 			...placed,
 			kind: "note",
@@ -87,6 +118,7 @@ export const parseAnnotation = (
 			color,
 			...(session === undefined ? {} : { session }),
 			...(region === undefined ? {} : { region }),
+			...(report === undefined ? {} : { report: report as StatusReport }),
 		};
 	}
 	if (fields.kind === "sticker") {

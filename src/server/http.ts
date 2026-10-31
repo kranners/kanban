@@ -66,6 +66,7 @@ import {
 	parseRegionPatch,
 	type RegionStore,
 } from "./regions.ts";
+import { reportShotContentType, reportShotName } from "./reportShots.ts";
 import type { RegionReportRunner, ReportRunner } from "./reports.ts";
 import {
 	isAccountNumber,
@@ -116,10 +117,12 @@ export type ServerDeps = {
 	permissions: Permissions;
 	feed: Feed;
 	audit: Audit;
+	reportShots?: string;
 };
 
 export type Route =
 	| { kind: "healthz" }
+	| { kind: "report-shot"; name: string }
 	| { kind: "transcript"; sessionId: string; limit: number }
 	| { kind: "files"; sessionId: string; query: string }
 	| { kind: "commands"; sessionId: string }
@@ -204,6 +207,14 @@ export const matchRoute = (method: string, url: URL): Route => {
 		return method === "GET"
 			? { kind: "healthz" }
 			: { kind: "method-not-allowed" };
+	}
+	const shot = path.match(/^\/api\/report-shots\/([^/]+)$/);
+	if (shot?.[1]) {
+		if (method !== "GET" && method !== "HEAD")
+			return { kind: "method-not-allowed" };
+		return reportShotName.test(shot[1])
+			? { kind: "report-shot", name: shot[1] }
+			: { kind: "not-found" };
 	}
 	const transcript = path.match(/^\/api\/sessions\/([^/]+)\/transcript$/);
 	if (transcript?.[1]) {
@@ -470,6 +481,28 @@ const serveStatic = async (
 		"x-content-type-options": "nosniff",
 		"content-security-policy": "frame-ancestors 'none'",
 		"x-frame-options": "DENY",
+	});
+	if (head) return res.end();
+	pipeline(createReadStream(file), res, (error) => {
+		if (error) res.destroy();
+	});
+};
+
+const serveReportShot = async (
+	res: ServerResponse,
+	dir: string | undefined,
+	name: string,
+	head: boolean,
+) => {
+	const type = reportShotContentType(name);
+	if (!dir || !type) return sendError(res, 404);
+	const file = join(dir, name);
+	if (!(await isFile(file))) return sendError(res, 404);
+	res.writeHead(200, {
+		"content-type": type,
+		"cache-control": "private, max-age=31536000, immutable",
+		"x-content-type-options": "nosniff",
+		"content-security-policy": "default-src 'none'; frame-ancestors 'none'",
 	});
 	if (head) return res.end();
 	pipeline(createReadStream(file), res, (error) => {
@@ -976,6 +1009,13 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return sendError(res, 404);
 			case "method-not-allowed":
 				return sendError(res, 405);
+			case "report-shot":
+				return serveReportShot(
+					res,
+					deps.reportShots,
+					route.name,
+					req.method === "HEAD",
+				);
 			case "transcript": {
 				const known = deps.source
 					.board()

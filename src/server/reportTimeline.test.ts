@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Session, Task } from "../shared/types.ts";
 import {
+	buildReport,
 	compactCount,
 	entryText,
 	formatDuration,
@@ -340,5 +341,77 @@ describe("report edge cases", () => {
 	it("flattens, shortens and escapes timeline text", () => {
 		assert.equal(entryText("Edit ~/.claude\n  now"), "Edit \\~/.claude now");
 		assert.equal(entryText("x".repeat(200)).length, 120);
+	});
+});
+
+describe("buildReport", () => {
+	const task = (
+		id: string,
+		status: Task["status"],
+		endedAt: number | null,
+	): Task => ({
+		id,
+		subject: `task ${id}`,
+		status,
+		activeForm: null,
+		createdAt: at(9, 50),
+		startedAt: at(10, 0),
+		endedAt,
+	});
+	const busy: Session = {
+		...session,
+		tasks: [
+			task("a", "completed", at(10, 30)),
+			task("b", "completed", at(11, 0)),
+			task("c", "in_progress", null),
+		],
+		steps: [{ at: at(11, 30), text: "ran tests" }],
+	};
+	const answer = [
+		"Goal: ship it",
+		"Needs you: review the PR",
+		"Plan:",
+		"- 10m: fix lint",
+		"- 20m: deploy",
+	].join("\n");
+
+	it("charts tasks, plans the timeline from the answer and keeps shots in order", () => {
+		const report = buildReport(
+			"api",
+			[{ session: busy, answer: { ok: true, answer } }],
+			now,
+			[
+				{ url: "/b", caption: "b", at: at(11, 0) },
+				{ url: "/a", caption: "a", at: at(10, 0) },
+			],
+		);
+		const part = report.parts[0];
+		assert.deepEqual(part?.tasks, { done: 2, active: 1, pending: 0 });
+		assert.deepEqual(
+			part?.burnup.map((p) => p.done),
+			[0, 1, 2],
+		);
+		assert.equal(part?.sections.needs, "review the PR");
+		assert.equal(part?.finish, now.getTime() + 30 * minute);
+		const planned = report.lanes[0]?.spans.filter((s) => s.kind === "planned");
+		assert.deepEqual(
+			planned?.map((s) => s.title),
+			["fix lint", "deploy"],
+		);
+		assert.deepEqual(report.lanes[0]?.events, busy.steps);
+		assert.deepEqual(
+			report.shots.map((s) => s.url),
+			["/a", "/b"],
+		);
+	});
+
+	it("keeps an unanswered session's error", () => {
+		const report = buildReport(
+			"x",
+			[{ session, answer: { ok: false, error: "gone" } }],
+			now,
+			[],
+		);
+		assert.equal(report.parts[0]?.error, "gone");
 	});
 });

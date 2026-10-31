@@ -11,6 +11,7 @@ import {
 	AnnotationLayer,
 	AnnotationMenu,
 	BoardTools,
+	ReportModalHost,
 	StickerPicker,
 	useAnnotationGestures,
 } from "./Annotations.tsx";
@@ -373,6 +374,7 @@ export function App() {
 				<ExitDialog />
 				<BoardMenu />
 				<AnnotationMenu />
+				<ReportModalHost />
 				<StickerPicker />
 				<RegionMenu />
 				<IgnoreMenu />
