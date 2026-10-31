@@ -1,5 +1,6 @@
 import {
 	Gauge,
+	LibraryBig,
 	ListFilter,
 	MessagesSquare,
 	PanelRightClose,
@@ -7,6 +8,9 @@ import {
 } from "lucide-preact";
 import type { JSX } from "preact";
 import type { NodeRef } from "../shared/types.ts";
+import { current } from "./annotations.ts";
+import { DocsView } from "./DocsView.tsx";
+import { docStoreChoices } from "./docsPicker.ts";
 import { SearchView } from "./SearchView.tsx";
 import { StatusView } from "./StatusView.tsx";
 import {
@@ -41,6 +45,7 @@ const views: {
 }[] = [
 	{ id: "search", title: "Search", icon: Search },
 	{ id: "status", title: "Status", icon: ListFilter },
+	{ id: "docs", title: "Docs", icon: LibraryBig },
 	{ id: "usage", title: "Usage", icon: Gauge },
 	{ id: "messages", title: "Messages", icon: MessagesSquare },
 ];
@@ -57,10 +62,12 @@ function Badge(props: { view: RailView }): JSX.Element | null {
 			return activityFilter.value.size > 0 || workingSubagentsOnly.value ? (
 				<span class="rail-dot" />
 			) : null;
+		case "docs":
+			return null;
 		case "usage": {
-			const current = usage.value;
-			if (!current) return null;
-			const { level, stale } = usageGlance(current);
+			const latest = usage.value;
+			if (!latest) return null;
+			const { level, stale } = usageGlance(latest);
 			return level === "normal" && !stale ? null : (
 				<span class={`rail-dot usage-${level}${stale ? " usage-stale" : ""}`} />
 			);
@@ -80,9 +87,15 @@ function hint(view: RailView, title: string): string {
 			return activityFilter.value.size > 0 || workingSubagentsOnly.value
 				? `${title}, filtering the board`
 				: title;
+		case "docs": {
+			const count = docStoreChoices(current.value).length;
+			return count > 0
+				? `${title}, ${count} doc store${count === 1 ? "" : "s"}`
+				: title;
+		}
 		case "usage": {
-			const current = usage.value;
-			return current ? usageGlance(current).label : title;
+			const latest = usage.value;
+			return latest ? usageGlance(latest).label : title;
 		}
 		case "messages": {
 			const count = board.value?.messages.length ?? 0;
@@ -97,6 +110,8 @@ function Body(props: { view: RailView }): JSX.Element | null {
 			return <SearchView />;
 		case "status":
 			return <StatusView />;
+		case "docs":
+			return <DocsView />;
 		case "usage":
 			return <UsageView />;
 		case "messages":

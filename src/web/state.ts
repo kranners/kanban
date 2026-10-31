@@ -25,7 +25,7 @@ export const focusedSessionId = signal<string | null>(null);
 export const focusedSubagentId = signal<string | null>(null);
 export const newSessionOpen = signal(false);
 export const awaitingLanding = signal<Landing | null>(null);
-export type RailView = "search" | "status" | "usage" | "messages";
+export type RailView = "search" | "status" | "docs" | "usage" | "messages";
 export const railView = signal<RailView | null>(
 	innerWidth > 720 ? "messages" : null,
 );
