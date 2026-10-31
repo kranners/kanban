@@ -3,6 +3,7 @@ import type {
 	Step,
 	Task,
 	TaskStatus,
+	TokenUsage,
 	TranscriptEntry,
 } from "../../shared/types.ts";
 import { publishedArtifact } from "../artifacts.ts";
@@ -61,6 +62,8 @@ export type TranscriptFacts = {
 	tasks: Map<string, Task>;
 	steps: Step[];
 	entries: TranscriptEntry[];
+	tokens: TokenUsage;
+	countedMessages: Map<string, TokenUsage>;
 };
 
 export const entryLimit = 2000;
@@ -91,6 +94,8 @@ export function createFacts(): TranscriptFacts {
 		tasks: new Map(),
 		steps: [],
 		entries: [],
+		tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		countedMessages: new Map(),
 	};
 }
 
@@ -177,7 +182,9 @@ function humanGoal(prompt: string | null): string | null {
 }
 
 function applyAssistant(facts: TranscriptFacts, record: Json, at: number) {
-	const content = asObject(record.message)?.content;
+	const message = asObject(record.message);
+	countTokens(facts, message);
+	const content = message?.content;
 	if (!Array.isArray(content)) return;
 	for (const item of content) {
 		const block = asObject(item);
@@ -198,6 +205,30 @@ function applyAssistant(facts: TranscriptFacts, record: Json, at: number) {
 			pushEntry(facts, { at, role: "tool", text: summary });
 		}
 	}
+}
+
+function countTokens(facts: TranscriptFacts, message: Json | null) {
+	const usage = asObject(message?.usage);
+	if (!usage) return;
+	const next: TokenUsage = {
+		input: tokenCount(usage.input_tokens),
+		output: tokenCount(usage.output_tokens),
+		cacheRead: tokenCount(usage.cache_read_input_tokens),
+		cacheWrite: tokenCount(usage.cache_creation_input_tokens),
+	};
+	const id = asString(message?.id);
+	const seen = id ? facts.countedMessages.get(id) : undefined;
+	for (const key of ["input", "output", "cacheRead", "cacheWrite"] as const) {
+		const counted = seen?.[key] ?? 0;
+		if (next[key] > counted) facts.tokens[key] += next[key] - counted;
+		else next[key] = counted;
+	}
+	if (id) facts.countedMessages.set(id, next);
+}
+
+function tokenCount(value: unknown): number {
+	const count = asNumber(value);
+	return count !== null && count > 0 ? count : 0;
 }
 
 function applyUser(

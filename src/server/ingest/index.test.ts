@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, describe, test } from "node:test";
 import type { Board } from "../../shared/types.ts";
-import { goalOf, startBoard } from "./index.ts";
+import { goalOf, startBoard, sumTokens } from "./index.ts";
 import { createFacts } from "./records.ts";
 import type { Job } from "./registry.ts";
 import { subagentLimit } from "./subagents.ts";
@@ -47,6 +47,12 @@ function touch(path: string, ageMs: number) {
 	utimesSync(join(home, path), time, time);
 }
 
+const usage = (input: number, output: number) => ({
+	input_tokens: input,
+	output_tokens: output,
+	cache_read_input_tokens: 1000,
+	cache_creation_input_tokens: 50,
+});
 const assistant = (offset: number, content: object[], extra = {}) => ({
 	type: "assistant",
 	sessionId: lead,
@@ -281,6 +287,11 @@ function buildFixture() {
 				input: { file_path: "/Users/me/dev/acme-api/src/a.ts" },
 			},
 		]),
+		...[0, 1].map(() =>
+			assistant(-530_000, [], {
+				message: { id: "msg_lead", content: [], usage: usage(100, 20) },
+			}),
+		),
 	]);
 	const subagents = `projects/${leadDir}/${lead}/subagents`;
 	const agent = (
@@ -323,6 +334,11 @@ function buildFixture() {
 				},
 			]),
 			result(-439_000, "s-send", { success: true, msg_id: "msg-3" }),
+			assistant(-439_000, [], {
+				message: { id: "msg_agent", content: [], usage: usage(7, 3) },
+				isSidechain: true,
+				agentId: "agentlive",
+			}),
 			...backgroundShell(-438_000, "s-watch", "bwatch", "Watch the tests"),
 		],
 	);
@@ -523,8 +539,18 @@ describe("startBoard", () => {
 		);
 	});
 
+	test("sums token usage over the transcript and its subagents", () => {
+		assert.deepEqual(session(lead).tokens, {
+			input: 107,
+			output: 23,
+			cacheRead: 2000,
+			cacheWrite: 100,
+		});
+		assert.equal(session(worker).tokens, undefined);
+	});
+
 	test("derives an interactive session from the registry and transcript", () => {
-		const { steps, ...derived } = session(lead);
+		const { steps, tokens, ...derived } = session(lead);
 		assert.deepEqual(derived, {
 			id: lead,
 			short: null,
@@ -737,6 +763,18 @@ describe("startBoard", () => {
 		assert.equal(handle.board(), changes[0]);
 		await new Promise((resolve) => setTimeout(resolve, 2400));
 		assert.equal(changes.length, 1);
+	});
+});
+
+describe("sumTokens", () => {
+	test("adds each kind of token across transcripts", () => {
+		assert.deepEqual(
+			sumTokens([
+				{ input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
+				{ input: 10, output: 20, cacheRead: 30, cacheWrite: 40 },
+			]),
+			{ input: 11, output: 22, cacheRead: 33, cacheWrite: 44 },
+		);
 	});
 });
 

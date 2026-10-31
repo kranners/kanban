@@ -11,6 +11,7 @@ import type {
 	NodeRef,
 	Session,
 	Subagent,
+	TokenUsage,
 	TranscriptEntry,
 } from "../../shared/types.ts";
 import type { CloudSession } from "../cloud.ts";
@@ -201,9 +202,16 @@ export function startBoard(opts: {
 				.map((subagent) => subagent.sessionId),
 			...workflows.map((workflow) => workflow.sessionId),
 		]);
+		const agentTokens = subagentTokensBySession(found, agentFacts);
 		const sessions = [
 			...[...tracked.values()].map((item) =>
-				toSession(item, claudeHome, inCmux, watched.has(item.id)),
+				toSession(
+					item,
+					claudeHome,
+					inCmux,
+					watched.has(item.id),
+					agentTokens.get(item.id) ?? [],
+				),
 			),
 			...clouds.map((cs) => toCloudSession(cs, cloudTails.get(cs.id) ?? null)),
 		].sort((a, b) => b.updatedAt - a.updatedAt);
@@ -469,6 +477,7 @@ function toSession(
 	claudeHome: string,
 	inCmux: (pid: number) => boolean,
 	watching: boolean,
+	agentTokens: TokenUsage[],
 ): Session {
 	const { entry, job, tail } = item;
 	const cwd = entry?.cwd ?? job?.cwd ?? "";
@@ -505,6 +514,7 @@ function toSession(
 		artifacts: [...(tail?.facts.artifacts.values() ?? [])].reverse(),
 		tasks: [...(tail?.facts.tasks.values() ?? [])],
 		steps: [...(tail?.facts.steps ?? [])],
+		...tokensField(tail ? [tail.facts.tokens, ...agentTokens] : []),
 		...(item.home !== claudeHome ? { configDir: item.home } : {}),
 	};
 }
@@ -536,6 +546,44 @@ function toCloudSession(cs: CloudSession, tail: Tail | null): Session {
 		cloud: { url: cs.url },
 		...(cs.configDir ? { configDir: cs.configDir } : {}),
 	};
+}
+
+function subagentTokensBySession(
+	found: FoundSubagent[],
+	agentFacts: Map<string, TranscriptFacts>,
+): Map<string, TokenUsage[]> {
+	const bySession = new Map<string, TokenUsage[]>();
+	for (const { subagent, transcriptPath } of found) {
+		const facts = agentFacts.get(transcriptPath);
+		if (!facts) continue;
+		const list = bySession.get(subagent.sessionId) ?? [];
+		list.push(facts.tokens);
+		bySession.set(subagent.sessionId, list);
+	}
+	return bySession;
+}
+
+export function sumTokens(usages: TokenUsage[]): TokenUsage {
+	const total: TokenUsage = {
+		input: 0,
+		output: 0,
+		cacheRead: 0,
+		cacheWrite: 0,
+	};
+	for (const usage of usages) {
+		total.input += usage.input;
+		total.output += usage.output;
+		total.cacheRead += usage.cacheRead;
+		total.cacheWrite += usage.cacheWrite;
+	}
+	return total;
+}
+
+function tokensField(usages: TokenUsage[]): { tokens?: TokenUsage } {
+	const tokens = sumTokens(usages);
+	const total =
+		tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite;
+	return total > 0 ? { tokens } : {};
 }
 
 export function goalOf(

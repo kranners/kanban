@@ -120,8 +120,9 @@ describe("reportNote", () => {
 describe("reportText", () => {
 	it("heads the answer with the time and fits the note limit", () => {
 		const at = new Date(2026, 9, 27, 9, 3);
-		assert.equal(reportText("  - a\n", at), "**Status · 09:03**\n\n- a");
-		const long = reportText("x".repeat(maxNoteText), at);
+		const text = reportText(session, "  - a\n", at);
+		assert.ok(text.startsWith("**Status · 09:03**\n\n- a\n\n**Stats**"), text);
+		const long = reportText(session, "x".repeat(maxNoteText), at);
 		assert.equal(long.length, maxNoteText);
 		assert.ok(long.endsWith("…"));
 	});
@@ -187,21 +188,30 @@ const at = new Date(2026, 9, 27, 14, 5);
 
 describe("regionReportText", () => {
 	it("heads each session's answer with its name, and says who did not answer", () => {
-		assert.equal(
-			regionReportText(
-				[
-					{ name: "api", answer: { ok: true, answer: " - done \n" } },
-					{ name: "web", answer: { ok: false, error: "timed out" } },
-				],
-				at,
+		const text = regionReportText(
+			[
+				{
+					session: { ...session, name: "api" },
+					answer: { ok: true, answer: " - done \n" },
+				},
+				{
+					session: { ...session, name: "web" },
+					answer: { ok: false, error: "timed out" },
+				},
+			],
+			at,
+		);
+		assert.ok(
+			text.startsWith(
+				"**Status · 14:05**\n\n**api**\n\n- done\n\n**web**\n\n_No answer: timed out_\n\n**Stats**",
 			),
-			"**Status · 14:05**\n\n**api**\n\n- done\n\n**web**\n\n_No answer: timed out_",
+			text,
 		);
 	});
 
 	it("fits the note limit", () => {
 		const text = regionReportText(
-			[{ name: "api", answer: { ok: true, answer: "x".repeat(maxNoteText) } }],
+			[{ session, answer: { ok: true, answer: "x".repeat(maxNoteText) } }],
 			at,
 		);
 		assert.equal(text.length, maxNoteText);

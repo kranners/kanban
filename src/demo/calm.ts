@@ -83,6 +83,12 @@ function world(start: number): World {
 	const sessions = [
 		session(start, {
 			id: "a1f0c2d4e5",
+			tokens: {
+				input: 18_420,
+				output: 41_310,
+				cacheRead: 2_861_500,
+				cacheWrite: 214_900,
+			},
 			goal: "Expire stale auth sessions",
 			name: "acme-api",
 			project: "acme-api",
@@ -139,6 +145,12 @@ function world(start: number): World {
 		}),
 		session(start, {
 			id: "b2e1d3c4f6",
+			tokens: {
+				input: 6_210,
+				output: 12_880,
+				cacheRead: 734_200,
+				cacheWrite: 88_150,
+			},
 			goal: "Migrate the orders table to the new schema",
 			name: "migrate orders table",
 			project: "acme-api",
@@ -158,6 +170,12 @@ function world(start: number): World {
 		}),
 		session(start, {
 			id: "d4c3f5a6b8",
+			tokens: {
+				input: 9_640,
+				output: 27_530,
+				cacheRead: 1_402_700,
+				cacheWrite: 131_420,
+			},
 			goal: "Redesign the checkout summary",
 			name: "acme-web",
 			project: "acme-web",

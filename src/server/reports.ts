@@ -18,11 +18,17 @@ import { arrange, near, nearestFree, seedsOf } from "../web/placement.ts";
 import { type AnnotationStore, maxAnnotations } from "./annotations.ts";
 import type { Audit } from "./audit.ts";
 import type { Answer, SessionAsker } from "./exit.ts";
+import { regionReportBody, sessionReportBody } from "./reportTimeline.ts";
 
-export const reportPrompt =
-	"The kanban board wants a status report on this session. Do not do any more work. " +
-	"In a few short markdown bullet points, say what you are working on, what is done, what is left, " +
-	"and anything blocked or waiting on a person. Answer with the bullet points only.";
+export const reportPrompt = [
+	"The kanban board wants a status report on this session. Do not do any more work.",
+	"Answer with only these sections, each heading on its own line exactly as written, each followed by at most one short paragraph:",
+	"Done so far: what is already done. Leave this section out if nothing is done yet.",
+	"Goal: the overall goal of this session.",
+	"Left: what remains to do.",
+	"Needs you: anything that has needed or will need the user. Leave this section out if there is nothing.",
+	"Plan: your remaining steps in order, one per line as `- <duration>: <step>`, for example `- 10m: write tests` or `- 1h 30m: migrate the data`, with durations estimated assuming the user responds instantly.",
+].join("\n");
 
 const reportGap = gridSize * 2;
 
@@ -34,21 +40,17 @@ const clipped = (text: string): string =>
 const heading = (at: Date): string =>
 	`**Status · ${at.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}**`;
 
-export const reportText = (answer: string, at: Date): string =>
-	clipped(`${heading(at)}\n\n${answer.trim()}`);
+export const reportText = (
+	session: Session,
+	answer: string,
+	at: Date,
+): string =>
+	clipped(`${heading(at)}\n\n${sessionReportBody(session, answer, at)}`);
 
-export type Reply = { name: string; answer: Answer };
+export type Reply = { session: Session; answer: Answer };
 
 export const regionReportText = (replies: Reply[], at: Date): string =>
-	clipped(
-		[
-			heading(at),
-			...replies.map(
-				({ name, answer }) =>
-					`**${name}**\n\n${answer.ok ? answer.answer.trim() : `_No answer: ${answer.error}_`}`,
-			),
-		].join("\n\n"),
-	);
+	clipped(`${heading(at)}\n\n${regionReportBody(replies, at)}`);
 
 type Owner = Pick<Note, "session" | "region">;
 
@@ -223,7 +225,7 @@ export const createReportRunner = (deps: {
 			}
 			const note = reportNote(
 				session,
-				reportText(answer.answer, deps.now?.() ?? new Date()),
+				reportText(session, answer.answer, deps.now?.() ?? new Date()),
 				annotations,
 				cards,
 				deps.newId ?? randomUUID,
@@ -269,7 +271,7 @@ export const createRegionReportRunner = (deps: {
 			const replies = await Promise.all(
 				asked.map(
 					async (session): Promise<Reply> => ({
-						name: session.name,
+						session,
 						answer: await deps.ask(session, reportPrompt),
 					}),
 				),
