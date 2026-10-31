@@ -24,7 +24,7 @@ import type { AttachHub } from "./attach.ts";
 import type { AuditEvent } from "./audit.ts";
 import type { Authenticate } from "./auth.ts";
 import { createColourStore } from "./colours.ts";
-import { createCommentStore } from "./comments.ts";
+import { type CommentStore, createCommentStore } from "./comments.ts";
 import { type Answer, createExitRunner } from "./exit.ts";
 import { createFeed } from "./feed.ts";
 import {
@@ -258,6 +258,8 @@ describe("createKanbanServer", () => {
 	const origins: string[] = [];
 	const asked: [string, string][] = [];
 	const cancelled: string[] = [];
+	let comments: CommentStore;
+	let threadCount = 0;
 	const toolCalls: [string, ToolCall][] = [];
 	const madeDefault: number[] = [];
 	const agentTokens = createAgentTokens(60_000);
@@ -317,12 +319,12 @@ describe("createKanbanServer", () => {
 			onChange: (next) => feed?.regions(next),
 			newId: () => "region-1",
 		});
-		const comments = createCommentStore({
+		comments = createCommentStore({
 			file: join(dist, "state", "comments.json"),
 			initial: [],
 			onChange: (thread) => feed?.comment(thread),
 			onRemove: (threads) => feed?.comments(threads),
-			newId: () => "thread-1",
+			newId: () => `thread-${++threadCount}`,
 		});
 		feed = createFeed({
 			comments: comments.current,
@@ -1443,6 +1445,36 @@ describe("createKanbanServer", () => {
 			).status,
 			404,
 		);
+	});
+
+	it("keeps one thread per top-bar button and refuses a rerun while it works", async () => {
+		const post = (button: unknown, text: string) =>
+			send("POST", "/api/comments", { x: 0, y: 0, button, text });
+		const first = await post("snooze", "leaving");
+		assert.equal(first.status, 201);
+		const snooze = await first.json();
+		assert.equal(snooze.button, "snooze");
+		assert.deepEqual(asked.at(-1), [snooze.id, "leaving"]);
+		const tidy = await (await post("tidy", "tidy up")).json();
+		comments.update(snooze.id, (thread) => ({ ...thread, running: true }));
+		const askedBefore = asked.length;
+		assert.equal((await post("snooze", "again")).status, 409);
+		assert.equal(asked.length, askedBefore);
+		const buttons = () =>
+			comments.current().filter((thread) => thread.button === "snooze");
+		assert.equal(buttons().length, 1);
+		comments.update(snooze.id, (thread) => ({ ...thread, running: false }));
+		const rerun = await post("snooze", "again");
+		assert.equal(rerun.status, 201);
+		const replaced = await rerun.json();
+		assert.notEqual(replaced.id, snooze.id);
+		assert.deepEqual(
+			buttons().map((thread) => thread.id),
+			[replaced.id],
+		);
+		assert.equal(cancelled.at(-1), snooze.id);
+		assert.ok(comments.get(tidy.id));
+		assert.equal((await post("nap", "x")).status, 400);
 	});
 
 	it("runs agent tools only for a live token from loopback", async () => {

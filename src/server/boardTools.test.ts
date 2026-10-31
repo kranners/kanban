@@ -129,6 +129,7 @@ const setup = async (shown: Board = board) => {
 		annotations,
 		regions,
 		colours,
+		comments,
 		events,
 		exits,
 		answered,
@@ -146,6 +147,20 @@ describe("board tools", () => {
 		assert.equal(view.sessions[0].card.w, 312);
 		assert.equal(view.gridSize, 24);
 		assert.deepEqual(events, [], "reads are not audited");
+	});
+
+	it("tells a button's thread it has no place on the board", async () => {
+		const { tools, comments } = await setup();
+		const thisComment = async (id: string) => {
+			const result = await tools(id, { tool: "board_snapshot" });
+			assert.ok(result.ok);
+			return JSON.parse(result.text.split("\n")[1] ?? "{}").thisComment;
+		};
+		const pin = comments.create({ x: 30, y: 40, text: "pin" });
+		const tidy = comments.create({ x: 0, y: 0, text: "tidy", button: "tidy" });
+		assert.ok(pin && tidy);
+		assert.deepEqual(await thisComment(pin.id), { x: 30, y: 40 });
+		assert.equal(await thisComment(tidy.id), null);
 	});
 
 	it("moves cards by id or short id, pinned and snapped, all or nothing", async () => {

@@ -1,5 +1,10 @@
 import { computed, signal } from "@preact/signals";
-import type { CommentEvent, CommentThread, Point } from "../shared/types.ts";
+import type {
+	AgentButton,
+	CommentEvent,
+	CommentThread,
+	Point,
+} from "../shared/types.ts";
 import type { KeyPress } from "./actions.ts";
 
 export type Composer = { board: Point; client: Point };
@@ -14,11 +19,24 @@ export const composer = signal<Composer | null>(null);
 export const threadMenu = signal<ThreadMenu | null>(null);
 export const pinDrafts = signal<ReadonlyMap<string, Point>>(new Map());
 
+export const openButton = signal<AgentButton | null>(null);
+
 export const pinned = computed(() =>
-	[...threads.value.values()].map((thread) => {
-		const draft = pinDrafts.value.get(thread.id);
-		return draft ? { ...thread, ...draft } : thread;
-	}),
+	[...threads.value.values()]
+		.filter((thread) => !thread.button)
+		.map((thread) => {
+			const draft = pinDrafts.value.get(thread.id);
+			return draft ? { ...thread, ...draft } : thread;
+		}),
+);
+
+export const buttonThreads = computed(
+	() =>
+		new Map(
+			[...threads.value.values()].flatMap((thread) =>
+				thread.button ? [[thread.button, thread] as const] : [],
+			),
+		),
 );
 
 export const openThread = computed(() =>
@@ -58,6 +76,8 @@ export function receiveComments(list: readonly CommentThread[]): void {
 	threads.value = new Map(list.map((thread) => [thread.id, thread]));
 	const open = openThreadId.peek();
 	if (open && !threads.value.has(open)) openThreadId.value = null;
+	const button = openButton.peek();
+	if (button && !buttonThreads.peek().has(button)) openButton.value = null;
 }
 
 export function receiveComment(thread: CommentThread): void {
@@ -110,15 +130,18 @@ const threadPath = (id: string) => `/api/comments/${encodeURIComponent(id)}`;
 export async function startThread(
 	at: Point,
 	text: string,
+	button?: AgentButton,
 ): Promise<Outcome<CommentThread>> {
 	const created = await request<CommentThread>("POST", "/api/comments", {
 		x: Math.round(at.x),
 		y: Math.round(at.y),
 		text,
+		...(button ? { button } : {}),
 	});
 	if (created.ok) {
 		receiveComment(created.value);
-		openThreadId.value = created.value.id;
+		if (button) openButton.value = button;
+		else openThreadId.value = created.value.id;
 	}
 	return created;
 }

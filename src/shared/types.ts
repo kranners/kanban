@@ -215,10 +215,14 @@ export type CommentEvent =
 	| { kind: "reply"; at: number; text: string }
 	| { kind: "error"; at: number; text: string };
 
+export const agentButtons = ["tidy", "snooze"] as const;
+export type AgentButton = (typeof agentButtons)[number];
+
 export type CommentThread = {
 	id: string;
 	x: number;
 	y: number;
+	button?: AgentButton;
 	createdAt: number;
 	updatedAt: number;
 	resolved: boolean;
@@ -228,7 +232,12 @@ export type CommentThread = {
 	events: CommentEvent[];
 };
 
-export type CommentDraft = { x: number; y: number; text: string };
+export type CommentDraft = {
+	x: number;
+	y: number;
+	text: string;
+	button?: AgentButton;
+};
 
 export type CommentPatch = { x?: number; y?: number; resolved?: boolean };
 

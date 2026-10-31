@@ -62,6 +62,28 @@ describe("comment parsing", () => {
 		assert.ok("error" in parseCommentPatch({}));
 	});
 
+	it("keeps a known button on drafts and threads", () => {
+		assert.deepEqual(
+			parseCommentDraft({ x: 0, y: 0, text: "t", button: "snooze" }),
+			{ x: 0, y: 0, text: "t", button: "snooze" },
+		);
+		for (const button of ["nap", 1]) {
+			assert.deepEqual(parseCommentDraft({ x: 0, y: 0, text: "t", button }), {
+				error: "button must be tidy or snooze",
+			});
+		}
+		assert.equal(
+			"button" in parseCommentDraft({ x: 0, y: 0, text: "t" }),
+			false,
+		);
+		const [tidy, unknown] = parseComments([
+			thread("a", { button: "tidy" }),
+			{ ...thread("b"), button: "nap" },
+		]);
+		assert.equal(tidy?.button, "tidy");
+		assert.equal(unknown && "button" in unknown, false);
+	});
+
 	it("keeps valid threads, drops bad ones and settles interrupted runs", () => {
 		const parsed = parseComments([
 			thread("a", {
@@ -145,13 +167,20 @@ describe("comment store", () => {
 		assert.equal(store.remove("thread-2"), false);
 		assert.deepEqual(changed, ["thread-1", "thread-1", "thread-2"]);
 		assert.deepEqual(removed, [1]);
+		assert.equal(
+			store.create({ x: 0, y: 0, text: "tidy", button: "tidy" })?.button,
+			"tidy",
+		);
 		await store.saved();
 		const loaded = await loadComments(file);
 		assert.deepEqual(
-			loaded.map((t) => t.id),
-			["thread-1"],
+			loaded.map((t) => [t.id, t.button]),
+			[
+				["thread-1", undefined],
+				["thread-3", "tidy"],
+			],
 		);
-		assert.equal(JSON.parse(await readFile(file, "utf8")).length, 1);
+		assert.equal(JSON.parse(await readFile(file, "utf8")).length, 2);
 	});
 
 	it("refuses new threads at the cap and loads a corrupt file as empty", async () => {

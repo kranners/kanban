@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type {
-	CommentDraft,
-	CommentEvent,
-	CommentPatch,
-	CommentThread,
+import {
+	type AgentButton,
+	agentButtons,
+	type CommentDraft,
+	type CommentEvent,
+	type CommentPatch,
+	type CommentThread,
 } from "../shared/types.ts";
 import { isCoordinate } from "./layout.ts";
 import { createStateFile, readState } from "./stateFile.ts";
@@ -56,18 +58,26 @@ export const parseMessage = (body: unknown): string | { error: string } => {
 	return text;
 };
 
+const isAgentButton = (value: unknown): value is AgentButton =>
+	agentButtons.includes(value as AgentButton);
+
 export const parseCommentDraft = (
 	body: unknown,
 ): CommentDraft | { error: string } => {
 	if (typeof body !== "object" || body === null) {
 		return { error: "Expected a JSON object with x, y and text" };
 	}
-	const { x, y } = body as Record<string, unknown>;
+	const { x, y, button } = body as Record<string, unknown>;
 	if (!isCoordinate(x) || !isCoordinate(y)) {
 		return { error: "x and y must be finite board coordinates" };
 	}
+	if (button !== undefined && !isAgentButton(button)) {
+		return { error: "button must be tidy or snooze" };
+	}
 	const text = parseMessage(body);
-	return typeof text === "string" ? { x, y, text } : text;
+	return typeof text === "string"
+		? { x, y, text, ...(button === undefined ? {} : { button }) }
+		: text;
 };
 
 export const parseCommentPatch = (
@@ -133,6 +143,7 @@ const parseThread = (value: unknown): CommentThread | null => {
 		id,
 		x,
 		y,
+		...(isAgentButton(fields.button) ? { button: fields.button } : {}),
 		createdAt,
 		updatedAt,
 		resolved: resolved === true,
@@ -190,6 +201,7 @@ export const createCommentStore = ({
 				id: newId(),
 				x: draft.x,
 				y: draft.y,
+				...(draft.button ? { button: draft.button } : {}),
 				createdAt: at,
 				updatedAt: at,
 				resolved: false,

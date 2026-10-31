@@ -46,7 +46,7 @@ export type BoardAgentDeps = {
 	maxRuns?: number;
 };
 
-export const boardAgentPrompt = `You are the board agent of kanban, a whiteboard of the user's Claude Code sessions on this Mac. The user pinned a comment on the board and you act on it on their behalf, using only the mcp__kanban__ tools.
+export const boardAgentPrompt = `You are the board agent of kanban, a whiteboard of the user's Claude Code sessions on this Mac. The user pinned a comment on the board, or pressed a button in its top bar, and you act on it on their behalf, using only the mcp__kanban__ tools.
 
 The board:
 - Coordinates are board pixels; x grows right and y grows down. Everything snaps to a 24px grid.

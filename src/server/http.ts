@@ -783,6 +783,19 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if ("error" in draft) {
 			return sendJson(res, 400, { ok: false, error: draft.error });
 		}
+		const previous = draft.button
+			? deps.comments.current().find((thread) => thread.button === draft.button)
+			: undefined;
+		if (previous?.running) {
+			return sendJson(res, 409, {
+				ok: false,
+				error: "The board agent is still working on this",
+			});
+		}
+		if (previous) {
+			deps.agent.cancel(previous.id);
+			deps.comments.remove(previous.id);
+		}
 		const thread = deps.comments.create(draft);
 		if (!thread) {
 			return sendJson(res, 409, {

@@ -687,7 +687,12 @@ export function createBackend(scenario: Scenario): Backend {
 	};
 
 	const createComment = (body: unknown): Response => {
-		const draft = body as { x?: unknown; y?: unknown; text?: unknown } | null;
+		const draft = body as {
+			x?: unknown;
+			y?: unknown;
+			text?: unknown;
+			button?: unknown;
+		} | null;
 		if (
 			typeof draft?.x !== "number" ||
 			typeof draft.y !== "number" ||
@@ -695,12 +700,29 @@ export function createBackend(scenario: Scenario): Backend {
 			draft.text.trim() === ""
 		)
 			return json(400, { ok: false, error: "x, y and text are required" });
+		const button =
+			draft.button === "tidy" || draft.button === "snooze"
+				? draft.button
+				: undefined;
+		const previous = button
+			? world.comments.find((thread) => thread.button === button)
+			: undefined;
+		if (previous?.running)
+			return json(409, {
+				ok: false,
+				error: "The board agent is still working on this",
+			});
+		if (previous) {
+			world.comments = world.comments.filter((thread) => thread !== previous);
+			broadcast({ type: "comments", comments: world.comments });
+		}
 		const at = Date.now();
 		const n = next();
 		const thread: CommentThread = {
 			id: `c${n}`,
 			x: draft.x,
 			y: draft.y,
+			...(button ? { button } : {}),
 			createdAt: at,
 			updatedAt: at,
 			resolved: false,

@@ -142,7 +142,7 @@ export const toolDefinitions: ToolDefinition[] = [
 	{
 		name: "board_snapshot",
 		description:
-			"Everything on the board: sessions with their card rectangles, activity and region, subagent counts, project regions, notes, stickers and where this comment thread is pinned.",
+			"Everything on the board: sessions with their card rectangles, activity and region, subagent counts, project regions, notes, stickers and where this comment thread is pinned, if it is.",
 		inputSchema: object({}),
 	},
 	{

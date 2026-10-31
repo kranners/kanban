@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { CommentThread } from "../shared/types.ts";
-import { isCommentKey, pinState, threadTitle } from "./comments.ts";
+import {
+	buttonThreads,
+	isCommentKey,
+	openButton,
+	pinned,
+	pinState,
+	receiveComments,
+	threadTitle,
+} from "./comments.ts";
 
 const press = {
 	key: "/",
@@ -44,4 +52,21 @@ test("a pin shows whether its agent is working, failed, resolved or answered", (
 	assert.equal(pinState(thread()), "answered");
 	assert.equal(threadTitle(thread()), "Organise my board");
 	assert.equal(threadTitle(thread({ events: [] })), "Comment");
+});
+
+test("button threads stay off the board and the latest one per button wins", () => {
+	const pin = thread({ id: "pin" });
+	const tidy = thread({ id: "tidy", button: "tidy" });
+	const laterTidy = thread({ id: "later", button: "tidy" });
+	receiveComments([pin, tidy, laterTidy]);
+	assert.deepEqual(pinned.value, [pin]);
+	assert.equal(buttonThreads.value.get("tidy"), laterTidy);
+	assert.equal(buttonThreads.value.get("snooze"), undefined);
+});
+
+test("a button's popover closes once its thread is gone", () => {
+	receiveComments([thread({ id: "tidy", button: "tidy" })]);
+	openButton.value = "tidy";
+	receiveComments([]);
+	assert.equal(openButton.value, null);
 });

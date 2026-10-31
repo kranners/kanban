@@ -316,3 +316,25 @@
 .comment-reply .comment-input:disabled {
 	color: var(--muted);
 }
+
+.agent-button {
+	position: relative;
+}
+
+.agent-panel {
+	z-index: 61;
+}
+
+.agent-dot {
+	position: absolute;
+	top: 5px;
+	right: 5px;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--accent);
+}
+
+.agent-dot.dot-failed {
+	background: var(--red);
+}

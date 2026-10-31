@@ -271,6 +271,30 @@ test("writes reach every feed socket as the real server's frames", async () => {
 	assert.deepEqual(types.slice(8), ["colours", "ignores", "regions", "layout"]);
 });
 
+test("a top-bar button keeps one thread and refuses a rerun while it works", async () => {
+	const backend = createBackend(calm);
+	const tidy = { x: 0, y: 0, button: "tidy", text: "Tidy up" };
+	const first = (await (
+		await answers(backend, "POST", "/api/comments", tidy)
+	).json()) as { id: string };
+	assert.equal(
+		backend.fetch("POST", "/api/comments", new URLSearchParams(), tidy).status,
+		409,
+	);
+	await answers(backend, "POST", `/api/comments/${first.id}/cancel`);
+	await answers(backend, "POST", "/api/comments", tidy);
+	const { frames, peer } = listening();
+	backend.socket("/api/feed")?.(peer);
+	backend.stop();
+	const comments = (frames as BoardFeed[]).find(
+		(frame) => frame.type === "comments",
+	);
+	assert.deepEqual(
+		comments?.comments.filter((thread) => thread.button === "tidy").length,
+		1,
+	);
+});
+
 test("the shim answers /api requests in memory and passes the rest through", async () => {
 	const backend = createBackend(calm);
 	const fetched: string[] = [];

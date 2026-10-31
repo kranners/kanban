@@ -307,7 +307,7 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 			const view = snapshot(
 				board,
 				deps,
-				thread ? { x: thread.x, y: thread.y } : null,
+				thread && !thread.button ? { x: thread.x, y: thread.y } : null,
 			);
 			return done(
 				`Board: ${plural(view.sessions.length, "session")}, ${plural(view.regions.length, "region")}, ${plural(view.notes.length, "note")}, ${plural(view.stickers.length, "sticker")}\n${JSON.stringify(view)}`,

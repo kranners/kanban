@@ -1,5 +1,4 @@
 import "./comments.css";
-import { computed } from "@preact/signals";
 import {
 	ArrowUp,
 	Bot,
@@ -15,12 +14,18 @@ import {
 } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { CommentEvent, CommentThread } from "../shared/types.ts";
+import type {
+	AgentButton,
+	CommentEvent,
+	CommentThread,
+} from "../shared/types.ts";
 import { boardPointAt, clientPointOf, view } from "./Canvas.tsx";
 import {
+	buttonThreads,
 	composer,
 	isCommentKey,
 	movePin,
+	openButton,
 	openThread,
 	openThreadId,
 	pinned,
@@ -288,47 +293,20 @@ function EventLine(props: { event: CommentEvent }): JSX.Element {
 	);
 }
 
-function ThreadPanel(): JSX.Element | null {
-	const thread = openThread.value;
-	const panel = useRef<HTMLElement>(null);
+function ThreadBody(props: {
+	thread: CommentThread;
+	onClose: () => void;
+}): JSX.Element {
+	const { thread } = props;
 	const log = useRef<HTMLDivElement>(null);
 	const [text, setText] = useState("");
 	const [error, setError] = useState<string | null>(null);
-	const id = thread?.id ?? null;
-	const count = thread?.events.length ?? 0;
-
-	useEffect(() => {
-		setText("");
-		setError(null);
-	}, [id]);
 
 	useEffect(() => {
 		const element = log.current;
 		if (element) element.scrollTop = element.scrollHeight;
-	}, [id, count]);
+	}, [thread.id, thread.events.length]);
 
-	useEffect(() => {
-		if (!id) return;
-		const closeOutside = (event: PointerEvent) => {
-			const target = event.target as Element;
-			if (panel.current?.contains(target)) return;
-			if (target.closest(`[data-comment="${id}"], .board-menu`)) return;
-			openThreadId.value = null;
-		};
-		addEventListener("pointerdown", closeOutside, true);
-		return () => removeEventListener("pointerdown", closeOutside, true);
-	}, [id]);
-
-	if (!thread) return null;
-	const anchor = clientPointOf(thread) ?? {
-		x: innerWidth / 2,
-		y: innerHeight / 2,
-	};
-	const right = anchor.x + 24 + panelGap + panelWidth < innerWidth;
-	const left = right
-		? anchor.x + 24 + panelGap
-		: Math.max(8, anchor.x - panelGap - panelWidth);
-	const top = Math.max(8, Math.min(anchor.y - 40, innerHeight - 420));
 	const send = async () => {
 		const message = text.trim();
 		if (!message) return;
@@ -336,20 +314,9 @@ function ThreadPanel(): JSX.Element | null {
 		if (sent.ok) setText("");
 		else setError(sent.error);
 	};
+	const deleteLabel = thread.button ? "Clear result" : "Delete comment";
 	return (
-		<section
-			class="comment-thread"
-			ref={panel}
-			style={{ left: `${left}px`, top: `${top}px` }}
-			aria-label={`Comment: ${threadTitle(thread)}`}
-			onKeyDown={(event) => {
-				if (event.key === "Escape") {
-					event.preventDefault();
-					event.stopPropagation();
-					openThreadId.value = null;
-				}
-			}}
-		>
+		<>
 			<header class="comment-thread-head">
 				<Bot size={15} aria-hidden="true" />
 				<span class="comment-thread-title">Board agent</span>
@@ -368,8 +335,8 @@ function ThreadPanel(): JSX.Element | null {
 				<button
 					type="button"
 					class="icon-button"
-					aria-label="Delete comment"
-					title="Delete comment"
+					aria-label={deleteLabel}
+					title={deleteLabel}
 					onClick={() => void remove(thread.id)}
 				>
 					<Trash2 size={14} />
@@ -379,9 +346,7 @@ function ThreadPanel(): JSX.Element | null {
 					class="icon-button"
 					aria-label="Close"
 					title="Close (Esc)"
-					onClick={() => {
-						openThreadId.value = null;
-					}}
+					onClick={props.onClose}
 				>
 					<X size={14} />
 				</button>
@@ -445,6 +410,112 @@ function ThreadPanel(): JSX.Element | null {
 					{error}
 				</p>
 			)}
+		</>
+	);
+}
+
+function ThreadPanel(): JSX.Element | null {
+	const thread = openThread.value;
+	const panel = useRef<HTMLElement>(null);
+	const id = thread?.id ?? null;
+
+	useEffect(() => {
+		if (!id) return;
+		const closeOutside = (event: PointerEvent) => {
+			const target = event.target as Element;
+			if (panel.current?.contains(target)) return;
+			if (target.closest(`[data-comment="${id}"], .board-menu`)) return;
+			openThreadId.value = null;
+		};
+		addEventListener("pointerdown", closeOutside, true);
+		return () => removeEventListener("pointerdown", closeOutside, true);
+	}, [id]);
+
+	if (!thread) return null;
+	const anchor = clientPointOf(thread) ?? {
+		x: innerWidth / 2,
+		y: innerHeight / 2,
+	};
+	const right = anchor.x + 24 + panelGap + panelWidth < innerWidth;
+	const left = right
+		? anchor.x + 24 + panelGap
+		: Math.max(8, anchor.x - panelGap - panelWidth);
+	const top = Math.max(8, Math.min(anchor.y - 40, innerHeight - 420));
+	const close = () => {
+		openThreadId.value = null;
+	};
+	return (
+		<section
+			class="comment-thread"
+			ref={panel}
+			style={{ left: `${left}px`, top: `${top}px` }}
+			aria-label={`Comment: ${threadTitle(thread)}`}
+			onKeyDown={(event) => {
+				if (event.key === "Escape") {
+					event.preventDefault();
+					event.stopPropagation();
+					close();
+				}
+			}}
+		>
+			<ThreadBody key={thread.id} thread={thread} onClose={close} />
+		</section>
+	);
+}
+
+export function closeButtonPanel(): void {
+	const button = openButton.peek();
+	const thread = button ? buttonThreads.peek().get(button) : undefined;
+	openButton.value = null;
+	if (thread && !thread.running && !thread.resolved) {
+		void resolve(thread.id, true);
+	}
+}
+
+function ButtonPanel(): JSX.Element | null {
+	const button = openButton.value;
+	const thread = button ? buttonThreads.value.get(button) : undefined;
+	const panel = useRef<HTMLElement>(null);
+
+	useEffect(() => {
+		if (!button) return;
+		const closeOutside = (event: PointerEvent) => {
+			const target = event.target as Element;
+			if (panel.current?.contains(target)) return;
+			if (target.closest(`[data-agent-button="${button}"], .confirm-dialog`)) {
+				return;
+			}
+			closeButtonPanel();
+		};
+		addEventListener("pointerdown", closeOutside, true);
+		return () => removeEventListener("pointerdown", closeOutside, true);
+	}, [button]);
+
+	const box = button
+		? document
+				.querySelector(`[data-agent-button="${button}"]`)
+				?.getBoundingClientRect()
+		: undefined;
+	if (!button || !thread || !box) return null;
+	const left = Math.max(
+		8,
+		Math.min(box.right - panelWidth, innerWidth - panelWidth - 8),
+	);
+	return (
+		<section
+			class="comment-thread agent-panel"
+			ref={panel}
+			style={{ left: `${left}px`, top: `${box.bottom + 6}px` }}
+			aria-label={agentButtonLabels[button]}
+			onKeyDown={(event) => {
+				if (event.key === "Escape") {
+					event.preventDefault();
+					event.stopPropagation();
+					closeButtonPanel();
+				}
+			}}
+		>
+			<ThreadBody key={thread.id} thread={thread} onClose={closeButtonPanel} />
 		</section>
 	);
 }
@@ -542,26 +613,24 @@ export function CommentOverlays(): JSX.Element {
 		<>
 			<Composer />
 			<ThreadPanel />
+			<ButtonPanel />
 			<ThreadMenu />
 		</>
 	);
 }
 
+export const agentButtonLabels = {
+	tidy: "Tidy the board",
+	snooze: "Leave for a while",
+} satisfies Record<AgentButton, string>;
+
 export const tidyPrompt =
 	"Tidy up the board: group the sessions into project regions by directory, lay out each region's cards in a neat grid, and keep notes and stickers beside what they are about.";
 
-export const tidying = computed(() =>
-	pinned.value.some(
-		(thread) => thread.running && threadTitle(thread) === tidyPrompt,
-	),
-);
+const awayMessage =
+	"I'm stepping away for an extended period and won't be around to answer. Ask me now, in one message, for everything you will need to carry on unattended until your task is done: permissions, credentials, decisions and approvals. Once I've answered, keep working without me.";
 
-export function tidyBoard() {
-	const at = centreTarget();
-	if (!at)
-		return Promise.resolve({ ok: false, error: "The board isn't shown" });
-	return startThread(at.board, tidyPrompt);
-}
+export const snoozePrompt = `The user is leaving for an extended period. Start with board_snapshot, then call send_prompt on every session whose activity is working, watching or idle, with exactly this text: "${awayMessage}" Skip every session whose activity is needs-you: it is waiting on a question or permission prompt, so send it nothing and never answer its prompt with answer_prompt. Skip sessions that are done, failed or stopped. If send_prompt refuses a session, do not retry or work around it. Do not move, note or change anything on the board. Finish with a short summary: the sessions you told, then each session you skipped because it was waiting on the user (by name, with what it is waiting on), then each session send_prompt refused (by name, with the reason).`;
 
 function centreTarget() {
 	const stage = document.querySelector(".viewport");
