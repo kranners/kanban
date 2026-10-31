@@ -142,6 +142,14 @@ const probes: Record<string, Probe> = {
 	"/api/folder-picker": async (backend) => {
 		await answers(backend, "POST", "/api/folder-picker");
 	},
+	"/api/permissions/survey": async (backend) => {
+		await answers(backend, "POST", "/api/permissions/survey");
+	},
+	"/api/permissions/grant": async (backend) => {
+		await answers(backend, "POST", "/api/permissions/grant", [
+			{ sessionId, rules: ["Bash(npm test)"] },
+		]);
+	},
 	"/api/layout": async (backend) => {
 		await answers(backend, "PUT", "/api/layout", {
 			key: `session:${sessionId}`,

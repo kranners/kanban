@@ -772,6 +772,39 @@ export function createBackend(scenario: Scenario): Backend {
 		],
 		[
 			"POST",
+			/^\/api\/permissions\/survey$/,
+			() =>
+				json(200, {
+					entries: world.sessions
+						.filter(
+							(session) =>
+								!["done", "failed", "stopped"].includes(session.activity),
+						)
+						.map((session) => ({
+							sessionId: session.id,
+							name: session.name,
+							cwd: session.cwd,
+							ok: false,
+							error: "The demo can't ask sessions what they need",
+						})),
+				}),
+		],
+		[
+			"POST",
+			/^\/api\/permissions\/grant$/,
+			(_, body) =>
+				json(
+					200,
+					(Array.isArray(body) ? body : []).map((grant) => ({
+						sessionId: (grant as { sessionId?: unknown })?.sessionId,
+						settingsPath: "",
+						ok: false,
+						error: "The demo can't change settings",
+					})),
+				),
+		],
+		[
+			"POST",
 			/^\/api\/sessions\/([^/]+)\/exit$/,
 			([id = ""], body) => exitSession(id, body),
 		],

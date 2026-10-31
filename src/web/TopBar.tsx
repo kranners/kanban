@@ -5,6 +5,7 @@ import {
 	Moon,
 	Plus,
 	RotateCw,
+	ShieldCheck,
 	Sun,
 	SunMoon,
 } from "lucide-preact";
@@ -23,6 +24,7 @@ import { held } from "./exits.ts";
 import { optionKey } from "./focus/platform.ts";
 import { Mark } from "./Mark.tsx";
 import { NextNeedingYou } from "./NeedsYou.tsx";
+import { PermissionSurveyDialog } from "./PermissionSurvey.tsx";
 import { connection, newSessionOpen } from "./state.ts";
 import { cycleTheme, theme } from "./theme.ts";
 
@@ -141,6 +143,25 @@ function BoardAgentButton(props: { button: AgentButton }) {
 	);
 }
 
+function PermissionSurveyButton() {
+	const [open, setOpen] = useState(false);
+	return (
+		<>
+			<button
+				type="button"
+				class="icon-button"
+				aria-haspopup="dialog"
+				aria-label="Gather permissions"
+				title="Gather permissions every running session expects to need"
+				onClick={() => setOpen(true)}
+			>
+				<ShieldCheck size={16} />
+			</button>
+			{open && <PermissionSurveyDialog onClose={() => setOpen(false)} />}
+		</>
+	);
+}
+
 export function TopBar() {
 	const ThemeIcon = themeIcon[theme.value];
 	return (
@@ -171,6 +192,7 @@ export function TopBar() {
 				<NextNeedingYou />
 				<BoardAgentButton button="tidy" />
 				<BoardAgentButton button="snooze" />
+				<PermissionSurveyButton />
 				<NotifyToggle />
 				<button
 					type="button"

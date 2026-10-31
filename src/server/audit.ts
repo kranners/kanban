@@ -49,6 +49,13 @@ export type AuditEvent =
 			identity: string | null;
 			result: string;
 	  }
+	| {
+			action: "permissions-grant";
+			sessionId: string;
+			rules: string[];
+			identity: string | null;
+			result: string;
+	  }
 	| { action: "mirror-open"; sessionId: string; identity: string | null }
 	| { action: "view-open"; sessionId: string; identity: string | null }
 	| {

@@ -66,6 +66,7 @@ import { startBoard } from "./ingest/index.ts";
 import { createLayoutStore, loadLayout } from "./layout.ts";
 import { createMirrorHub } from "./mirror.ts";
 import { createPeerHook, peerHookSettings } from "./peers.ts";
+import { createPermissions } from "./permissions.ts";
 import { createPromptSender } from "./prompts.ts";
 import { createRegionStore, loadRegions } from "./regions.ts";
 import {
@@ -424,6 +425,11 @@ const server = createKanbanServer({
 	remoteHosts: (account) => accountApi(account).hosts(),
 	pickFolder: osascriptFolderPicker(),
 	makeDefault,
+	permissions: createPermissions({
+		sessions: () => source.board().sessions,
+		isExiting: runExit.isExiting,
+		ask,
+	}),
 	feed,
 	audit,
 });

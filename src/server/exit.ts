@@ -168,9 +168,9 @@ export const createExitRunner = (deps: {
 	exit: SessionExiter;
 	audit: Audit;
 	announce: (sessionId: string, result: ExitResult) => void;
-}): ExitRunner => {
+}): ExitRunner & { isExiting(sessionId: string): boolean } => {
 	const exiting = new Set<string>();
-	return (session, force, identity) => {
+	const run: ExitRunner = (session, force, identity) => {
 		if (exiting.has(session.id)) return null;
 		exiting.add(session.id);
 		return deps
@@ -200,6 +200,9 @@ export const createExitRunner = (deps: {
 				return result;
 			});
 	};
+	return Object.assign(run, {
+		isExiting: (sessionId: string) => exiting.has(sessionId),
+	});
 };
 
 export type Answer =
