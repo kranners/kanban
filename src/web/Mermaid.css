@@ -12,6 +12,11 @@
 	height: auto;
 }
 
+svg .node {
+	transition: none;
+	animation: none;
+}
+
 .mermaid-error {
 	display: flex;
 	flex-wrap: wrap;
