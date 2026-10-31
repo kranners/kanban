@@ -104,7 +104,30 @@ const thread = async (backend: Backend): Promise<string> => {
 	return ((await created.json()) as { id: string }).id;
 };
 
+const schedule = async (backend: Backend): Promise<string> => {
+	const created = await answers(backend, "POST", "/api/schedules", {
+		time: "08:00",
+		prompt: "What ran overnight?",
+		x: 0,
+		y: 0,
+		mode: "replace",
+	});
+	return ((await created.json()) as { id: string }).id;
+};
+
 const probes: Record<string, Probe> = {
+	"/api/schedules": async (backend) => {
+		await schedule(backend);
+	},
+	"/api/schedules/:param": async (backend) => {
+		const id = await schedule(backend);
+		await answers(backend, "PATCH", `/api/schedules/${id}`, { mode: "stack" });
+		await answers(backend, "DELETE", `/api/schedules/${id}`);
+	},
+	"/api/schedules/:param/run": async (backend) => {
+		const id = await schedule(backend);
+		await answers(backend, "POST", `/api/schedules/${id}/run`);
+	},
 	"/api/feed": (backend) => opens(backend, "/api/feed"),
 	"/api/attach/:param": (backend) => opens(backend, "/api/attach/a1f0c2d4"),
 	"/api/mirror/:param": (backend) => opens(backend, "/api/mirror/d4c3f5a6b8"),
@@ -286,7 +309,7 @@ test("writes reach every feed socket as the real server's frames", async () => {
 	});
 	backend.stop();
 	const types = (frames as BoardFeed[]).map((frame) => frame.type);
-	assert.deepEqual(types.slice(0, 10), [
+	assert.deepEqual(types.slice(0, 11), [
 		"layout",
 		"annotations",
 		"colours",
@@ -296,9 +319,10 @@ test("writes reach every feed socket as the real server's frames", async () => {
 		"digests",
 		"relations",
 		"docs",
+		"schedules",
 		"board",
 	]);
-	assert.deepEqual(types.slice(10), [
+	assert.deepEqual(types.slice(11), [
 		"colours",
 		"ignores",
 		"regions",

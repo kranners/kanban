@@ -15,6 +15,7 @@ import type {
 	Region,
 	Relation,
 	RelationEnd,
+	Schedule,
 	Session,
 	Subagent,
 } from "../shared/types.ts";
@@ -57,6 +58,7 @@ export type World = {
 	colours: RegionColours;
 	annotations: Annotations;
 	comments: CommentThread[];
+	schedules: Schedule[];
 	digests: Digests;
 	stories: Record<string, Turn[]>;
 	files: Record<string, string[]>;

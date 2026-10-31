@@ -1,6 +1,7 @@
 import {
 	Bed,
 	Broom,
+	CalendarClock,
 	LoaderCircle,
 	Megaphone,
 	Moon,
@@ -27,6 +28,7 @@ import { optionKey } from "./focus/platform.ts";
 import { Mark } from "./Mark.tsx";
 import { NextNeedingYou } from "./NeedsYou.tsx";
 import { PermissionSurveyDialog } from "./PermissionSurvey.tsx";
+import { scheduleDialog } from "./schedules.ts";
 import { connection, newSessionOpen } from "./state.ts";
 import { cycleTheme, theme } from "./theme.ts";
 
@@ -164,6 +166,23 @@ function PermissionSurveyButton() {
 	);
 }
 
+function ScheduleButton() {
+	return (
+		<button
+			type="button"
+			class="icon-button"
+			aria-haspopup="dialog"
+			aria-label="Scheduled reports"
+			title="Scheduled reports the board agent writes every day"
+			onClick={() => {
+				scheduleDialog.value = {};
+			}}
+		>
+			<CalendarClock size={16} />
+		</button>
+	);
+}
+
 function AnnounceButton() {
 	const [open, setOpen] = useState(false);
 	return (
@@ -213,6 +232,7 @@ export function TopBar() {
 				<NextNeedingYou />
 				<BoardAgentButton button="tidy" />
 				<BoardAgentButton button="snooze" />
+				<ScheduleButton />
 				<AnnounceButton />
 				<PermissionSurveyButton />
 				<NotifyToggle />

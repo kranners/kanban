@@ -804,6 +804,7 @@ function world(start: number): World {
 		colours: {},
 		annotations: { [store.id]: store },
 		comments: [],
+		schedules: [],
 		digests: noDigests,
 		files: {},
 		stories: {

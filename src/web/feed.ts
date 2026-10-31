@@ -1,4 +1,5 @@
 import { type BoardFeed, hasLanded } from "../shared/types.ts";
+import { notifyReport } from "./alertState.ts";
 import { receiveColours } from "./colours.ts";
 import { receiveComment, receiveComments } from "./comments.ts";
 import { digests } from "./digests.ts";
@@ -12,6 +13,7 @@ import {
 	receiveReport,
 	regionReportKey,
 } from "./reports.ts";
+import { receiveSchedules } from "./schedules.ts";
 import {
 	annotations,
 	awaitingLanding,
@@ -92,6 +94,10 @@ function receive(frame: BoardFeed): void {
 	}
 	if (frame.type === "docs") {
 		docIndex.value = frame.docs;
+		return;
+	}
+	if (frame.type === "schedules") {
+		receiveSchedules(frame.schedules, notifyReport);
 		return;
 	}
 	receiveComment(frame.comment);

@@ -1,6 +1,7 @@
 import "./actions.css";
 import {
 	BookOpen,
+	CalendarClock,
 	CircleAlert,
 	LoaderCircle,
 	Plus,
@@ -32,6 +33,7 @@ import { admit, dataUrl, imageFiles, readImages } from "./promptImages.ts";
 import { RunsOnPicker, useRunsOn } from "./RunsOnPicker.tsx";
 import { regionDialog, regionMenu } from "./regionState.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
+import { scheduleDialog } from "./schedules.ts";
 import type { QuickPrompt } from "./spawns.ts";
 import {
 	docked,
@@ -190,7 +192,7 @@ export function BoardMenu(): JSX.Element | null {
 
 	if (!menu) return null;
 	const left = Math.min(menu.client.x, innerWidth - 240);
-	const top = Math.min(menu.client.y, innerHeight - 196);
+	const top = Math.min(menu.client.y, innerHeight - 232);
 	return (
 		<div
 			class="board-menu"
@@ -262,6 +264,18 @@ export function BoardMenu(): JSX.Element | null {
 				<SquareDashed size={14} aria-hidden="true" />
 				<span class="board-menu-label">New project region here</span>
 				<kbd>R</kbd>
+			</button>
+			<button
+				type="button"
+				role="menuitem"
+				class="board-menu-item"
+				onClick={() => {
+					boardMenu.value = null;
+					scheduleDialog.value = { at: menu.board };
+				}}
+			>
+				<CalendarClock size={14} aria-hidden="true" />
+				<span class="board-menu-label">Schedule a report here</span>
 			</button>
 		</div>
 	);

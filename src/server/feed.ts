@@ -12,6 +12,7 @@ import type {
 	Region,
 	Relation,
 	ReportResult,
+	Schedule,
 	Usage,
 } from "../shared/types.ts";
 
@@ -38,6 +39,7 @@ export type Feed = {
 	digests(digests: Digests): void;
 	relations(relations: Relation[]): void;
 	docs(docs: DocIndex): void;
+	schedules(schedules: Schedule[]): void;
 	size(): number;
 };
 
@@ -53,6 +55,7 @@ export type FeedOptions = {
 	digests: () => Digests;
 	relations: () => Relation[];
 	docs: () => DocIndex;
+	schedules: () => Schedule[];
 };
 
 const socketOpen = 1;
@@ -69,6 +72,7 @@ export const createFeed = ({
 	digests,
 	relations,
 	docs,
+	schedules,
 }: FeedOptions): Feed => {
 	const clients = new Set<FeedSocket>();
 
@@ -96,6 +100,7 @@ export const createFeed = ({
 			send(socket, { type: "digests", digests: digests() });
 			send(socket, { type: "relations", relations: relations() });
 			send(socket, { type: "docs", docs: docs() });
+			send(socket, { type: "schedules", schedules: schedules() });
 			send(socket, { type: "board", board: board() });
 		},
 		board: (next) => broadcast({ type: "board", board: next }),
@@ -116,6 +121,7 @@ export const createFeed = ({
 		digests: (next) => broadcast({ type: "digests", digests: next }),
 		relations: (next) => broadcast({ type: "relations", relations: next }),
 		docs: (next) => broadcast({ type: "docs", docs: next }),
+		schedules: (next) => broadcast({ type: "schedules", schedules: next }),
 		size: () => clients.size,
 	};
 };

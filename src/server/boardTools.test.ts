@@ -136,6 +136,8 @@ const setup = async (shown: Board = board) => {
 				: { ok: false, error: `${s.name} is not waiting on a question` };
 		},
 		audit: (event) => events.push(event),
+		history: async (since) => `history since ${new Date(since).toISOString()}`,
+		now: () => Date.UTC(2026, 10, 1),
 		newId: () => `n-${++ids}`,
 	});
 	return {
@@ -162,6 +164,20 @@ describe("board tools", () => {
 		assert.equal(view.sessions[0].card.w, 312);
 		assert.equal(view.gridSize, 24);
 		assert.deepEqual(events, [], "reads are not audited");
+	});
+
+	it("reads history from a day ago by default, without auditing", async () => {
+		const { tools, events } = await setup();
+		assert.deepEqual(await tools("t", { tool: "board_history", since: null }), {
+			ok: true,
+			text: "history since 2026-10-31T00:00:00.000Z",
+		});
+		const since = Date.UTC(2026, 9, 31, 21);
+		assert.deepEqual(await tools("t", { tool: "board_history", since }), {
+			ok: true,
+			text: "history since 2026-10-31T21:00:00.000Z",
+		});
+		assert.deepEqual(events, []);
 	});
 
 	it("tells a button's thread it has no place on the board", async () => {

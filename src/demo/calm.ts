@@ -342,6 +342,7 @@ function world(start: number): World {
 			},
 		},
 		comments: [],
+		schedules: [],
 		files: {
 			"acme-api": [
 				"src/auth/middleware.ts",

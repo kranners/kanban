@@ -25,6 +25,7 @@ describe("tool definitions", () => {
 		const minimal: Record<string, unknown> = {
 			board_snapshot: {},
 			read_transcript: { session: "abcd1234" },
+			board_history: {},
 			ask_session: { session: "abcd1234", question: "What changed?" },
 			send_prompt: { session: "abcd1234", text: "carry on" },
 			announce: { text: "pull main" },
@@ -214,6 +215,19 @@ describe("parseToolCall", () => {
 			session: "a",
 			limit: 40,
 		});
+		const since = new Date(Date.now() - 60_000).toISOString();
+		assert.deepEqual(parseToolCall("board_history", { since }), {
+			tool: "board_history",
+			since: Date.parse(since),
+		});
+		assert.equal(
+			error("board_history", { since: "last night" }),
+			"since must be an ISO 8601 time",
+		);
+		const capped = parseToolCall("board_history", { since: "2000-01-01" });
+		assert.ok(
+			"since" in capped && (capped.since ?? 0) > Date.parse("2000-01-01"),
+		);
 	});
 });
 

@@ -53,6 +53,7 @@ import { ProjectFrames, RegionLayer } from "./Regions.tsx";
 import { RelationLayer, RelationPreview } from "./Relations.tsx";
 import { ReportButton, ReportNotice } from "./ReportControls.tsx";
 import { reports } from "./reports.ts";
+import { ScheduleDialogHost } from "./ScheduleDialog.tsx";
 import { BoardMenu, SpawnLayer, useBoardGestures } from "./Spawning.tsx";
 import { Summaries } from "./Summaries.tsx";
 import {
@@ -383,6 +384,7 @@ export function App() {
 				<RegionMenu />
 				<IgnoreMenu />
 				<RegionLayer />
+				<ScheduleDialogHost />
 				<CommentOverlays />
 				<DocOverlays />
 			</div>

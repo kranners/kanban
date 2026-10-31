@@ -115,3 +115,13 @@
 		animation: none;
 	}
 }
+
+.report-toast {
+	border-color: var(--hairline);
+	background: var(--surface);
+	box-shadow: var(--shadow-pop);
+}
+
+.report-toast .alert-toast-icon {
+	color: var(--accent);
+}

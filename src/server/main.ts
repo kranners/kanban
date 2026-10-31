@@ -29,6 +29,7 @@ import {
 } from "./boardAgent.ts";
 import {
 	createBoardTools,
+	occupied,
 	projectsOf,
 	summariesOfBoard,
 } from "./boardTools.ts";
@@ -68,6 +69,7 @@ import {
 import { createFeed, type Feed } from "./feed.ts";
 import { listFiles } from "./files.ts";
 import { osascriptFolderPicker } from "./folders.ts";
+import { gitMainLog, readHistory } from "./history.ts";
 import { createKanbanServer } from "./http.ts";
 import { createIgnoreStore, loadIgnores } from "./ignores.ts";
 import { startBoard } from "./ingest/index.ts";
@@ -86,6 +88,12 @@ import {
 	regionMembersOf,
 	spotBesideSession,
 } from "./reports.ts";
+import {
+	createScheduler,
+	loadSchedules,
+	type Scheduler,
+	scheduleTickMs,
+} from "./schedules.ts";
 import { claudeLauncher, routedLauncher } from "./sessions.ts";
 import { attachTty, cmuxTty, sharedAttachTty } from "./terminals.ts";
 import {
@@ -111,6 +119,7 @@ const docsFrameMs = 250;
 const audit = fileAudit(config.auditLog);
 
 let feed: Feed | null = null;
+let schedules: Scheduler | null = null;
 const layoutFile = join(config.stateDir, "layout.json");
 const layout = createLayoutStore({
 	file: layoutFile,
@@ -189,7 +198,10 @@ const commentsFile = join(config.stateDir, "comments.json");
 const comments = createCommentStore({
 	file: commentsFile,
 	initial: await loadComments(commentsFile),
-	onChange: (thread) => feed?.comment(thread),
+	onChange: (thread) => {
+		feed?.comment(thread);
+		schedules?.observe(thread);
+	},
 	onRemove: (threads) => feed?.comments(threads),
 });
 const usageFile = join(config.stateDir, "usage.json");
@@ -320,6 +332,7 @@ feed = createFeed({
 	digests: digests.current,
 	relations: relations.current,
 	docs: docs.index,
+	schedules: () => schedules?.current() ?? [],
 });
 const digestTick = setInterval(digests.pump, digestTickMs);
 
@@ -465,8 +478,29 @@ const tools = createBoardTools({
 	}),
 	announce,
 	answer: conversation.respond,
+	history: (since) =>
+		readHistory(
+			{
+				homes: () => [config.claudeHome, ...profileHomes(config.cswapRoot)],
+				board: source.board,
+				gitLog: gitMainLog,
+			},
+			since,
+		),
 	audit,
 });
+const schedulesFile = join(config.stateDir, "schedules.json");
+schedules = createScheduler({
+	file: schedulesFile,
+	initial: await loadSchedules(schedulesFile),
+	onChange: (next) => feed?.schedules(next),
+	comments,
+	agent,
+	annotations: annotationsWithDocs,
+	occupied: () => occupied(source.board(), { layout, annotations, regions }),
+	audit,
+});
+const scheduleTick = setInterval(schedules.tick, scheduleTickMs);
 
 const server = createKanbanServer({
 	origins: config.origins,
@@ -503,6 +537,7 @@ const server = createKanbanServer({
 		},
 	}),
 	comments,
+	schedules,
 	agent,
 	agentTokens,
 	tools,
@@ -543,6 +578,8 @@ server.listen(config.port, config.host, () => {
 });
 
 const shutdown = () => {
+	schedules.stop();
+	clearInterval(scheduleTick);
 	agent.stopAll();
 	source.stop();
 	cloud.stop();

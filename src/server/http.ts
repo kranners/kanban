@@ -13,6 +13,7 @@ import { WebSocketServer } from "ws";
 import { parseToolCall } from "../agent/tools.ts";
 import { maxImageBytes, maxPromptImages } from "../shared/promptImages.ts";
 import { linkRefusal } from "../shared/reach.ts";
+import { maxSchedules } from "../shared/schedules.ts";
 import {
 	type AccountResult,
 	type Board,
@@ -78,6 +79,12 @@ import {
 import { reportShotContentType, reportShotName } from "./reportShots.ts";
 import type { RegionReportRunner, ReportRunner } from "./reports.ts";
 import {
+	isScheduleId,
+	parseScheduleDraft,
+	parseSchedulePatch,
+	type Scheduler,
+} from "./schedules.ts";
+import {
 	isAccountNumber,
 	type SessionLauncher,
 	validateNewSession,
@@ -106,6 +113,10 @@ export type ServerDeps = {
 	relations: RelationStore;
 	docs: DocsHttp;
 	comments: CommentStore;
+	schedules: Pick<
+		Scheduler,
+		"current" | "create" | "update" | "remove" | "runNow"
+	>;
 	agent: Omit<BoardAgent, "stopAll">;
 	agentTokens: AgentTokens;
 	tools: BoardTools;
@@ -166,6 +177,10 @@ export type Route =
 	| { kind: "cancel-comment"; threadId: string }
 	| { kind: "update-comment"; threadId: string }
 	| { kind: "delete-comment"; threadId: string }
+	| { kind: "create-schedule" }
+	| { kind: "update-schedule"; scheduleId: string }
+	| { kind: "delete-schedule"; scheduleId: string }
+	| { kind: "run-schedule"; scheduleId: string }
 	| { kind: "agent-tool"; tool: string }
 	| { kind: "peer-hook" }
 	| { kind: "static"; path: string }
@@ -374,6 +389,25 @@ export const matchRoute = (method: string, url: URL): Route => {
 			return { kind: "update-comment", threadId: comment[1] };
 		if (method === "DELETE")
 			return { kind: "delete-comment", threadId: comment[1] };
+		return { kind: "method-not-allowed" };
+	}
+	if (path === "/api/schedules") {
+		return method === "POST"
+			? { kind: "create-schedule" }
+			: { kind: "method-not-allowed" };
+	}
+	const scheduleRun = path.match(/^\/api\/schedules\/([^/]+)\/run$/);
+	if (scheduleRun?.[1] && isScheduleId(scheduleRun[1])) {
+		return method === "POST"
+			? { kind: "run-schedule", scheduleId: scheduleRun[1] }
+			: { kind: "method-not-allowed" };
+	}
+	const schedule = path.match(/^\/api\/schedules\/([^/]+)$/);
+	if (schedule?.[1] && isScheduleId(schedule[1])) {
+		if (method === "PATCH")
+			return { kind: "update-schedule", scheduleId: schedule[1] };
+		if (method === "DELETE")
+			return { kind: "delete-schedule", scheduleId: schedule[1] };
 		return { kind: "method-not-allowed" };
 	}
 	if (path === "/api/relations") {
@@ -1092,6 +1126,66 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res.end();
 	};
 
+	const createSchedule = async (req: IncomingMessage, res: ServerResponse) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const draft = parseScheduleDraft(read.body);
+		if ("error" in draft) {
+			return sendJson(res, 400, { ok: false, error: draft.error });
+		}
+		const schedule = deps.schedules.create(draft);
+		if (!schedule) {
+			return sendJson(res, 409, {
+				ok: false,
+				error: `The board holds at most ${maxSchedules} schedules`,
+			});
+		}
+		sendJson(res, 201, schedule);
+	};
+
+	const updateSchedule = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+		scheduleId: string,
+	) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const patch = parseSchedulePatch(read.body);
+		if ("error" in patch) {
+			return sendJson(res, 400, { ok: false, error: patch.error });
+		}
+		const schedule = deps.schedules.update(scheduleId, patch);
+		if (!schedule) return sendError(res, 404);
+		sendJson(res, 200, schedule);
+	};
+
+	const deleteSchedule = (
+		req: IncomingMessage,
+		res: ServerResponse,
+		scheduleId: string,
+	) => {
+		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		if (!deps.schedules.remove(scheduleId)) return sendError(res, 404);
+		res.writeHead(204, { "cache-control": "no-store" });
+		res.end();
+	};
+
+	const runSchedule = (
+		req: IncomingMessage,
+		res: ServerResponse,
+		scheduleId: string,
+	) => {
+		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		const started = deps.schedules.runNow(scheduleId);
+		if ("error" in started) {
+			return sendJson(res, started.status, {
+				ok: false,
+				error: started.error,
+			});
+		}
+		sendJson(res, 202, { ok: true });
+	};
+
 	const agentTool = async (
 		req: IncomingMessage,
 		res: ServerResponse,
@@ -1251,6 +1345,14 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return updateComment(req, res, route.threadId);
 			case "delete-comment":
 				return deleteComment(req, res, route.threadId);
+			case "create-schedule":
+				return createSchedule(req, res);
+			case "update-schedule":
+				return updateSchedule(req, res, route.scheduleId);
+			case "delete-schedule":
+				return deleteSchedule(req, res, route.scheduleId);
+			case "run-schedule":
+				return runSchedule(req, res, route.scheduleId);
 			case "static":
 				return serveStatic(
 					req,

@@ -81,6 +81,10 @@ Press / anywhere and type a request, such as "organise my board into projects". 
 
 ![Asking the board agent what needs you right now and reading its answer](docs/media/clip-board-agent.gif)
 
+### Scheduled reports
+
+Scheduled reports in the top bar, or Schedule a report here in the board menu, ask the board agent the same thing every day at a time you choose, such as a morning report at 08:00 on everything that ran overnight. The server runs them in the Mac's time zone, with no session left waiting: a report missed while the Mac slept runs once when it wakes. Each run pins its thread where you chose, so you can follow it or reply with a follow-up question, and writes the report into a note beside it that replaces the last one or stacks beside it. The default prompt covers each session active since the last report, blockers first: what needs you, what failed, what is still running and what landed. For that the agent reads `board_history`, which includes background sessions that have ended and left the board, and the commits that reached each repository's main branch. A finished report raises a banner, and a notification when the bell is on and the board is not in front of you. The dialog lists, edits, runs and deletes schedules.
+
 ### Keyboard
 
 | Key  | Does                                   |

@@ -84,6 +84,12 @@ export type AuditEvent =
 			result: string;
 	  }
 	| {
+			action: "scheduled-report";
+			schedule: string;
+			thread: string | null;
+			result: string;
+	  }
+	| {
 			action: "mirror-send";
 			sessionId: string;
 			surface: string | null;

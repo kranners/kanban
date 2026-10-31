@@ -312,6 +312,35 @@ export type CommentDraft = {
 
 export type CommentPatch = { x?: number; y?: number; resolved?: boolean };
 
+export const scheduleModes = ["replace", "stack"] as const;
+export type ScheduleMode = (typeof scheduleModes)[number];
+
+export type ScheduleDraft = {
+	time: string;
+	prompt: string;
+	x: number;
+	y: number;
+	mode: ScheduleMode;
+};
+
+export type ScheduleRun = {
+	threadId: string;
+	startedAt: number;
+	slot: number | null;
+};
+
+export type Schedule = ScheduleDraft & {
+	id: string;
+	createdAt: number;
+	lastSlot: number;
+	lastRunAt: number | null;
+	lastError: string | null;
+	threadId: string | null;
+	run: ScheduleRun | null;
+	noteId: string | null;
+	reportedAt: number | null;
+};
+
 export type UsageWindow = { percent: number; resetsAt: number | null };
 
 export type UsageSample = { at: number; session: number; week: number };
@@ -372,7 +401,8 @@ export type BoardFeed =
 	| { type: "usage"; usage: Usage }
 	| { type: "digests"; digests: Digests }
 	| { type: "relations"; relations: Relation[] }
-	| { type: "docs"; docs: DocIndex };
+	| { type: "docs"; docs: DocIndex }
+	| { type: "schedules"; schedules: Schedule[] };
 
 export type NewSessionRequest = {
 	cwd: string;

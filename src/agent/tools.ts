@@ -1,5 +1,6 @@
 import { isRegionColour, type RegionColour } from "../shared/colours.ts";
 import type { AskAnswer, PromptReply } from "../shared/conversation.ts";
+import { maxHistoryDays } from "../shared/schedules.ts";
 import {
 	defaultRunsOn,
 	type FixedRunsOn,
@@ -23,6 +24,7 @@ export type Bounds = { x: number; y: number; w: number; h: number };
 export type ToolCall =
 	| { tool: "board_snapshot" }
 	| { tool: "read_transcript"; session: string; limit: number }
+	| { tool: "board_history"; since: number | null }
 	| { tool: "ask_session"; session: string; question: string }
 	| { tool: "send_prompt"; session: string; text: string }
 	| { tool: "announce"; text: string }
@@ -162,6 +164,18 @@ export const toolDefinitions: ToolDefinition[] = [
 			},
 			["session"],
 		),
+	},
+	{
+		name: "board_history",
+		description:
+			"Every session active since a time, including background sessions that have ended and left the board, needs-you first then failed: activity, what it waits on, goal, tasks, a timeline of its states or steps and its last message, plus the commits that reached each repository's main branch since then. Use it for reports on what ran over a period.",
+		inputSchema: object({
+			since: {
+				type: "string",
+				description:
+					"ISO 8601 time to report from, within the last 30 days; default 24 hours ago",
+			},
+		}),
 	},
 	{
 		name: "ask_session",
@@ -472,6 +486,13 @@ const defined = <T extends object>(value: T): T =>
 		Object.entries(value).filter(([, item]) => item !== undefined),
 	) as T;
 
+const historySince = (fields: Fields, key: string): number => {
+	const at = typeof fields[key] === "string" ? Date.parse(fields[key]) : NaN;
+	return Number.isNaN(at)
+		? fail(`${key} must be an ISO 8601 time`)
+		: Math.max(at, Date.now() - maxHistoryDays * 24 * 60 * 60_000);
+};
+
 const readers: { [K in ToolName]: (fields: Fields) => ToolCall } = {
 	board_snapshot: () => ({ tool: "board_snapshot" }),
 	read_transcript: (fields) => ({
@@ -484,6 +505,10 @@ const readers: { [K in ToolName]: (fields: Fields) => ToolCall } = {
 					? limit
 					: fail(`${k} must be an integer`);
 			}) ?? 40,
+	}),
+	board_history: (fields) => ({
+		tool: "board_history",
+		since: optional(fields, "since", historySince) ?? null,
 	}),
 	ask_session: (fields) => ({
 		tool: "ask_session",

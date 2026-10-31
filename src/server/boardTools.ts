@@ -70,8 +70,10 @@ export type BoardToolDeps = {
 	prompt: PromptSender;
 	announce: Announcer;
 	answer: PromptAnswerer;
+	history: (since: number) => Promise<string>;
 	audit: Audit;
 	newId?: () => string;
+	now?: () => number;
 };
 
 export type PromptAnswerer = (
@@ -84,12 +86,14 @@ export const agentIdentity = "board-agent";
 const readOnly = new Set<ToolCall["tool"]>([
 	"board_snapshot",
 	"read_transcript",
+	"board_history",
 	"find_stickers",
 ]);
 const noteTextShown = 400;
 const transcriptTextShown = 600;
 const transcriptBudget = 24_000;
 const subagentsShown = 100;
+const historyDefaultMs = 24 * 60 * 60_000;
 const defaultStickerSize = 96;
 
 const done = (text: string): ToolOutcome => ({ ok: true, text });
@@ -123,7 +127,7 @@ const arranged = (
 		deps.regions.current(),
 	);
 
-const occupied = (
+export const occupied = (
 	board: Board,
 	deps: Pick<BoardToolDeps, "layout" | "annotations" | "regions">,
 ): Rect[] => [
@@ -278,6 +282,7 @@ const cardPlacement = (
 
 export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 	const newId = deps.newId ?? randomUUID;
+	const now = deps.now ?? Date.now;
 
 	const sessionFor = (ref: string): Session | ToolOutcome =>
 		findSession(deps.source.board(), ref) ??
@@ -332,6 +337,8 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				`Read ${plural(lines.length, "entry", "entries")} from ${session.name}\n${lines.join("\n")}`,
 			);
 		},
+		board_history: ({ since }) =>
+			deps.history(since ?? now() - historyDefaultMs).then(done),
 		ask_session: async ({ session: ref, question }) => {
 			const session = sessionFor(ref);
 			if ("ok" in session) return session;

@@ -44,6 +44,7 @@ import { createLayoutStore } from "./layout.ts";
 import { createRegionStore } from "./regions.ts";
 import { createRelationStore } from "./relations.ts";
 import { createRegionReportRunner, createReportRunner } from "./reports.ts";
+import { createScheduler } from "./schedules.ts";
 
 const route = (method: string, path: string) =>
 	matchRoute(method, new URL(path, "http://x"));
@@ -177,6 +178,27 @@ describe("matchRoute", () => {
 		});
 		assert.equal(upgrade("/api/sessions/a%2Fb/conversation"), null);
 		assert.equal(upgrade("/api/other"), null);
+	});
+
+	it("parses schedule routes", () => {
+		assert.deepEqual(route("POST", "/api/schedules"), {
+			kind: "create-schedule",
+		});
+		assert.deepEqual(route("PATCH", "/api/schedules/s-1"), {
+			kind: "update-schedule",
+			scheduleId: "s-1",
+		});
+		assert.deepEqual(route("DELETE", "/api/schedules/s-1"), {
+			kind: "delete-schedule",
+			scheduleId: "s-1",
+		});
+		assert.deepEqual(route("POST", "/api/schedules/s-1/run"), {
+			kind: "run-schedule",
+			scheduleId: "s-1",
+		});
+		assert.deepEqual(route("GET", "/api/schedules"), {
+			kind: "method-not-allowed",
+		});
 	});
 
 	it("parses link and doc store routes", () => {
@@ -334,6 +356,8 @@ describe("createKanbanServer", () => {
 	const cancelled: string[] = [];
 	let comments: CommentStore;
 	let threadCount = 0;
+	let scheduleCount = 0;
+	const scheduleAsked: [string, string][] = [];
 	const toolCalls: [string, ToolCall][] = [];
 	const madeDefault: number[] = [];
 	const granted: PermissionGrant[] = [];
@@ -434,6 +458,29 @@ describe("createKanbanServer", () => {
 			digests: () => noDigests,
 			relations: relations.current,
 			docs: docFiles.index,
+			schedules: () => schedules.current(),
+		});
+		const schedules = createScheduler({
+			file: join(dist, "state", "schedules.json"),
+			initial: [],
+			onChange: (next) => feed?.schedules(next),
+			comments: createCommentStore({
+				file: join(dist, "state", "schedule-comments.json"),
+				initial: [],
+				onChange: () => {},
+				onRemove: () => {},
+			}),
+			agent: {
+				ask: (threadId, text) => {
+					scheduleAsked.push([threadId, text]);
+					return { ok: true };
+				},
+				cancel: () => false,
+			},
+			annotations,
+			occupied: () => [],
+			audit: (event) => events.push(event),
+			newId: () => `schedule-${++scheduleCount}`,
 		});
 		const server = createKanbanServer({
 			origins,
@@ -525,6 +572,7 @@ describe("createKanbanServer", () => {
 				wake: async () => {},
 			}),
 			comments,
+			schedules,
 			agent: {
 				ask: (threadId, text) => {
 					asked.push([threadId, text]);
@@ -1806,8 +1854,60 @@ describe("createKanbanServer", () => {
 				"digests",
 				"relations",
 				"docs",
+				"schedules",
 				"board",
 			],
+		);
+	});
+
+	it("creates, edits, runs and deletes report schedules", async () => {
+		const draft = {
+			time: "08:00",
+			prompt: "report overnight",
+			x: 48,
+			y: 96,
+			mode: "replace",
+		};
+		const created = await send("POST", "/api/schedules", draft);
+		assert.equal(created.status, 201);
+		const schedule = await created.json();
+		assert.equal(schedule.id, "schedule-1");
+		assert.equal(schedule.time, "08:00");
+		assert.equal(
+			(await send("POST", "/api/schedules", { ...draft, time: "8am" })).status,
+			400,
+		);
+		const patched = await send("PATCH", "/api/schedules/schedule-1", {
+			mode: "stack",
+		});
+		assert.equal(patched.status, 200);
+		assert.equal((await patched.json()).mode, "stack");
+		assert.equal(
+			(await send("PATCH", "/api/schedules/schedule-1", { colour: "red" }))
+				.status,
+			400,
+		);
+		assert.equal(
+			(await send("PATCH", "/api/schedules/nope", { mode: "stack" })).status,
+			404,
+		);
+		const before = scheduleAsked.length;
+		assert.equal(
+			(await send("POST", "/api/schedules/schedule-1/run", {})).status,
+			202,
+		);
+		assert.match(scheduleAsked[before]?.[1] ?? "", /^report overnight\n/);
+		assert.equal(
+			(await send("POST", "/api/schedules/schedule-1/run", {})).status,
+			409,
+		);
+		assert.equal(
+			(await send("DELETE", "/api/schedules/schedule-1", {})).status,
+			204,
+		);
+		assert.equal(
+			(await send("DELETE", "/api/schedules/schedule-1", {})).status,
+			404,
 		);
 	});
 
