@@ -4,7 +4,7 @@ A board of the Claude Code sessions running on one Mac. Each card is a live sess
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/media/headline-dark.gif">
-  <img alt="A board of Claude Code sessions in six acme projects. Cards change between working, needs-you, done and failed, messages travel along arcs between sessions, and the view zooms into an orchestrator, its background workers and their subagents before fitting the whole board again." src="docs/media/headline-light.gif">
+  <img alt="A board of Claude Code sessions in six acme projects, fitted as project summaries. The view zooms into an orchestrator, its background workers and their subagents as cards change between working, needs-you, done and failed, a dashed link is drawn to the checkout session and messages travel along arcs between them; it fits the whole board again, then zooms into a doc store the sessions are filling and opens its handbook with a diagram and an image." src="docs/media/headline-light.gif">
 </picture>
 
 [Live demo](https://kranners.github.io/kanban/demo/?scenario=headline&play) · [Website](https://kranners.github.io/kanban/)
@@ -65,11 +65,15 @@ Drag cards anywhere on a snapping grid and resize them; the layout is saved and 
 
 Hovering a card shows a handle on each side. Drag from one onto another session to link the two, so they finish a piece of work together end to end; hover the line and press its unlink button to undo it. With each prompt, each subagent and whenever a link is drawn or removed mid-turn, a linked session is told the name, state, goal and current activity of every session linked to it, and to work with them through SendMessage: to share what it finds and decides, ask for what it needs and say when it finishes something they depend on. SendMessage only reaches sessions on the same Claude account, so a link to a session on another account, or to one that isn't running, is drawn in amber and the session is told it can't message that one. Cloud sessions and sessions started in a terminal can't be linked: they get none of the board's context, so their cards have no handles and the board refuses the link.
 
+![Dragging from the orders session's handle onto the checkout session to link them, then the two messaging each other along the link](docs/media/clip-links.gif)
+
 ### Doc stores
 
 D adds a doc store, a folder of shared docs on the board, as does Add doc store here in the board menu. Link a session to it by dragging from the session's handle onto it, or pick it under Docs when starting a session. A linked session is told which stores it has and what they hold, and it reads and writes them with the board's `kanban` MCP tools (`list_docs`, `read_doc`, `write_doc`, `delete_doc` and `put_doc_asset`): markdown pages in folders, relative links between them, mermaid diagrams and images copied from the Mac. Double-click a store, or press Enter with it selected, to open the viewer: a folder tree, the rendered pages with their diagrams and images, links that move between pages, and a live refresh as sessions write. Picking a doc store when starting a session runs it on This Mac, since only sessions there get the tools.
 
 The doc tools and the linked-session context reach only sessions the board starts on this Mac. Sessions started in a terminal or before the board gained these tools, cloud sessions and Remote Control sessions get neither. A session that runs `/clear` gets a new id that its doc tools don't know, so they stop working for it once its old id's links are pruned a day after it left the board.
+
+![Three linked sessions filling a doc store, then opening it to read the handbook's diagram and image and following a link to its orders page](docs/media/clip-docs.gif)
 
 ### Ask the board
 
