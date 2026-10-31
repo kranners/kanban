@@ -453,8 +453,11 @@ type Tracked = {
 	record: CloudRecord;
 	session: CloudSession;
 	seenUpdatedAt: string | null;
-	cursor: string | null;
+	mirrored: string[];
+	echoes: string[];
 };
+
+const lateEventReach = 50;
 
 export const createCloudSessions = async ({
 	file,
@@ -486,17 +489,19 @@ export const createCloudSessions = async ({
 				transcript: mirrorOf(record.id),
 			},
 			seenUpdatedAt: null,
-			cursor: null,
+			mirrored: [],
+			echoes: record.prompt === undefined ? [] : [record.prompt],
 		});
 
+	const promptLine = (text: string, at: number) =>
+		`${JSON.stringify({
+			type: "user",
+			message: { role: "user", content: text },
+			timestamp: new Date(at).toISOString(),
+		})}\n`;
+
 	const openingPrompt = ({ prompt, createdAt }: CloudRecord) =>
-		prompt === undefined
-			? ""
-			: `${JSON.stringify({
-					type: "user",
-					message: { role: "user", content: prompt },
-					timestamp: new Date(createdAt).toISOString(),
-				})}\n`;
+		prompt === undefined ? "" : promptLine(prompt, createdAt);
 
 	const persist = () =>
 		stored.write([...tracked.values()].map(({ record }) => record));
@@ -520,18 +525,35 @@ export const createCloudSessions = async ({
 		onChange();
 	};
 
+	const echoed = (item: Tracked, event: CloudEvent) => {
+		const content = (event.message as { content?: unknown } | undefined)
+			?.content;
+		const index =
+			event.type === "user" && typeof content === "string"
+				? item.echoes.indexOf(content)
+				: -1;
+		if (index === -1) return false;
+		item.echoes.splice(index, 1);
+		return true;
+	};
+
 	const mirror = async (item: Tracked, events: CloudEvent[]) => {
-		if (events.length === 0) return;
-		await appendFile(
-			item.session.transcript,
-			events
-				.map(
-					(event) =>
-						`${JSON.stringify({ ...event, timestamp: event.created_at })}\n`,
-				)
-				.join(""),
-		);
-		item.cursor = events.at(-1)?.uuid ?? item.cursor;
+		const known = new Set(item.mirrored);
+		const fresh = events.filter((event) => !known.has(event.uuid));
+		const shown = fresh.filter((event) => !echoed(item, event));
+		if (shown.length > 0) {
+			await appendFile(
+				item.session.transcript,
+				shown
+					.map(
+						(event) =>
+							`${JSON.stringify({ ...event, timestamp: event.created_at })}\n`,
+					)
+					.join(""),
+			);
+		}
+		item.mirrored.push(...fresh.map((event) => event.uuid));
+		return shown.length > 0;
 	};
 
 	const pollOne = async (item: Tracked) => {
@@ -554,16 +576,18 @@ export const createCloudSessions = async ({
 		};
 		let mirrored = false;
 		if (info.updated_at !== item.seenUpdatedAt) {
-			const events = await api.events(id, item.cursor);
+			const events = await api.events(
+				id,
+				item.mirrored.at(-lateEventReach - 1) ?? null,
+			);
 			if (tracked.get(id) !== item) return;
 			if (!events.ok) return report(id, events.error);
 			try {
-				await mirror(item, events.value);
+				mirrored = await mirror(item, events.value);
 			} catch (error) {
 				return report(id, `mirror write failed (${error})`);
 			}
 			item.seenUpdatedAt = info.updated_at;
-			mirrored = events.value.length > 0;
 		}
 		reported.delete(id);
 		if (mirrored || JSON.stringify(item.session) !== before) onChange();
@@ -608,8 +632,23 @@ export const createCloudSessions = async ({
 		async send(id, text) {
 			const item = tracked.get(id);
 			if (!item) return untracked(id);
+			const forget = () => {
+				const index = item.echoes.lastIndexOf(text);
+				if (index !== -1) item.echoes.splice(index, 1);
+			};
+			item.echoes.push(text);
 			const sent = await apiFor(item.record.configDir).send(id, text);
-			if (sent.ok) void pollAll();
+			if (!sent.ok) {
+				forget();
+				return sent;
+			}
+			await appendFile(item.session.transcript, promptLine(text, Date.now()))
+				.then(onChange)
+				.catch((error: unknown) => {
+					forget();
+					report(id, `mirror write failed (${error})`);
+				});
+			void pollAll();
 			return sent;
 		},
 		async archive(id) {

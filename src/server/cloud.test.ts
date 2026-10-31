@@ -410,6 +410,13 @@ const event = (uuid: string, at: string): CloudEvent => ({
 	message: { role: "assistant", content: [{ type: "text", text: uuid }] },
 });
 
+const prompted = (uuid: string, at: string, text: string): CloudEvent => ({
+	uuid,
+	type: "user",
+	created_at: at,
+	message: { role: "user", content: text },
+});
+
 const fakeCloud = (): FakeCloud => {
 	const fake: FakeCloud = {
 		info: new Map(),
@@ -583,7 +590,7 @@ describe("createCloudSessions", () => {
 				["e3", "2026-10-30T12:00:02Z"],
 			],
 		);
-		assert.deepEqual(fake.cursors, [null, "e2"]);
+		assert.deepEqual(fake.cursors, [null, null]);
 		first.store.stop();
 
 		fake.cursors.length = 0;
@@ -598,11 +605,114 @@ describe("createCloudSessions", () => {
 		second.store.stop();
 	});
 
-	it("opens the mirror with the first prompt, which the events leave out", async () => {
+	it("mirrors an event the api lists late, behind ones already mirrored", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		fake.info.set(id, info("idle", "2026-10-30T12:00:00Z"));
+		fake.log.set(id, [event("e1", "2026-10-30T12:00:00Z")]);
+		const { store } = await storeIn(dir, fake);
+		store.add(record);
+		await until(async () => (await mirrored(store)).length === 1);
+		fake.log.get(id)?.push(event("e3", "2026-10-30T12:00:02Z"));
+		fake.info.set(id, info("running", "2026-10-30T12:00:02Z"));
+		await until(async () => (await mirrored(store)).length === 2);
+		fake.log
+			.get(id)
+			?.splice(1, 0, prompted("u2", "2026-10-30T12:00:01Z", "Wake up"));
+		fake.log.get(id)?.push(event("e4", "2026-10-30T12:00:03Z"));
+		fake.info.set(id, info("idle", "2026-10-30T12:00:03Z"));
+		await until(async () => (await mirrored(store)).length === 4);
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		assert.deepEqual(
+			(await mirrored(store)).map((line) => line.uuid),
+			["e1", "e3", "u2", "e4"],
+		);
+		store.stop();
+	});
+
+	it("rereads only the last fifty mirrored events", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		const at = (second: number) =>
+			new Date(Date.UTC(2026, 9, 30, 12, 0, second)).toISOString();
+		fake.info.set(id, info("idle", at(0)));
+		fake.log.set(
+			id,
+			Array.from({ length: 55 }, (_, n) => event(`e${n}`, at(n))),
+		);
+		const { store } = await storeIn(dir, fake);
+		store.add(record);
+		await until(async () => (await mirrored(store)).length === 55);
+		fake.log.get(id)?.splice(20, 0, prompted("late", at(20), "Wake up"));
+		fake.log.get(id)?.push(event("e55", at(55)));
+		fake.info.set(id, info("idle", at(55)));
+		await until(async () => (await mirrored(store)).length === 57);
+		assert.deepEqual(fake.cursors, [null, "e4"]);
+		assert.deepEqual(
+			(await mirrored(store)).slice(-2).map((line) => line.uuid),
+			["late", "e55"],
+		);
+		store.stop();
+	});
+
+	it("shows a sent prompt at once and only once when the api lists it", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		fake.info.set(id, info("idle", "2026-10-30T12:00:00Z"));
+		fake.log.set(id, [event("e1", "2026-10-30T12:00:00Z")]);
+		const { store } = await storeIn(dir, fake);
+		store.add(record);
+		await until(async () => (await mirrored(store)).length === 1);
+		assert.deepEqual(await store.send(id, "Carry on"), {
+			ok: true,
+			value: null,
+		});
+		const prompts = async () =>
+			(await mirrored(store)).flatMap((line) =>
+				line.type === "user"
+					? [(line as { message?: { content?: unknown } }).message?.content]
+					: [],
+			);
+		assert.deepEqual(await prompts(), ["Carry on"]);
+		fake.log
+			.get(id)
+			?.push(
+				prompted("u2", "2026-10-30T12:00:01Z", "Carry on"),
+				event("e3", "2026-10-30T12:00:02Z"),
+			);
+		fake.info.set(id, info("idle", "2026-10-30T12:00:02Z"));
+		await until(async () => (await mirrored(store)).length === 3);
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		assert.deepEqual(await prompts(), ["Carry on"]);
+		store.stop();
+	});
+
+	it("leaves a failed send out of the mirror", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		fake.info.set(id, info("idle", "2026-10-30T12:00:00Z"));
+		fake.api.send = async () => ({ ok: false, error: "HTTP 500" });
+		const { store } = await storeIn(dir, fake);
+		store.add(record);
+		assert.deepEqual(await store.send(id, "Carry on"), {
+			ok: false,
+			error: "HTTP 500",
+		});
+		fake.log.set(id, [prompted("u1", "2026-10-30T12:00:01Z", "Carry on")]);
+		fake.info.set(id, info("idle", "2026-10-30T12:00:01Z"));
+		await until(async () => (await mirrored(store)).length === 1);
+		assert.equal((await mirrored(store))[0]?.uuid, "u1");
+		store.stop();
+	});
+
+	it("opens the mirror with the first prompt and drops the api's copy of it", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
 		const fake = fakeCloud();
 		fake.info.set(id, info("idle", "2026-10-30T12:00:01Z"));
-		fake.log.set(id, [event("e1", "2026-10-30T12:00:01Z")]);
+		fake.log.set(id, [
+			prompted("u0", "2026-10-30T12:00:00.5Z", "Probe it"),
+			event("e1", "2026-10-30T12:00:01Z"),
+		]);
 		const opened = {
 			...record,
 			createdAt: Date.parse("2026-10-30T12:00:00Z"),
