@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import type { Session, Task } from "../shared/types.ts";
 import {
 	compactCount,
+	entryText,
 	formatDuration,
 	futureEntries,
 	parsePlanLine,
@@ -325,5 +326,19 @@ describe("regionReportBody", () => {
 			body,
 			/- ~13:45 api: update docs\n- ~14:00 web: polish\n- \*\*~14:00 Predicted completion\*\*$/,
 		);
+	});
+});
+
+describe("report edge cases", () => {
+	it("keeps a plan when no sections were found", () => {
+		assert.deepEqual(parseReport("Plan:\n- 10m: write tests"), {
+			sections: {},
+			plan: [{ ms: 600_000, text: "write tests" }],
+		});
+	});
+
+	it("flattens, shortens and escapes timeline text", () => {
+		assert.equal(entryText("Edit ~/.claude\n  now"), "Edit \\~/.claude now");
+		assert.equal(entryText("x".repeat(200)).length, 120);
 	});
 });

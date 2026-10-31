@@ -88,11 +88,11 @@ export const parseReport = (answer: string): ParsedReport | null => {
 		const text = paragraph(collected.get(key) ?? []);
 		if (text && !isNone(text)) sections[key] = text;
 	}
-	if (Object.keys(sections).length === 0) return null;
 	const plan = (collected.get("plan") ?? []).flatMap((line) => {
 		const step = parsePlanLine(line);
 		return step ? [step] : [];
 	});
+	if (Object.keys(sections).length === 0 && plan.length === 0) return null;
 	return { sections, plan };
 };
 
@@ -215,8 +215,17 @@ export const futureEntries = (
 	return { entries, finish: cursor };
 };
 
+const maxEntryText = 120;
+
+export const entryText = (text: string): string => {
+	const flat = text.replace(/\s+/g, " ").trim();
+	const short =
+		flat.length > maxEntryText ? `${flat.slice(0, maxEntryText - 1)}…` : flat;
+	return short.replace(/[~\\]/g, (c) => `\\${c}`);
+};
+
 const entryLine = (entry: Entry): string =>
-	`- ${entry.predicted ? "~" : ""}${clock(entry.at)} ${entry.text}`;
+	`- ${entry.predicted ? "~" : ""}${clock(entry.at)} ${entryText(entry.text)}`;
 
 export const timelineText = (
 	past: readonly Entry[],
@@ -244,7 +253,7 @@ export const sessionReportBody = (
 	const at = now.getTime();
 	const { entries, finish } = futureEntries(session, parsed?.plan ?? [], at);
 	return [
-		parsed ? sectionsText(parsed) : answer.trim(),
+		(parsed && sectionsText(parsed)) || answer.trim(),
 		statsText([session], now),
 		timelineText(pastEntries(session, at), at, entries, finish),
 	].join("\n\n");
@@ -271,9 +280,7 @@ export const regionReportBody = (
 	const parts = replies.map(({ session, answer }) => {
 		const parsed = answer.ok ? parseReport(answer.answer) : null;
 		const body = answer.ok
-			? parsed
-				? sectionsText(parsed)
-				: answer.answer.trim()
+			? (parsed && sectionsText(parsed)) || answer.answer.trim()
 			: `_No answer: ${answer.error}_`;
 		past.push(...prefixed(session.name, pastEntries(session, at)));
 		const predicted = futureEntries(session, parsed?.plan ?? [], at, fallback);
