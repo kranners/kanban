@@ -550,7 +550,10 @@ describe("createKanbanServer", () => {
 		assert.equal(deep.headers.get("x-frame-options"), "DENY");
 	});
 
-	it("survives a static file it cannot read", async () => {
+	const rootReadsEveryFile = process.getuid?.() === 0;
+	it("survives a static file it cannot read", {
+		skip: rootReadsEveryFile && "root can read a file with no permissions",
+	}, async () => {
 		await assert.rejects(
 			fetch(`${base}/locked.js`, { headers: authed }).then((response) =>
 				response.text(),
