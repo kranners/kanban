@@ -266,6 +266,35 @@ describe("migrateDocStoreFiles", () => {
 		assert.deepEqual(again, first);
 	});
 
+	it("leaves the annotations alone when the registry can't be written", async () => {
+		const stateDir = await mkdtemp(join(tmpdir(), "kanban-migrate-"));
+		const annotationsFile = join(stateDir, "annotations.json");
+		const original = JSON.stringify({
+			[a]: {
+				kind: "docs",
+				title: "API guide",
+				x: 0,
+				y: 0,
+				w: 288,
+				h: 216,
+				z: 1,
+			},
+		});
+		await writeFile(annotationsFile, original);
+		// A directory where the registry file belongs makes its rename fail.
+		await mkdir(join(stateDir, docStoresFileName, "blocker"), {
+			recursive: true,
+		});
+		await assert.rejects(
+			migrateDocStoreFiles({
+				stateDir,
+				annotationsFile,
+				relationsFile: join(stateDir, "relations.json"),
+			}),
+		);
+		assert.equal(await readFile(annotationsFile, "utf8"), original);
+	});
+
 	it("starts empty on a fresh state directory", async () => {
 		const stateDir = await mkdtemp(join(tmpdir(), "kanban-migrate-"));
 		assert.deepEqual(

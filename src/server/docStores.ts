@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { type DocStore, maxDocTitle } from "../shared/types.ts";
 import { annotationIdPattern } from "./annotations.ts";
 import type { DocFiles } from "./docs.ts";
-import { createStateFile, readState } from "./stateFile.ts";
+import { createStateFile, readState, writeAtomically } from "./stateFile.ts";
 
 export type DocStoreRegistry = {
 	current(): DocStore[];
@@ -240,15 +240,16 @@ const foldersWithFiles = async (dir: string): Promise<string[]> => {
 	return found;
 };
 
-const writeState = async (file: string, value: unknown) => {
-	const state = createStateFile<unknown>(file);
-	state.write(value);
-	await state.saved();
-};
+// Unlike a StateFile, which logs a failed write and carries on, this rejects,
+// so the migration stops before it drops anything the registry doesn't hold.
+const writeState = (file: string, value: unknown) =>
+	writeAtomically(file, `${JSON.stringify(value)}\n`);
 
 // Runs the migration against the state directory before any store loads, so
 // the annotations and relations loaders never see doc stores. The registry is
-// written first: a crash part way leaves the old files to migrate again.
+// written first and any failure throws: annotations and relations are only
+// rewritten once it is on disk, so a failure or crash part way leaves the old
+// files to migrate again.
 export const migrateDocStoreFiles = async (
 	{
 		stateDir,

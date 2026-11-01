@@ -17,7 +17,8 @@ export const readState = async <T>(
 	}
 };
 
-const writeAtomically = async (file: string, text: string) => {
+// Writes through a temporary file and a rename, and rejects when either fails.
+export const writeAtomically = async (file: string, text: string) => {
 	await mkdir(dirname(file), { recursive: true });
 	const temporary = `${file}.${process.pid}.tmp`;
 	await writeFile(temporary, text);
