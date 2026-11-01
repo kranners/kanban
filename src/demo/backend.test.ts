@@ -115,7 +115,26 @@ const schedule = async (backend: Backend): Promise<string> => {
 	return ((await created.json()) as { id: string }).id;
 };
 
+const docStore = async (backend: Backend): Promise<string> => {
+	const created = await answers(backend, "POST", "/api/docs", {
+		title: "Runbooks",
+	});
+	return ((await created.json()) as { id: string }).id;
+};
+
 const probes: Record<string, Probe> = {
+	"/api/docs": async (backend) => {
+		await docStore(backend);
+	},
+	"/api/docs/:param": async (backend) => {
+		const id = await docStore(backend);
+		await answers(backend, "PATCH", `/api/docs/${id}`, { title: "Ops" });
+		await answers(backend, "PUT", `/api/docs/${id}/files/index.md`, {
+			content: "# Ops",
+		});
+		await answers(backend, "DELETE", `/api/docs/${id}/files/index.md`);
+		await answers(backend, "DELETE", `/api/docs/${id}`);
+	},
 	"/api/schedules": async (backend) => {
 		await schedule(backend);
 	},
@@ -580,39 +599,85 @@ test("a doc store's writes show in the writing session's conversation", () => {
 	assert.equal(last.input.path, "index.md");
 });
 
-test("deleting a doc store drops its files and links", async () => {
-	const backend = createBackend(docs);
-	for (const step of docs.timeline) step.run(backend.stage);
-	await answers(backend, "DELETE", `/api/annotations/${handbook.id}`);
+const storeFrames = (frames: unknown[]) =>
+	(frames as BoardFeed[]).flatMap((frame) =>
+		frame.type === "docs" ? [frame.stores] : [],
+	);
+
+test("doc stores live in a registry, not on the canvas", () => {
+	for (const scenario of [calm, docs, headline]) {
+		const world = scenario.world(0);
+		assert.ok(
+			Object.values(world.annotations).every(
+				(annotation) => annotation.kind !== ("docs" as string),
+			),
+		);
+		assert.ok(
+			world.relations.every((relation) => relation.to.kind === "session"),
+		);
+	}
+	const backend = createBackend(calm);
 	const { frames, peer } = listening();
 	backend.socket("/api/feed")?.(peer);
 	backend.stop();
-	assert.deepEqual(docFrames(frames), [{}]);
-	const relations = (frames as BoardFeed[]).find(
-		(frame) => frame.type === "relations",
+	assert.deepEqual(
+		storeFrames(frames)[0]?.map((store) => store.title),
+		[handbook.title],
 	);
-	assert.deepEqual(relations?.type === "relations" && relations.relations, []);
+	assert.ok((docFrames(frames)[0]?.[handbook.id]?.length ?? 0) >= 5);
 });
 
-test("a new session joins the doc stores picked for it", async (t) => {
-	t.mock.timers.enable({ apis: ["setTimeout"] });
-	const backend = createBackend(docs);
-	await answers(backend, "POST", "/api/sessions", {
-		cwd: "/Users/me/dev/acme-api",
-		prompt: "Document the search endpoint",
-		docs: [handbook.id, "nowhere"],
-	});
-	t.mock.timers.tick(1200);
+test("the user can create, rename and delete doc stores and edit their pages", async () => {
+	const backend = createBackend(calm);
 	const { frames, peer } = listening();
 	backend.socket("/api/feed")?.(peer);
-	backend.stop();
-	const relations = (frames as BoardFeed[]).find(
-		(frame) => frame.type === "relations",
+	const send = (method: string, path: string, body: unknown = null) =>
+		backend.fetch(method, path, new URLSearchParams(), body);
+	assert.equal(send("POST", "/api/docs", { title: "  " }).status, 400);
+	const created = send("POST", "/api/docs", { title: "Ops notes" });
+	assert.equal(created.status, 201);
+	const store = (await created.json()) as { id: string; title: string };
+	assert.equal(store.title, "Ops notes");
+	assert.deepEqual(
+		storeFrames(frames)
+			.at(-1)
+			?.map((item) => item.title),
+		["Ops notes", handbook.title],
 	);
-	assert.ok(relations?.type === "relations");
-	const joined = relations.relations.at(-1);
-	assert.deepEqual(joined?.to, { kind: "docs", id: handbook.id });
-	assert.equal(relations.relations.length, 4);
+	const renamed = send("PATCH", `/api/docs/${store.id}`, {
+		title: "Runbooks",
+	});
+	assert.equal(renamed.status, 200);
+	assert.equal(((await renamed.json()) as { title: string }).title, "Runbooks");
+	assert.equal(send("PATCH", "/api/docs/nowhere", { title: "x" }).status, 404);
+	const page = `/api/docs/${store.id}/files/deploy.md`;
+	assert.equal(
+		send("PUT", `/api/docs/${store.id}/files/logo.png`, { content: "x" })
+			.status,
+		400,
+	);
+	assert.equal(send("PUT", page, { content: 1 }).status, 400);
+	const written = send("PUT", page, { content: "# Deploy" });
+	assert.equal(written.status, 200);
+	assert.deepEqual(await written.json(), {
+		path: "deploy.md",
+		size: 8,
+		updatedAt: (docFrames(frames).at(-1)?.[store.id] ?? [])[0]?.updatedAt,
+	});
+	assert.equal(await send("GET", page).text(), "# Deploy");
+	assert.equal(send("DELETE", page).status, 204);
+	assert.equal(send("DELETE", page).status, 404);
+	assert.deepEqual(docFrames(frames).at(-1)?.[store.id], []);
+	assert.equal(send("DELETE", `/api/docs/${store.id}`).status, 204);
+	assert.equal(send("GET", page).status, 404);
+	backend.stop();
+	assert.deepEqual(
+		storeFrames(frames)
+			.at(-1)
+			?.map((item) => item.id),
+		[handbook.id],
+	);
+	assert.equal(docFrames(frames).at(-1)?.[store.id], undefined);
 });
 
 test("linking two sessions in the links clip sends a message along the link", async (t) => {
@@ -639,7 +704,7 @@ test("linking two sessions in the links clip sends a message along the link", as
 	);
 });
 
-test("the headline links two sessions and fills a doc store linked to two more", () => {
+test("the headline links two sessions and fills a doc store in the background", () => {
 	const backend = createBackend(headline);
 	const { frames, peer } = listening();
 	backend.socket("/api/feed")?.(peer);
@@ -649,8 +714,8 @@ test("the headline links two sessions and fills a doc store linked to two more",
 		(frame) => frame.type === "relations",
 	);
 	assert.ok(relations?.type === "relations");
-	const kinds = relations.relations.map((relation) => relation.to.kind).sort();
-	assert.deepEqual(kinds, ["docs", "docs", "session"]);
+	const kinds = relations.relations.map((relation) => relation.to.kind);
+	assert.deepEqual(kinds, ["session"]);
 	const sizes = docFrames(frames).map(
 		(index) => index[handbook.id]?.length ?? 0,
 	);

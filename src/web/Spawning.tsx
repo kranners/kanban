@@ -1,6 +1,5 @@
 import "./actions.css";
 import {
-	BookOpen,
 	CalendarClock,
 	CircleAlert,
 	LoaderCircle,
@@ -15,15 +14,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { landingId, type Point, type PromptImage } from "../shared/types.ts";
 import { AccountPicker } from "./AccountPicker.tsx";
 import { cwdChoices, isQuickPromptKey } from "./actions.ts";
-import {
-	addDocStore,
-	addNote,
-	annotationMenu,
-	stickerPicker,
-} from "./annotations.ts";
+import { addNote, annotationMenu, stickerPicker } from "./annotations.ts";
 import { boardPointAt, clientPointOf, view } from "./Canvas.tsx";
 import { composer, threadMenu } from "./comments.ts";
-import { DocsPicker, pickedDocStores } from "./DocsPicker.tsx";
 import { exitAsk } from "./exits.ts";
 import { FolderPicker } from "./FolderPicker.tsx";
 import { groupUnder, openRegionMenuAtPointer } from "./Groups.tsx";
@@ -192,7 +185,7 @@ export function BoardMenu(): JSX.Element | null {
 
 	if (!menu) return null;
 	const left = Math.min(menu.client.x, innerWidth - 240);
-	const top = Math.min(menu.client.y, innerHeight - 232);
+	const top = Math.min(menu.client.y, innerHeight - 196);
 	return (
 		<div
 			class="board-menu"
@@ -245,19 +238,6 @@ export function BoardMenu(): JSX.Element | null {
 				class="board-menu-item"
 				onClick={() => {
 					boardMenu.value = null;
-					addDocStore(menu.board);
-				}}
-			>
-				<BookOpen size={14} aria-hidden="true" />
-				<span class="board-menu-label">Add doc store here</span>
-				<kbd>D</kbd>
-			</button>
-			<button
-				type="button"
-				role="menuitem"
-				class="board-menu-item"
-				onClick={() => {
-					boardMenu.value = null;
 					regionDialog.value = { mode: "create", at: menu.board };
 				}}
 			>
@@ -293,9 +273,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [account, setAccount] = useState<number | undefined>(undefined);
-	const [docs, setDocs] = useState<string[]>([]);
 	const runs = useRunsOn(open.cwd, account);
-	const linkedDocs = pickedDocStores(docs);
 	const { k } = view.value;
 	const legible = Math.max(1, 1 / k);
 	useRestoreFocus();
@@ -349,7 +327,6 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 		const failure = await spawnFromPrompt(text, held.current, {
 			account,
 			runsOn: runs.runsOn,
-			docs: linkedDocs,
 		});
 		setBusy(false);
 		if (failure) {
@@ -428,7 +405,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 					onKeyDown={onKeyDown}
 					onPaste={onPaste}
 					onBlur={closeIfEmpty}
-					placeholder="What should Claude work on? Shift+Enter for a new line; images or doc stores run it on this Mac"
+					placeholder="What should Claude work on? Shift+Enter for a new line; images run it on this Mac"
 					aria-label="Prompt for a new session"
 					disabled={busy}
 					spellcheck={false}
@@ -485,9 +462,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 					lockedBecause={
 						images.length > 0
 							? "Sessions with images run on this Mac"
-							: linkedDocs.length > 0
-								? "Sessions with doc stores run on this Mac"
-								: undefined
+							: undefined
 					}
 					onPicked={() => input.current?.focus({ preventScroll: true })}
 				/>
@@ -498,15 +473,6 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 					onPick={(picked) => {
 						setAccount(picked);
 						input.current?.focus({ preventScroll: true });
-					}}
-				/>
-				<DocsPicker
-					variant="chip"
-					value={docs}
-					disabled={busy}
-					onChange={(next) => {
-						setDocs(next);
-						if (next.length > 0) runs.pick("local");
 					}}
 				/>
 			</div>

@@ -1,13 +1,11 @@
 import { defaultRegionColour } from "../shared/colours.ts";
 import {
-	type DocStore,
 	type Layout,
 	type Link,
 	type Message,
 	type Note,
 	noDigests,
 	type Region,
-	type Relation,
 	type Session,
 	type Subagent,
 } from "../shared/types.ts";
@@ -683,18 +681,6 @@ const pushStory: Turn[] = [
 	},
 ];
 
-const store: DocStore = {
-	id: handbook.id,
-	kind: "docs",
-	title: handbook.title,
-	x: projects.docs.x + 360,
-	y: projects.docs.y + rowPitch,
-	...card,
-	z: 1,
-};
-
-const docs = { kind: "docs", id: store.id } as const;
-
 function world(start: number): World {
 	const sessions = seats.map((seat, order) => sessionOf(start, seat, order));
 	const subagents = helpers
@@ -790,19 +776,20 @@ function world(start: number): World {
 				"Node pool general-a drains at 14:00.",
 			),
 		],
-		relations: ["orders v3", "v3 API reference"].map(
-			(name, n): Relation => ({
-				id: `relation-h${n + 1}`,
-				from: s(sid(name)),
-				to: docs,
-				createdAt: start - (30 - n * 10) * minute,
-			}),
-		),
-		docs: { [store.id]: [] },
+		relations: [],
+		docStores: [
+			{
+				id: handbook.id,
+				title: handbook.title,
+				createdAt: start - 30 * minute,
+				updatedAt: start - 30 * minute,
+			},
+		],
+		docs: { [handbook.id]: [] },
 		layout,
 		regions: Object.values(projects).map(regionOf),
 		colours: {},
-		annotations: { [store.id]: store },
+		annotations: {},
 		comments: [],
 		schedules: [],
 		digests: noDigests,
@@ -842,7 +829,7 @@ const finish = (seconds: number, helperId: string, summary: string) =>
 	at(seconds, (stage) => stage.finish(helperId, summary));
 
 const write = (seconds: number, name: string, path: string, text: string) =>
-	at(seconds, (stage) => stage.write(store.id, path, text, sid(name)));
+	at(seconds, (stage) => stage.write(handbook.id, path, text, sid(name)));
 
 const arrive = (seconds: number, name: string, parent: string) =>
 	at(seconds, (stage) => {

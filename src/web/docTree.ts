@@ -11,11 +11,6 @@ export type DocFolder = {
 export type DocLeaf = { kind: "file"; name: string; file: DocFile };
 export type DocNode = DocFolder | DocLeaf;
 
-export type DocPreviewRow =
-	| { kind: "folder"; name: string; count: number }
-	| { kind: "file"; name: string };
-export type DocPreview = { rows: DocPreviewRow[]; more: number };
-
 const byName = (a: { name: string }, b: { name: string }) =>
 	a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
 	a.name.localeCompare(b.name);
@@ -56,16 +51,6 @@ export function docTree(files: readonly DocFile[]): DocNode[] {
 		level.push({ kind: "file", name, file });
 	}
 	return sorted(root);
-}
-
-export function docPreview(files: readonly DocFile[], limit = 6): DocPreview {
-	const rows: DocPreviewRow[] = docTree(files).map((node) =>
-		node.kind === "folder"
-			? { kind: "folder", name: node.name, count: node.count }
-			: { kind: "file", name: node.name },
-	);
-	if (rows.length <= limit) return { rows, more: 0 };
-	return { rows: rows.slice(0, limit - 1), more: rows.length - limit + 1 };
 }
 
 export function docHome(files: readonly DocFile[]): string | null {

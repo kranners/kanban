@@ -1,14 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { sameEnd, samePair, touches } from "../shared/relations.ts";
-import {
-	type Board,
-	hasLanded,
-	type Landing,
-	type Relation,
-	type RelationDraft,
-	type RelationEnd,
+import type {
+	Board,
+	Relation,
+	RelationDraft,
+	RelationEnd,
 } from "../shared/types.ts";
-import { annotationIdPattern } from "./annotations.ts";
 import { pruneAfterMs } from "./layout.ts";
 import { createStateFile, readState } from "./stateFile.ts";
 
@@ -17,7 +14,6 @@ export type RelationStore = {
 	create(draft: RelationDraft): Relation | { error: string };
 	remove(id: string): boolean;
 	removeEnd(end: RelationEnd): void;
-	expect(ends: readonly RelationEnd[]): (landing: Landing | null) => void;
 	observe(board: Board): void;
 	saved(): Promise<void>;
 };
@@ -30,14 +26,7 @@ export type RelationStoreOptions = {
 	now?: () => number;
 };
 
-type Spawn = {
-	ends: readonly RelationEnd[];
-	since: number;
-	landing?: Landing;
-};
-
 export const maxRelations = 500;
-const pendingSpawnMs = 10 * 60_000;
 const relationIdPattern = /^[A-Za-z0-9-]{1,64}$/;
 const sessionIdPattern = /^[A-Za-z0-9_-]{1,128}$/;
 
@@ -49,7 +38,6 @@ const parseEnd = (value: unknown): RelationEnd | null => {
 	const { kind, id } = value as Record<string, unknown>;
 	if (typeof id !== "string") return null;
 	if (kind === "session" && sessionIdPattern.test(id)) return { kind, id };
-	if (kind === "docs" && annotationIdPattern.test(id)) return { kind, id };
 	return null;
 };
 
@@ -63,12 +51,9 @@ export const parseRelationDraft = (
 	const from = parseEnd(fields.from);
 	const to = parseEnd(fields.to);
 	if (!from || !to) {
-		return { error: "from and to must each be a session or a doc store" };
+		return { error: "from and to must each be a session" };
 	}
 	if (sameEnd(from, to)) return { error: "A card can't be linked to itself" };
-	if (from.kind === "docs" && to.kind === "docs") {
-		return { error: "Link doc stores to sessions, not to each other" };
-	}
 	return { from, to };
 };
 
@@ -113,7 +98,6 @@ export const createRelationStore = ({
 	now = Date.now,
 }: RelationStoreOptions): RelationStore => {
 	let relations = [...initial];
-	const pending = new Set<Spawn>();
 	const missingSince = new Map<string, number>();
 	const stored = createStateFile<Relation[]>(file);
 
@@ -121,32 +105,6 @@ export const createRelationStore = ({
 		relations = next;
 		stored.write(relations);
 		onChange(relations);
-	};
-
-	const linked = (list: Relation[], draft: RelationDraft): Relation[] =>
-		list.length >= maxRelations ||
-		list.some((relation) => samePair(relation, draft))
-			? list
-			: [...list, { id: newId(), ...draft, createdAt: now() }];
-
-	const landed = (board: Board, list: Relation[]): Relation[] => {
-		let next = list;
-		for (const spawn of pending) {
-			const { landing } = spawn;
-			const session =
-				landing && board.sessions.find((s) => hasLanded(landing, s));
-			if (session) {
-				pending.delete(spawn);
-				const end: RelationEnd = { kind: "session", id: session.id };
-				for (const other of spawn.ends) {
-					if (!sameEnd(end, other))
-						next = linked(next, { from: end, to: other });
-				}
-			} else if (now() - spawn.since > pendingSpawnMs) {
-				pending.delete(spawn);
-			}
-		}
-		return next;
 	};
 
 	const pruned = (board: Board, list: Relation[]): Relation[] => {
@@ -192,16 +150,8 @@ export const createRelationStore = ({
 			const kept = relations.filter((relation) => !touches(relation, end));
 			if (kept.length !== relations.length) commit(kept);
 		},
-		expect(ends) {
-			const spawn: Spawn = { ends, since: now() };
-			pending.add(spawn);
-			return (landing) => {
-				if (landing) spawn.landing = landing;
-				else pending.delete(spawn);
-			};
-		},
 		observe(board) {
-			const next = pruned(board, landed(board, relations));
+			const next = pruned(board, relations);
 			if (next !== relations) commit(next);
 		},
 		saved: stored.saved,

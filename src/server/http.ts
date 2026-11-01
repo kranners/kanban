@@ -54,7 +54,7 @@ import {
 	parseSince,
 	type Since,
 } from "./conversationHub.ts";
-import type { DocsHttp } from "./docsHttp.ts";
+import { type DocsHttp, type DocsReply, maxDocPutBytes } from "./docsHttp.ts";
 import type { ExitRunner } from "./exit.ts";
 import type { Feed } from "./feed.ts";
 import type { FileListing } from "./files.ts";
@@ -172,6 +172,11 @@ export type Route =
 	| { kind: "delete-relation"; relationId: string }
 	| { kind: "docs-tool"; tool: string }
 	| { kind: "doc-file"; store: string; path: string }
+	| { kind: "put-doc-file"; store: string; path: string }
+	| { kind: "delete-doc-file"; store: string; path: string }
+	| { kind: "create-doc-store" }
+	| { kind: "rename-doc-store"; store: string }
+	| { kind: "delete-doc-store"; store: string }
 	| { kind: "create-comment" }
 	| { kind: "reply-comment"; threadId: string }
 	| { kind: "cancel-comment"; threadId: string }
@@ -427,13 +432,32 @@ export const matchRoute = (method: string, url: URL): Route => {
 			? { kind: "docs-tool", tool: docsTool[1] }
 			: { kind: "method-not-allowed" };
 	}
+	if (path === "/api/docs") {
+		return method === "POST"
+			? { kind: "create-doc-store" }
+			: { kind: "method-not-allowed" };
+	}
+	const docStore = path.match(
+		/^\/api\/docs\/([A-Za-z0-9][A-Za-z0-9_-]{0,63})$/,
+	);
+	if (docStore?.[1]) {
+		if (method === "PATCH")
+			return { kind: "rename-doc-store", store: docStore[1] };
+		if (method === "DELETE")
+			return { kind: "delete-doc-store", store: docStore[1] };
+		return { kind: "method-not-allowed" };
+	}
 	const docFile = path.match(
 		/^\/api\/docs\/([A-Za-z0-9][A-Za-z0-9_-]{0,63})\/files\/(.+)$/,
 	);
 	if (docFile?.[1] && docFile[2]) {
-		return method === "GET" || method === "HEAD"
-			? { kind: "doc-file", store: docFile[1], path: docFile[2] }
-			: { kind: "method-not-allowed" };
+		const located = { store: docFile[1], path: docFile[2] };
+		if (method === "GET" || method === "HEAD") {
+			return { kind: "doc-file", ...located };
+		}
+		if (method === "PUT") return { kind: "put-doc-file", ...located };
+		if (method === "DELETE") return { kind: "delete-doc-file", ...located };
+		return { kind: "method-not-allowed" };
 	}
 	const tool = path.match(/^\/api\/agent\/tools\/([a-z_]{1,64})$/);
 	if (tool?.[1]) {
@@ -694,28 +718,13 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if ("error" in request) {
 			return sendJson(res, 400, { ok: false, error: request.error });
 		}
-		const missing = request.docs?.find(
-			(id) => deps.annotations.current()[id]?.kind !== "docs",
-		);
-		if (missing) {
-			return sendJson(res, 400, {
-				ok: false,
-				error: `No doc store ${missing} on the board`,
-			});
-		}
 		const settle = request.at && deps.layout.expect(request.cwd, request.at);
-		const link = request.docs?.length
-			? deps.relations.expect(
-					request.docs.map((id): RelationEnd => ({ kind: "docs", id })),
-				)
-			: null;
 		const result = await deps.launch(request);
 		deps.audit({
 			action: "session-create",
 			cwd: request.cwd,
 			name: request.name ?? null,
 			images: request.images?.length ?? 0,
-			...(request.docs?.length ? { docs: request.docs.length } : {}),
 			account: request.account ?? null,
 			runsOn: request.runsOn,
 			identity,
@@ -724,10 +733,6 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if (settle) {
 			settle(result.ok ? result : null);
 			deps.layout.observe(deps.source.board());
-		}
-		if (link) {
-			link(result.ok ? result : null);
-			deps.relations.observe(deps.source.board());
 		}
 		sendJson(res, result.ok ? 201 : 422, result);
 	};
@@ -995,11 +1000,6 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 	};
 
 	const unlinkable = (end: RelationEnd): string | null => {
-		if (end.kind === "docs") {
-			return deps.annotations.current()[end.id]?.kind === "docs"
-				? null
-				: `No doc store ${end.id} on the board`;
-		}
 		const session = deps.source
 			.board()
 			.sessions.find(({ id }) => id === end.id);
@@ -1020,6 +1020,35 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			return sendJson(res, 409, { ok: false, error: relation.error });
 		}
 		sendJson(res, 201, relation);
+	};
+
+	const sendDocsReply = (res: ServerResponse, reply: DocsReply) => {
+		if (reply.body === undefined) {
+			res.writeHead(reply.status, { "cache-control": "no-store" });
+			res.end();
+			return;
+		}
+		sendJson(res, reply.status, reply.body);
+	};
+
+	const docsReply = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+		act: (body: unknown) => DocsReply | Promise<DocsReply>,
+		limit = maxBodyBytes,
+	) => {
+		const read = await readBody(req, res, limit);
+		if (!read) return;
+		sendDocsReply(res, await act(read.body));
+	};
+
+	const docsReplyWithoutBody = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+		act: () => Promise<DocsReply>,
+	) => {
+		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		sendDocsReply(res, await act());
 	};
 
 	const deleteRelation = (
@@ -1335,6 +1364,27 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return deleteRelation(req, res, route.relationId);
 			case "doc-file":
 				return deps.docs.file(req, res, route.store, route.path);
+			case "create-doc-store":
+				return docsReply(req, res, (body) => deps.docs.createStore(body));
+			case "rename-doc-store":
+				return docsReply(req, res, (body) =>
+					deps.docs.renameStore(route.store, body),
+				);
+			case "delete-doc-store":
+				return docsReplyWithoutBody(req, res, () =>
+					deps.docs.deleteStore(route.store),
+				);
+			case "put-doc-file":
+				return docsReply(
+					req,
+					res,
+					(body) => deps.docs.putFile(route.store, route.path, body),
+					maxDocPutBytes,
+				);
+			case "delete-doc-file":
+				return docsReplyWithoutBody(req, res, () =>
+					deps.docs.deleteFile(route.store, route.path),
+				);
 			case "create-comment":
 				return createComment(req, res);
 			case "reply-comment":

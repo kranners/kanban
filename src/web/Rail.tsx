@@ -8,9 +8,8 @@ import {
 } from "lucide-preact";
 import type { JSX } from "preact";
 import type { NodeRef } from "../shared/types.ts";
-import { current } from "./annotations.ts";
 import { DocsView } from "./DocsView.tsx";
-import { docStoreChoices } from "./docsPicker.ts";
+import { docStores } from "./docState.ts";
 import { SearchView } from "./SearchView.tsx";
 import { StatusView } from "./StatusView.tsx";
 import {
@@ -88,7 +87,7 @@ function hint(view: RailView, title: string): string {
 				? `${title}, filtering the board`
 				: title;
 		case "docs": {
-			const count = docStoreChoices(current.value).length;
+			const count = docStores.value.length;
 			return count > 0
 				? `${title}, ${count} doc store${count === 1 ? "" : "s"}`
 				: title;

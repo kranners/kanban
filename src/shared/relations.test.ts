@@ -11,14 +11,13 @@ import {
 
 const api = { kind: "session", id: "api" } as const;
 const web = { kind: "session", id: "web" } as const;
-const guide = { kind: "docs", id: "guide" } as const;
+const guide = { kind: "session", id: "guide" } as const;
 
 describe("relation ends", () => {
 	it("key like board nodes and compare by kind and id", () => {
 		assert.equal(endKey(api), "session:api");
-		assert.equal(endKey(guide), "docs:guide");
 		assert.equal(sameEnd(api, { kind: "session", id: "api" }), true);
-		assert.equal(sameEnd(guide, { kind: "session", id: "guide" }), false);
+		assert.equal(sameEnd(api, web), false);
 	});
 
 	it("find the far end and the same pair either way round", () => {

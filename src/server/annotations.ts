@@ -1,7 +1,6 @@
 import {
 	type Annotation,
 	type Annotations,
-	maxDocTitle,
 	maxNoteText,
 	maxReportBytes,
 	type NoteColor,
@@ -47,12 +46,6 @@ const isNoteColor = (value: unknown): value is NoteColor =>
 
 const isRotation = (value: unknown): value is number =>
 	typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= 180;
-
-const isDocTitle = (value: unknown): value is string =>
-	typeof value === "string" &&
-	value.trim() !== "" &&
-	value.length <= maxDocTitle &&
-	!/\p{Cc}/u.test(value);
 
 const isLink = (value: unknown): value is string | undefined =>
 	value === undefined ||
@@ -139,16 +132,7 @@ export const parseAnnotation = (
 		}
 		return { ...placed, kind: "sticker", sticker, rotation };
 	}
-	if (fields.kind === "docs") {
-		const { title } = fields;
-		if (!isDocTitle(title)) {
-			return {
-				error: `title must be 1 to ${maxDocTitle} characters on one line`,
-			};
-		}
-		return { ...placed, kind: "docs", title };
-	}
-	return { error: "kind must be note, sticker or docs" };
+	return { error: "kind must be note or sticker" };
 };
 
 export const parseAnnotations = (value: unknown): Annotations => {

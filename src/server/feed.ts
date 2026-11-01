@@ -7,6 +7,7 @@ import type {
 	CommentThread,
 	Digests,
 	DocIndex,
+	DocStore,
 	ExitResult,
 	Layout,
 	Region,
@@ -38,7 +39,7 @@ export type Feed = {
 	usage(usage: Usage): void;
 	digests(digests: Digests): void;
 	relations(relations: Relation[]): void;
-	docs(docs: DocIndex): void;
+	docs(): void;
 	schedules(schedules: Schedule[]): void;
 	size(): number;
 };
@@ -55,6 +56,7 @@ export type FeedOptions = {
 	digests: () => Digests;
 	relations: () => Relation[];
 	docs: () => DocIndex;
+	docStores: () => DocStore[];
 	schedules: () => Schedule[];
 };
 
@@ -72,9 +74,16 @@ export const createFeed = ({
 	digests,
 	relations,
 	docs,
+	docStores,
 	schedules,
 }: FeedOptions): Feed => {
 	const clients = new Set<FeedSocket>();
+
+	const docsFrame = (): BoardFeed => ({
+		type: "docs",
+		docs: docs(),
+		stores: docStores(),
+	});
 
 	const send = (socket: FeedSocket, frame: BoardFeed) => {
 		if (socket.readyState === socketOpen) socket.send(JSON.stringify(frame));
@@ -99,7 +108,7 @@ export const createFeed = ({
 			send(socket, { type: "usage", usage: usage() });
 			send(socket, { type: "digests", digests: digests() });
 			send(socket, { type: "relations", relations: relations() });
-			send(socket, { type: "docs", docs: docs() });
+			send(socket, docsFrame());
 			send(socket, { type: "schedules", schedules: schedules() });
 			send(socket, { type: "board", board: board() });
 		},
@@ -120,7 +129,7 @@ export const createFeed = ({
 		usage: (next) => broadcast({ type: "usage", usage: next }),
 		digests: (next) => broadcast({ type: "digests", digests: next }),
 		relations: (next) => broadcast({ type: "relations", relations: next }),
-		docs: (next) => broadcast({ type: "docs", docs: next }),
+		docs: () => broadcast(docsFrame()),
 		schedules: (next) => broadcast({ type: "schedules", schedules: next }),
 		size: () => clients.size,
 	};

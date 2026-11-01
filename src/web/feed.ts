@@ -3,7 +3,7 @@ import { notifyReport } from "./alertState.ts";
 import { receiveColours } from "./colours.ts";
 import { receiveComment, receiveComments } from "./comments.ts";
 import { digests } from "./digests.ts";
-import { docIndex } from "./docState.ts";
+import { docIndex, docStores } from "./docState.ts";
 import { receiveExit } from "./exits.ts";
 import { receiveIgnores } from "./ignoreState.ts";
 import { regions } from "./regionState.ts";
@@ -94,6 +94,7 @@ function receive(frame: BoardFeed): void {
 	}
 	if (frame.type === "docs") {
 		docIndex.value = frame.docs;
+		docStores.value = frame.stores;
 		return;
 	}
 	if (frame.type === "schedules") {

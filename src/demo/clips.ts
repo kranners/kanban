@@ -1,9 +1,4 @@
-import {
-	type DocStore,
-	noDigests,
-	type Region,
-	type Session,
-} from "../shared/types.ts";
+import { noDigests, type Region, type Session } from "../shared/types.ts";
 import { handbook } from "./handbook.ts";
 import {
 	minute,
@@ -61,6 +56,7 @@ function board(
 		links: [],
 		messages: [],
 		relations: [],
+		docStores: [],
 		docs: {},
 		layout: Object.fromEntries(
 			seats.map((seat) => [
@@ -214,32 +210,22 @@ const docSeats: Seat[] = [
 	},
 ];
 
-const store: DocStore = {
-	id: handbook.id,
-	kind: "docs",
-	title: handbook.title,
-	x: 360,
-	y: 120,
-	w: 288,
-	h: 288,
-	z: 1,
-};
-
 const write = (seconds: number, by: string, path: string, text: string): Step =>
-	after(seconds, (stage) => stage.write(store.id, path, text, by));
+	after(seconds, (stage) => stage.write(handbook.id, path, text, by));
 
 export const docs: Scenario = {
 	world: (start) =>
 		board(start, docSeats, {
-			regions: [regionAround("acme-api", [...docSeats, store])],
-			annotations: { [store.id]: store },
-			docs: { [store.id]: [] },
-			relations: [writer, ordersWorker, paymentsWorker].map((id, n) => ({
-				id: `relation-d${n + 1}`,
-				from: s(id),
-				to: { kind: "docs", id: store.id },
-				createdAt: start - (20 - n * 5) * minute,
-			})),
+			regions: [regionAround("acme-api", docSeats)],
+			docStores: [
+				{
+					id: handbook.id,
+					title: handbook.title,
+					createdAt: start - 20 * minute,
+					updatedAt: start - 20 * minute,
+				},
+			],
+			docs: { [handbook.id]: [] },
 		}),
 	timeline: [
 		write(0.6, writer, "index.md", handbook.draft),

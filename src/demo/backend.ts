@@ -12,6 +12,8 @@ import {
 	docContentType,
 	isDocPath,
 	isMarkdownPath,
+	isTextPath,
+	maxDocTextBytes,
 } from "../shared/docPaths.ts";
 import type { ProjectIgnores } from "../shared/ignores.ts";
 import {
@@ -23,7 +25,9 @@ import type {
 	Board,
 	BoardFeed,
 	CommentThread,
+	DocFile,
 	DocIndex,
+	DocStore,
 	ExitResult,
 	MirrorClientFrame,
 	MirrorServerFrame,
@@ -39,11 +43,12 @@ import type {
 	Session,
 	Subagent,
 } from "../shared/types.ts";
-import { agentButtons, scheduleModes } from "../shared/types.ts";
+import { agentButtons, maxDocTitle, scheduleModes } from "../shared/types.ts";
 import { gridSize } from "../web/grid.ts";
 import { noteSizeFor, topZ } from "../web/notes.ts";
 import {
 	closing,
+	type DocText,
 	dialogOf,
 	itemsOf,
 	type Scenario,
@@ -120,6 +125,23 @@ const json = (status: number, body: unknown): Response =>
 const empty = (status: number): Response => new Response(null, { status });
 
 const notFound = () => json(404, { error: "Not Found" });
+
+const titleError = `title must be 1 to ${maxDocTitle} characters on one line`;
+
+const docTitle = (body: unknown): string | null => {
+	const title = (body as { title?: unknown } | null)?.title;
+	if (typeof title !== "string") return null;
+	const trimmed = title.trim();
+	return trimmed === "" ||
+		trimmed.length > maxDocTitle ||
+		/\p{Cc}/u.test(trimmed)
+		? null
+		: trimmed;
+};
+
+const byTitle = (a: DocStore, b: DocStore): number =>
+	a.title.localeCompare(b.title, undefined, { sensitivity: "base" }) ||
+	(a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 type ToolItem = Extract<ConversationItem, { kind: "tool" }>;
 
@@ -451,21 +473,36 @@ export function createBackend(scenario: Scenario): Backend {
 	const encoder = new TextEncoder();
 	const bytes = (text: string) => encoder.encode(text).buffer as ArrayBuffer;
 
+	const docFileOf = ({ path, text, updatedAt }: DocText): DocFile => ({
+		path,
+		size: encoder.encode(text).length,
+		updatedAt,
+	});
+
 	const docIndex = (): DocIndex =>
 		Object.fromEntries(
-			Object.entries(world.docs).map(([store, files]) => [
-				store,
-				files
-					.map(({ path, text, updatedAt }) => ({
-						path,
-						size: encoder.encode(text).length,
-						updatedAt,
-					}))
+			world.docStores.map(({ id }) => [
+				id,
+				(world.docs[id] ?? [])
+					.map(docFileOf)
 					.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
 			]),
 		);
 
-	const isDocStore = (id: string) => world.annotations[id]?.kind === "docs";
+	const storeOf = (id: string) =>
+		world.docStores.find((store) => store.id === id);
+
+	const docsFrame = (): BoardFeed => ({
+		type: "docs",
+		docs: docIndex(),
+		stores: [...world.docStores].sort(byTitle),
+	});
+
+	const touchStore = (id: string, patch: Partial<DocStore> = {}) => {
+		world.docStores = world.docStores.map((store) =>
+			store.id === id ? { ...store, ...patch, updatedAt: Date.now() } : store,
+		);
+	};
 
 	const relate = (from: RelationEnd, to: RelationEnd): Relation => {
 		const relation: Relation = {
@@ -487,28 +524,28 @@ export function createBackend(scenario: Scenario): Backend {
 			...world.docs,
 			[store]: [...files, { path, text, updatedAt: Date.now() }],
 		};
-		broadcast({ type: "docs", docs: docIndex() });
+		touchStore(store);
+		broadcast(docsFrame());
 		if (!by) return;
-		const annotation = world.annotations[store];
-		const title = annotation?.kind === "docs" ? annotation.title : store;
+		const title = storeOf(store)?.title ?? store;
 		const size = encoder.encode(text).length;
 		append({ kind: "session", id: by }, [
 			isMarkdownPath(path)
 				? {
 						tool: "mcp__kanban__write_doc",
-						input: { path, content: text },
+						input: { store: title, path, content: text },
 						result: `Wrote ${path} in "${title}" (${size} bytes)`,
 					}
 				: {
 						tool: "mcp__kanban__put_doc_asset",
-						input: { path },
+						input: { store: title, path },
 						result: `Saved ${path} in "${title}" (${size} bytes)`,
 					},
 		]);
 	};
 
 	const docFile = (store: string, path: string, head: boolean): Response => {
-		const file = isDocStore(store)
+		const file = storeOf(store)
 			? world.docs[store]?.find((item) => item.path === path)
 			: undefined;
 		if (!isDocPath(path) || !file) return notFound();
@@ -519,6 +556,67 @@ export function createBackend(scenario: Scenario): Backend {
 				"cache-control": "no-cache",
 			},
 		});
+	};
+
+	const createDocStore = (body: unknown): Response => {
+		const title = docTitle(body);
+		if (title === null) return json(400, { error: titleError });
+		const at = Date.now();
+		const store: DocStore = {
+			id: `docs-${next()}`,
+			title,
+			createdAt: at,
+			updatedAt: at,
+		};
+		world.docStores = [...world.docStores, store];
+		world.docs = { ...world.docs, [store.id]: [] };
+		broadcast(docsFrame());
+		return json(201, store);
+	};
+
+	const renameDocStore = (id: string, body: unknown): Response => {
+		if (!storeOf(id)) return notFound();
+		const title = docTitle(body);
+		if (title === null) return json(400, { error: titleError });
+		touchStore(id, { title });
+		broadcast(docsFrame());
+		return json(200, storeOf(id));
+	};
+
+	const deleteDocStore = (id: string): Response => {
+		if (!storeOf(id)) return notFound();
+		world.docStores = world.docStores.filter((store) => store.id !== id);
+		const { [id]: _files, ...kept } = world.docs;
+		world.docs = kept;
+		broadcast(docsFrame());
+		return empty(204);
+	};
+
+	const putDocFile = (store: string, path: string, body: unknown): Response => {
+		if (!storeOf(store)) return notFound();
+		if (!isDocPath(path) || !isTextPath(path))
+			return json(400, { error: "path must be a text doc path" });
+		const content = (body as { content?: unknown } | null)?.content;
+		if (typeof content !== "string")
+			return json(400, { error: "content must be a string" });
+		if (encoder.encode(content).length > maxDocTextBytes)
+			return json(400, { error: "content is too large" });
+		writeDoc(store, path, content);
+		const written = world.docs[store]?.find((file) => file.path === path);
+		return written ? json(200, docFileOf(written)) : notFound();
+	};
+
+	const deleteDocFile = (store: string, path: string): Response => {
+		const files = world.docs[store] ?? [];
+		if (!storeOf(store) || !files.some((file) => file.path === path))
+			return notFound();
+		world.docs = {
+			...world.docs,
+			[store]: files.filter((file) => file.path !== path),
+		};
+		touchStore(store);
+		broadcast(docsFrame());
+		return empty(204);
 	};
 
 	const stage: Stage = {
@@ -695,9 +793,6 @@ export function createBackend(scenario: Scenario): Backend {
 				{ user: prompt },
 				{ tool: "Glob", input: { pattern: "**/*" } },
 			]);
-			for (const store of request?.docs ?? [])
-				if (isDocStore(store))
-					relate({ kind: "session", id }, { kind: "docs", id: store });
 			later(4000, () => {
 				update(id, { activity: "idle", doing: "Replied to the prompt" }, false);
 				settle({ kind: "session", id }, "README.md\npackage.json\nsrc/");
@@ -1038,6 +1133,27 @@ export function createBackend(scenario: Scenario): Backend {
 			/^\/api\/docs\/([^/]+)\/files\/(.+)$/,
 			([store = "", path = ""]) => docFile(store, path, true),
 		],
+		[
+			"PUT",
+			/^\/api\/docs\/([^/]+)\/files\/(.+)$/,
+			([store = "", path = ""], body) => putDocFile(store, path, body),
+		],
+		[
+			"DELETE",
+			/^\/api\/docs\/([^/]+)\/files\/(.+)$/,
+			([store = "", path = ""]) => deleteDocFile(store, path),
+		],
+		["POST", /^\/api\/docs$/, (_, body) => createDocStore(body)],
+		[
+			"PATCH",
+			/^\/api\/docs\/([^/]+)$/,
+			([store = ""], body) => renameDocStore(store, body),
+		],
+		[
+			"DELETE",
+			/^\/api\/docs\/([^/]+)$/,
+			([store = ""]) => deleteDocStore(store),
+		],
 		["GET", /^\/api\/cloud-blocker$/, () => json(200, { reason: null })],
 		["GET", /^\/api\/remote-hosts$/, () => json(200, { hosts: [] })],
 		[
@@ -1166,18 +1282,6 @@ export function createBackend(scenario: Scenario): Backend {
 				const { [id]: _removed, ...rest } = world.annotations;
 				world.annotations = rest;
 				broadcast({ type: "annotations", annotations: world.annotations });
-				if (world.docs[id]) {
-					const { [id]: _files, ...kept } = world.docs;
-					world.docs = kept;
-					broadcast({ type: "docs", docs: docIndex() });
-				}
-				const kept = world.relations.filter((relation) =>
-					[relation.from, relation.to].every((end) => end.id !== id),
-				);
-				if (kept.length !== world.relations.length) {
-					world.relations = kept;
-					broadcast({ type: "relations", relations: world.relations });
-				}
 				return empty(204);
 			},
 		],
@@ -1220,7 +1324,7 @@ export function createBackend(scenario: Scenario): Backend {
 				if (!draft?.from?.id || !draft.to?.id)
 					return json(400, {
 						ok: false,
-						error: "from and to must each be a session or a doc store",
+						error: "from and to must each be a session",
 					});
 				const relation = relate(draft.from, draft.to);
 				for (const step of scenario.linked?.(draft.from, draft.to) ?? [])
@@ -1423,7 +1527,7 @@ export function createBackend(scenario: Scenario): Backend {
 		sendFrame(peer, { type: "comments", comments: world.comments });
 		sendFrame(peer, { type: "digests", digests: world.digests });
 		sendFrame(peer, { type: "relations", relations: world.relations });
-		sendFrame(peer, { type: "docs", docs: docIndex() });
+		sendFrame(peer, docsFrame());
 		sendFrame(peer, { type: "schedules", schedules: world.schedules });
 		sendFrame(peer, { type: "board", board: snapshot() });
 		return { receive() {}, close: () => feeds.delete(peer) };
@@ -1719,7 +1823,7 @@ export function createBackend(scenario: Scenario): Backend {
 		ignores = {};
 		broadcast({ type: "ignores", ignores });
 		broadcast({ type: "relations", relations: world.relations });
-		broadcast({ type: "docs", docs: docIndex() });
+		broadcast(docsFrame());
 		broadcast({ type: "layout", layout: world.layout });
 		broadcast({ type: "annotations", annotations: world.annotations });
 		broadcast({ type: "colours", colours: world.colours });

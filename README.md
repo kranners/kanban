@@ -67,13 +67,13 @@ Hovering a card shows a handle on each side. Drag from one onto another session 
 
 ![Dragging from the orders session's handle onto the checkout session to link them, then the two messaging each other along the link](docs/media/clip-links.gif)
 
-### Doc stores
+### Shared docs
 
-D adds a doc store, a folder of shared docs on the board, as does Add doc store here in the board menu. Link a session to it by dragging from the session's handle onto it, or pick it under Docs when starting a session. A linked session is told which stores it has and what they hold, and it reads and writes them with the board's `kanban` MCP tools (`list_docs`, `read_doc`, `write_doc`, `delete_doc` and `put_doc_asset`): markdown pages in folders, relative links between them, mermaid diagrams and images copied from the Mac. Sessions manage stores themselves too: `create_doc_store` makes one beside the session's card and links it, `find_doc_stores` lists every store on the board, `join_doc_store` and `leave_doc_store` link and unlink one, and `share_doc_store` links a store to another session and passes it a note, optionally asking it to contribute. The note reaches that session at its next step, and an idle session is woken to read it. Double-click a store, or press Enter with it selected, to open the viewer: a folder tree, the rendered pages with their diagrams and images, links that move between pages, and a live refresh as sessions write. Picking a doc store when starting a session runs it on This Mac, since only sessions there get the tools.
+The board keeps shared docs in the background, written by sessions for each other: doc stores of markdown pages in folders, relative links between them, mermaid diagrams and images. Nothing about them is on the canvas, and no session owns, joins or links to a store: every session reads, writes, renames and deletes all of them with the board's `kanban` MCP tools. `list_doc_stores` lists each store with its file count and the first line of its `index.md`, `search_docs` searches every page (or one store's), `list_docs`, `read_doc`, `write_doc`, `delete_doc` and `put_doc_asset` work on one store's files, and `create_doc_store`, `rename_doc_store` and `delete_doc_store` manage the stores themselves. A tool's `store` is a store's id or its exact title. With each prompt every session is reminded of the stores the board has and asked to search and read what helps it, and to write down what other sessions would benefit from, such as decisions, interfaces, how to run and test things and gotchas, reading a page again before changing it since others write too.
 
-The doc tools and the linked-session context reach only sessions the board starts on this Mac. Sessions started in a terminal or before the board gained these tools, cloud sessions and Remote Control sessions get neither. A session that runs `/clear` gets a new id that its doc tools don't know, so they stop working for it once its old id's links are pruned a day after it left the board.
+Docs in the sidebar shows every store and its pages: a folder tree, the rendered pages with their diagrams and images, links that move between pages, and a live refresh as sessions write. You can work on them there too: add, rename and delete stores, and add, edit and delete text pages.
 
-![Three linked sessions filling a doc store, then opening it to read the handbook's diagram and image and following a link to its orders page](docs/media/clip-docs.gif)
+The doc tools and the docs reminder reach only sessions the board starts on this Mac. Sessions started in a terminal or before the board gained these tools, cloud sessions and Remote Control sessions get neither.
 
 ### Ask the board
 
@@ -96,7 +96,6 @@ Scheduled reports in the top bar, or Schedule a report here in the board menu, a
 | `/`  | Ask the board                          |
 | `N`  | Add a note                             |
 | `S`  | Add a sticker                          |
-| `D`  | Add a doc store                        |
 | `R`  | Add a project region                   |
 | `⌘.` | Close the session view                 |
 
@@ -147,8 +146,8 @@ kanban is a remote terminal into every background Claude Code session and every 
 - The server binds to localhost; `KANBAN_AUTH=off` is refused on any other address.
 - WebSocket upgrades must come from the board's own origin.
 - Session keys, the daemon control key and other secrets under `~/.claude` are never read or served.
-- The peer hook endpoint answers only loopback requests with no browser `Origin`, and only says who shares a session's frame or is linked to it.
-- The session doc tool endpoint answers only loopback requests with no browser `Origin` and none of Cloudflare's headers, and reads or writes only doc stores linked to the session the request names at that moment; a session can link itself to any store on the board, and a note it shares reaches the other session as context marked as coming from a peer, not the user.
+- The peer hook endpoint answers only loopback requests with no browser `Origin`, and only says who shares a session's frame or is linked to it and which doc stores the board keeps.
+- The session doc tool endpoint answers only loopback requests with no browser `Origin` and none of Cloudflare's headers, and needs the calling session's id. Every session may read and change every doc store, so the docs reminder tells sessions that pages come from other sessions, not from the user.
 - Doc store files, which sessions write, are served with a content type from their extension, `nosniff` and a sandboxed content security policy that runs no scripts, so an SVG or page opened on its own can't act as the board.
 - The board agent behind / runs headless Claude Code with only the board's own tools, no shell or file access, and never force-exits; its tool endpoint takes a per-run token from loopback only, and every change it makes is audited.
 

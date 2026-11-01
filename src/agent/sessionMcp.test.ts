@@ -54,16 +54,16 @@ describe("session mcp", () => {
 		assert.deepEqual(
 			listed.result.tools.map((tool) => tool.name),
 			[
+				"list_doc_stores",
+				"search_docs",
 				"list_docs",
 				"read_doc",
 				"write_doc",
 				"delete_doc",
 				"put_doc_asset",
-				"find_doc_stores",
 				"create_doc_store",
-				"join_doc_store",
-				"leave_doc_store",
-				"share_doc_store",
+				"rename_doc_store",
+				"delete_doc_store",
 			],
 		);
 	});
@@ -71,6 +71,7 @@ describe("session mcp", () => {
 	it("posts tool calls with the session header", async () => {
 		const { sent, call } = recorder();
 		const reply = await callTool(call, "write_doc", {
+			store: "d1",
 			path: "index.md",
 			content: "# Hi",
 		});
@@ -82,7 +83,7 @@ describe("session mcp", () => {
 					"x-kanban-session": "sess-1",
 					"content-type": "application/json",
 				},
-				body: { path: "index.md", content: "# Hi" },
+				body: { store: "d1", path: "index.md", content: "# Hi" },
 			},
 		]);
 	});
@@ -110,11 +111,13 @@ describe("session mcp", () => {
 		await writeFile(file, "x");
 		const { sent, call } = recorder();
 		const mismatched = await callTool(call, "put_doc_asset", {
+			store: "d1",
 			path: "assets/flow.png",
 			file,
 		});
 		assert.equal(mismatched.result.isError, true);
 		const missing = await callTool(call, "put_doc_asset", {
+			store: "d1",
 			path: "assets/flow.png",
 			file: join(dir, "gone.png"),
 		});
@@ -122,6 +125,7 @@ describe("session mcp", () => {
 		assert.match(missing.result.content[0]?.text ?? "", /isn't a file/);
 		await mkdir(join(dir, "folder.png"));
 		const folder = await callTool(call, "put_doc_asset", {
+			store: "d1",
 			path: "assets/x.png",
 			file: join(dir, "folder.png"),
 		});

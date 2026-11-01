@@ -55,19 +55,11 @@ describe("parseAnnotation", () => {
 		});
 	});
 
-	it("accepts doc stores with a one-line title", () => {
+	it("refuses doc stores, which live off the board now", () => {
 		const docs = { kind: "docs", x: 0, y: 0, w: 288, h: 216, z: 2 };
 		assert.deepEqual(parseAnnotation("d1", { ...docs, title: "API guide" }), {
-			id: "d1",
-			...docs,
-			title: "API guide",
+			error: "kind must be note or sticker",
 		});
-		for (const title of [undefined, "", "  ", "a\nb", "x".repeat(61)]) {
-			assert.ok(
-				"error" in parseAnnotation("d1", { ...docs, title }),
-				JSON.stringify(title),
-			);
-		}
 	});
 
 	it("holds a long report in one note", () => {

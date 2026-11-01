@@ -2,7 +2,6 @@ import { signal } from "@preact/signals";
 import { linkRefusal } from "../shared/reach.ts";
 import { endKey, sameEnd, samePair } from "../shared/relations.ts";
 import type {
-	Annotations,
 	Point,
 	RelationDraft,
 	RelationEnd,
@@ -29,19 +28,8 @@ export const linkError = signal<LinkError | null>(null);
 export function linkables(
 	nodes: ReadonlyMap<NodeKey, PlacedNode>,
 	sessions: readonly Session[],
-	annotations: Annotations,
 ): Linkable[] {
-	const stores = Object.values(annotations)
-		.filter((annotation) => annotation.kind === "docs")
-		.sort((a, b) => a.z - b.z)
-		.map(
-			({ id, x, y, w, h }): Linkable => ({
-				end: { kind: "docs", id },
-				rect: { x, y, w, h },
-				refused: false,
-			}),
-		);
-	const cards = sessions.flatMap((session): Linkable[] => {
+	return sessions.flatMap((session): Linkable[] => {
 		const end: RelationEnd = { kind: "session", id: session.id };
 		const node = nodes.get(endKey(end));
 		if (!node) return [];
@@ -50,17 +38,13 @@ export function linkables(
 			{ end, rect: { x, y, w, h }, refused: linkRefusal(session) !== null },
 		];
 	});
-	return [...stores, ...cards];
 }
 
 export function rectOfEnd(
 	end: RelationEnd,
 	nodes: ReadonlyMap<NodeKey, PlacedNode>,
-	annotations: Annotations,
 ): Rect | null {
-	if (end.kind === "session") return nodes.get(endKey(end)) ?? null;
-	const store = annotations[end.id];
-	return store?.kind === "docs" ? store : null;
+	return nodes.get(endKey(end)) ?? null;
 }
 
 const contains = (rect: Rect, at: Point): boolean =>
@@ -77,7 +61,6 @@ export function linkableAt(
 ): RelationEnd | null {
 	const top = candidates.findLast(({ rect }) => contains(rect, at));
 	if (!top || top.refused || sameEnd(top.end, from)) return null;
-	if (top.end.kind === "docs" && from.kind === "docs") return null;
 	const draft = { from, to: top.end };
 	return relations.some((relation) => samePair(relation, draft))
 		? null

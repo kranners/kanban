@@ -1,6 +1,5 @@
 import type { JSX } from "preact";
 import type { Point, RelationEnd } from "../shared/types.ts";
-import { current as shownAnnotations } from "./annotations.ts";
 import { arrangement } from "./arrangement.ts";
 import { boardPointAt } from "./Canvas.tsx";
 import { type Side, sidePoint, sides } from "./geometry.ts";
@@ -72,8 +71,7 @@ function beginLink(event: PointerEvent, from: RelationEnd, side: Side): void {
 	event.preventDefault();
 	if (gesture) return;
 	const nodes = arrangement.peek()?.nodes ?? new Map();
-	const annotations = shownAnnotations.peek();
-	const rect = rectOfEnd(from, nodes, annotations);
+	const rect = rectOfEnd(from, nodes);
 	const start = rect
 		? sidePoint(rect, side)
 		: boardPointAt(event.clientX, event.clientY);
@@ -85,7 +83,7 @@ function beginLink(event: PointerEvent, from: RelationEnd, side: Side): void {
 		side,
 		start,
 		client: { x: event.clientX, y: event.clientY },
-		candidates: linkables(nodes, board.peek()?.sessions ?? [], annotations),
+		candidates: linkables(nodes, board.peek()?.sessions ?? []),
 		moved: false,
 	};
 	follow(true);

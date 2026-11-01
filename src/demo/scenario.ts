@@ -8,6 +8,7 @@ import type {
 	Annotations,
 	CommentThread,
 	Digests,
+	DocStore,
 	Layout,
 	Link,
 	Message,
@@ -52,6 +53,7 @@ export type World = {
 	links: Link[];
 	messages: Message[];
 	relations: Relation[];
+	docStores: DocStore[];
 	docs: Record<string, DocText[]>;
 	layout: Layout;
 	regions: Region[];

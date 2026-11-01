@@ -12,6 +12,8 @@ import {
 	type Annotations,
 	type Board,
 	type BoardFeed,
+	type DocFile,
+	type DocStore,
 	type ExitResult,
 	landingId,
 	maxNoteText,
@@ -28,6 +30,7 @@ import type { AuditEvent } from "./audit.ts";
 import type { Authenticate } from "./auth.ts";
 import { createColourStore } from "./colours.ts";
 import { type CommentStore, createCommentStore } from "./comments.ts";
+import { createDocStoreRegistry, type DocStoreRegistry } from "./docStores.ts";
 import { loadDocFiles } from "./docs.ts";
 import { createDocsHttp } from "./docsHttp.ts";
 import { type Answer, createExitRunner } from "./exit.ts";
@@ -230,8 +233,32 @@ describe("matchRoute", () => {
 			path: "a%20b.png",
 		});
 		assert.deepEqual(route("PUT", "/api/docs/d-1/files/index.md"), {
+			kind: "put-doc-file",
+			store: "d-1",
+			path: "index.md",
+		});
+		assert.deepEqual(route("DELETE", "/api/docs/d-1/files/index.md"), {
+			kind: "delete-doc-file",
+			store: "d-1",
+			path: "index.md",
+		});
+		assert.deepEqual(route("POST", "/api/docs/d-1/files/index.md"), {
 			kind: "method-not-allowed",
 		});
+		assert.deepEqual(route("POST", "/api/docs"), { kind: "create-doc-store" });
+		assert.deepEqual(route("GET", "/api/docs"), { kind: "method-not-allowed" });
+		assert.deepEqual(route("PATCH", "/api/docs/d-1"), {
+			kind: "rename-doc-store",
+			store: "d-1",
+		});
+		assert.deepEqual(route("DELETE", "/api/docs/d-1"), {
+			kind: "delete-doc-store",
+			store: "d-1",
+		});
+		assert.deepEqual(route("GET", "/api/docs/d-1"), {
+			kind: "method-not-allowed",
+		});
+		assert.deepEqual(route("DELETE", "/api/docs/../x"), { kind: "not-found" });
 		assert.deepEqual(route("GET", "/api/docs/d-1/files/"), {
 			kind: "not-found",
 		});
@@ -346,7 +373,7 @@ describe("createKanbanServer", () => {
 	let ignoresSaved = () => Promise.resolve();
 	let relationsFile = "";
 	let relationsSaved = () => Promise.resolve();
-	let relationsNow = (): Relation[] => [];
+	let docStores: DocStoreRegistry;
 	const attached: string[] = [];
 	const mirrored: string[] = [];
 	const conversed: string[] = [];
@@ -427,10 +454,15 @@ describe("createKanbanServer", () => {
 			onChange: (next) => feed?.relations(next),
 		});
 		relationsSaved = relations.saved;
-		relationsNow = relations.current;
 		const docFiles = await loadDocFiles({
 			dir: join(dist, "state", "docs"),
-			onChange: (next) => feed?.docs(next),
+			onChange: () => feed?.docs(),
+		});
+		docStores = createDocStoreRegistry({
+			file: join(dist, "state", "doc-stores.json"),
+			initial: [],
+			files: docFiles,
+			onChange: () => feed?.docs(),
 		});
 		comments = createCommentStore({
 			file: join(dist, "state", "comments.json"),
@@ -458,6 +490,7 @@ describe("createKanbanServer", () => {
 			digests: () => noDigests,
 			relations: relations.current,
 			docs: docFiles.index,
+			docStores: docStores.current,
 			schedules: () => schedules.current(),
 		});
 		const schedules = createScheduler({
@@ -562,15 +595,7 @@ describe("createKanbanServer", () => {
 			ignores,
 			regions,
 			relations,
-			docs: createDocsHttp({
-				files: docFiles,
-				relations,
-				annotations,
-				sessions: () => [],
-				place: () => ({ x: 0, y: 0 }),
-				notices: { post: () => {} },
-				wake: async () => {},
-			}),
+			docs: createDocsHttp({ files: docFiles, stores: docStores }),
 			comments,
 			schedules,
 			agent: {
@@ -987,14 +1012,19 @@ describe("createKanbanServer", () => {
 		);
 		const again = await send("POST", "/api/relations", { from: web, to: api });
 		assert.equal(again.status, 409);
+		const docs = await send("POST", "/api/relations", {
+			from: api,
+			to: { kind: "docs", id: "d1" },
+		});
+		assert.equal(docs.status, 400);
 		const missing = await send("POST", "/api/relations", {
 			from: api,
-			to: { kind: "docs", id: "nowhere" },
+			to: { kind: "session", id: "nowhere" },
 		});
 		assert.equal(missing.status, 422);
 		assert.deepEqual(await missing.json(), {
 			ok: false,
-			error: "No doc store nowhere on the board",
+			error: "No session nowhere on the board",
 		});
 		const self = await send("POST", "/api/relations", { from: api, to: api });
 		assert.equal(self.status, 400);
@@ -1104,86 +1134,82 @@ describe("createKanbanServer", () => {
 		socket.close();
 	});
 
-	it("links a session spawned with doc stores once it lands", async () => {
-		const store = {
-			kind: "docs",
-			x: 0,
-			y: 0,
-			w: 288,
-			h: 216,
-			z: 1,
-			title: "Docs",
-		};
+	it("lets the user create, rename and delete doc stores and pages", async () => {
+		const created = await send("POST", "/api/docs", { title: " Runbook " });
+		assert.equal(created.status, 201);
+		const store = (await created.json()) as DocStore;
+		assert.equal(store.title, "Runbook");
 		assert.equal(
-			(await send("PUT", "/api/annotations/d-spawn", store)).status,
-			204,
+			(await send("POST", "/api/docs", { title: "a\nb" })).status,
+			400,
 		);
-		const request = {
-			cwd: tmpdir(),
-			prompt: "write the docs",
-			docs: ["d-spawn"],
-		};
-		const landed: Session = {
-			...(board.sessions[0] as Session),
-			id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-			short: "feedbeef",
-			name: "acme-docs",
-		};
-		board.sessions.push(landed);
-		try {
-			const created = await send("POST", "/api/sessions", request);
-			assert.equal(created.status, 201);
-			assert.deepEqual(launched.at(-1), { ...request, runsOn: "local" });
-			assert.deepEqual(events.at(-1), {
-				action: "session-create",
-				cwd: request.cwd,
-				name: null,
-				images: 0,
-				docs: 1,
-				account: null,
-				runsOn: "local",
-				identity: "me@example.com",
-				result: "feedbeef",
-			});
-			const [relation] = relationsNow();
-			assert.equal(relationsNow().length, 1);
-			assert.deepEqual(
-				{ from: relation?.from, to: relation?.to },
-				{
-					from: { kind: "session", id: landed.id },
-					to: { kind: "docs", id: "d-spawn" },
-				},
+		const renamed = await send("PATCH", `/api/docs/${store.id}`, {
+			title: "On call",
+		});
+		assert.equal(renamed.status, 200);
+		assert.equal(((await renamed.json()) as DocStore).title, "On call");
+		assert.equal(
+			(await send("PATCH", "/api/docs/nope", { title: "X" })).status,
+			404,
+		);
+
+		const page = `/api/docs/${store.id}/files/guides%2Fstart.md`;
+		const put = await send("PUT", page, { content: "# Start" });
+		assert.equal(put.status, 200);
+		assert.equal(((await put.json()) as DocFile).path, "guides/start.md");
+		const served = await fetch(`${base}${page}`, { headers: authed });
+		assert.equal(await served.text(), "# Start");
+		assert.equal(
+			(await send("PUT", `/api/docs/${store.id}/files/a.png`, { content: "" }))
+				.status,
+			400,
+		);
+		const long = await send("PUT", page, {
+			content: "\u0001".repeat(200_000),
+		});
+		assert.equal(long.status, 200, "a big escaped body still fits");
+
+		const evil = { ...authed, origin: "https://evil.example" };
+		for (const [method, path] of [
+			["DELETE", page],
+			["DELETE", `/api/docs/${store.id}`],
+		] as const) {
+			assert.equal(
+				(await fetch(`${base}${path}`, { method, headers: evil })).status,
+				403,
 			);
-
-			const launches = launched.length;
-			const unknown = await send("POST", "/api/sessions", {
-				...request,
-				docs: ["nowhere"],
-			});
-			assert.equal(unknown.status, 400);
-			assert.deepEqual(await unknown.json(), {
-				ok: false,
-				error: "No doc store nowhere on the board",
-			});
-			const cloud = await send("POST", "/api/sessions", {
-				...request,
-				runsOn: "cloud",
-			});
-			assert.equal(cloud.status, 400);
-			assert.equal(launched.length, launches);
-
-			const removed = await fetch(`${base}/api/relations/${relation?.id}`, {
-				method: "DELETE",
-				headers: { ...authed, origin },
-			});
-			assert.equal(removed.status, 204);
-		} finally {
-			board.sessions.pop();
-			await fetch(`${base}/api/annotations/d-spawn`, {
-				method: "DELETE",
-				headers: { ...authed, origin },
-			});
 		}
+		assert.equal(
+			(
+				await fetch(`${base}/api/docs`, {
+					method: "POST",
+					headers: { ...evil, "content-type": "application/json" },
+					body: JSON.stringify({ title: "X" }),
+				})
+			).status,
+			403,
+		);
+		assert.equal(
+			(
+				await fetch(`${base}/api/docs`, {
+					method: "POST",
+					headers: { "content-type": "application/json", origin },
+					body: JSON.stringify({ title: "X" }),
+				})
+			).status,
+			401,
+		);
+
+		const remove = (path: string) =>
+			fetch(`${base}${path}`, {
+				method: "DELETE",
+				headers: { ...authed, origin },
+			});
+		assert.equal((await remove(page)).status, 204);
+		assert.equal((await remove(page)).status, 404);
+		assert.equal((await remove(`/api/docs/${store.id}`)).status, 204);
+		assert.equal((await remove(`/api/docs/${store.id}`)).status, 404);
+		assert.deepEqual(docStores.current(), []);
 	});
 
 	it("makes another account the default and audits it", async () => {
@@ -1857,6 +1883,10 @@ describe("createKanbanServer", () => {
 				"schedules",
 				"board",
 			],
+		);
+		assert.deepEqual(
+			frames.find((frame) => frame.type === "docs"),
+			{ type: "docs", docs: {}, stores: [] },
 		);
 	});
 

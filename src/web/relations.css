@@ -44,8 +44,7 @@
 	background: var(--accent);
 }
 
-.node:hover .relation-handle,
-.annotation.docs:hover .relation-handle {
+.node:hover .relation-handle {
 	opacity: 1;
 }
 
@@ -93,7 +92,7 @@
 	pointer-events: stroke;
 }
 
-.world:has(.node:hover, .annotation.docs:hover) .relation-hit {
+.world:has(.node:hover) .relation-hit {
 	pointer-events: none;
 }
 

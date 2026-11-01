@@ -148,7 +148,7 @@ function land(ghost: Ghost): boolean {
 export async function spawnFromPrompt(
 	prompt: string,
 	images: PromptImage[],
-	place: { account?: number; runsOn: RunsOn; docs?: readonly string[] },
+	place: { account?: number; runsOn: RunsOn },
 ): Promise<string | null> {
 	const open = quickPrompt.peek();
 	if (!open) return null;
@@ -159,7 +159,6 @@ export async function spawnFromPrompt(
 		at: open.at,
 		runsOn: place.runsOn,
 		...(place.account !== undefined ? { account: place.account } : {}),
-		...(place.docs?.length ? { docs: [...place.docs] } : {}),
 	});
 	if (!result.ok) return result.error;
 	if (open.region) growToHold(open.region, open.cwd, open.at);

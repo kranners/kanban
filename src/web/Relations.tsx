@@ -4,7 +4,6 @@ import type { JSX } from "preact";
 import { live, sameAccount } from "../shared/reach.ts";
 import { endKey } from "../shared/relations.ts";
 import type { Relation, RelationEnd, Session } from "../shared/types.ts";
-import { current as shownAnnotations } from "./annotations.ts";
 import { arrangement } from "./arrangement.ts";
 import { detail, view } from "./Canvas.tsx";
 import {
@@ -31,17 +30,11 @@ const unzoom = computed(() =>
 );
 
 function nameOf(end: RelationEnd): string {
-	if (end.kind === "session") {
-		return sessionsById.value.get(end.id)?.name ?? "this session";
-	}
-	const store = shownAnnotations.value[end.id];
-	return store?.kind === "docs" ? `"${store.title}"` : "this doc store";
+	return sessionsById.value.get(end.id)?.name ?? "this session";
 }
 
 function sessionOf(end: RelationEnd): Session | null {
-	return end.kind === "session"
-		? (sessionsById.value.get(end.id) ?? null)
-		: null;
+	return sessionsById.value.get(end.id) ?? null;
 }
 
 function unreachableReason(relation: Relation): string | null {
@@ -65,14 +58,10 @@ function RelationLine(props: {
 	const { relation, buttonSize } = props;
 	const drawn = relationPath(props.a, props.b);
 	const reason = unreachableReason(relation);
-	const kind =
-		relation.from.kind === "session" && relation.to.kind === "session"
-			? "sessions"
-			: "docs";
 	const label = `Unlink ${nameOf(relation.from)} and ${nameOf(relation.to)}`;
 	return (
 		<g
-			class={`relation ${kind}${reason ? " unreachable" : ""}${props.dimmed ? " dimmed" : ""}`}
+			class={`relation sessions${reason ? " unreachable" : ""}${props.dimmed ? " dimmed" : ""}`}
 		>
 			<title>
 				{reason ??
@@ -107,13 +96,11 @@ export function RelationLayer(props: {
 }): JSX.Element | null {
 	const shown = shownRelations.value;
 	if (detail.value === "far" || shown.length === 0) return null;
-	const annotations = shownAnnotations.value;
 	const buttonSize = unlinkSize * unzoom.value;
-	const hidden = (end: RelationEnd) =>
-		end.kind === "session" && !props.visible(endKey(end));
+	const hidden = (end: RelationEnd) => !props.visible(endKey(end));
 	const lines = shown.flatMap((relation) => {
-		const a = rectOfEnd(relation.from, props.layout.nodes, annotations);
-		const b = rectOfEnd(relation.to, props.layout.nodes, annotations);
+		const a = rectOfEnd(relation.from, props.layout.nodes);
+		const b = rectOfEnd(relation.to, props.layout.nodes);
 		if (!a || !b) return [];
 		return [
 			<RelationLine
@@ -139,11 +126,7 @@ export function RelationPreview(): JSX.Element | null {
 	const error = linkError.value;
 	if (!draft && !error) return null;
 	const target = draft?.over
-		? rectOfEnd(
-				draft.over,
-				arrangement.value?.nodes ?? new Map(),
-				shownAnnotations.value,
-			)
+		? rectOfEnd(draft.over, arrangement.value?.nodes ?? new Map())
 		: null;
 	const pad = highlightPad * unzoom.value;
 	const radius = highlightRadius * unzoom.value;

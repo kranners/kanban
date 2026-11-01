@@ -6,7 +6,6 @@ import {
 	createSlugger,
 	type DocNode,
 	docHome,
-	docPreview,
 	docTree,
 	fragmentOf,
 	lastUpdated,
@@ -57,33 +56,7 @@ describe("docTree", () => {
 	});
 });
 
-describe("docPreview", () => {
-	it("summarises top-level folders with counts, then files", () => {
-		assert.deepEqual(
-			docPreview(files("index.md", "guides/a.md", "guides/b/c.md", "x.png")),
-			{
-				rows: [
-					{ kind: "folder", name: "guides", count: 2 },
-					{ kind: "file", name: "index.md" },
-					{ kind: "file", name: "x.png" },
-				],
-				more: 0,
-			},
-		);
-	});
-
-	it("shows at most six rows, the last one saying how many more", () => {
-		const preview = docPreview(
-			files("a.md", "b.md", "c.md", "d.md", "e.md", "f.md", "g.md", "h.md"),
-		);
-		assert.equal(preview.rows.length, 5);
-		assert.equal(preview.more, 3);
-		assert.equal(
-			docPreview(files("a.md", "b.md", "c.md", "d.md", "e.md", "f.md")).more,
-			0,
-		);
-	});
-
+describe("lastUpdated", () => {
 	it("finds the latest update", () => {
 		assert.equal(lastUpdated([]), null);
 		assert.equal(lastUpdated(files("a.md", "b.md", "c.md")), 1002);

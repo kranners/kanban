@@ -1,4 +1,5 @@
 import type { Digests, NodeRef, SessionDigest } from "../shared/types.ts";
+import { handbook } from "./handbook.ts";
 import {
 	a,
 	minute,
@@ -323,7 +324,30 @@ function world(start: number): World {
 			),
 		],
 		relations: [],
-		docs: {},
+		docStores: [
+			{
+				id: handbook.id,
+				title: handbook.title,
+				createdAt: start - 80 * minute,
+				updatedAt: start - 6 * minute,
+			},
+		],
+		docs: {
+			[handbook.id]: (
+				[
+					["index.md", handbook.index, 6],
+					["guides/orders.md", handbook.orders, 30],
+					["guides/payments.md", handbook.payments, 24],
+					["guides/migration.md", handbook.migration, 18],
+					["guides/rollout.md", handbook.rollout, 12],
+					["assets/request-flow.svg", handbook.requestFlow, 40],
+				] as const
+			).map(([path, text, ago]) => ({
+				path,
+				text,
+				updatedAt: start - ago * minute,
+			})),
+		},
 		layout: {},
 		regions: [],
 		colours: {},

@@ -47,7 +47,7 @@ const boardOf = (...sessions: Session[]): Board => ({
 
 const api = { kind: "session", id: "api" } as const;
 const web = { kind: "session", id: "web" } as const;
-const guide = { kind: "docs", id: "guide" } as const;
+const guide = { kind: "session", id: "guide" } as const;
 
 const storeAt = async (clock = { now: 0 }, initial: Relation[] = []) => {
 	const file = join(
@@ -67,7 +67,7 @@ const storeAt = async (clock = { now: 0 }, initial: Relation[] = []) => {
 };
 
 describe("parseRelationDraft", () => {
-	it("takes a session and a session or doc store", () => {
+	it("takes two sessions", () => {
 		assert.deepEqual(parseRelationDraft({ from: api, to: web, extra: 1 }), {
 			from: api,
 			to: web,
@@ -78,12 +78,12 @@ describe("parseRelationDraft", () => {
 		});
 	});
 
-	it("refuses self links, doc-to-doc links and malformed ends", () => {
+	it("refuses self links, doc store ends and malformed ends", () => {
 		for (const body of [
 			null,
 			{ from: api },
 			{ from: api, to: api },
-			{ from: guide, to: { kind: "docs", id: "other" } },
+			{ from: api, to: { kind: "docs", id: "other" } },
 			{ from: api, to: { kind: "subagent", id: "a1" } },
 			{ from: api, to: { kind: "session", id: "../x" } },
 		]) {
@@ -147,47 +147,17 @@ describe("createRelationStore", () => {
 		assert.equal(changes.length, 4);
 	});
 
-	it("links a spawned session to its doc stores once it lands", async () => {
-		const { store } = await storeAt();
-		const settle = store.expect([guide]);
-		store.observe(boardOf(session("api")));
-		assert.deepEqual(store.current(), []);
-		settle({ short: "feedbeef" });
-		store.observe(boardOf(session("api"), session("new", "feedbeef")));
-		assert.deepEqual(store.current(), [
-			{
-				id: "rel-1",
-				from: { kind: "session", id: "new" },
-				to: guide,
-				createdAt: 0,
-			},
-		]);
-		store.observe(boardOf(session("new", "feedbeef")));
-		assert.equal(store.current().length, 1);
-	});
-
-	it("forgets a spawn that failed or never landed", async () => {
-		const { store, clock } = await storeAt();
-		store.expect([guide])(null);
-		const lost = store.expect([guide]);
-		lost({ id: "session_01lost" });
-		clock.now = 11 * 60_000;
-		store.observe(boardOf());
-		clock.now += 1;
-		store.observe(boardOf(session("session_01lost")));
-		assert.deepEqual(store.current(), []);
-	});
-
 	it("prunes relations to sessions gone for a day", async () => {
 		const { store, clock } = await storeAt();
 		store.create({ from: api, to: web });
 		store.create({ from: web, to: guide });
-		store.observe(boardOf(session("web")));
+		const left = boardOf(session("web"), session("guide"));
+		store.observe(left);
 		clock.now = pruneAfterMs;
-		store.observe(boardOf(session("web")));
+		store.observe(left);
 		assert.equal(store.current().length, 2);
 		clock.now = pruneAfterMs + 1;
-		store.observe(boardOf(session("web")));
+		store.observe(left);
 		assert.deepEqual(
 			store.current().map((relation) => relation.id),
 			["rel-2"],
