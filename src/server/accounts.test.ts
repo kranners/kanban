@@ -103,7 +103,8 @@ describe("parseAccounts", () => {
 				isDefault: false,
 				session: null,
 				week: null,
-				error: "Sign-in expired",
+				error:
+					"Sign-in expired; cswap renews it on its next check, nothing to do",
 				fetchedAt: null,
 			},
 		]);
@@ -127,6 +128,27 @@ describe("parseAccounts", () => {
 				root,
 			) ?? [];
 		assert.equal(row?.error, "rate limited");
+	});
+
+	it("tells a lapsed login how to sign in again", () => {
+		const [row] =
+			parseAccounts(
+				{
+					schemaVersion: 1,
+					accounts: [
+						{
+							number: 4,
+							email: "a@example.com",
+							usageStatus: "relogin_required",
+						},
+					],
+				},
+				root,
+			) ?? [];
+		assert.match(
+			row?.error ?? "",
+			/run claude, type \/login and sign in as a@example\.com, then run cswap add/,
+		);
 	});
 });
 

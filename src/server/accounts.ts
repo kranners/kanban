@@ -66,17 +66,25 @@ export const profileHomes = (root: string): string[] => {
 export const accountId = (email: string, orgUuid: string): string =>
 	`${email}|${orgUuid}`;
 
-const statusPhrases: Record<string, string> = {
-	token_expired: "Sign-in expired",
-	relogin_required: "Needs a fresh login",
-	api_key: "API-key account",
-	unavailable: "Usage unavailable",
+const statusPhrases: Record<string, (email: string) => string> = {
+	token_expired: () =>
+		"Sign-in expired; cswap renews it on its next check, nothing to do",
+	relogin_required: (email) =>
+		`Signed out: this login has lapsed and can't renew itself. To fix it, run claude, type /login and sign in as ${email}, then run cswap add. If that changes your default account, Make default switches it back`,
+	no_credentials: (email) =>
+		`No saved login: run claude, type /login and sign in as ${email}, then run cswap add`,
+	foreign_credential: () =>
+		"The live login belongs to another account; switching accounts (Make default) repairs it",
+	keychain_unavailable: () =>
+		"Keychain locked or busy; unlock it and the next check retries",
+	api_key: () => "API-key account",
+	unavailable: () => "Usage unavailable",
 };
 
-const statusError = (status: string | null): string | null =>
+const statusError = (status: string | null, email: string): string | null =>
 	status === "ok"
 		? null
-		: (statusPhrases[status ?? ""] ??
+		: (statusPhrases[status ?? ""]?.(email) ??
 			(status ?? "unknown").replaceAll("_", " "));
 
 const windowOf = (value: unknown): UsageWindow | null => {
@@ -103,7 +111,7 @@ const listedOf = (value: unknown, root: string): Listed | null => {
 		isDefault: row.active === true,
 		session: windowOf(usage?.fiveHour),
 		week: windowOf(usage?.sevenDay),
-		error: statusError(asString(row.usageStatus)),
+		error: statusError(asString(row.usageStatus), email),
 		fetchedAt: asTime(row.usageFetchedAt ?? row.lastGoodFetchedAt),
 	};
 };
