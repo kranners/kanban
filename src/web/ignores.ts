@@ -8,14 +8,35 @@ const minute = 60 * 1000;
 const hour = 60 * minute;
 const day = 24 * hour;
 
-export const quickIgnoreMs = day;
+export type IgnoreDuration = { label: string; until: (at: number) => number };
 
-export const ignoreDurations: readonly { label: string; ms: number }[] = [
-	{ label: "30 minutes", ms: 30 * minute },
-	{ label: "1 hour", ms: hour },
-	{ label: "4 hours", ms: 4 * hour },
-	{ label: "1 day", ms: day },
-	{ label: "1 week", ms: 7 * day },
+const lasting =
+	(ms: number) =>
+	(at: number): number =>
+		at + ms;
+
+/** The next 9am in local time strictly after `at`: today's if it's still to come, else tomorrow's. */
+export function nextMorning(at: number): number {
+	const morning = new Date(at);
+	morning.setHours(9, 0, 0, 0);
+	if (morning.getTime() <= at) morning.setDate(morning.getDate() + 1);
+	return morning.getTime();
+}
+
+export const untilTomorrow: IgnoreDuration = {
+	label: "Until tomorrow",
+	until: nextMorning,
+};
+
+export const quickIgnore = untilTomorrow;
+
+export const ignoreDurations: readonly IgnoreDuration[] = [
+	{ label: "30 minutes", until: lasting(30 * minute) },
+	{ label: "1 hour", until: lasting(hour) },
+	{ label: "4 hours", until: lasting(4 * hour) },
+	untilTomorrow,
+	{ label: "1 day", until: lasting(day) },
+	{ label: "1 week", until: lasting(7 * day) },
 ];
 
 export function ignoreOf(

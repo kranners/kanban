@@ -1,7 +1,7 @@
 import { computed, signal } from "@preact/signals";
 import type { ProjectIgnores } from "../shared/ignores.ts";
 import type { Point } from "../shared/types.ts";
-import { ignoredSessionIds, ignoreOf } from "./ignores.ts";
+import { type IgnoreDuration, ignoredSessionIds, ignoreOf } from "./ignores.ts";
 import { board, now } from "./state.ts";
 
 export type IgnoreMenu = { cwd: string; project: string; at: Point };
@@ -55,9 +55,12 @@ async function setIgnore(cwd: string, until: number | null): Promise<void> {
 	}
 }
 
-export function ignoreProject(cwd: string, ms: number): Promise<void> {
+export function ignoreProject(
+	cwd: string,
+	duration: IgnoreDuration,
+): Promise<void> {
 	ignoreMenu.value = null;
-	return setIgnore(cwd, Date.now() + ms);
+	return setIgnore(cwd, duration.until(Date.now()));
 }
 
 export function stopIgnoring(cwd: string): Promise<void> {

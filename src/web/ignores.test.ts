@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Session } from "../shared/types.ts";
-import { ignoredSessionIds, ignoreOf } from "./ignores.ts";
+import { ignoredSessionIds, ignoreOf, nextMorning } from "./ignores.ts";
+
+test("until tomorrow runs to the next 9am, today's or tomorrow's", () => {
+	const local = (d: number, h: number, m = 0, s = 0) =>
+		new Date(2026, 10, d, h, m, s).getTime();
+	assert.equal(nextMorning(local(1, 8, 59)), local(1, 9));
+	assert.equal(nextMorning(local(1, 3)), local(1, 9));
+	assert.equal(nextMorning(local(1, 9)), local(2, 9));
+	assert.equal(nextMorning(local(1, 9, 0, 1)), local(2, 9));
+	assert.equal(nextMorning(local(1, 23, 30)), local(2, 9));
+	assert.equal(nextMorning(local(30, 22)), new Date(2026, 11, 1, 9).getTime());
+});
 
 function session(id: string, cwd: string): Session {
 	return {

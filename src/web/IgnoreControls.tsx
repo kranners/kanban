@@ -16,7 +16,7 @@ import {
 	type Ignore,
 	ignoreDurations,
 	ignoredUntilLabel,
-	quickIgnoreMs,
+	quickIgnore,
 } from "./ignores.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 import { now } from "./state.ts";
@@ -62,7 +62,7 @@ export function IgnoreButton(props: { group: Group }): JSX.Element {
 	if (ignore) return <StopIgnoringButton ignore={ignore} />;
 	const onClick = (event: MouseEvent) => {
 		if (event.altKey || held.peek().option) {
-			void ignoreProject(group.cwd, quickIgnoreMs);
+			void ignoreProject(group.cwd, quickIgnore);
 			return;
 		}
 		if (open) {
@@ -81,12 +81,12 @@ export function IgnoreButton(props: { group: Group }): JSX.Element {
 			type="button"
 			class="close-bubble ignore-bubble"
 			aria-label={
-				quick ? `Ignore ${group.project} for a day` : `Ignore ${group.project}…`
+				quick ? `Ignore ${group.project} until 9am` : `Ignore ${group.project}…`
 			}
 			aria-pressed={false}
 			aria-haspopup="menu"
 			aria-expanded={open}
-			title="Ignore this project: dim it and silence its notifications · ⌥-click to ignore it for a day"
+			title="Ignore this project: dim it and silence its notifications · ⌥-click to ignore it until 9am"
 			data-no-pan
 			onClick={onClick}
 		>
@@ -176,17 +176,17 @@ export function IgnoreMenu(): JSX.Element | null {
 			onContextMenu={(event) => event.preventDefault()}
 		>
 			<p class="ignore-menu-title">Ignore for</p>
-			{ignoreDurations.map(({ label, ms }) => (
+			{ignoreDurations.map((duration) => (
 				<button
-					key={label}
+					key={duration.label}
 					type="button"
 					role="menuitem"
 					tabIndex={-1}
 					class="board-menu-item"
-					onClick={() => void ignoreProject(menu.cwd, ms)}
+					onClick={() => void ignoreProject(menu.cwd, duration)}
 				>
-					<span class="board-menu-label">{label}</span>
-					{ms === quickIgnoreMs && <kbd>⌥-click</kbd>}
+					<span class="board-menu-label">{duration.label}</span>
+					{duration === quickIgnore && <kbd>⌥-click</kbd>}
 				</button>
 			))}
 		</div>
