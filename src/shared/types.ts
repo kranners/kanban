@@ -357,6 +357,7 @@ export type AccountUsage = {
 	week: UsageWindow | null;
 	samples: UsageSample[];
 	error: string | null;
+	blocked: string | null;
 };
 
 export type Usage = {

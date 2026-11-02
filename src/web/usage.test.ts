@@ -83,6 +83,7 @@ const account = (
 	week: null,
 	samples: [],
 	error: null,
+	blocked: null,
 	...extra,
 });
 

@@ -219,6 +219,7 @@ export type CloudApi = {
 		response: Record<string, unknown>,
 	): Promise<CmuxResult<null>>;
 	archive(id: string): Promise<CmuxResult<null>>;
+	profile(): Promise<CmuxResult<unknown>>;
 };
 
 const apiBase = "https://api.anthropic.com";
@@ -388,6 +389,7 @@ export const createCloudApi = ({
 			);
 			return archived.ok ? { ok: true, value: null } : archived;
 		},
+		profile: () => call("GET", "/api/oauth/profile"),
 	};
 };
 

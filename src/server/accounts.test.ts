@@ -11,6 +11,8 @@ import {
 	cswapRoot,
 	loadAccountSamples,
 	parseAccounts,
+	planBlock,
+	planIntervalMs,
 	profileDir,
 	switchResult,
 	withAccounts,
@@ -298,6 +300,118 @@ describe("createAccountMonitor", () => {
 	});
 });
 
+describe("planBlock", () => {
+	const profile = (organization: Record<string, unknown>) => ({
+		account: { email: "One@Example.com" },
+		organization,
+	});
+
+	it("blocks a free plan and says how to fix it", () => {
+		assert.equal(
+			planBlock(
+				profile({
+					organization_type: "claude_free",
+					subscription_status: "canceled",
+				}),
+				"one@example.com",
+			),
+			"Free plan, subscription cancelled: Claude Code needs a paid plan. Resubscribe at claude.ai under Settings, Billing, signed in as one@example.com",
+		);
+		assert.match(
+			planBlock(
+				profile({ organization_type: "claude_free" }),
+				"one@example.com",
+			) ?? "",
+			/^Free plan: /,
+		);
+	});
+
+	it("lets a paid plan through", () => {
+		assert.equal(
+			planBlock(
+				profile({ organization_type: "claude_max" }),
+				"one@example.com",
+			),
+			null,
+		);
+	});
+
+	it("can't tell from another account's profile or an odd shape", () => {
+		assert.equal(
+			planBlock(
+				profile({ organization_type: "claude_free" }),
+				"two@example.com",
+			),
+			undefined,
+		);
+		assert.equal(planBlock({ account: {} }, "one@example.com"), undefined);
+		assert.equal(planBlock(null, "one@example.com"), undefined);
+	});
+});
+
+describe("createAccountMonitor plans", () => {
+	const setup = async (
+		answer: (email: string) => string | null | undefined,
+	) => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-accounts-"));
+		let clock = Date.parse("2026-10-30T00:00:00Z");
+		const asked: string[] = [];
+		const monitor = createAccountMonitor({
+			file: join(dir, "accounts.json"),
+			initial: {},
+			list: async () => listing(),
+			root,
+			now: () => clock,
+			onChange: () => {},
+			planOf: async ({ email }) => {
+				asked.push(email);
+				return answer(email);
+			},
+		});
+		const blocked = () =>
+			monitor.current().accounts.map((account) => account.blocked);
+		return {
+			monitor,
+			asked,
+			blocked,
+			advance: (ms: number) => {
+				clock += ms;
+			},
+		};
+	};
+
+	it("marks a blocked account and rechecks only it until the interval passes", async () => {
+		let reason: string | null = "Free plan";
+		const { monitor, asked, blocked, advance } = await setup((email) =>
+			email === "one@example.com" ? reason : null,
+		);
+		await monitor.check();
+		assert.deepEqual(blocked(), ["Free plan", null, null]);
+		asked.length = 0;
+		reason = null;
+		await monitor.check();
+		assert.deepEqual(asked, ["one@example.com"]);
+		assert.deepEqual(blocked(), [null, null, null]);
+		asked.length = 0;
+		await monitor.check();
+		assert.deepEqual(asked, []);
+		advance(planIntervalMs);
+		await monitor.check();
+		assert.equal(asked.length, 3);
+	});
+
+	it("keeps the last answer when a lookup can't tell", async () => {
+		let reason: string | null | undefined = "Free plan";
+		const { monitor, blocked } = await setup((email) =>
+			email === "one@example.com" ? reason : null,
+		);
+		await monitor.check();
+		reason = undefined;
+		await monitor.check();
+		assert.deepEqual(blocked(), ["Free plan", null, null]);
+	});
+});
+
 describe("withAccounts", () => {
 	const single: Usage = {
 		session: { percent: 1, resetsAt: null },
@@ -319,6 +433,7 @@ describe("withAccounts", () => {
 		week: { percent: number * 20, resetsAt: null },
 		samples: [{ at: number, session: number * 10, week: number * 20 }],
 		error: number === 2 ? "Sign-in expired" : null,
+		blocked: null,
 	});
 
 	it("shows the default account's windows and history", () => {
@@ -331,6 +446,14 @@ describe("withAccounts", () => {
 			error: "Sign-in expired",
 			accounts,
 		});
+	});
+
+	it("puts a blocked default account's reason ahead of its usage error", () => {
+		const accounts = [{ ...account(2, true), blocked: "Free plan" }];
+		assert.equal(
+			withAccounts(single, { accounts, checkedAt: 9 }).error,
+			"Free plan",
+		);
 	});
 
 	it("keeps the single login without a default account, listing the rest", () => {

@@ -149,7 +149,9 @@ function AccountList(props: {
 					at={props.at}
 					pending={pending}
 					error={
-						failure?.account === account.number ? failure.error : account.error
+						failure?.account === account.number
+							? failure.error
+							: (account.blocked ?? account.error)
 					}
 					onChoose={() => void choose(account.number)}
 				/>

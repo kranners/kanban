@@ -14,7 +14,7 @@ import { asNumber, asObject, asString, asTime } from "./ingest/json.ts";
 import { createStateFile, readState } from "./stateFile.ts";
 import { parseSamples, sampleWindowMs } from "./usage.ts";
 
-export type Listed = Omit<AccountUsage, "samples"> & {
+export type Listed = Omit<AccountUsage, "samples" | "blocked"> & {
 	fetchedAt: number | null;
 };
 
@@ -30,6 +30,7 @@ export type AccountMonitor = {
 };
 
 export const accountsIntervalMs = 60_000;
+export const planIntervalMs = 15 * 60_000;
 
 export const cswapRoot = (
 	platform: NodeJS.Platform = process.platform,
@@ -195,6 +196,24 @@ export const cswapSwitch =
 		return switchResult(failed, stdout, stderr);
 	};
 
+export const planBlock = (
+	profile: unknown,
+	email: string,
+): string | null | undefined => {
+	const record = asObject(profile);
+	const organization = asObject(record?.organization);
+	const owner = asString(asObject(record?.account)?.email);
+	if (!organization || owner?.toLowerCase() !== email.toLowerCase()) {
+		return undefined;
+	}
+	if (asString(organization.organization_type) !== "claude_free") return null;
+	const plan =
+		asString(organization.subscription_status) === "canceled"
+			? "Free plan, subscription cancelled"
+			: "Free plan";
+	return `${plan}: Claude Code needs a paid plan. Resubscribe at claude.ai under Settings, Billing, signed in as ${email}`;
+};
+
 const withSample = (
 	samples: UsageSample[],
 	{ session, week, fetchedAt }: Listed,
@@ -213,6 +232,7 @@ export const createAccountMonitor = ({
 	root,
 	now,
 	onChange,
+	planOf = async () => undefined,
 }: {
 	file: string;
 	initial: Record<string, UsageSample[]>;
@@ -220,9 +240,20 @@ export const createAccountMonitor = ({
 	root: string;
 	now: () => number;
 	onChange: () => void;
+	planOf?: (account: Listed) => Promise<string | null | undefined>;
 }): AccountMonitor => {
 	const stored = createStateFile<Record<string, UsageSample[]>>(file);
 	let history = initial;
+	const plans = new Map<string, { at: number; blocked: string | null }>();
+	const checkPlan = async (account: Listed) => {
+		const known = plans.get(account.id);
+		if (known && !known.blocked && now() - known.at < planIntervalMs) return;
+		const blocked = await planOf(account).catch(() => undefined);
+		plans.set(account.id, {
+			at: now(),
+			blocked: blocked === undefined ? (known?.blocked ?? null) : blocked,
+		});
+	};
 	let view: AccountsView = { accounts: [], checkedAt: null };
 
 	return {
@@ -248,10 +279,12 @@ export const createAccountMonitor = ({
 				}),
 			);
 			stored.write(history);
+			await Promise.all(listed.map(checkPlan));
 			view = {
 				accounts: listed.map(({ fetchedAt: _, ...account }) => ({
 					...account,
 					samples: history[account.id] ?? [],
+					blocked: plans.get(account.id)?.blocked ?? null,
 				})),
 				checkedAt: now(),
 			};
@@ -273,7 +306,7 @@ export const withAccounts = (usage: Usage, view: AccountsView): Usage => {
 		session: chosen.session,
 		week: chosen.week,
 		samples: chosen.samples,
-		error: chosen.error,
+		error: chosen.blocked ?? chosen.error,
 		checkedAt: view.checkedAt,
 		accounts: view.accounts,
 	};

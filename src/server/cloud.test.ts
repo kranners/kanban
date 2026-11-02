@@ -467,6 +467,7 @@ const fakeCloud = (): FakeCloud => {
 				return { ok: true, value: events.slice(from) };
 			},
 			hosts: async () => ({ ok: true, value: [] }),
+			profile: async () => ({ ok: true, value: {} }),
 			create: async () => ({ ok: false, error: "not a host" }),
 			send: async () => ({ ok: true, value: null }),
 			respond: async (sessionId, requestId, response) => {

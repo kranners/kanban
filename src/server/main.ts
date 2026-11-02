@@ -8,6 +8,7 @@ import {
 	cswapSwitch,
 	defaultOf,
 	loadAccountSamples,
+	planBlock,
 	profileHomes,
 	withAccounts,
 } from "./accounts.ts";
@@ -93,7 +94,11 @@ import {
 	type Scheduler,
 	scheduleTickMs,
 } from "./schedules.ts";
-import { claudeLauncher, routedLauncher } from "./sessions.ts";
+import {
+	claudeLauncher,
+	routedLauncher,
+	type SessionLauncher,
+} from "./sessions.ts";
 import { attachTty, cmuxTty, sharedAttachTty } from "./terminals.ts";
 import {
 	claudeCodeToken,
@@ -206,6 +211,12 @@ const accounts = createAccountMonitor({
 	root: config.cswapRoot,
 	now: Date.now,
 	onChange: () => feed?.usage(currentUsage()),
+	planOf: async (account) => {
+		const profile = await cloudApiFor(
+			account.isDefault ? undefined : account.configDir,
+		).profile();
+		return profile.ok ? planBlock(profile.value, account.email) : undefined;
+	},
 });
 const currentUsage = () => withAccounts(usage.current(), accounts.current());
 const checkUsage = async () => {
@@ -368,7 +379,15 @@ const profileOf = (number: number) =>
 		?.configDir ?? null;
 const accountApi = (account?: number) =>
 	cloudApiFor((account === undefined ? null : profileOf(account)) ?? undefined);
-const launch = routedLauncher(
+const accountOf = (account?: number) =>
+	accounts
+		.current()
+		.accounts.find((candidate) =>
+			account === undefined
+				? candidate.isDefault
+				: candidate.number === account,
+		);
+const routed = routedLauncher(
 	claudeLauncher(config.claudeBin, join(config.stateDir, "images"), {
 		cswapBin: config.cswapBin,
 		profileOf,
@@ -386,15 +405,12 @@ const launch = routedLauncher(
 	}),
 	remoteLauncher({ apiFor: cloudApiFor, profileOf }),
 	cloud.add,
-	(account) =>
-		accounts
-			.current()
-			.accounts.find((candidate) =>
-				account === undefined
-					? candidate.isDefault
-					: candidate.number === account,
-			)?.configDir,
+	(account) => accountOf(account)?.configDir,
 );
+const launch: SessionLauncher = async (request) => {
+	const blocked = accountOf(request.account)?.blocked;
+	return blocked ? { ok: false, error: blocked } : routed(request);
+};
 const attachPty = claudeAttachPty(config.claudeBin);
 const attach = createAttachHub(attachPty, audit, (short) =>
 	conversation.release(short),
