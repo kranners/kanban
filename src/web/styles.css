@@ -18,6 +18,12 @@
 	--amber-ink: #8a6210;
 	--green: #3f9a5b;
 	--red: #cf3d3d;
+	--butler: #1f7a7f;
+	--butler-soft: rgb(31 122 127 / 0.1);
+	--on-butler: #ffffff;
+	--butler-edge: #ffffff;
+	--brass: #8f6a17;
+	--on-brass: #ffffff;
 	--edge: #b9b4aa;
 	--term-bg: #1a1918;
 	--focus-ring: 0 0 0 3px rgb(181 80 47 / 0.28);
@@ -49,6 +55,11 @@
 		--on-accent: #1a0f0a;
 		--amber-soft: rgb(210 153 34 / 0.16);
 		--amber-ink: #e3b54a;
+		--butler: #5cc1c2;
+		--butler-soft: rgb(92 193 194 / 0.14);
+		--on-butler: #0b1d1e;
+		--brass: #d8b257;
+		--on-brass: #1f1606;
 		--edge: #4a4742;
 		--term-bg: #111110;
 		--focus-ring: 0 0 0 3px rgb(224 122 85 / 0.35);
@@ -71,6 +82,11 @@
 	--on-accent: #1a0f0a;
 	--amber-soft: rgb(210 153 34 / 0.16);
 	--amber-ink: #e3b54a;
+	--butler: #5cc1c2;
+	--butler-soft: rgb(92 193 194 / 0.14);
+	--on-butler: #0b1d1e;
+	--brass: #d8b257;
+	--on-brass: #1f1606;
 	--edge: #4a4742;
 	--term-bg: #111110;
 	--focus-ring: 0 0 0 3px rgb(224 122 85 / 0.35);
