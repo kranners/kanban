@@ -248,6 +248,7 @@ export function TopBar() {
 				<button
 					type="button"
 					class="primary"
+					aria-label="New session"
 					onClick={() => {
 						newSessionOpen.value = true;
 					}}
