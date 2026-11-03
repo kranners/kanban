@@ -31,7 +31,26 @@ export async function swapIn(next: string, out: string): Promise<void> {
 	await rm(old, { recursive: true, force: true });
 }
 
-async function bundle(entry: string, outDir: string): Promise<void> {
+// The runner as one dependency-free file, so a machine needs only Node to
+// run it: `node dist/runner.js --hub URL`. The board serves it too, so a
+// machine with the token can fetch it from the hub.
+export const runnerBuildOptions = (outfile: string): esbuild.BuildOptions => ({
+	entryPoints: [`${root}src/runner/main.ts`],
+	outfile,
+	bundle: true,
+	platform: "node",
+	format: "esm",
+	target: "node22",
+	banner: { js: "#!/usr/bin/env node" },
+	legalComments: "none",
+	logLevel: "warning",
+});
+
+async function bundle(
+	entry: string,
+	outDir: string,
+	extra: (next: string) => Promise<unknown> = async () => {},
+): Promise<void> {
 	const out = outDir.replace(/\/$/, "");
 	const next = `${out}.next/`;
 	await rm(next, { recursive: true, force: true });
@@ -56,10 +75,14 @@ async function bundle(entry: string, outDir: string): Promise<void> {
 	await Promise.all(
 		staticFiles.map((file) => copyFile(`${web}${file}`, `${next}${file}`)),
 	);
+	await extra(next);
 	await swapIn(next, out);
 }
 
-export const build = (): Promise<void> => bundle(`${web}main.tsx`, dist);
+export const build = (): Promise<void> =>
+	bundle(`${web}main.tsx`, dist, (next) =>
+		esbuild.build(runnerBuildOptions(`${next}runner.js`)),
+	);
 
 export const buildSite = async (): Promise<void> => {
 	await rm(site, { recursive: true, force: true });

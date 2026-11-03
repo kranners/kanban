@@ -11,6 +11,7 @@ import {
 	defaultRunsOn,
 	type FixedRunsOn,
 	isRemoteHost,
+	isRunnerTarget,
 	type NewSessionRequest,
 	type NewSessionResult,
 	type PromptImage,
@@ -88,7 +89,9 @@ export const validateNewSession = async (
 	if (typeof cwd !== "string" || !isAbsolute(cwd)) {
 		return { error: "cwd must be an absolute path" };
 	}
-	if (!(await isDirectory(cwd))) {
+	// A runner checks the folder on its own disk, after mapping home folders.
+	const onRunner = typeof runsOn === "string" && isRunnerTarget(runsOn);
+	if (!onRunner && !(await isDirectory(cwd))) {
 		return { error: `${cwd} is not an existing directory` };
 	}
 	if (name !== undefined && typeof name !== "string") {
@@ -115,9 +118,12 @@ export const validateNewSession = async (
 	if (
 		runsOn !== undefined &&
 		!runsOnChoices.includes(runsOn as FixedRunsOn) &&
-		!(typeof runsOn === "string" && isRemoteHost(runsOn))
+		!(typeof runsOn === "string" && isRemoteHost(runsOn)) &&
+		!onRunner
 	) {
-		return { error: "runsOn must be cloud, local or a remote-control host id" };
+		return {
+			error: "runsOn must be cloud, local, a remote-control host or a runner",
+		};
 	}
 	const where: RunsOn =
 		(runsOn as RunsOn | undefined) ??

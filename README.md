@@ -126,6 +126,31 @@ Then open <http://127.0.0.1:7420>. `npm run dev` rebuilds and restarts on change
 
 Run `npm run launchd-setup` from a checkout of `main`. It installs launchd agents for the server, the tunnel and `kanban-sync`, which fast-forwards to `origin/main` every minute and reinstalls, rebuilds and restarts as needed. `npm run sync` does one round by hand. Logs are in `~/Library/Logs/kanban/`. See [Infrastructure](docs/design.md#infrastructure).
 
+### Runners: sessions on your other machines
+
+`kanban-runner` lets the board place Claude Code sessions on other machines on the same WireGuard network. It needs only Node (22 or newer) and `claude` on that machine; `npm run build` bundles it, with no dependencies, into `dist/runner.js`, which the board also serves at `/runner.js` to anyone holding the token.
+
+```sh
+# on the hub: listen on WireGuard too, with a shared token (~/.config/kanban/env, mode 600)
+KANBAN_HOST=127.0.0.1,10.100.0.11
+KANBAN_RUNNER_TOKEN=<openssl rand -hex 32>
+
+# on each machine, with KANBAN_RUNNER_TOKEN in its ~/.config/kanban/env
+node dist/runner.js --hub http://10.100.0.11:7420
+```
+
+| Flag            | Variable                    | Default      | Purpose                                                       |
+| --------------- | --------------------------- | ------------ | ------------------------------------------------------------- |
+| `--hub`         | `KANBAN_RUNNER_HUB`         | required     | The board's URL on the WireGuard network                      |
+| `--token`       | `KANBAN_RUNNER_TOKEN`       | required     | The shared token; prefer the env file to the flag             |
+| `--name`        | `KANBAN_RUNNER_NAME`        | the hostname | How the board names the machine; its id is this, lower-cased  |
+| `--cap`         | `KANBAN_RUNNER_CAP`         | `4`          | Most Claude sessions it takes at once                         |
+| `--claude`      | `CLAUDE_BIN`                | `claude`     | The `claude` binary                                           |
+| `--claude-args` | `KANBAN_RUNNER_CLAUDE_ARGS` | none         | Extra `claude` flags, such as `--permission-mode acceptEdits` |
+| `--paths`       | `KANBAN_RUNNER_PATHS`       | home mapping | `from=to;from=to` folder prefixes, hub path to local path     |
+
+Flags win over the environment, which wins over `~/.config/kanban/env` (`%USERPROFILE%\.config\kanban\env` on Windows). A folder the hub asks for is used as is if it exists, else through `--paths`, else with the hub's home directory swapped for the machine's (`/Users/aaron/code/x` becomes `/home/aaron/code/x`). On another Mac, `npm run launchd-setup -- --runner` installs it as the `kanban-runner` launchd agent. `KANBAN_RUNNERS=spike,jimbo` on the hub lists machines as offline before they first check in. Each machine then appears in the "where it runs" picker and in the Usage sidebar's Runners section. See [Runners](docs/design.md#runners).
+
 ## Configuration
 
 | Variable              | Default                                        | Purpose                                                            |

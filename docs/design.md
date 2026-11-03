@@ -203,6 +203,23 @@ The page receives schedules as a `schedules` feed frame and lists them in the Sc
 15. **Ask the board.** Press / anywhere on the board (not while typing, in a terminal or a mirror) and type a request, such as "organise my board into projects" or "write a report of what acme-api did". Enter sends; a pin stays where you pressed, glowing while the agent works, and its thread shows your message, each action as it happens and the agent's reply. Reply in the thread to carry on the same conversation, Stop to cancel. Drag a pin to move it; click it to open or close its thread; right-click it for Open, Resolve or Reopen and Delete (⌫ on a focused pin). Resolved pins fade.
 16. **Schedule a report.** Right-click the board → Schedule a report here, or the calendar button in the top bar → New report, then choose a time, the prompt (prefilled with the overnight report) and whether each report replaces the last or stacks. The dialog lists each schedule with its next run, last report and last error, and can show its note, run it now, edit or delete it.
 
+## Runners
+
+The board runs sessions on the owner's other machines through `kanban-runner` (`src/runner/`), a small Node agent with no dependencies, bundled to `dist/runner.js`. The hub (`src/server/runners.ts`) keeps everything about runners in memory, like the rest of its view of sessions: a restart forgets them until their next heartbeat, a few seconds later.
+
+Protocol, all JSON over HTTP with `Authorization: Bearer $KANBAN_RUNNER_TOKEN` (no Access, no Origin; anything else gets 401 or 403):
+- `POST /api/runners/register` with a `RunnerReport` (`src/shared/runners.ts`): name, hostname, platform, boot time, cap, usage (cores, CPU busy share since the last report, load, memory total and used, disk total and free) and its sessions. Answers the runner's id (its name lower-cased to `a-z0-9-`), the heartbeat interval (5 s) and the poll wait (25 s). The name `local` is refused: it is the hub's own.
+- `POST /api/runners/<id>/heartbeat` with the same report every 5 s. 404 means the hub restarted, so the runner registers again.
+- `GET /api/runners/<id>/commands?wait=25000` is a long poll answering `{ commands }` as soon as there is one: `launch` (hub session id, folder, prompt, name and the hub's home directory) or `stop` (session id, force). Commands for a runner that hung up mid-poll go out on its next poll.
+- `POST /api/runners/<id>/commands/<commandId>` answers a command with `{ ok }` or `{ ok: false, error }`. The hub waits 60 s for it.
+- `GET /api/runners`, with Access or the token, lists `RunnerView`s: this Mac first, then the runners, online first.
+
+A runner that misses heartbeats for 15 s is offline; nothing about it is an error. Boot time is reported rounded to the minute and survives sleep, so when a machine returns with the same boot time the gap was sleep; from then on its silences read "asleep", and a reboot resets that. Offline runners keep their last-known sessions on the board, shown idle with "<machine> is offline" as what they're doing, and refuse new ones.
+
+A launch picks the runner from `runsOn` (`runner_<id>`), refuses it when the runner is offline, asleep, unknown or at its cap (live sessions plus launches in flight), and otherwise queues the command. The runner maps the folder (as is, `--paths` prefixes, then home directory swap), runs `claude -p --output-format stream-json --verbose` there with the prompt on stdin (so a Windows shell never sees it) plus any `KANBAN_RUNNER_CLAUDE_ARGS`, and reports the session as starting, working, done, failed or stopped, with its latest tool or line of text, its Claude session id and, on macOS and Linux, its CPU and memory from one `ps` call. The hub puts those sessions on the board under the hub's folder, so cards land in their project, with `runner: { id, name }`; they have no transcript or terminal on the hub yet. Exiting one sends `stop` (SIGTERM to the process group, SIGKILL after 10 s, or `taskkill /T /F` on Windows); exiting one that already ended takes it off the board. A runner keeps ended sessions for an hour, at most 20, and stops its sessions when it is stopped itself.
+
+The hub is a runner too: "This Mac" reports the same usage (`src/runner/usage.ts`) every 5 s, its cap from `KANBAN_RUNNER_CAP`, and the board's live local sessions as its allocation. Its cap is shown, not enforced, so local launches behave as before.
+
 ## Infrastructure
 
 The host runs three launchd user agents, installed by `npm run launchd-setup` (`scripts/launchd-setup.ts`) from the main checkout, logging to `~/Library/Logs/kanban/`:

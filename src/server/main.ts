@@ -1,7 +1,19 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { homedir, hostname } from "node:os";
 import { join, resolve } from "node:path";
+import {
+	createUsageSampler,
+	type ProcessStat,
+	processStats,
+} from "../runner/usage.ts";
 import { readKanbanEnv } from "../shared/envFile.ts";
-import type { Board, Session } from "../shared/types.ts";
+import type { PlacedSession, RunnerUsage } from "../shared/runners.ts";
+import {
+	type Activity,
+	type Board,
+	isRunnerTarget,
+	type Session,
+} from "../shared/types.ts";
 import {
 	accountsIntervalMs,
 	createAccountMonitor,
@@ -96,6 +108,7 @@ import {
 	createReportRunner,
 	regionMembersOf,
 } from "./reports.ts";
+import { createRunnerHub } from "./runners.ts";
 import {
 	createScheduler,
 	loadSchedules,
@@ -286,6 +299,71 @@ const cloudApiFor = (configDir?: string): CloudApi => {
 	cloudApis.set(claudeHome, api);
 	return api;
 };
+const liveActivities: readonly Activity[] = [
+	"working",
+	"needs-you",
+	"watching",
+	"idle",
+];
+const sampleUsage = createUsageSampler();
+let localUsage: RunnerUsage | null = null;
+let localStats = new Map<number, ProcessStat>();
+const localPlaced = (): Session[] =>
+	source
+		.board()
+		.sessions.filter(
+			(session) =>
+				!session.cloud &&
+				!session.runner &&
+				liveActivities.includes(session.activity),
+		);
+let runnersFrame: NodeJS.Timeout | undefined;
+let remoteSignature = "";
+const runnersChanged = () => {
+	const signature = JSON.stringify(runnerHub.sessions());
+	if (signature !== remoteSignature) {
+		remoteSignature = signature;
+		source.refresh();
+	}
+	if (runnersFrame) return;
+	runnersFrame = setTimeout(() => {
+		runnersFrame = undefined;
+		feed?.runners(runnerHub.views());
+	}, 250);
+};
+const runnerHub = createRunnerHub({
+	expected: config.expectedRunners,
+	hubHome: homedir(),
+	local: () => ({
+		name: hostname().replace(/\.local$/, ""),
+		usage: localUsage,
+		cap: config.runnerCap,
+		sessions: localPlaced().map((session): PlacedSession => {
+			const stat =
+				session.pid === null ? undefined : localStats.get(session.pid);
+			return {
+				id: session.id,
+				name: session.name,
+				cwd: session.cwd,
+				activity: session.activity,
+				cpuPercent: stat?.cpuPercent ?? null,
+				rss: stat?.rss ?? null,
+			};
+		}),
+	}),
+	onChange: runnersChanged,
+});
+const runnersTick = async () => {
+	runnerHub.sweep();
+	localUsage = await sampleUsage();
+	localStats = await processStats(
+		localPlaced().flatMap((session) =>
+			session.pid === null ? [] : [session.pid],
+		),
+	);
+	if ((feed?.size() ?? 0) > 0) feed?.runners(runnerHub.views());
+};
+const runnersPoll = setInterval(() => void runnersTick(), 5_000);
 const cloud = await createCloudSessions({
 	file: join(config.stateDir, "cloud.json"),
 	dir: join(config.stateDir, "cloud"),
@@ -295,6 +373,7 @@ const cloud = await createCloudSessions({
 const source = startBoard({
 	claudeHome: config.claudeHome,
 	cloud: cloud.sessions,
+	remote: () => runnerHub.sessions(),
 	profiles: () => profileHomes(config.cswapRoot),
 	ignore: (sessionId, cwd) =>
 		probes.has(sessionId) || comments.owns(sessionId) || isAgentDir(cwd),
@@ -340,6 +419,7 @@ feed = createFeed({
 	docStores: docStores.current,
 	schedules: () => schedules?.current() ?? [],
 	butler: () => butler?.current() ?? { presence: null, watching: [] },
+	runners: () => runnerHub.views(),
 });
 const digestTick = setInterval(digests.pump, digestTickMs);
 
@@ -350,7 +430,10 @@ const exitDeps = claudeExitDeps({
 	archive: cloud.archive,
 });
 const runExit = createExitRunner({
-	exit: (session, force) => exitSession(exitDeps, session, force),
+	exit: (session, force) =>
+		session.runner
+			? runnerHub.stop(session, force)
+			: exitSession(exitDeps, session, force),
 	audit,
 	announce: (sessionId, result) => feed?.exit(sessionId, result),
 });
@@ -418,6 +501,9 @@ const routed = routedLauncher(
 	(account) => accountOf(account)?.configDir,
 );
 const launch: SessionLauncher = async (request) => {
+	if (request.runsOn && isRunnerTarget(request.runsOn)) {
+		return runnerHub.launch(request);
+	}
 	const blocked = accountOf(request.account)?.blocked;
 	return blocked ? { ok: false, error: blocked } : routed(request);
 };
@@ -564,7 +650,11 @@ const server = createKanbanServer({
 	files: (cwd, query) =>
 		listFiles({ cwd, query, claudeHome: config.claudeHome }),
 	commands: (cwd) => listCommands({ claudeHome: config.claudeHome, cwd }),
-	cloudBlocker: runsOnBlocker(accountApi),
+	cloudBlocker: async (cwd, runsOn, account) =>
+		isRunnerTarget(runsOn)
+			? runnerHub.blocker(runsOn)
+			: runsOnBlocker(accountApi)(cwd, runsOn, account),
+	runners: runnerHub,
 	remoteHosts: (account) => accountApi(account).hosts(),
 	pickFolder: osascriptFolderPicker(),
 	makeDefault,
@@ -592,6 +682,8 @@ const shutdown = () => {
 	source.stop();
 	cloud.stop();
 	clearInterval(cmuxPoll);
+	clearInterval(runnersPoll);
+	runnerHub.stopAll();
 	clearInterval(usagePoll);
 	clearInterval(accountsPoll);
 	clearInterval(digestTick);

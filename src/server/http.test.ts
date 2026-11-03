@@ -7,7 +7,14 @@ import { join } from "node:path";
 import { after, before, describe, it, type TestContext } from "node:test";
 import WebSocket from "ws";
 import type { ToolCall } from "../agent/tools.ts";
+import { startRunnerClient } from "../runner/client.ts";
+import type { SessionManager } from "../runner/sessions.ts";
 import type { PermissionGrant } from "../shared/permissions.ts";
+import type {
+	RunnerLaunch,
+	RunnerSession,
+	RunnerView,
+} from "../shared/runners.ts";
 import {
 	type Annotations,
 	type Board,
@@ -47,6 +54,7 @@ import { createLayoutStore } from "./layout.ts";
 import { createRegionStore } from "./regions.ts";
 import { createRelationStore } from "./relations.ts";
 import { createRegionReportRunner, createReportRunner } from "./reports.ts";
+import { createRunnerHub } from "./runners.ts";
 import { createScheduler } from "./schedules.ts";
 
 const route = (method: string, path: string) =>
@@ -391,6 +399,11 @@ describe("createKanbanServer", () => {
 	const granted: PermissionGrant[] = [];
 	const announced: [string, string | null][] = [];
 	const agentTokens = createAgentTokens(60_000);
+	const runnerHub = createRunnerHub({
+		hubHome: "/Users/me",
+		local: () => ({ name: "pilot", usage: null, cap: 4, sessions: [] }),
+		onChange: () => {},
+	});
 	let base = "";
 	let origin = "";
 	let close = () => {};
@@ -674,6 +687,7 @@ describe("createKanbanServer", () => {
 							],
 						},
 			pickFolder: async () => ({ ok: true, path: "/Users/me/dev/picked" }),
+			runners: runnerHub,
 			permissions: {
 				survey: async () => ({ entries: [] }),
 				grant: async (grants) => {
@@ -712,6 +726,7 @@ describe("createKanbanServer", () => {
 		origin = base;
 		origins.push(origin);
 		close = () => {
+			runnerHub.stopAll();
 			server.closeAllConnections();
 			server.close();
 		};
@@ -758,6 +773,116 @@ describe("createKanbanServer", () => {
 			headers: authed,
 		});
 		assert.equal(browser.status, 403);
+	});
+
+	it("lets only the runner token speak the runner protocol", async () => {
+		const register = (headers: Record<string, string>) =>
+			fetch(`${base}/api/runners/register`, {
+				method: "POST",
+				headers: { "content-type": "application/json", ...headers },
+				body: "{}",
+			});
+		assert.equal((await register({})).status, 401);
+		assert.equal((await register(authed)).status, 401);
+		assert.equal(
+			(await register({ authorization: `Bearer ${"x".repeat(40)}` })).status,
+			403,
+		);
+		const malformed = await register({
+			authorization: `Bearer ${runnerSecret}`,
+		});
+		assert.equal(malformed.status, 400);
+		assert.equal(
+			(
+				await fetch(`${base}/api/runners/ghost/commands?wait=0`, {
+					headers: { authorization: `Bearer ${runnerSecret}` },
+				})
+			).status,
+			404,
+		);
+	});
+
+	it("registers a runner, places a session on it and lists it", async (t) => {
+		const launches: RunnerLaunch[] = [];
+		const placed: RunnerSession[] = [];
+		const sessions: SessionManager = {
+			launch: async (command) => {
+				launches.push(command);
+				placed.push({
+					id: command.session.id,
+					cwd: command.session.cwd,
+					localCwd: "/home/me/dev/acme-api",
+					name: command.session.name,
+					state: "working",
+					detail: "Reading the tests",
+					startedAt: 1,
+					updatedAt: 2,
+					endedAt: null,
+					claudeSessionId: null,
+					cpuPercent: null,
+					rss: null,
+				});
+				return { ok: true };
+			},
+			stop: async () => ({ ok: true }),
+			list: () => placed,
+			pids: () => new Map(),
+			stopAll: async () => {},
+		};
+		const client = startRunnerClient({
+			config: {
+				hub: base,
+				token: runnerSecret,
+				name: "Test Runner",
+				cap: 2,
+				claudeBin: "claude",
+				claudeArgs: [],
+				paths: [],
+			},
+			sessions,
+			sample: async () => ({
+				cpus: 4,
+				cpuPercent: 10,
+				load1: 0.5,
+				memTotal: 8e9,
+				memUsed: 2e9,
+				diskTotal: 1e11,
+				diskFree: 5e10,
+			}),
+			log: () => {},
+		});
+		t.after(() => client.stop());
+		assert.equal(await client.registered, "test-runner");
+		const result = await runnerHub.launch({
+			cwd: "/Users/me/dev/acme-api",
+			prompt: "fix the flaky test",
+			runsOn: "runner_test-runner",
+		});
+		assert.equal(result.ok, true);
+		assert.equal(launches[0]?.session.prompt, "fix the flaky test");
+		assert.equal(launches[0]?.hubHome, "/Users/me");
+		for (
+			let i = 0;
+			i < 200 && runnerHub.sessions()[0]?.doing !== "Reading the tests";
+			i++
+		) {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+		const listed = await fetch(`${base}/api/runners`, { headers: authed });
+		const { runners } = (await listed.json()) as { runners: RunnerView[] };
+		assert.deepEqual(
+			runners.map((runner) => [
+				runner.id,
+				runner.state,
+				runner.sessions.length,
+			]),
+			[
+				["local", "online", 0],
+				["test-runner", "online", 1],
+			],
+		);
+		assert.equal(runners[1]?.usage?.cpus, 4);
+		assert.equal(runnerHub.sessions()[0]?.doing, "Reading the tests");
 	});
 
 	it("serves static files with an index fallback", async () => {

@@ -80,6 +80,8 @@ export function startBoard(opts: {
 	inCmux?: (pid: number) => boolean;
 	profiles?: () => string[];
 	cloud?: () => CloudSession[];
+	/** Sessions running on other machines, already shaped for the board. */
+	remote?: () => Session[];
 }): BoardHandle {
 	const {
 		claudeHome,
@@ -88,6 +90,7 @@ export function startBoard(opts: {
 		inCmux = () => false,
 		profiles = () => [],
 		cloud = () => [],
+		remote = () => [],
 	} = opts;
 	const tails = new Map<string, Tail>();
 	const agentTails = new Map<string, Tail>();
@@ -214,6 +217,7 @@ export function startBoard(opts: {
 				),
 			),
 			...clouds.map((cs) => toCloudSession(cs, cloudTails.get(cs.id) ?? null)),
+			...remote().filter((session) => !ignore(session.id, session.cwd)),
 		].sort((a, b) => b.updatedAt - a.updatedAt);
 		subagentPaths.clear();
 		for (const { subagent, transcriptPath } of shown) {

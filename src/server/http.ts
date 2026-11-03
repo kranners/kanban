@@ -85,6 +85,7 @@ import {
 } from "./relations.ts";
 import { reportShotContentType, reportShotName } from "./reportShots.ts";
 import type { RegionReportRunner, ReportRunner } from "./reports.ts";
+import type { RunnerHub } from "./runners.ts";
 import {
 	isScheduleId,
 	parseScheduleDraft,
@@ -146,6 +147,10 @@ export type ServerDeps = {
 	): Promise<{ ok: true; value: RemoteHost[] } | { ok: false; error: string }>;
 	pickFolder: FolderPicker;
 	makeDefault(account: number): Promise<AccountResult>;
+	runners?: Pick<
+		RunnerHub,
+		"register" | "heartbeat" | "poll" | "requeue" | "complete" | "views"
+	>;
 	permissions: Permissions;
 	announce: Announcer;
 	feed: Feed;
@@ -200,6 +205,11 @@ export type Route =
 	| { kind: "butler-tool"; tool: string }
 	| { kind: "self-fix-action"; id: string; action: SelfFixAction }
 	| { kind: "peer-hook" }
+	| { kind: "runners" }
+	| { kind: "runner-register" }
+	| { kind: "runner-heartbeat"; runnerId: string }
+	| { kind: "runner-poll"; runnerId: string; waitMs: number }
+	| { kind: "runner-complete"; runnerId: string; commandId: string }
 	| { kind: "static"; path: string }
 	| { kind: "not-found" }
 	| { kind: "method-not-allowed" };
@@ -212,6 +222,12 @@ export type UpgradeRoute =
 
 const maxBodyBytes = 128 * 1024;
 const maxHookBytes = 64 * 1024 * 1024;
+const maxRunnerBytes = 256 * 1024;
+
+const parseWait = (raw: string | null): number => {
+	const wait = Number(raw);
+	return Number.isFinite(wait) && wait >= 0 ? Math.min(wait, 30_000) : 0;
+};
 const maxSessionBodyBytes =
 	maxBodyBytes + maxPromptImages * Math.ceil((maxImageBytes * 4) / 3);
 const defaultTranscriptLimit = 200;
@@ -494,6 +510,41 @@ export const matchRoute = (method: string, url: URL): Route => {
 		return method === "POST"
 			? { kind: "butler-tool", tool: butlerTool[1] }
 			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/runners") {
+		return method === "GET"
+			? { kind: "runners" }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/runners/register") {
+		return method === "POST"
+			? { kind: "runner-register" }
+			: { kind: "method-not-allowed" };
+	}
+	const runner = path.match(
+		/^\/api\/runners\/([a-z0-9][a-z0-9-]{0,39})\/(heartbeat|commands)(?:\/([\w-]{1,64}))?$/,
+	);
+	if (runner?.[1]) {
+		const runnerId = runner[1];
+		if (runner[2] === "heartbeat" && !runner[3]) {
+			return method === "POST"
+				? { kind: "runner-heartbeat", runnerId }
+				: { kind: "method-not-allowed" };
+		}
+		if (runner[2] === "commands" && runner[3]) {
+			return method === "POST"
+				? { kind: "runner-complete", runnerId, commandId: runner[3] }
+				: { kind: "method-not-allowed" };
+		}
+		if (runner[2] === "commands") {
+			return method === "GET"
+				? {
+						kind: "runner-poll",
+						runnerId,
+						waitMs: parseWait(url.searchParams.get("wait")),
+					}
+				: { kind: "method-not-allowed" };
+		}
 	}
 	if (path === "/api/hooks/peers") {
 		return method === "POST"
@@ -1354,8 +1405,76 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		sendJson(res, 200, output);
 	};
 
+	// Runners speak only with the shared token: no Access, no browser.
+	const runnerCall = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+		route: Extract<
+			Route,
+			{
+				kind:
+					| "runner-register"
+					| "runner-heartbeat"
+					| "runner-poll"
+					| "runner-complete";
+			}
+		>,
+	) => {
+		const token = deps.runnerToken?.(req) ?? "none";
+		if (token !== "ok") return sendError(res, token === "none" ? 401 : 403);
+		const hub = deps.runners;
+		if (!hub) return sendError(res, 404);
+		if (route.kind === "runner-poll") {
+			let gone = false;
+			res.on("close", () => {
+				gone = true;
+			});
+			const commands = await hub.poll(route.runnerId, route.waitMs);
+			if (commands === null) return sendError(res, 404);
+			if (gone) {
+				// The runner hung up first: keep the commands for its next poll.
+				hub.requeue(route.runnerId, commands);
+				return;
+			}
+			return sendJson(res, 200, { commands });
+		}
+		if (!req.headers["content-type"]?.startsWith("application/json")) {
+			return sendError(res, 415);
+		}
+		let body: unknown;
+		try {
+			body = await readJson(req, maxRunnerBytes);
+		} catch {
+			return sendJson(res, 400, { ok: false, error: "Invalid JSON body" });
+		}
+		if (route.kind === "runner-register") {
+			const registered = hub.register(body);
+			return sendJson(res, registered.ok ? 200 : 400, registered);
+		}
+		if (route.kind === "runner-heartbeat") {
+			const beat = hub.heartbeat(route.runnerId, body);
+			if (beat === "unknown") return sendError(res, 404);
+			if (beat !== "ok") return sendJson(res, 400, { ok: false, ...beat });
+			res.writeHead(204, { "cache-control": "no-store" });
+			return res.end();
+		}
+		if (!hub.complete(route.runnerId, route.commandId, body)) {
+			return sendError(res, 404);
+		}
+		res.writeHead(204, { "cache-control": "no-store" });
+		res.end();
+	};
+
 	const handle = async (req: IncomingMessage, res: ServerResponse) => {
 		const route = matchRoute(req.method ?? "GET", requestUrl(req));
+		if (
+			route.kind === "runner-register" ||
+			route.kind === "runner-heartbeat" ||
+			route.kind === "runner-poll" ||
+			route.kind === "runner-complete"
+		) {
+			return runnerCall(req, res, route);
+		}
 		if (route.kind === "healthz") return sendJson(res, 200, { ok: true });
 		if (route.kind === "agent-tool") return agentTool(req, res, route.tool);
 		if (route.kind === "butler-tool") return butlerTool(req, res, route.tool);
@@ -1418,6 +1537,8 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			}
 			case "set-default-account":
 				return setDefaultAccount(req, res, auth.identity);
+			case "runners":
+				return sendJson(res, 200, { runners: deps.runners?.views() ?? [] });
 			case "pick-folder":
 				if (!originOk(req)) return sendError(res, 403);
 				return sendJson(res, 200, await deps.pickFolder());

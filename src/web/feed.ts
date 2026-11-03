@@ -14,6 +14,7 @@ import {
 	receiveReport,
 	regionReportKey,
 } from "./reports.ts";
+import { runners } from "./runners.ts";
 import { receiveSchedules } from "./schedules.ts";
 import {
 	annotations,
@@ -104,6 +105,10 @@ function receive(frame: BoardFeed): void {
 	}
 	if (frame.type === "butler") {
 		butlerPresence.value = frame.butler;
+		return;
+	}
+	if (frame.type === "runners") {
+		runners.value = frame.runners;
 		return;
 	}
 	receiveComment(frame.comment);

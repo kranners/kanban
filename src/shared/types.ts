@@ -1,12 +1,13 @@
 import type { RegionColours } from "./colours.ts";
 import type { ProjectIgnores } from "./ignores.ts";
+import type { RunnerView } from "./runners.ts";
 import type { SubagentCounts, SubagentState } from "./subagents.ts";
 
 export type SessionKind = "interactive" | "background";
 
 export type FixedRunsOn = "cloud" | "local";
 
-export type RunsOn = FixedRunsOn | `env_${string}`;
+export type RunsOn = FixedRunsOn | `env_${string}` | `runner_${string}`;
 
 export const runsOnChoices: readonly FixedRunsOn[] = ["cloud", "local"];
 
@@ -14,6 +15,12 @@ const remoteHostPattern = /^env_[A-Za-z0-9]+$/;
 
 export const isRemoteHost = (runsOn: string): runsOn is `env_${string}` =>
 	remoteHostPattern.test(runsOn);
+
+const runnerPattern = /^runner_[a-z0-9][a-z0-9-]{0,39}$/;
+
+/** A session placed on one of the owner's machines through kanban-runner. */
+export const isRunnerTarget = (runsOn: string): runsOn is `runner_${string}` =>
+	runnerPattern.test(runsOn);
 
 export type RemoteHost = {
 	id: string;
@@ -87,6 +94,8 @@ export type Session = {
 	steps: Step[];
 	configDir?: string;
 	cloud?: { url: string };
+	/** Set when the session runs on another machine through kanban-runner. */
+	runner?: { id: string; name: string };
 	tokens?: TokenUsage;
 };
 
@@ -445,7 +454,8 @@ export type BoardFeed =
 	| { type: "relations"; relations: Relation[] }
 	| { type: "docs"; docs: DocIndex; stores: DocStore[] }
 	| { type: "schedules"; schedules: Schedule[] }
-	| { type: "butler"; butler: ButlerPresence };
+	| { type: "butler"; butler: ButlerPresence }
+	| { type: "runners"; runners: RunnerView[] };
 
 export type NewSessionRequest = {
 	cwd: string;

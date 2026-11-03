@@ -1,5 +1,6 @@
 import type { RegionColours } from "../shared/colours.ts";
 import type { ProjectIgnores } from "../shared/ignores.ts";
+import type { RunnerView } from "../shared/runners.ts";
 import type {
 	Annotations,
 	Board,
@@ -43,6 +44,7 @@ export type Feed = {
 	docs(): void;
 	schedules(schedules: Schedule[]): void;
 	butler(butler: ButlerPresence): void;
+	runners(runners: RunnerView[]): void;
 	size(): number;
 };
 
@@ -61,6 +63,7 @@ export type FeedOptions = {
 	docStores: () => DocStore[];
 	schedules: () => Schedule[];
 	butler?: () => ButlerPresence;
+	runners?: () => RunnerView[];
 };
 
 const socketOpen = 1;
@@ -80,6 +83,7 @@ export const createFeed = ({
 	docStores,
 	schedules,
 	butler,
+	runners,
 }: FeedOptions): Feed => {
 	const clients = new Set<FeedSocket>();
 
@@ -115,6 +119,7 @@ export const createFeed = ({
 			send(socket, docsFrame());
 			send(socket, { type: "schedules", schedules: schedules() });
 			if (butler) send(socket, { type: "butler", butler: butler() });
+			if (runners) send(socket, { type: "runners", runners: runners() });
 			send(socket, { type: "board", board: board() });
 		},
 		board: (next) => broadcast({ type: "board", board: next }),
@@ -137,6 +142,7 @@ export const createFeed = ({
 		docs: () => broadcast(docsFrame()),
 		schedules: (next) => broadcast({ type: "schedules", schedules: next }),
 		butler: (next) => broadcast({ type: "butler", butler: next }),
+		runners: (next) => broadcast({ type: "runners", runners: next }),
 		size: () => clients.size,
 	};
 };

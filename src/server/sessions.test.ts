@@ -125,6 +125,22 @@ describe("validateNewSession", () => {
 		);
 	});
 
+	it("leaves a runner's folder for the runner to check", async () => {
+		assert.deepEqual(
+			await validateNewSession({
+				...valid,
+				cwd: "/Users/me/dev/only-on-jimbo",
+				runsOn: "runner_jimbo",
+			}),
+			{
+				cwd: "/Users/me/dev/only-on-jimbo",
+				name: valid.name,
+				prompt: valid.prompt,
+				runsOn: "runner_jimbo",
+			},
+		);
+	});
+
 	it("rejects bad input with a reason", async () => {
 		const cases: [unknown, RegExp][] = [
 			[null, /JSON object/],
@@ -142,10 +158,20 @@ describe("validateNewSession", () => {
 			[{ ...valid, account: "2" }, /account must be a positive/],
 			[
 				{ ...valid, runsOn: "mars" },
-				/runsOn must be cloud, local or a remote-control host id/,
+				/runsOn must be cloud, local, a remote-control host or a runner/,
 			],
-			[{ ...valid, runsOn: "env_" }, /remote-control host id/],
-			[{ ...valid, runsOn: "env_01/../x" }, /remote-control host id/],
+			[{ ...valid, runsOn: "env_" }, /remote-control host/],
+			[{ ...valid, runsOn: "env_01/../x" }, /remote-control host/],
+			[{ ...valid, runsOn: "runner_Jimbo" }, /a runner/],
+			[{ ...valid, runsOn: "runner_../x" }, /a runner/],
+			[
+				{
+					...valid,
+					runsOn: "runner_jimbo",
+					images: [{ type: "image/png", data: "cG5n" }],
+				},
+				/Images can only be sent to sessions on this Mac/,
+			],
 			[
 				{
 					...valid,
