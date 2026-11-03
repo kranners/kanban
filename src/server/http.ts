@@ -38,7 +38,7 @@ import type { Audit } from "./audit.ts";
 import { type Authenticate, originAllowed } from "./auth.ts";
 import type { BoardAgent } from "./boardAgent.ts";
 import type { BoardTools } from "./boardTools.ts";
-import { type Butler, butlerAllowed } from "./butler.ts";
+import { type Butler, butlerAllowed, type SelfFixAction } from "./butler.ts";
 import { type ColourStore, maxColours, parseColourUpdate } from "./colours.ts";
 import type { SlashCommand } from "./commands.ts";
 import {
@@ -190,6 +190,7 @@ export type Route =
 	| { kind: "run-schedule"; scheduleId: string }
 	| { kind: "agent-tool"; tool: string }
 	| { kind: "butler-tool"; tool: string }
+	| { kind: "self-fix-action"; id: string; action: SelfFixAction }
 	| { kind: "peer-hook" }
 	| { kind: "static"; path: string }
 	| { kind: "not-found" }
@@ -466,6 +467,18 @@ export const matchRoute = (method: string, url: URL): Route => {
 	if (tool?.[1]) {
 		return method === "POST"
 			? { kind: "agent-tool", tool: tool[1] }
+			: { kind: "method-not-allowed" };
+	}
+	const fixAction = path.match(
+		/^\/api\/butler\/self-fixes\/([0-9]{8}-[0-9]{6}-[0-9]+)\/(archive|dismiss)$/,
+	);
+	if (fixAction?.[1] && fixAction[2]) {
+		return method === "POST"
+			? {
+					kind: "self-fix-action",
+					id: fixAction[1],
+					action: fixAction[2] as SelfFixAction,
+				}
 			: { kind: "method-not-allowed" };
 	}
 	const butlerTool = path.match(/^\/api\/butler\/tools\/([a-z_]{1,64})$/);
@@ -905,9 +918,35 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		id: string,
 	) => {
 		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		// Aaron deleting a self-fix's card closes it, which archives the fix.
+		const card = deps.annotations.current()[id];
+		if (card?.kind === "butler-card" && card.selfFix && deps.butler) {
+			const outcome = deps.butler.selfFixAction(card.selfFix, "archive");
+			if (!outcome.ok) {
+				return sendJson(res, 409, { ok: false, error: outcome.error });
+			}
+			res.writeHead(204, { "cache-control": "no-store" });
+			return res.end();
+		}
 		if (!deps.annotations.remove(id)) return sendError(res, 404);
 		res.writeHead(204, { "cache-control": "no-store" });
 		res.end();
+	};
+
+	/** Aaron's own board actions on a self-fix's card, from its menu. */
+	const selfFixAction = (
+		req: IncomingMessage,
+		res: ServerResponse,
+		id: string,
+		action: SelfFixAction,
+	) => {
+		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		if (!deps.butler) return sendError(res, 404);
+		const outcome = deps.butler.selfFixAction(id, action);
+		if (!outcome.ok) {
+			return sendJson(res, 409, { ok: false, error: outcome.error });
+		}
+		sendJson(res, 200, { ok: true, text: outcome.text });
 	};
 
 	const updateColour = async (req: IncomingMessage, res: ServerResponse) => {
@@ -1378,6 +1417,8 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return putAnnotation(req, res, route.id);
 			case "delete-annotation":
 				return deleteAnnotation(req, res, route.id);
+			case "self-fix-action":
+				return selfFixAction(req, res, route.id, route.action);
 			case "update-colour":
 				return updateColour(req, res);
 			case "update-ignore":

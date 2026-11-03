@@ -240,6 +240,100 @@ describe("Butler on the board", () => {
 		assert.equal(bad.ok, false);
 	});
 
+	it("takes Aaron's board actions on a self-fix back to spike", async () => {
+		const { butler, annotations, file } = await setup();
+		const fix = {
+			id: "20261101-021240-797168",
+			state: "waiting on input (AskUserQuestion)",
+			title: "Butler scheduled jobs",
+			link: "https://claude.ai/code/session_abc",
+		};
+		const other = { ...fix, id: "20261102-000000-1", title: "Other" };
+		await butler.tool("self_fixes", { fixes: [fix, other] });
+		const id = "self-fix-20261101-021240-797168";
+
+		const dismissed = butler.selfFixAction(fix.id, "dismiss");
+		assert.equal(dismissed.ok, true);
+		assert.equal(cardOf(annotations, id).state, "done");
+		const again = await butler.tool("self_fixes", { fixes: [fix, other] });
+		assert.equal(cardOf(annotations, id).state, "done");
+		assert.match(
+			cardOf(annotations, id).status ?? "",
+			/^dismissed on the board/,
+		);
+		assert.match(
+			again.ok ? again.text : "",
+			/Board actions: \{"archive":\[\],"dismiss":\["20261101-021240-797168"\]\}/,
+		);
+
+		// Closing a self-fix's card archives it, and the sync never brings it back.
+		const closed = await butler.tool("close_card", { selfFix: other.id });
+		assert.equal(closed.ok, true);
+		assert.match(closed.ok ? closed.text : "", /archives/);
+		const synced = await butler.tool("self_fixes", { fixes: [fix, other] });
+		assert.equal(
+			annotations.current()["self-fix-20261102-000000-1"],
+			undefined,
+		);
+		assert.match(
+			synced.ok ? synced.text : "",
+			/"archive":\["20261102-000000-1"\]/,
+		);
+		await butler.saved();
+		const saved = JSON.parse(await readFile(file, "utf8"));
+		assert.equal(saved.selfFixActions[other.id], "archive");
+
+		// Once spike stops listing a fix, the board forgets what was done to it.
+		const later = await butler.tool("self_fixes", { fixes: [fix] });
+		assert.match(later.ok ? later.text : "", /"archive":\[\]/);
+	});
+
+	it("addresses a self-fix's card by its self-fix id, never duplicating it", async () => {
+		const { butler, annotations } = await setup();
+		const fix = {
+			id: "20261103-014125-2712401",
+			state: "running",
+			title: "Fix",
+		};
+		await butler.tool("self_fixes", { fixes: [fix] });
+		const id = "self-fix-20261103-014125-2712401";
+
+		const moved = await butler.tool("put_card", {
+			selfFix: fix.id,
+			x: 2400,
+			y: 0,
+		});
+		assert.equal(moved.ok, true);
+		assert.equal(cardOf(annotations, id).x, 2400);
+		const renamed = await butler.tool("put_card", {
+			selfFix: fix.id,
+			title: "x",
+		});
+		assert.equal(renamed.ok, false);
+		const fresh = await butler.tool("put_card", {
+			selfFix: "20261104-000000-1",
+			title: "Dup",
+		});
+		assert.equal(fresh.ok, false);
+		const butlerCards = Object.values(annotations.current()).filter(
+			(a) => a.kind === "butler-card",
+		);
+		assert.equal(butlerCards.length, 1);
+
+		const noted = await butler.tool("note", {
+			target: fix.id,
+			text: "Aaron says ship it",
+		});
+		assert.equal(noted.ok, true);
+		const watched = await butler.tool("watch", { target: fix.id });
+		assert.equal(watched.ok, true);
+		await butler.tool("self_fixes", { fixes: [fix] });
+		assert.equal(cardOf(annotations, id).watching, true);
+		const looked = await butler.tool("look", { target: fix.id });
+		assert.equal(looked.ok, true);
+		assert.equal(butler.current().presence?.target, id);
+	});
+
 	it("drives the board agent's tools under his own name", async () => {
 		const { butler, calls, presences } = await setup();
 		const sent = await butler.tool("send_prompt", {

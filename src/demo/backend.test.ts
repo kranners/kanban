@@ -191,6 +191,13 @@ const probes: Record<string, Probe> = {
 	"/api/remote-hosts": async (backend) => {
 		await answers(backend, "GET", "/api/remote-hosts", null, "account=2");
 	},
+	"/api/butler/self-fixes/:param/:param": async (backend) => {
+		await answers(
+			backend,
+			"POST",
+			"/api/butler/self-fixes/20261101-021240-797168/dismiss",
+		);
+	},
 	"/api/folder-picker": async (backend) => {
 		await answers(backend, "POST", "/api/folder-picker");
 	},

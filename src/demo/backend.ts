@@ -1155,6 +1155,15 @@ export function createBackend(scenario: Scenario): Backend {
 			([store = ""]) => deleteDocStore(store),
 		],
 		["GET", /^\/api\/cloud-blocker$/, () => json(200, { reason: null })],
+		[
+			"POST",
+			/^\/api\/butler\/self-fixes\/[^/]+\/(?:archive|dismiss)$/,
+			() =>
+				json(200, {
+					ok: true,
+					text: "The demo has no self-fixes to archive or mark done",
+				}),
+		],
 		["GET", /^\/api\/remote-hosts$/, () => json(200, { hosts: [] })],
 		[
 			"POST",

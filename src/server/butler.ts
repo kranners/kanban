@@ -63,10 +63,27 @@ export const sessionTools = new Set<ToolCall["tool"]>([
 	"start_session",
 ]);
 
+/**
+ * What Aaron, or Butler on his word, did to a self-fix's card on the
+ * board: closing it archives the fix's cloud session, marking it done
+ * stops spike reporting it as needing him. Spike reads these back from
+ * each self_fixes sync and acts on them; moving a card is never one.
+ */
+export type SelfFixAction = "archive" | "dismiss";
+export const selfFixActions: readonly SelfFixAction[] = ["archive", "dismiss"];
+
 export type Butler = {
 	current(): ButlerPresence;
 	tool(name: string, body: unknown): Promise<ToolOutcome>;
+	/** Records an action Aaron took on a self-fix's card from the board. */
+	selfFixAction(fixId: string, action: SelfFixAction): ToolOutcome;
 	saved(): Promise<void>;
+};
+
+type ButlerState = {
+	watching: string[];
+	selfFixActions: Record<string, SelfFixAction>;
+	watchedFixes: string[];
 };
 
 export type ButlerDeps = Pick<
@@ -79,6 +96,8 @@ export type ButlerDeps = Pick<
 	audit: Audit;
 	file: string;
 	initial: string[];
+	initialActions?: Record<string, SelfFixAction>;
+	initialWatchedFixes?: string[];
 	onChange: (presence: ButlerPresence) => void;
 	newId?: () => string;
 	now?: () => number;
@@ -97,6 +116,48 @@ export const parseWatching = (value: unknown): string[] => {
 
 export const loadWatching = (file: string): Promise<string[]> =>
 	readState(file, parseWatching);
+
+const parseFixIds = (value: unknown): string[] =>
+	Array.isArray(value)
+		? value
+				.filter(
+					(id): id is string =>
+						typeof id === "string" && selfFixPattern.test(id),
+				)
+				.slice(0, maxSelfFixes)
+		: [];
+
+export const parseSelfFixActions = (
+	value: unknown,
+): Record<string, SelfFixAction> => {
+	const raw =
+		typeof value === "object" && value !== null && !Array.isArray(value)
+			? (value as { selfFixActions?: unknown }).selfFixActions
+			: null;
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
+	const actions: Record<string, SelfFixAction> = {};
+	for (const [id, action] of Object.entries(raw).slice(0, maxSelfFixes)) {
+		if (
+			selfFixPattern.test(id) &&
+			selfFixActions.includes(action as SelfFixAction)
+		) {
+			actions[id] = action as SelfFixAction;
+		}
+	}
+	return actions;
+};
+
+/** Everything butler.json keeps, for createButler's initial state. */
+export const loadButlerState = (file: string) =>
+	readState(file, (value) => ({
+		initial: parseWatching(value),
+		initialActions: parseSelfFixActions(value),
+		initialWatchedFixes: parseFixIds(
+			typeof value === "object" && value !== null
+				? (value as { watchedFixes?: unknown }).watchedFixes
+				: null,
+		),
+	}));
 
 /** Butler's calls come only from a process on this Mac, never a page. */
 export const butlerAllowed = (req: IncomingMessage): boolean =>
@@ -146,12 +207,26 @@ export const selfFixState = (state: string): ButlerCardState => {
 	if (s.startsWith("waiting on input")) return "needs-you";
 	if (s.startsWith("finished with an error") || s.startsWith("failed"))
 		return "failed";
-	if (s.startsWith("finished") || s === "archived") return "done";
+	if (
+		s.startsWith("finished") ||
+		s.startsWith("archive") ||
+		s.startsWith("dismissed")
+	)
+		return "done";
 	if (s === "running" || s.startsWith("still starting")) return "working";
 	return "idle";
 };
 
 export const selfFixCardId = (id: string) => `self-fix-${id}`;
+
+/** A self-fix id stands for its card wherever a tool takes a card id. */
+const cardRef = (ref: string) =>
+	selfFixPattern.test(ref) ? selfFixCardId(ref) : ref;
+
+const dismissedStatus = (status: string): string =>
+	status.startsWith("dismissed")
+		? status
+		: `dismissed on the board; ${status}`.slice(0, maxButlerTitle);
 
 const sameCard = (a: ButlerCard, b: ButlerCard): boolean =>
 	a.title === b.title &&
@@ -164,8 +239,18 @@ const sameCard = (a: ButlerCard, b: ButlerCard): boolean =>
 export const createButler = (deps: ButlerDeps): Butler => {
 	const newId = deps.newId ?? randomUUID;
 	const now = deps.now ?? Date.now;
-	const file = createStateFile<{ watching: string[] }>(deps.file);
+	const file = createStateFile<ButlerState>(deps.file);
 	let watching = [...deps.initial];
+	let actions: Record<string, SelfFixAction> = {
+		...(deps.initialActions ?? {}),
+	};
+	let watchedFixes = new Set(deps.initialWatchedFixes ?? []);
+	const persist = () =>
+		file.write({
+			watching,
+			selfFixActions: actions,
+			watchedFixes: [...watchedFixes],
+		});
 	let presence: ButlerPresence["presence"] = null;
 
 	const current = (): ButlerPresence => ({ presence, watching });
@@ -173,7 +258,8 @@ export const createButler = (deps: ButlerDeps): Butler => {
 
 	const board = (): Board => deps.source.board();
 	const taken = () => occupied(board(), deps);
-	const annotation = (id: string) => deps.annotations.current()[id];
+	const annotation = (id: string) =>
+		deps.annotations.current()[id] ?? deps.annotations.current()[cardRef(id)];
 
 	/** A session's id or short id, or the id of a card or note. */
 	const resolve = (
@@ -225,6 +311,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 	const putCard = (fields: Fields): ToolOutcome => {
 		const unknown = only(fields, [
 			"id",
+			"selfFix",
 			"title",
 			"state",
 			"status",
@@ -237,7 +324,19 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			"h",
 		]);
 		if (unknown) return unknown;
-		const id = text(fields, "id", 64);
+		const fixRef = text(fields, "selfFix", 64);
+		if (isOutcome(fixRef)) return fixRef;
+		if (fixRef !== undefined && !selfFixPattern.test(fixRef)) {
+			return refused("selfFix must be a self-fix id");
+		}
+		const given = text(fields, "id", 64);
+		if (isOutcome(given)) return given;
+		const id =
+			fixRef !== undefined
+				? selfFixCardId(fixRef)
+				: given === undefined
+					? undefined
+					: cardRef(given);
 		const title = text(fields, "title", maxButlerTitle);
 		const status = text(fields, "status", maxButlerTitle);
 		const summary = text(fields, "summary", maxButlerSummary);
@@ -259,6 +358,26 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		if (id && !existing && findSession(board(), id as string)) {
 			return refused(
 				`${id} is a session: move it with arrange and close it with finish_session`,
+			);
+		}
+		if (existing?.kind === "butler-card" && existing.selfFix) {
+			const synced = [
+				"title",
+				"state",
+				"status",
+				"summary",
+				"link",
+				"watching",
+			];
+			const kept = synced.find((key) => fields[key] !== undefined);
+			if (kept) {
+				return refused(
+					`Spike keeps a self-fix card's ${synced.join(", ")} in step; move it here, note it with note, watch it with watch, or close it with close_card, which archives the fix`,
+				);
+			}
+		} else if (id?.startsWith("self-fix-")) {
+			return refused(
+				`No card for self-fix ${id.slice("self-fix-".length)} yet; spike adds every self-fix's card within a few minutes, so never make one`,
 			);
 		}
 		if (!existing && !title) return refused("A new card needs a title");
@@ -303,9 +422,11 @@ export const createButler = (deps: ButlerDeps): Butler => {
 	};
 
 	const closeCard = (fields: Fields): ToolOutcome => {
-		const unknown = only(fields, ["id"]);
+		const unknown = only(fields, ["id", "selfFix"]);
 		if (unknown) return unknown;
-		const id = text(fields, "id", 64, true);
+		const fixRef = text(fields, "selfFix", 64);
+		if (isOutcome(fixRef)) return fixRef;
+		const id = fixRef === undefined ? text(fields, "id", 64, true) : fixRef;
 		if (isOutcome(id)) return id;
 		const card = annotation(id as string);
 		if (card?.kind !== "butler-card") {
@@ -323,8 +444,9 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			presence = null;
 			changed();
 		}
+		const archiving = card.selfFix ? record(card.selfFix, "archive") : "";
 		return done(
-			`Closed card '${card.title}'${notes.length ? ` and its ${notes.length} note${notes.length === 1 ? "" : "s"}` : ""}`,
+			`Closed card '${card.title}'${notes.length ? ` and its ${notes.length} note${notes.length === 1 ? "" : "s"}` : ""}${archiving}`,
 		);
 	};
 
@@ -382,6 +504,11 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		const on = fields.watching !== false;
 		const card = annotation(target as string);
 		if (card?.kind === "butler-card") {
+			if (card.selfFix) {
+				if (on) watchedFixes.add(card.selfFix);
+				else watchedFixes.delete(card.selfFix);
+				persist();
+			}
 			const failed = put({ ...card, watching: on, updatedAt: now() });
 			return (
 				failed ??
@@ -395,7 +522,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			return refused(`Butler already watches ${maxWatching} sessions`);
 		}
 		watching = on ? [...others, session.id] : others;
-		file.write({ watching });
+		persist();
 		changed();
 		return done(`${on ? "Watching" : "Stopped watching"} ${session.name}`);
 	};
@@ -417,6 +544,42 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		return done(`Butler is at ${at.label}`);
 	};
 
+	/** Keeps a board action for spike to read back; the latest one wins. */
+	const record = (fixId: string, action: SelfFixAction): string => {
+		actions = { ...actions, [fixId]: action };
+		persist();
+		deps.audit({
+			action: "butler",
+			tool: "self_fix_action",
+			result: `${action} ${fixId}`,
+		});
+		return action === "archive"
+			? "; spike archives the fix's cloud session within a few minutes"
+			: "; spike stops reporting it as needing Aaron within a few minutes";
+	};
+
+	const selfFixAction = (fixId: string, action: SelfFixAction): ToolOutcome => {
+		if (!selfFixPattern.test(fixId)) return refused("Not a self-fix id");
+		if (!selfFixActions.includes(action)) {
+			return refused(`action must be one of ${selfFixActions.join(", ")}`);
+		}
+		const card = annotation(selfFixCardId(fixId));
+		if (card?.kind !== "butler-card" || card.selfFix !== fixId) {
+			return refused(`No card for self-fix ${fixId}`);
+		}
+		if (action === "archive") return closeCard({ selfFix: fixId });
+		const failed = put({
+			...card,
+			state: "done",
+			status: dismissedStatus(card.status ?? ""),
+			watching: false,
+			updatedAt: now(),
+		});
+		if (failed) return failed;
+		watchedFixes.delete(fixId);
+		return done(`Marked '${card.title}' done${record(fixId, "dismiss")}`);
+	};
+
 	/** Mirrors `self-fix list`: one card each, kept where it was put. */
 	const selfFixes = (fields: Fields): ToolOutcome => {
 		const unknown = only(fields, ["fixes"]);
@@ -426,6 +589,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			return refused(`fixes must be a list of at most ${maxSelfFixes}`);
 		}
 		const seen = new Set<string>();
+		const fixIds = new Set<string>();
 		let changedCards = 0;
 		for (const raw of fixes) {
 			if (typeof raw !== "object" || raw === null) {
@@ -444,6 +608,10 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				if (isOutcome(value)) return refused(`${fixId}: ${value.error}`);
 			}
 			const id = selfFixCardId(fixId);
+			fixIds.add(fixId);
+			// A card Aaron closed stays closed while spike archives its fix.
+			if (actions[fixId] === "archive") continue;
+			const dismissed = actions[fixId] === "dismiss";
 			seen.add(id);
 			const existing = annotation(id);
 			const base: ButlerCard =
@@ -469,12 +637,16 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				z: base.z,
 				updatedAt: base.updatedAt,
 				title: (title as string | undefined)?.trim() || `Self-fix ${fixId}`,
-				state: selfFixState(status as string),
-				status: status as string,
+				state: dismissed ? "done" : selfFixState(status as string),
+				status: dismissed
+					? dismissedStatus(status as string)
+					: (status as string),
 				selfFix: fixId,
 				...(summary ? { summary: summary as string } : {}),
 				...(link ? { link: link as string } : {}),
-				...(fix.watching === true ? { watching: true } : {}),
+				...(!dismissed && (fix.watching === true || watchedFixes.has(fixId))
+					? { watching: true }
+					: {}),
 			};
 			if (existing?.kind === "butler-card" && sameCard(existing, card)) {
 				continue;
@@ -491,8 +663,28 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			(a) => a.kind === "butler-card" && a.selfFix && !seen.has(a.id),
 		);
 		for (const card of gone) deps.annotations.remove(card.id);
+		// Forget what was done to fixes spike no longer lists, a week on.
+		const keptActions = Object.fromEntries(
+			Object.entries(actions).filter(([id]) => fixIds.has(id)),
+		);
+		const keptWatches = new Set(
+			[...watchedFixes].filter((id) => fixIds.has(id)),
+		);
+		if (
+			Object.keys(keptActions).length !== Object.keys(actions).length ||
+			keptWatches.size !== watchedFixes.size
+		) {
+			actions = keptActions;
+			watchedFixes = keptWatches;
+			persist();
+		}
+		const requested = (action: SelfFixAction) =>
+			Object.entries(actions)
+				.filter(([, a]) => a === action)
+				.map(([id]) => id)
+				.sort();
 		return done(
-			`${fixes.length} self-fix card${fixes.length === 1 ? "" : "s"}: ${changedCards} updated, ${gone.length} removed`,
+			`${fixes.length} self-fix card${fixes.length === 1 ? "" : "s"}: ${changedCards} updated, ${gone.length} removed\nBoard actions: ${JSON.stringify({ archive: requested("archive"), dismiss: requested("dismiss") })}`,
 		);
 	};
 
@@ -539,5 +731,5 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		return done(`${outcome.text}\nButler watches: ${JSON.stringify(watching)}`);
 	};
 
-	return { current, tool, saved: () => file.saved() };
+	return { current, tool, selfFixAction, saved: () => file.saved() };
 };

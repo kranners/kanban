@@ -30,7 +30,7 @@ import {
 	projectsOf,
 	summariesOfBoard,
 } from "./boardTools.ts";
-import { type Butler, createButler, loadWatching } from "./butler.ts";
+import { type Butler, createButler, loadButlerState } from "./butler.ts";
 import {
 	type CloudApi,
 	cloudCredentials,
@@ -502,7 +502,7 @@ butler = createButler({
 	tools,
 	audit,
 	file: butlerFile,
-	initial: await loadWatching(butlerFile),
+	...(await loadButlerState(butlerFile)),
 	onChange: (next) => feed?.butler(next),
 });
 const schedulesFile = join(config.stateDir, "schedules.json");
