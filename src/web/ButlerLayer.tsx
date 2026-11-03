@@ -19,7 +19,7 @@ import type { Rect } from "./placement.ts";
 import { now } from "./state.ts";
 import { ago } from "./time.ts";
 
-/** One of Butler's cards: a self-fix he started, or one he made himself. */
+/** One of Butler's cards: a change he started, or one he made himself. */
 export function ButlerCardBody(props: { card: ButlerCard }): JSX.Element {
 	const { card } = props;
 	const t = now.value;
@@ -32,7 +32,7 @@ export function ButlerCardBody(props: { card: ButlerCard }): JSX.Element {
 					<ButlerMark size={16} />
 				)}
 				<span class="butler-card-kind">
-					{card.selfFix ? "Self-fix" : "Butler"}
+					{card.selfFix ? "Change" : "Butler"}
 				</span>
 				{card.watching && (
 					<ButlerWatchingIcon

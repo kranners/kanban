@@ -272,7 +272,7 @@ export const maxButlerLink = 500;
 
 /**
  * A card Butler, Aaron's assistant bot, keeps on the board: one per
- * self-fix he started, or one he made himself. It is an annotation so it
+ * change he started (once called a self-fix), or one he made himself. It is an annotation so it
  * saves, drags, resizes and arranges like a note.
  */
 export type ButlerCard = Annotated & {

@@ -17,7 +17,7 @@ export const isButlerCard = (a: Annotation | undefined): a is ButlerCard =>
 
 /**
  * Where Butler's cursor sits: on what he last acted on, for two minutes,
- * and otherwise on the self-fix he has running, newest first.
+ * and otherwise on the change he has running, newest first.
  */
 export function presenceOf(
 	presence: ButlerPresence,
@@ -29,7 +29,7 @@ export function presenceOf(
 		const card = annotations[explicit.target];
 		const label =
 			explicit.label === "Butler" && isButlerCard(card) && card.selfFix
-				? "Butler (self-fix)"
+				? "Butler (change)"
 				: explicit.label;
 		return { target: explicit.target, label };
 	}
@@ -39,5 +39,5 @@ export function presenceOf(
 				isButlerCard(a) && a.selfFix !== undefined && a.state === "working",
 		)
 		.sort((a, b) => b.updatedAt - a.updatedAt)[0];
-	return running ? { target: running.id, label: "Butler (self-fix)" } : null;
+	return running ? { target: running.id, label: "Butler (change)" } : null;
 }

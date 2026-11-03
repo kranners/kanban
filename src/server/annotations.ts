@@ -181,7 +181,7 @@ export const parseAnnotation = (
 				error: `link must be an https URL of at most ${maxButlerLink} characters`,
 			};
 		}
-		if (!isLink(selfFix)) return { error: "selfFix must be a self-fix id" };
+		if (!isLink(selfFix)) return { error: "selfFix must be a change id" };
 		if (watching !== undefined && typeof watching !== "boolean") {
 			return { error: "watching must be true or false" };
 		}

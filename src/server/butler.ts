@@ -308,9 +308,17 @@ export const createButler = (deps: ButlerDeps): Butler => {
 	const placeCard = (card: ButlerCard, fresh: boolean): ButlerCard =>
 		fresh ? clearOf(card, taken()) : card;
 
+	/**
+	 * A change's id, once called a self-fix, given as `change` or, its old
+	 * name, `selfFix`, which spike and Butler still send.
+	 */
+	const changeRef = (fields: Fields): string | undefined | Refusal =>
+		text(fields, fields.change !== undefined ? "change" : "selfFix", 64);
+
 	const putCard = (fields: Fields): ToolOutcome => {
 		const unknown = only(fields, [
 			"id",
+			"change",
 			"selfFix",
 			"title",
 			"state",
@@ -324,10 +332,10 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			"h",
 		]);
 		if (unknown) return unknown;
-		const fixRef = text(fields, "selfFix", 64);
+		const fixRef = changeRef(fields);
 		if (isOutcome(fixRef)) return fixRef;
 		if (fixRef !== undefined && !selfFixPattern.test(fixRef)) {
-			return refused("selfFix must be a self-fix id");
+			return refused("change must be a change id");
 		}
 		const given = text(fields, "id", 64);
 		if (isOutcome(given)) return given;
@@ -372,12 +380,12 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			const kept = synced.find((key) => fields[key] !== undefined);
 			if (kept) {
 				return refused(
-					`Spike keeps a self-fix card's ${synced.join(", ")} in step; move it here, note it with note, watch it with watch, or close it with close_card, which archives the fix`,
+					`Spike keeps a change card's ${synced.join(", ")} in step; move it here, note it with note, watch it with watch, or close it with close_card, which archives the change`,
 				);
 			}
 		} else if (id?.startsWith("self-fix-")) {
 			return refused(
-				`No card for self-fix ${id.slice("self-fix-".length)} yet; spike adds every self-fix's card within a few minutes, so never make one`,
+				`No card for change ${id.slice("self-fix-".length)} yet; spike adds every change's card within a few minutes, so never make one`,
 			);
 		}
 		if (!existing && !title) return refused("A new card needs a title");
@@ -422,9 +430,9 @@ export const createButler = (deps: ButlerDeps): Butler => {
 	};
 
 	const closeCard = (fields: Fields): ToolOutcome => {
-		const unknown = only(fields, ["id", "selfFix"]);
+		const unknown = only(fields, ["id", "change", "selfFix"]);
 		if (unknown) return unknown;
-		const fixRef = text(fields, "selfFix", 64);
+		const fixRef = changeRef(fields);
 		if (isOutcome(fixRef)) return fixRef;
 		const id = fixRef === undefined ? text(fields, "id", 64, true) : fixRef;
 		if (isOutcome(id)) return id;
@@ -554,18 +562,18 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			result: `${action} ${fixId}`,
 		});
 		return action === "archive"
-			? "; spike archives the fix's cloud session within a few minutes"
+			? "; spike archives the change's cloud session within a few minutes"
 			: "; spike stops reporting it as needing Aaron within a few minutes";
 	};
 
 	const selfFixAction = (fixId: string, action: SelfFixAction): ToolOutcome => {
-		if (!selfFixPattern.test(fixId)) return refused("Not a self-fix id");
+		if (!selfFixPattern.test(fixId)) return refused("Not a change id");
 		if (!selfFixActions.includes(action)) {
 			return refused(`action must be one of ${selfFixActions.join(", ")}`);
 		}
 		const card = annotation(selfFixCardId(fixId));
 		if (card?.kind !== "butler-card" || card.selfFix !== fixId) {
-			return refused(`No card for self-fix ${fixId}`);
+			return refused(`No card for change ${fixId}`);
 		}
 		if (action === "archive") return closeCard({ selfFix: fixId });
 		const failed = put({
@@ -593,12 +601,12 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		let changedCards = 0;
 		for (const raw of fixes) {
 			if (typeof raw !== "object" || raw === null) {
-				return refused("each fix must be an object");
+				return refused("each change must be an object");
 			}
 			const fix = raw as Fields;
 			const fixId = fix.id;
 			if (typeof fixId !== "string" || !selfFixPattern.test(fixId)) {
-				return refused("each fix needs its self-fix id");
+				return refused("each change needs its change id");
 			}
 			const status = text(fix, "state", maxButlerTitle, true);
 			const title = text(fix, "title", maxButlerTitle);
@@ -684,7 +692,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				.map(([id]) => id)
 				.sort();
 		return done(
-			`${fixes.length} self-fix card${fixes.length === 1 ? "" : "s"}: ${changedCards} updated, ${gone.length} removed\nBoard actions: ${JSON.stringify({ archive: requested("archive"), dismiss: requested("dismiss") })}`,
+			`${fixes.length} change card${fixes.length === 1 ? "" : "s"}: ${changedCards} updated, ${gone.length} removed\nBoard actions: ${JSON.stringify({ archive: requested("archive"), dismiss: requested("dismiss") })}`,
 		);
 	};
 
@@ -694,6 +702,8 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		note,
 		watch,
 		look,
+		// The changes' sync, by its new name and its old one, which spike still sends.
+		changes: selfFixes,
 		self_fixes: selfFixes,
 	};
 

@@ -1157,11 +1157,11 @@ export function createBackend(scenario: Scenario): Backend {
 		["GET", /^\/api\/cloud-blocker$/, () => json(200, { reason: null })],
 		[
 			"POST",
-			/^\/api\/butler\/self-fixes\/[^/]+\/(?:archive|dismiss)$/,
+			/^\/api\/butler\/(?:changes|self-fixes)\/[^/]+\/(?:archive|dismiss)$/,
 			() =>
 				json(200, {
 					ok: true,
-					text: "The demo has no self-fixes to archive or mark done",
+					text: "The demo has no changes to archive or mark done",
 				}),
 		],
 		["GET", /^\/api\/remote-hosts$/, () => json(200, { hosts: [] })],

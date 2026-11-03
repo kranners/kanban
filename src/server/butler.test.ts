@@ -334,6 +334,39 @@ describe("Butler on the board", () => {
 		assert.equal(butler.current().presence?.target, id);
 	});
 
+	it("takes a change's id as change or its old name selfFix, and syncs by either tool name", async () => {
+		const { butler, annotations } = await setup();
+		const fix = {
+			id: "20261103-224306-1143434",
+			state: "running",
+			title: "Rename",
+		};
+		const synced = await butler.tool("changes", { fixes: [fix] });
+		assert.match(synced.ok ? synced.text : "", /^1 change card: 1 updated/);
+		const id = "self-fix-20261103-224306-1143434";
+		const moved = await butler.tool("put_card", {
+			change: fix.id,
+			x: 1200,
+			y: 0,
+		});
+		assert.equal(moved.ok, true);
+		assert.equal(cardOf(annotations, id).x, 1200);
+		await butler.tool("self_fixes", { fixes: [fix] });
+		const old = await butler.tool("put_card", {
+			selfFix: fix.id,
+			x: 2400,
+			y: 0,
+		});
+		assert.equal(old.ok, true);
+		assert.equal(cardOf(annotations, id).x, 2400);
+		const closed = await butler.tool("close_card", { change: fix.id });
+		assert.equal(closed.ok, true);
+		assert.match(
+			closed.ok ? closed.text : "",
+			/archives the change's cloud session/,
+		);
+	});
+
 	it("drives the board agent's tools under his own name", async () => {
 		const { butler, calls, presences } = await setup();
 		const sent = await butler.tool("send_prompt", {

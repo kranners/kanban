@@ -533,12 +533,12 @@ export function AnnotationMenu(): JSX.Element | null {
 					<span class="board-menu-sep" />
 					<MenuItem
 						icon={<CircleCheck size={14} aria-hidden="true" />}
-						label="Mark fix done"
+						label="Mark change done"
 						onSelect={() => selfFixAction(fix, "dismiss")}
 					/>
 					<MenuItem
 						icon={<Archive size={14} aria-hidden="true" />}
-						label="Archive fix"
+						label="Archive change"
 						onSelect={() => selfFixAction(fix, "archive")}
 						danger
 					/>
@@ -547,7 +547,7 @@ export function AnnotationMenu(): JSX.Element | null {
 			<span class="board-menu-sep" />
 			<MenuItem
 				icon={<Trash2 size={14} aria-hidden="true" />}
-				label={fix ? "Delete and archive fix" : "Delete"}
+				label={fix ? "Delete and archive change" : "Delete"}
 				shortcut="⌫"
 				onSelect={deleteSelection}
 				danger
@@ -556,9 +556,9 @@ export function AnnotationMenu(): JSX.Element | null {
 	);
 }
 
-/** Aaron's say on a self-fix, which spike reads back on its next sync. */
+/** Aaron's say on a change, which spike reads back on its next sync. */
 function selfFixAction(fix: string, action: "archive" | "dismiss"): void {
-	void fetch(`/api/butler/self-fixes/${encodeURIComponent(fix)}/${action}`, {
+	void fetch(`/api/butler/changes/${encodeURIComponent(fix)}/${action}`, {
 		method: "POST",
 	}).catch(() => {});
 }

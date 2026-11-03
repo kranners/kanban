@@ -494,7 +494,7 @@ export const matchRoute = (method: string, url: URL): Route => {
 			: { kind: "method-not-allowed" };
 	}
 	const fixAction = path.match(
-		/^\/api\/butler\/self-fixes\/([0-9]{8}-[0-9]{6}-[0-9]+)\/(archive|dismiss)$/,
+		/^\/api\/butler\/(?:changes|self-fixes)\/([0-9]{8}-[0-9]{6}-[0-9]+)\/(archive|dismiss)$/,
 	);
 	if (fixAction?.[1] && fixAction[2]) {
 		return method === "POST"
@@ -989,7 +989,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		id: string,
 	) => {
 		if (!originOk(req)) return sendError(res, 403);
-		// Aaron deleting a self-fix's card closes it, which archives the fix.
+		// Aaron deleting a change's card closes it, which archives the change.
 		const card = deps.annotations.current()[id];
 		if (card?.kind === "butler-card" && card.selfFix && deps.butler) {
 			const outcome = deps.butler.selfFixAction(card.selfFix, "archive");
@@ -1004,7 +1004,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res.end();
 	};
 
-	/** Aaron's own board actions on a self-fix's card, from its menu. */
+	/** Aaron's own board actions on a change's card, from its menu. */
 	const selfFixAction = (
 		req: IncomingMessage,
 		res: ServerResponse,

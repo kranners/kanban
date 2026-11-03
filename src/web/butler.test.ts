@@ -39,7 +39,7 @@ test("on a self-fix card his cursor says so", () => {
 	};
 	assert.deepEqual(presenceOf(presence, annotations, 10), {
 		target: "f",
-		label: "Butler (self-fix)",
+		label: "Butler (change)",
 	});
 });
 
@@ -52,7 +52,7 @@ test("without a recent action he sits on his newest running self-fix", () => {
 	};
 	assert.deepEqual(
 		presenceOf({ presence: null, watching: [] }, annotations, 10),
-		{ target: "fresh", label: "Butler (self-fix)" },
+		{ target: "fresh", label: "Butler (change)" },
 	);
 	assert.equal(presenceOf({ presence: null, watching: [] }, {}, 10), null);
 });
