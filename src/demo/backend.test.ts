@@ -262,6 +262,9 @@ const probes: Record<string, Probe> = {
 		const id = await relation(backend);
 		await answers(backend, "DELETE", `/api/relations/${id}`);
 	},
+	"/api/csrf": async (backend) => {
+		await answers(backend, "GET", "/api/csrf");
+	},
 	"/api/comments": async (backend) => {
 		await thread(backend);
 	},

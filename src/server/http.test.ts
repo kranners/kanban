@@ -35,6 +35,7 @@ import { createAnnotationStore } from "./annotations.ts";
 import type { AttachHub } from "./attach.ts";
 import type { AuditEvent } from "./audit.ts";
 import { type Authenticate, runnerTokenCheck } from "./auth.ts";
+import { createButler } from "./butler.ts";
 import { createColourStore } from "./colours.ts";
 import { type CommentStore, createCommentStore } from "./comments.ts";
 import { createDocStoreRegistry, type DocStoreRegistry } from "./docStores.ts";
@@ -392,6 +393,7 @@ describe("createKanbanServer", () => {
 	const cancelled: string[] = [];
 	let comments: CommentStore;
 	let threadCount = 0;
+	let butlerIds = 0;
 	let scheduleCount = 0;
 	const scheduleAsked: [string, string][] = [];
 	const toolCalls: [string, ToolCall][] = [];
@@ -532,6 +534,7 @@ describe("createKanbanServer", () => {
 		const server = createKanbanServer({
 			origins,
 			dist,
+			csrf: "test-csrf",
 			authenticate,
 			runnerToken: runnerTokenCheck(runnerSecret),
 			source: {
@@ -634,6 +637,23 @@ describe("createKanbanServer", () => {
 				toolCalls.push([threadId, call]);
 				return { ok: true, text: `ran ${call.tool}` };
 			},
+			butler: createButler({
+				source: {
+					board: () => board,
+					transcript: async () => [],
+					transcriptPath: () => null,
+				},
+				layout: store,
+				annotations,
+				regions,
+				tools: async () => ({ ok: true, text: "ran" }),
+				audit: (event) => events.push(event),
+				file: join(dist, "state", "butler.json"),
+				initial: [],
+				onChange: () => {},
+				comments,
+				newId: () => `msg-${++butlerIds}`,
+			}),
 			peerHook: ({ event, sessionId }) =>
 				sessionId === "with-peers"
 					? {
@@ -2161,6 +2181,125 @@ describe("createKanbanServer", () => {
 			).status,
 			404,
 		);
+	});
+
+	it("queues messages to Butler only from the board's own page, for spike to collect", async () => {
+		const butlerSend = (path: string, body: unknown, extra = {}) =>
+			fetch(`${base}${path}`, {
+				method: "POST",
+				headers: {
+					...authed,
+					"content-type": "application/json",
+					origin,
+					...extra,
+				},
+				body: JSON.stringify(body),
+			});
+		const tool = async (name: string, body: unknown, headers = {}) =>
+			fetch(`${base}/api/butler/tools/${name}`, {
+				method: "POST",
+				headers: { "content-type": "application/json", ...headers },
+				body: JSON.stringify(body),
+			});
+		const draft = { x: 10, y: 10, text: "tidy the board", to: "butler" };
+		const askedBefore = asked.length;
+		// No token, a wrong token, another origin and a runner's bearer are all refused.
+		assert.equal((await butlerSend("/api/comments", draft)).status, 403);
+		assert.equal(
+			(
+				await butlerSend("/api/comments", draft, {
+					"x-kanban-csrf": "wrong",
+				})
+			).status,
+			403,
+		);
+		assert.equal(
+			(
+				await butlerSend("/api/comments", draft, {
+					"x-kanban-csrf": "test-csrf",
+					origin: "https://evil.example",
+				})
+			).status,
+			403,
+		);
+		assert.equal(
+			(
+				await fetch(`${base}/api/comments`, {
+					method: "POST",
+					headers: {
+						authorization: `Bearer ${runnerSecret}`,
+						"content-type": "application/json",
+						"x-kanban-csrf": "test-csrf",
+					},
+					body: JSON.stringify(draft),
+				})
+			).status,
+			403,
+		);
+		const csrf = await fetch(`${base}/api/csrf`, { headers: authed });
+		assert.deepEqual(await csrf.json(), { token: "test-csrf" });
+		assert.equal(
+			(await fetch(`${base}/api/csrf`)).status,
+			401,
+			"the token needs the board's sign-in",
+		);
+		const created = await butlerSend(
+			"/api/comments",
+			{ ...draft, viewport: { x: 0, y: 0, w: 800, h: 600 } },
+			{ "x-kanban-csrf": "test-csrf" },
+		);
+		assert.equal(created.status, 201);
+		const thread = await created.json();
+		assert.equal(thread.to, "butler");
+		assert.equal(thread.queued.length, 1);
+		assert.equal(asked.length, askedBefore, "the board agent never sees it");
+
+		// A page can't read the queue: Butler's endpoint refuses any Origin.
+		assert.equal((await tool("board_inbox", {}, { origin })).status, 403);
+		const inbox = await tool("board_inbox", {});
+		assert.equal(inbox.status, 200);
+		const { messages } = JSON.parse((await inbox.json()).text);
+		assert.equal(messages.length, 1);
+		assert.equal(messages[0].text, "tidy the board");
+		assert.deepEqual(messages[0].context.viewport, {
+			x: 0,
+			y: 0,
+			w: 800,
+			h: 600,
+		});
+		const acked = await tool("board_ack", { ids: [messages[0].id] });
+		assert.equal((await acked.json()).text, "Took 1");
+		assert.equal(comments.get(thread.id)?.running, true);
+		assert.equal(comments.get(thread.id)?.queued?.length, 0);
+		const answered = await tool("board_reply", {
+			thread: thread.id,
+			message: messages[0].id,
+			text: "Tidied into three regions.",
+		});
+		assert.equal(answered.status, 200);
+		const after = comments.get(thread.id);
+		assert.equal(after?.running, false);
+		assert.equal(after?.events.at(-1)?.text, "Tidied into three regions.");
+		assert.equal(
+			(
+				await butlerSend(
+					`/api/comments/${thread.id}/messages`,
+					{ text: "thanks" },
+					{ "x-kanban-csrf": "test-csrf" },
+				)
+			).status,
+			202,
+		);
+		assert.equal(comments.get(thread.id)?.queued?.length, 1);
+		assert.equal(
+			(
+				await butlerSend(`/api/comments/${thread.id}/messages`, {
+					text: "no token",
+				})
+			).status,
+			403,
+		);
+		comments.remove(thread.id);
 	});
 
 	it("keeps one thread per top-bar button, refuses a rerun while it works, and keeps the last result when a run can't start", async () => {

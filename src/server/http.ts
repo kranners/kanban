@@ -1,3 +1,4 @@
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream, type Stats } from "node:fs";
 import { stat } from "node:fs/promises";
 import {
@@ -131,6 +132,8 @@ export type ServerDeps = {
 	agentTokens: AgentTokens;
 	tools: BoardTools;
 	butler?: Butler;
+	/** The token the board's page sends with every message to Butler. */
+	csrf: string;
 	peerHook: PeerHook;
 	attach: AttachHub;
 	mirror: MirrorHub;
@@ -192,6 +195,7 @@ export type Route =
 	| { kind: "create-doc-store" }
 	| { kind: "rename-doc-store"; store: string }
 	| { kind: "delete-doc-store"; store: string }
+	| { kind: "csrf" }
 	| { kind: "create-comment" }
 	| { kind: "reply-comment"; threadId: string }
 	| { kind: "cancel-comment"; threadId: string }
@@ -401,6 +405,9 @@ export const matchRoute = (method: string, url: URL): Route => {
 		return method === "POST"
 			? { kind: "report-region", regionId: regionReport[1] }
 			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/csrf") {
+		return method === "GET" ? { kind: "csrf" } : { kind: "method-not-allowed" };
 	}
 	if (path === "/api/comments") {
 		return method === "POST"
@@ -759,6 +766,14 @@ const conversationTarget = (
 	}
 	const session = board.sessions.find(({ id }) => id === node.id);
 	return session ? { kind: "session", session, path } : null;
+};
+
+export const newCsrfToken = (): string => randomBytes(24).toString("base64url");
+
+export const csrfMatches = (sent: string, expected: string): boolean => {
+	const a = createHash("sha256").update(sent).digest();
+	const b = createHash("sha256").update(expected).digest();
+	return expected.length > 0 && timingSafeEqual(a, b);
 };
 
 export const createKanbanServer = (deps: ServerDeps): Server => {
@@ -1181,12 +1196,46 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res.end();
 	};
 
+	// Only the board's own page may speak to Butler as Aaron: a browser
+	// request with the board's origin, its sign-in, and the token the page
+	// fetched from this server, which no other origin can read. A runner's
+	// bearer token is for machines and never stands in for Aaron.
+	const butlerRequestOk = (req: IncomingMessage): boolean => {
+		if (byToken.has(req) || !originAllowed(req, deps.origins)) return false;
+		const sent = req.headers["x-kanban-csrf"];
+		return typeof sent === "string" && csrfMatches(sent, deps.csrf);
+	};
+
+	const refuseButler = (res: ServerResponse) =>
+		sendJson(res, 403, {
+			ok: false,
+			error: "Only the board's own page can message Butler; reload it",
+		});
+
 	const createComment = async (req: IncomingMessage, res: ServerResponse) => {
 		const read = await readBody(req, res);
 		if (!read) return;
 		const draft = parseCommentDraft(read.body);
 		if ("error" in draft) {
 			return sendJson(res, 400, { ok: false, error: draft.error });
+		}
+		if (draft.to === "butler") {
+			if (!butlerRequestOk(req)) return refuseButler(res);
+			const inbox = deps.butler?.inbox;
+			if (!inbox) {
+				return sendJson(res, 409, {
+					ok: false,
+					error: "Butler is not set up on this board",
+				});
+			}
+			const started = inbox.start(draft);
+			if ("error" in started) {
+				return sendJson(res, started.status, {
+					ok: false,
+					error: started.error,
+				});
+			}
+			return sendJson(res, 201, started);
 		}
 		const previous = draft.button
 			? deps.comments.current().find((thread) => thread.button === draft.button)
@@ -1224,6 +1273,17 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if (typeof text !== "string") {
 			return sendJson(res, 400, { ok: false, error: text.error });
 		}
+		if (deps.comments.get(threadId)?.to === "butler") {
+			if (!butlerRequestOk(req)) return refuseButler(res);
+			const sent = deps.butler?.inbox?.send(threadId, text) ?? {
+				error: "Butler is not set up on this board",
+				status: 409 as const,
+			};
+			if ("error" in sent) {
+				return sendJson(res, sent.status, { ok: false, error: sent.error });
+			}
+			return sendJson(res, 202, { ok: true });
+		}
 		const asked = deps.agent.ask(threadId, text);
 		if ("error" in asked) {
 			return sendJson(res, asked.status, { ok: false, error: asked.error });
@@ -1237,8 +1297,10 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		threadId: string,
 	) => {
 		if (!originOk(req)) return sendError(res, 403);
-		if (!deps.comments.get(threadId)) return sendError(res, 404);
-		deps.agent.cancel(threadId);
+		const thread = deps.comments.get(threadId);
+		if (!thread) return sendError(res, 404);
+		if (thread.to === "butler") deps.butler?.inbox?.cancel(threadId);
+		else deps.agent.cancel(threadId);
 		res.writeHead(204, { "cache-control": "no-store" });
 		res.end();
 	};
@@ -1599,6 +1661,8 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return docsReplyWithoutBody(req, res, () =>
 					deps.docs.deleteFile(route.store, route.path),
 				);
+			case "csrf":
+				return sendJson(res, 200, { token: deps.csrf });
 			case "create-comment":
 				return createComment(req, res);
 			case "reply-comment":
