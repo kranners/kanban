@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { CommentThread } from "../shared/types.ts";
 import {
+	butlerStatus,
 	buttonThreads,
 	isCommentKey,
 	openButton,
@@ -69,4 +70,17 @@ test("a button's popover closes once its thread is gone", () => {
 	openButton.value = "tidy";
 	receiveComments([]);
 	assert.equal(openButton.value, null);
+});
+
+test("a message to Butler shows queued, unreachable, working, then nothing", () => {
+	const queued = thread({
+		to: "butler",
+		queued: [{ id: "m", at: 1, text: "hi" }],
+	});
+	assert.equal(pinState(queued), "queued");
+	assert.match(butlerStatus(queued, "up") ?? "", /Waiting for spike/);
+	assert.match(butlerStatus(queued, "down") ?? "", /unreachable/);
+	const working = thread({ to: "butler", running: true, waiting: ["m"] });
+	assert.equal(butlerStatus(working, "up"), "Butler is working on it…");
+	assert.equal(butlerStatus(thread({ to: "butler" }), "down"), null);
 });

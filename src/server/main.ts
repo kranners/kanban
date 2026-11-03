@@ -90,7 +90,7 @@ import { createFeed, type Feed } from "./feed.ts";
 import { listFiles } from "./files.ts";
 import { osascriptFolderPicker } from "./folders.ts";
 import { gitMainLog, readHistory } from "./history.ts";
-import { createKanbanServer } from "./http.ts";
+import { createKanbanServer, newCsrfToken } from "./http.ts";
 import { createIgnoreStore, loadIgnores } from "./ignores.ts";
 import { startBoard } from "./ingest/index.ts";
 import { createLayoutStore, loadLayout } from "./layout.ts";
@@ -597,7 +597,9 @@ butler = createButler({
 	file: butlerFile,
 	...(await loadButlerState(butlerFile)),
 	onChange: (next) => feed?.butler(next),
+	comments,
 });
+const relayCheck = setInterval(() => butler?.inbox?.check(), 5000);
 const schedulesFile = join(config.stateDir, "schedules.json");
 schedules = createScheduler({
 	file: schedulesFile,
@@ -635,6 +637,7 @@ const server = createKanbanServer({
 	agentTokens,
 	tools,
 	butler,
+	csrf: newCsrfToken(),
 	peerHook: createPeerHook({
 		units: () =>
 			summariesOfBoard(source.board(), { layout, annotations, regions }),
@@ -678,6 +681,7 @@ const listening = listenAll(server, config.hosts, config.port, (host) => {
 const shutdown = () => {
 	schedules.stop();
 	clearInterval(scheduleTick);
+	clearInterval(relayCheck);
 	agent.stopAll();
 	source.stop();
 	cloud.stop();

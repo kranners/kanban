@@ -4,16 +4,20 @@ import { parseToolCall, type ToolCall } from "../agent/tools.ts";
 import {
 	type Annotation,
 	type Board,
+	type BoardContext,
+	type BoardRect,
 	type ButlerCard,
 	type ButlerCardState,
 	type ButlerPresence,
 	butlerCardStates,
+	maxButlerQueue,
 	maxButlerSummary,
 	maxButlerTitle,
 	maxNoteText,
 	type Note,
 	type NoteColor,
 	noteColors,
+	type Point,
 } from "../shared/types.ts";
 import { snap } from "../web/grid.ts";
 import { nodeKey } from "../web/layout.ts";
@@ -35,6 +39,8 @@ import {
 	occupied,
 	type ToolOutcome,
 } from "./boardTools.ts";
+import { type ButlerInbox, createButlerInbox } from "./butlerInbox.ts";
+import type { CommentStore } from "./comments.ts";
 import type { BoardSource } from "./http.ts";
 import { createStateFile, readState } from "./stateFile.ts";
 
@@ -77,6 +83,8 @@ export type Butler = {
 	tool(name: string, body: unknown): Promise<ToolOutcome>;
 	/** Records an action Aaron took on a self-fix's card from the board. */
 	selfFixAction(fixId: string, action: SelfFixAction): ToolOutcome;
+	/** Aaron's messages to Butler, when the board keeps comments. */
+	inbox: ButlerInbox | null;
 	saved(): Promise<void>;
 };
 
@@ -99,6 +107,8 @@ export type ButlerDeps = Pick<
 	initialActions?: Record<string, SelfFixAction>;
 	initialWatchedFixes?: string[];
 	onChange: (presence: ButlerPresence) => void;
+	/** Where Aaron's messages to Butler are kept, in their comment threads. */
+	comments?: CommentStore;
 	newId?: () => string;
 	now?: () => number;
 };
@@ -253,7 +263,11 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		});
 	let presence: ButlerPresence["presence"] = null;
 
-	const current = (): ButlerPresence => ({ presence, watching });
+	let inbox: ButlerInbox | null = null;
+	const current = (): ButlerPresence => {
+		const relay = inbox?.relay();
+		return { presence, watching, ...(relay ? { relay } : {}) };
+	};
 	const changed = () => deps.onChange(current());
 
 	const board = (): Board => deps.source.board();
@@ -696,7 +710,134 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		);
 	};
 
+	/** What sits under a point on the board, for a message sent from there. */
+	const contextAt = (point: Point, viewport?: BoardRect): BoardContext => {
+		const context: BoardContext = viewport ? { viewport } : {};
+		const inside = (r: Rect) =>
+			point.x >= r.x &&
+			point.x <= r.x + r.w &&
+			point.y >= r.y &&
+			point.y <= r.y + r.h;
+		const shown = board();
+		const nodes = arranged(shown, deps).nodes;
+		const session = shown.sessions.find((s) => {
+			const node = nodes.get(nodeKey({ kind: "session", id: s.id }));
+			return node ? inside(node) : false;
+		});
+		if (session) {
+			context.card = {
+				id: session.id,
+				kind: "session",
+				name: session.name,
+				short: session.id.slice(0, 8),
+				state: session.activity,
+				cwd: session.cwd,
+			};
+		} else {
+			const card = Object.values(deps.annotations.current())
+				.filter((a): a is ButlerCard => a.kind === "butler-card")
+				.sort((a, b) => b.z - a.z)
+				.find(inside);
+			if (card) {
+				context.card = {
+					id: card.selfFix ?? card.id,
+					kind: "butler-card",
+					name: card.title,
+					state: card.state,
+				};
+			}
+		}
+		const region = deps.regions
+			.current()
+			.find((r) => inside(r) || (session && session.cwd === r.cwd));
+		if (region) {
+			context.region = {
+				id: region.id,
+				name: region.name ?? region.cwd.split("/").pop() ?? region.cwd,
+				cwd: region.cwd,
+			};
+		}
+		return context;
+	};
+
+	if (deps.comments) {
+		inbox = createButlerInbox({
+			store: deps.comments,
+			contextAt,
+			onRelay: changed,
+			newId: deps.newId,
+			now,
+		});
+	}
+
+	const boardInbox = (fields: Fields): ToolOutcome => {
+		const unknown = only(fields, []);
+		if (unknown) return unknown;
+		if (!inbox) return refused("This board keeps no messages");
+		return done(JSON.stringify({ messages: inbox.take() }));
+	};
+
+	const boardAck = (fields: Fields): ToolOutcome => {
+		const unknown = only(fields, ["ids"]);
+		if (unknown) return unknown;
+		if (!inbox) return refused("This board keeps no messages");
+		const ids = fields.ids;
+		if (
+			!Array.isArray(ids) ||
+			ids.length > maxButlerQueue ||
+			!ids.every((id) => typeof id === "string" && id.length <= 64)
+		) {
+			return refused(`ids must be a list of at most ${maxButlerQueue} ids`);
+		}
+		return done(`Took ${inbox.ack(ids as string[])}`);
+	};
+
+	const boardReply = (fields: Fields): ToolOutcome => {
+		const unknown = only(fields, ["thread", "message", "text", "ok"]);
+		if (unknown) return unknown;
+		if (!inbox || !deps.comments) {
+			return refused("This board keeps no messages");
+		}
+		const threadId = text(fields, "thread", 64, true);
+		const messageId = text(fields, "message", 64, true);
+		const body = text(fields, "text", maxNoteText, true);
+		for (const value of [threadId, messageId, body]) {
+			if (isOutcome(value)) return value;
+		}
+		const ok = fields.ok !== false;
+		const thread = inbox.reply(
+			threadId as string,
+			messageId as string,
+			body as string,
+			ok,
+		);
+		// A thread Aaron deleted on the board has nothing to answer; that's fine.
+		if (!thread) return done("No such thread on the board any more");
+		const card = thread.context?.card;
+		if (!ok || !card) return done("Shown on the board");
+		const kept = thread.replyNote
+			? deps.annotations.current()[thread.replyNote]
+			: undefined;
+		const pinned = note({
+			...(kept?.kind === "note" ? { id: kept.id } : {}),
+			target: card.id,
+			text: body as string,
+		});
+		const id = pinned.ok ? pinned.text.match(/\(id ([^)]+)\)/)?.[1] : null;
+		if (id && id !== thread.replyNote) {
+			deps.comments.update(thread.id, (t) => ({ ...t, replyNote: id }));
+		}
+		return done(
+			pinned.ok
+				? `Shown on the board and noted on ${card.name}`
+				: `Shown on the board; could not note it on the card: ${pinned.error}`,
+		);
+	};
+
 	const own: Record<string, (fields: Fields) => ToolOutcome> = {
+		board_inbox: boardInbox,
+		board_ack: boardAck,
+		board_reply: boardReply,
 		put_card: putCard,
 		close_card: closeCard,
 		note,
@@ -715,7 +856,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		const handler = own[name];
 		if (handler) {
 			const outcome = handler(fields as Fields);
-			if (name !== "look") {
+			if (name !== "look" && name !== "board_inbox") {
 				deps.audit({
 					action: "butler",
 					tool: name,
@@ -741,5 +882,11 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		return done(`${outcome.text}\nButler watches: ${JSON.stringify(watching)}`);
 	};
 
-	return { current, tool, selfFixAction, saved: () => file.saved() };
+	return {
+		current,
+		tool,
+		selfFixAction,
+		inbox,
+		saved: () => file.saved(),
+	};
 };

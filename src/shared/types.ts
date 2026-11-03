@@ -296,6 +296,8 @@ export const butlerPresenceMs = 2 * 60_000;
 export type ButlerPresence = {
 	presence: { target: string; label: string; at: number } | null;
 	watching: string[];
+	/** Whether spike has collected the board's messages lately; absent until it first does. */
+	relay?: "up" | "down";
 };
 
 export type Annotations = Record<string, Annotation>;
@@ -339,11 +341,45 @@ export type CommentEvent =
 export const agentButtons = ["tidy", "snooze"] as const;
 export type AgentButton = (typeof agentButtons)[number];
 
+/** Who a comment is for: Butler on spike, or the board agent on this Mac. */
+export const commentRecipients = ["butler", "agent"] as const;
+export type CommentRecipient = (typeof commentRecipients)[number];
+
+export type BoardRect = { x: number; y: number; w: number; h: number };
+
+/** What a message to Butler was about, worked out by the board when it was sent. */
+export type BoardContext = {
+	card?: {
+		id: string;
+		kind: "session" | "butler-card";
+		name: string;
+		short?: string;
+		state?: string;
+		cwd?: string;
+	};
+	region?: { id: string; name: string; cwd: string };
+	viewport?: BoardRect;
+};
+
+/** A message to Butler still waiting for spike to take it. */
+export type ButlerMessage = { id: string; at: number; text: string };
+
+export const maxButlerQueue = 50;
+
 export type CommentThread = {
 	id: string;
 	x: number;
 	y: number;
 	button?: AgentButton;
+	/** Set for a thread with Butler; absent for the board agent's. */
+	to?: "butler";
+	context?: BoardContext;
+	/** Butler's messages spike has not taken yet, oldest first. */
+	queued?: ButlerMessage[];
+	/** Ids of messages spike took that Butler has not answered yet. */
+	waiting?: string[];
+	/** The note Butler's answers are pinned in beside the card it was about. */
+	replyNote?: string;
 	createdAt: number;
 	updatedAt: number;
 	resolved: boolean;
@@ -358,6 +394,8 @@ export type CommentDraft = {
 	y: number;
 	text: string;
 	button?: AgentButton;
+	to?: CommentRecipient;
+	viewport?: BoardRect;
 };
 
 export type CommentPatch = { x?: number; y?: number; resolved?: boolean };

@@ -20,6 +20,7 @@ import {
 	loadWatching,
 	selfFixState,
 } from "./butler.ts";
+import { createCommentStore } from "./comments.ts";
 import { createLayoutStore } from "./layout.ts";
 import { createRegionStore } from "./regions.ts";
 
@@ -79,6 +80,12 @@ const setup = async () => {
 	let ids = 0;
 	let clock = 1000;
 	const file = join(dir, "butler.json");
+	const comments = createCommentStore({
+		file: join(dir, "c.json"),
+		initial: [],
+		onChange: () => {},
+		onRemove: () => {},
+	});
 	const butler = createButler({
 		source: {
 			board: () => board,
@@ -96,11 +103,13 @@ const setup = async () => {
 		file,
 		initial: [],
 		onChange: (next) => presences.push(next),
+		comments,
 		newId: () => `id${++ids}`,
 		now: () => clock,
 	});
 	return {
 		butler,
+		comments,
 		annotations,
 		calls,
 		events,
@@ -118,6 +127,59 @@ const cardOf = (
 ) => annotations.current()[id] as ButlerCard;
 
 describe("Butler on the board", () => {
+	it("answers a message about a card on the card too, in one note it keeps", async () => {
+		const { butler, comments, annotations } = await setup();
+		const inbox = butler.inbox;
+		assert.ok(inbox);
+		const thread = inbox.start({
+			x: -9999,
+			y: -9999,
+			text: "how is it going?",
+		});
+		assert.ok(!("error" in thread));
+		comments.update(thread.id, (t) => ({
+			...t,
+			context: {
+				card: { id: "aaaaaaaa-1", kind: "session", name: "acme-aaa" },
+			},
+		}));
+		const { messages } = JSON.parse(
+			((await butler.tool("board_inbox", {})) as { text: string }).text,
+		);
+		assert.equal(messages.length, 1);
+		await butler.tool("board_ack", { ids: [messages[0].id] });
+		const first = await butler.tool("board_reply", {
+			thread: thread.id,
+			message: messages[0].id,
+			text: "Tests are green.",
+		});
+		assert.deepEqual(first, {
+			ok: true,
+			text: "Shown on the board and noted on acme-aaa",
+		});
+		const noteId = comments.get(thread.id)?.replyNote;
+		assert.ok(noteId);
+		const pinned = annotations.current()[noteId] as Note;
+		assert.equal(pinned.author, "butler");
+		assert.equal(pinned.session, "aaaaaaaa-1");
+		await butler.tool("board_reply", {
+			thread: thread.id,
+			message: "other",
+			text: "Landed.",
+		});
+		assert.equal(comments.get(thread.id)?.replyNote, noteId);
+		assert.equal((annotations.current()[noteId] as Note).text, "Landed.");
+		assert.equal(
+			Object.values(annotations.current()).filter((a) => a.kind === "note")
+				.length,
+			1,
+		);
+		assert.deepEqual(await butler.tool("board_reply", { thread: "gone" }), {
+			ok: false,
+			error: "message is required",
+		});
+	});
+
 	it("creates, renames, moves and closes his own cards", async () => {
 		const { butler, annotations, presences } = await setup();
 		const created = await butler.tool("put_card", {

@@ -1,3 +1,4 @@
+import { computed } from "@preact/signals";
 import {
 	Gauge,
 	LibraryBig,
@@ -8,6 +9,14 @@ import {
 } from "lucide-preact";
 import type { JSX } from "preact";
 import type { NodeRef } from "../shared/types.ts";
+import { butlerPresence } from "./butler.ts";
+import {
+	butlerStatus,
+	isButlerThread,
+	openThreadId,
+	threads,
+	threadTitle,
+} from "./comments.ts";
 import { DocsView } from "./DocsView.tsx";
 import { docStores } from "./docState.ts";
 import { recentlyGone, runners } from "./runners.ts";
@@ -50,6 +59,13 @@ const views: {
 	{ id: "messages", title: "Messages", icon: MessagesSquare },
 ];
 
+/** True while a message to Butler is queued or being worked on. */
+const butlerWaiting = computed(() =>
+	[...threads.value.values()].some(
+		(t) => isButlerThread(t) && ((t.queued?.length ?? 0) > 0 || t.running),
+	),
+);
+
 function toggleView(view: RailView): void {
 	railView.value = railView.value === view ? null : view;
 }
@@ -77,6 +93,7 @@ function Badge(props: { view: RailView }): JSX.Element | null {
 		}
 		case "messages": {
 			const count = board.value?.messages.length ?? 0;
+			if (butlerWaiting.value) return <span class="rail-dot" />;
 			return count > 0 ? <span class="rail-badge num">{count}</span> : null;
 		}
 	}
@@ -175,50 +192,107 @@ export function Rail() {
 	);
 }
 
+function ButlerMessages(): JSX.Element | null {
+	const relay = butlerPresence.value.relay;
+	const list = [...threads.value.values()]
+		.filter(isButlerThread)
+		.sort((a, b) => b.updatedAt - a.updatedAt)
+		.slice(0, 20);
+	if (list.length === 0) return null;
+	return (
+		<>
+			<h3 class="rail-heading">Butler</h3>
+			<ul class="messages">
+				{list.map((thread) => {
+					const last = thread.events.at(-1);
+					const status = butlerStatus(thread, relay);
+					const failed = !status && last?.kind === "error";
+					return (
+						<li key={thread.id}>
+							<button
+								type="button"
+								class="message rail-butler-thread"
+								onClick={() => {
+									openThreadId.value = thread.id;
+								}}
+							>
+								<span class="message-route">
+									<span class="message-name">You</span>
+									<span class="message-arrow" aria-hidden="true">
+										→
+									</span>
+									<span class="message-name">Butler</span>
+									<time class="message-time num">
+										{relativeTime(thread.updatedAt, now.value)}
+									</time>
+								</span>
+								<span class="message-summary">{threadTitle(thread)}</span>
+								<span class={`message-summary${failed ? " failed" : ""}`}>
+									{status ??
+										(last && last.kind !== "user"
+											? last.text.split("\n")[0]
+											: "")}
+								</span>
+							</button>
+						</li>
+					);
+				})}
+			</ul>
+		</>
+	);
+}
+
 function Messages(): JSX.Element {
 	const messages = [...(board.value?.messages ?? [])].sort(
 		(a, b) => b.at - a.at,
 	);
+	const butler = <ButlerMessages />;
 	if (messages.length === 0)
 		return (
-			<p class="rail-empty">
-				No messages yet. When one session messages another, it shows up here and
-				travels along an arc on the board.
-			</p>
+			<>
+				{butler}
+				<p class="rail-empty">
+					No messages between sessions yet. When one session messages another,
+					it shows up here and travels along an arc on the board.
+				</p>
+			</>
 		);
 	return (
-		<ul class="messages">
-			{messages.map((m) => (
-				<li key={m.id}>
-					<button
-						type="button"
-						class={`message${litMessage.value === m.id ? " lit" : ""}`}
-						aria-pressed={selectedMessage.value === m.id}
-						onMouseEnter={() => {
-							hoveredMessage.value = m.id;
-						}}
-						onMouseLeave={() => {
-							hoveredMessage.value = null;
-						}}
-						onClick={() => {
-							selectedMessage.value =
-								selectedMessage.value === m.id ? null : m.id;
-						}}
-					>
-						<span class="message-route">
-							<span class="message-name">{nodeName(m.from)}</span>
-							<span class="message-arrow" aria-hidden="true">
-								→
+		<>
+			{butler}
+			<ul class="messages">
+				{messages.map((m) => (
+					<li key={m.id}>
+						<button
+							type="button"
+							class={`message${litMessage.value === m.id ? " lit" : ""}`}
+							aria-pressed={selectedMessage.value === m.id}
+							onMouseEnter={() => {
+								hoveredMessage.value = m.id;
+							}}
+							onMouseLeave={() => {
+								hoveredMessage.value = null;
+							}}
+							onClick={() => {
+								selectedMessage.value =
+									selectedMessage.value === m.id ? null : m.id;
+							}}
+						>
+							<span class="message-route">
+								<span class="message-name">{nodeName(m.from)}</span>
+								<span class="message-arrow" aria-hidden="true">
+									→
+								</span>
+								<span class="message-name">{nodeName(m.to)}</span>
+								<time class="message-time num">
+									{relativeTime(m.at, now.value)}
+								</time>
 							</span>
-							<span class="message-name">{nodeName(m.to)}</span>
-							<time class="message-time num">
-								{relativeTime(m.at, now.value)}
-							</time>
-						</span>
-						<span class="message-summary">{m.summary}</span>
-					</button>
-				</li>
-			))}
-		</ul>
+							<span class="message-summary">{m.summary}</span>
+						</button>
+					</li>
+				))}
+			</ul>
+		</>
 	);
 }
