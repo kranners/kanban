@@ -95,6 +95,9 @@ function linesFor(text: string, charsPerLine: number): number {
 		);
 }
 
+/** The room the bow-tie byline takes at the top of a note Butler wrote. */
+export const butlerBylineHeight = 24;
+
 export function noteFontSize(
 	text: string,
 	w: number,
@@ -145,7 +148,7 @@ export function resized<T extends Annotation>(
 	dx: number,
 	dy: number,
 ): T {
-	if (annotation.kind === "note") {
+	if (annotation.kind !== "sticker") {
 		return {
 			...annotation,
 			w: clampSize(annotation.w + dx, minNoteSize),

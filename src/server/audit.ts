@@ -82,6 +82,7 @@ export type AuditEvent =
 			input: string | null;
 			result: string;
 	  }
+	| { action: "butler"; tool: string; result: string }
 	| {
 			action: "scheduled-report";
 			schedule: string;

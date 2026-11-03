@@ -58,7 +58,7 @@ describe("parseAnnotation", () => {
 	it("refuses doc stores, which live off the board now", () => {
 		const docs = { kind: "docs", x: 0, y: 0, w: 288, h: 216, z: 2 };
 		assert.deepEqual(parseAnnotation("d1", { ...docs, title: "API guide" }), {
-			error: "kind must be note or sticker",
+			error: "kind must be note, sticker or butler-card",
 		});
 	});
 

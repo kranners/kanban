@@ -1,6 +1,11 @@
 import {
 	type Annotation,
 	type Annotations,
+	type ButlerCardState,
+	butlerCardStates,
+	maxButlerLink,
+	maxButlerSummary,
+	maxButlerTitle,
 	maxNoteText,
 	maxReportBytes,
 	type NoteColor,
@@ -50,6 +55,15 @@ const isRotation = (value: unknown): value is number =>
 const isLink = (value: unknown): value is string | undefined =>
 	value === undefined ||
 	(typeof value === "string" && annotationIdPattern.test(value));
+
+const isWebLink = (value: unknown): value is string => {
+	if (typeof value !== "string" || value.length > maxButlerLink) return false;
+	try {
+		return new URL(value).protocol === "https:";
+	} catch {
+		return false;
+	}
+};
 
 const shotUrl = /^\/api\/report-shots\/[0-9a-f]{64}\.(?:png|jpg|gif|webp)$/;
 
@@ -105,11 +119,14 @@ export const parseAnnotation = (
 		}
 		if (!isLink(session)) return { error: "session must be a session id" };
 		if (!isLink(region)) return { error: "region must be a region id" };
-		const { report } = fields;
+		const { report, author } = fields;
 		if (report !== undefined && !isReport(report)) {
 			return {
 				error: `report must be a status report of at most ${maxReportBytes} bytes`,
 			};
+		}
+		if (author !== undefined && author !== "butler") {
+			return { error: "author must be butler when given" };
 		}
 		return {
 			...placed,
@@ -119,6 +136,69 @@ export const parseAnnotation = (
 			...(session === undefined ? {} : { session }),
 			...(region === undefined ? {} : { region }),
 			...(report === undefined ? {} : { report: report as StatusReport }),
+			...(author === undefined ? {} : { author }),
+		};
+	}
+	if (fields.kind === "butler-card") {
+		const {
+			title,
+			state,
+			status,
+			summary,
+			link,
+			selfFix,
+			watching,
+			updatedAt,
+		} = fields;
+		if (
+			typeof title !== "string" ||
+			title.trim() === "" ||
+			title.length > maxButlerTitle
+		) {
+			return { error: `title must be 1 to ${maxButlerTitle} characters` };
+		}
+		if (!butlerCardStates.includes(state as ButlerCardState)) {
+			return { error: `state must be one of ${butlerCardStates.join(", ")}` };
+		}
+		if (
+			status !== undefined &&
+			(typeof status !== "string" || status.length > maxButlerTitle)
+		) {
+			return {
+				error: `status must be a string of at most ${maxButlerTitle}`,
+			};
+		}
+		if (
+			summary !== undefined &&
+			(typeof summary !== "string" || summary.length > maxButlerSummary)
+		) {
+			return {
+				error: `summary must be a string of at most ${maxButlerSummary}`,
+			};
+		}
+		if (link !== undefined && !isWebLink(link)) {
+			return {
+				error: `link must be an https URL of at most ${maxButlerLink} characters`,
+			};
+		}
+		if (!isLink(selfFix)) return { error: "selfFix must be a self-fix id" };
+		if (watching !== undefined && typeof watching !== "boolean") {
+			return { error: "watching must be true or false" };
+		}
+		if (typeof updatedAt !== "number" || !Number.isFinite(updatedAt)) {
+			return { error: "updatedAt must be a time in milliseconds" };
+		}
+		return {
+			...placed,
+			kind: "butler-card",
+			title,
+			state: state as ButlerCardState,
+			updatedAt,
+			...(status === undefined ? {} : { status: status as string }),
+			...(summary === undefined ? {} : { summary: summary as string }),
+			...(link === undefined ? {} : { link }),
+			...(selfFix === undefined ? {} : { selfFix }),
+			...(watching === undefined ? {} : { watching }),
 		};
 	}
 	if (fields.kind === "sticker") {
@@ -132,7 +212,7 @@ export const parseAnnotation = (
 		}
 		return { ...placed, kind: "sticker", sticker, rotation };
 	}
-	return { error: "kind must be note or sticker" };
+	return { error: "kind must be note, sticker or butler-card" };
 };
 
 export const parseAnnotations = (value: unknown): Annotations => {

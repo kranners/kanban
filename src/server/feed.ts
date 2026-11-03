@@ -4,6 +4,7 @@ import type {
 	Annotations,
 	Board,
 	BoardFeed,
+	ButlerPresence,
 	CommentThread,
 	Digests,
 	DocIndex,
@@ -41,6 +42,7 @@ export type Feed = {
 	relations(relations: Relation[]): void;
 	docs(): void;
 	schedules(schedules: Schedule[]): void;
+	butler(butler: ButlerPresence): void;
 	size(): number;
 };
 
@@ -58,6 +60,7 @@ export type FeedOptions = {
 	docs: () => DocIndex;
 	docStores: () => DocStore[];
 	schedules: () => Schedule[];
+	butler?: () => ButlerPresence;
 };
 
 const socketOpen = 1;
@@ -76,6 +79,7 @@ export const createFeed = ({
 	docs,
 	docStores,
 	schedules,
+	butler,
 }: FeedOptions): Feed => {
 	const clients = new Set<FeedSocket>();
 
@@ -110,6 +114,7 @@ export const createFeed = ({
 			send(socket, { type: "relations", relations: relations() });
 			send(socket, docsFrame());
 			send(socket, { type: "schedules", schedules: schedules() });
+			if (butler) send(socket, { type: "butler", butler: butler() });
 			send(socket, { type: "board", board: board() });
 		},
 		board: (next) => broadcast({ type: "board", board: next }),
@@ -131,6 +136,7 @@ export const createFeed = ({
 		relations: (next) => broadcast({ type: "relations", relations: next }),
 		docs: () => broadcast(docsFrame()),
 		schedules: (next) => broadcast({ type: "schedules", schedules: next }),
+		butler: (next) => broadcast({ type: "butler", butler: next }),
 		size: () => clients.size,
 	};
 };

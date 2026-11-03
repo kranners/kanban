@@ -229,6 +229,7 @@ export type Note = Annotated & {
 	session?: string;
 	region?: string;
 	report?: StatusReport;
+	author?: "butler";
 };
 
 export type Sticker = Annotated & {
@@ -246,7 +247,47 @@ export type DocStore = {
 	updatedAt: number;
 };
 
-export type Annotation = Note | Sticker;
+export const butlerCardStates = [
+	"working",
+	"needs-you",
+	"idle",
+	"done",
+	"failed",
+] as const;
+
+export type ButlerCardState = (typeof butlerCardStates)[number];
+
+export const maxButlerTitle = 200;
+export const maxButlerSummary = 4000;
+export const maxButlerLink = 500;
+
+/**
+ * A card Butler, Aaron's assistant bot, keeps on the board: one per
+ * self-fix he started, or one he made himself. It is an annotation so it
+ * saves, drags, resizes and arranges like a note.
+ */
+export type ButlerCard = Annotated & {
+	kind: "butler-card";
+	title: string;
+	state: ButlerCardState;
+	status?: string;
+	summary?: string;
+	link?: string;
+	selfFix?: string;
+	watching?: boolean;
+	updatedAt: number;
+};
+
+export type Annotation = Note | Sticker | ButlerCard;
+
+/** How long Butler's cursor stays on a card after he last acted on it. */
+export const butlerPresenceMs = 2 * 60_000;
+
+/** Where Butler is looking on the board, and the sessions he watches. */
+export type ButlerPresence = {
+	presence: { target: string; label: string; at: number } | null;
+	watching: string[];
+};
 
 export type Annotations = Record<string, Annotation>;
 
@@ -403,7 +444,8 @@ export type BoardFeed =
 	| { type: "digests"; digests: Digests }
 	| { type: "relations"; relations: Relation[] }
 	| { type: "docs"; docs: DocIndex; stores: DocStore[] }
-	| { type: "schedules"; schedules: Schedule[] };
+	| { type: "schedules"; schedules: Schedule[] }
+	| { type: "butler"; butler: ButlerPresence };
 
 export type NewSessionRequest = {
 	cwd: string;

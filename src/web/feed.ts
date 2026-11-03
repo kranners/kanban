@@ -1,5 +1,6 @@
 import { type BoardFeed, hasLanded } from "../shared/types.ts";
 import { notifyReport } from "./alertState.ts";
+import { butlerPresence } from "./butler.ts";
 import { receiveColours } from "./colours.ts";
 import { receiveComment, receiveComments } from "./comments.ts";
 import { digests } from "./digests.ts";
@@ -99,6 +100,10 @@ function receive(frame: BoardFeed): void {
 	}
 	if (frame.type === "schedules") {
 		receiveSchedules(frame.schedules, notifyReport);
+		return;
+	}
+	if (frame.type === "butler") {
+		butlerPresence.value = frame.butler;
 		return;
 	}
 	receiveComment(frame.comment);

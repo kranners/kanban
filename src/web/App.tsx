@@ -19,6 +19,7 @@ import { withoutSessions } from "./actions.ts";
 import { ordered } from "./annotations.ts";
 import { arrangement, groups } from "./arrangement.ts";
 import { arrived, beckoned } from "./attentionState.ts";
+import { ButlerLayer } from "./ButlerLayer.tsx";
 import { Canvas, detail } from "./Canvas.tsx";
 import { SessionCard, SubagentCard } from "./Card.tsx";
 import {
@@ -253,6 +254,7 @@ function World(props: { board: Board; layout: Arrangement }) {
 				/>
 			)}
 			<RegionNotices groups={frames} />
+			{level !== "far" && <ButlerLayer />}
 			<CommentLayer />
 		</>
 	);

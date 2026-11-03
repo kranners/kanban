@@ -38,6 +38,7 @@ import type { Audit } from "./audit.ts";
 import { type Authenticate, originAllowed } from "./auth.ts";
 import type { BoardAgent } from "./boardAgent.ts";
 import type { BoardTools } from "./boardTools.ts";
+import { type Butler, butlerAllowed } from "./butler.ts";
 import { type ColourStore, maxColours, parseColourUpdate } from "./colours.ts";
 import type { SlashCommand } from "./commands.ts";
 import {
@@ -120,6 +121,7 @@ export type ServerDeps = {
 	agent: Omit<BoardAgent, "stopAll">;
 	agentTokens: AgentTokens;
 	tools: BoardTools;
+	butler?: Butler;
 	peerHook: PeerHook;
 	attach: AttachHub;
 	mirror: MirrorHub;
@@ -187,6 +189,7 @@ export type Route =
 	| { kind: "delete-schedule"; scheduleId: string }
 	| { kind: "run-schedule"; scheduleId: string }
 	| { kind: "agent-tool"; tool: string }
+	| { kind: "butler-tool"; tool: string }
 	| { kind: "peer-hook" }
 	| { kind: "static"; path: string }
 	| { kind: "not-found" }
@@ -463,6 +466,12 @@ export const matchRoute = (method: string, url: URL): Route => {
 	if (tool?.[1]) {
 		return method === "POST"
 			? { kind: "agent-tool", tool: tool[1] }
+			: { kind: "method-not-allowed" };
+	}
+	const butlerTool = path.match(/^\/api\/butler\/tools\/([a-z_]{1,64})$/);
+	if (butlerTool?.[1]) {
+		return method === "POST"
+			? { kind: "butler-tool", tool: butlerTool[1] }
 			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api/hooks/peers") {
@@ -1242,6 +1251,28 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		sendJson(res, 200, { ok: true, text: outcome.text });
 	};
 
+	const butlerTool = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+		tool: string,
+	) => {
+		if (!deps.butler || !butlerAllowed(req)) return sendError(res, 403);
+		if (!req.headers["content-type"]?.startsWith("application/json")) {
+			return sendError(res, 415);
+		}
+		let body: unknown;
+		try {
+			body = await readJson(req);
+		} catch {
+			return sendJson(res, 400, { ok: false, error: "Invalid JSON body" });
+		}
+		const outcome = await deps.butler.tool(tool, body);
+		if (!outcome.ok) {
+			return sendJson(res, 422, { ok: false, error: outcome.error });
+		}
+		sendJson(res, 200, { ok: true, text: outcome.text });
+	};
+
 	const peerHook = async (req: IncomingMessage, res: ServerResponse) => {
 		if (!fromLoopback(req) || req.headers.origin !== undefined) {
 			return sendError(res, 403);
@@ -1268,6 +1299,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		const route = matchRoute(req.method ?? "GET", requestUrl(req));
 		if (route.kind === "healthz") return sendJson(res, 200, { ok: true });
 		if (route.kind === "agent-tool") return agentTool(req, res, route.tool);
+		if (route.kind === "butler-tool") return butlerTool(req, res, route.tool);
 		if (route.kind === "peer-hook") return peerHook(req, res);
 		if (route.kind === "docs-tool") return deps.docs.tool(req, res, route.tool);
 		const auth = await deps.authenticate(req);

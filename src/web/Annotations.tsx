@@ -35,6 +35,7 @@ import {
 	toggleSelected,
 	typeText,
 } from "./annotations.ts";
+import { ButlerByline, ButlerCardBody } from "./ButlerLayer.tsx";
 import { boardPointAt, detail, view } from "./Canvas.tsx";
 import { commandKey } from "./focus/platform.ts";
 import {
@@ -47,6 +48,7 @@ import { moveMenuFocus } from "./menuFocus.ts";
 import {
 	type AnnotationCommand,
 	annotationCommand,
+	butlerBylineHeight,
 	documentFont,
 	gridStep,
 	matchingStickers,
@@ -152,7 +154,7 @@ function noteTextStyle(text: string, note: Note, plain: boolean) {
 	const size = noteFontSize(
 		text,
 		note.w,
-		note.h,
+		note.h - (note.author === "butler" ? butlerBylineHeight : 0),
 		plain ? undefined : documentFont,
 	);
 	return { fontSize: `${size}px` };
@@ -255,13 +257,21 @@ function NoteBody(props: { note: Note; editing: boolean }): JSX.Element {
 	if (!note.text) {
 		return <div class="note-text empty">Double-click to write</div>;
 	}
+	if (note.author === "butler") {
+		return (
+			<div class="butler-note">
+				<ButlerByline note={note} />
+				<NoteMarkdown note={note} />
+			</div>
+		);
+	}
 	return <NoteMarkdown note={note} />;
 }
 
 function scrollNoteText(event: WheelEvent): void {
 	if (event.ctrlKey || event.metaKey) return;
 	const body = (event.currentTarget as Element).querySelector(
-		".note-text, .report-scroll",
+		".note-text, .report-scroll, .butler-card-summary",
 	);
 	if (
 		body &&
@@ -291,6 +301,7 @@ function annotationLabel(annotation: Annotation): string | undefined {
 	if (annotation.kind === "sticker") {
 		return stickerNames.get(annotation.sticker) ?? annotation.sticker;
 	}
+	if (annotation.kind === "butler-card") return `Butler: ${annotation.title}`;
 	return annotation.text ? undefined : "Empty note";
 }
 
@@ -314,9 +325,9 @@ function AnnotationView(props: {
 			aria-roledescription={annotation.kind}
 			aria-label={annotationLabel(annotation)}
 			onPointerDown={(event) => grab(event, annotation)}
-			onWheel={annotation.kind === "note" ? scrollNoteText : undefined}
+			onWheel={annotation.kind !== "sticker" ? scrollNoteText : undefined}
 			onDblClick={(event) => {
-				if (annotation.kind === "sticker" || onNoteControl(event)) return;
+				if (annotation.kind !== "note" || onNoteControl(event)) return;
 				if (annotation.kind === "note" && annotation.report) {
 					openReport.value = annotation.id;
 					return;
@@ -328,6 +339,8 @@ function AnnotationView(props: {
 		>
 			{annotation.kind === "note" ? (
 				<NoteBody note={annotation} editing={props.editing} />
+			) : annotation.kind === "butler-card" ? (
+				<ButlerCardBody card={annotation} />
 			) : (
 				<StickerBody sticker={annotation} />
 			)}

@@ -114,7 +114,7 @@ const rect = (item: { x: number; y: number; w: number; h: number }) => ({
 	h: Math.round(item.h),
 });
 
-const arranged = (
+export const arranged = (
 	board: Board,
 	deps: Pick<BoardToolDeps, "layout" | "annotations" | "regions">,
 ) =>
@@ -236,7 +236,25 @@ export const snapshot = (
 							...rect(a),
 							color: a.color,
 							session: a.session,
+							...(a.author ? { author: a.author } : {}),
 							text: truncate(a.text, noteTextShown),
+						},
+					]
+				: [],
+		),
+		butlerCards: annotations.flatMap((a) =>
+			a.kind === "butler-card"
+				? [
+						{
+							id: a.id,
+							...rect(a),
+							title: a.title,
+							state: a.state,
+							status: a.status ?? null,
+							selfFix: a.selfFix ?? null,
+							link: a.link ?? null,
+							watching: a.watching === true,
+							updatedAt: new Date(a.updatedAt).toISOString(),
 						},
 					]
 				: [],

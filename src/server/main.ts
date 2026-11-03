@@ -30,6 +30,7 @@ import {
 	projectsOf,
 	summariesOfBoard,
 } from "./boardTools.ts";
+import { type Butler, createButler, loadWatching } from "./butler.ts";
 import {
 	type CloudApi,
 	cloudCredentials,
@@ -124,6 +125,7 @@ const audit = fileAudit(config.auditLog);
 
 let feed: Feed | null = null;
 let schedules: Scheduler | null = null;
+let butler: Butler | null = null;
 const layoutFile = join(config.stateDir, "layout.json");
 const layout = createLayoutStore({
 	file: layoutFile,
@@ -330,6 +332,7 @@ feed = createFeed({
 	docs: docs.index,
 	docStores: docStores.current,
 	schedules: () => schedules?.current() ?? [],
+	butler: () => butler?.current() ?? { presence: null, watching: [] },
 });
 const digestTick = setInterval(digests.pump, digestTickMs);
 
@@ -490,6 +493,18 @@ const tools = createBoardTools({
 		),
 	audit,
 });
+const butlerFile = join(config.stateDir, "butler.json");
+butler = createButler({
+	source,
+	layout,
+	annotations,
+	regions,
+	tools,
+	audit,
+	file: butlerFile,
+	initial: await loadWatching(butlerFile),
+	onChange: (next) => feed?.butler(next),
+});
 const schedulesFile = join(config.stateDir, "schedules.json");
 schedules = createScheduler({
 	file: schedulesFile,
@@ -525,6 +540,7 @@ const server = createKanbanServer({
 	agent,
 	agentTokens,
 	tools,
+	butler,
 	peerHook: createPeerHook({
 		units: () =>
 			summariesOfBoard(source.board(), { layout, annotations, regions }),
