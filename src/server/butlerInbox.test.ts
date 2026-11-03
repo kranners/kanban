@@ -115,12 +115,35 @@ describe("Butler's inbox on the board", () => {
 		assert.equal(store.get(thread.id)?.events.at(-1)?.kind, "error");
 	});
 
-	it("never takes the board agent's threads", async () => {
-		const { inbox, store } = await setup();
-		const agent = store.create({ x: 0, y: 0, text: "tidy" });
-		assert.ok(agent);
-		const sent = inbox.send(agent.id, "hello");
+	it("never takes the retired board agent's threads", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-inbox-"));
+		const [retired] = parseComments([
+			{
+				id: "old",
+				x: 0,
+				y: 0,
+				createdAt: 1,
+				updatedAt: 1,
+				resolved: false,
+				sessionId: "00000000-0000-4000-8000-000000000001",
+				events: [{ kind: "user", at: 1, text: "tidy" }],
+			},
+		]);
+		assert.ok(retired);
+		const store = createCommentStore({
+			file: join(dir, "comments.json"),
+			initial: [retired],
+			onChange: () => {},
+			onRemove: () => {},
+		});
+		const inbox = createButlerInbox({
+			store,
+			contextAt: () => ({}),
+			onRelay: () => {},
+		});
+		const sent = inbox.send("old", "hello");
 		assert.ok("error" in sent && sent.status === 409);
-		assert.equal(inbox.reply(agent.id, "x", "hi", true), null);
+		assert.equal(inbox.reply("old", "x", "hi", true), null);
+		assert.equal(inbox.take().length, 0);
 	});
 });

@@ -17,7 +17,6 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type {
 	BoardRect,
 	CommentEvent,
-	CommentRecipient,
 	CommentThread,
 } from "../shared/types.ts";
 import { ButlerAvatar } from "./Butler.tsx";
@@ -25,17 +24,15 @@ import { butlerPresence } from "./butler.ts";
 import { boardPointAt, clientPointOf, view } from "./Canvas.tsx";
 import {
 	butlerStatus,
-	buttonThreads,
 	composer,
 	isCommentKey,
+	isRetired,
 	movePin,
-	openButton,
 	openThread,
 	openThreadId,
 	pinned,
 	pinState,
 	previewPin,
-	recipient,
 	remove,
 	reply,
 	resolve,
@@ -108,21 +105,6 @@ function PinIcon(props: { thread: CommentThread }): JSX.Element {
 	if (props.thread.to === "butler") return <ButlerAvatar size={18} />;
 	return <Bot size={16} aria-hidden="true" />;
 }
-
-const recipientCopy = {
-	butler: {
-		name: "Butler",
-		ask: "Message Butler",
-		placeholder:
-			"Message Butler: tidy the board, what needs me, tell this session…",
-	},
-	agent: {
-		name: "Board agent",
-		ask: "Ask the board agent",
-		placeholder:
-			"Ask the board agent: organise my board into projects, report on a session…",
-	},
-} satisfies Record<CommentRecipient, unknown>;
 
 /** The part of the board on screen, so Butler knows what Aaron is looking at. */
 export function visibleBoard(): BoardRect | undefined {
@@ -205,7 +187,7 @@ function Composer(): JSX.Element | null {
 	useRestoreFocus(at !== null);
 
 	useEffect(() => {
-		setText("");
+		setText(at?.text ?? "");
 		setError(null);
 		setSending(false);
 		if (at) field.current?.focus({ preventScroll: true });
@@ -221,8 +203,6 @@ function Composer(): JSX.Element | null {
 	}, [at]);
 
 	if (!at) return null;
-	const to = recipient.value;
-	const copy = recipientCopy[to];
 	const client = clientPointOf(at.board) ?? at.client;
 	const left = Math.max(
 		8,
@@ -233,11 +213,7 @@ function Composer(): JSX.Element | null {
 		const message = text.trim();
 		if (!message || sending) return;
 		setSending(true);
-		const to = recipient.peek();
-		const started = await startThread(at.board, message, undefined, {
-			recipient: to,
-			...(to === "butler" ? { viewport: visibleBoard() } : {}),
-		});
+		const started = await startThread(at.board, message, visibleBoard());
 		if (started.ok) composer.value = null;
 		else {
 			setSending(false);
@@ -249,42 +225,23 @@ function Composer(): JSX.Element | null {
 			class="comment-composer"
 			ref={panel}
 			style={{ left: `${left}px`, top: `${top}px` }}
-			aria-label={copy.ask}
+			aria-label="Message Butler"
 			onSubmit={(event) => {
 				event.preventDefault();
 				void submit();
 			}}
 		>
-			<div class="comment-composer-head">
-				<span
-					class={`comment-composer-pin${to === "butler" ? " to-butler" : ""}`}
-					aria-hidden="true"
-				>
-					{to === "butler" ? <ButlerAvatar size={18} /> : <Bot size={14} />}
-				</span>
-				<label class="comment-recipient">
-					<span class="visually-hidden">Send to</span>
-					<select
-						value={to}
-						aria-label="Send to"
-						onChange={(event) => {
-							recipient.value = event.currentTarget.value as CommentRecipient;
-							field.current?.focus({ preventScroll: true });
-						}}
-					>
-						<option value="butler">Butler</option>
-						<option value="agent">Board agent</option>
-					</select>
-				</label>
-			</div>
+			<span class="comment-composer-pin to-butler" aria-hidden="true">
+				<ButlerAvatar size={18} />
+			</span>
 			<textarea
 				ref={field}
 				class="comment-input"
 				rows={2}
 				value={text}
 				maxLength={4000}
-				placeholder={copy.placeholder}
-				aria-label={`Message for ${copy.name}`}
+				placeholder="Message Butler: tidy the board, what needs me, tell this session…"
+				aria-label="Message for Butler"
 				onInput={(event) => setText(event.currentTarget.value)}
 				onKeyDown={(event) => {
 					if (event.isComposing) return;
@@ -377,8 +334,8 @@ function ThreadBody(props: {
 		if (sent.ok) setText("");
 		else setError(sent.error);
 	};
-	const deleteLabel = thread.button ? "Clear result" : "Delete comment";
-	const toButler = thread.to === "butler";
+	const deleteLabel = "Delete comment";
+	const toButler = !isRetired(thread);
 	const waiting = toButler
 		? butlerStatus(thread, butlerPresence.value.relay)
 		: null;
@@ -395,7 +352,7 @@ function ThreadBody(props: {
 					<Bot size={15} aria-hidden="true" />
 				)}
 				<span class="comment-thread-title">
-					{toButler ? "Butler" : "Board agent"}
+					{toButler ? "Butler" : "Board agent (retired)"}
 				</span>
 				<span class={`comment-status status-${pinState(thread)}`}>
 					{stateLabels[pinState(thread)]}
@@ -468,50 +425,33 @@ function ThreadBody(props: {
 					<p class="comment-footnote">Butler also keeps this in Discord.</p>
 				)}
 			</div>
-			<form
-				class="comment-reply"
-				onSubmit={(event) => {
-					event.preventDefault();
-					void send();
-				}}
-			>
-				<textarea
-					class="comment-input"
-					rows={1}
-					value={text}
-					maxLength={4000}
-					placeholder={
-						thread.running && !toButler
-							? "Working…"
-							: toButler
-								? "Reply to Butler"
-								: "Reply"
-					}
-					aria-label={toButler ? "Reply to Butler" : "Reply to the board agent"}
-					disabled={thread.running && !toButler}
-					onInput={(event) => {
-						setText(event.currentTarget.value);
-						setError(null);
+			{toButler ? (
+				<form
+					class="comment-reply"
+					onSubmit={(event) => {
+						event.preventDefault();
+						void send();
 					}}
-					onKeyDown={(event) => {
-						if (event.isComposing) return;
-						if (event.key === "Enter" && !event.shiftKey) {
-							event.preventDefault();
-							void send();
-						}
-					}}
-				/>
-				{thread.running && !toButler ? (
-					<button
-						type="button"
-						class="icon-button comment-stop"
-						aria-label="Stop the agent"
-						title="Stop"
-						onClick={() => void stop(thread.id)}
-					>
-						<Square size={13} />
-					</button>
-				) : (
+				>
+					<textarea
+						class="comment-input"
+						rows={1}
+						value={text}
+						maxLength={4000}
+						placeholder="Reply to Butler"
+						aria-label="Reply to Butler"
+						onInput={(event) => {
+							setText(event.currentTarget.value);
+							setError(null);
+						}}
+						onKeyDown={(event) => {
+							if (event.isComposing) return;
+							if (event.key === "Enter" && !event.shiftKey) {
+								event.preventDefault();
+								void send();
+							}
+						}}
+					/>
 					<button
 						type="submit"
 						class="icon-button comment-send"
@@ -521,8 +461,13 @@ function ThreadBody(props: {
 					>
 						<ArrowUp size={15} />
 					</button>
-				)}
-			</form>
+				</form>
+			) : (
+				<p class="comment-footnote comment-retired">
+					The board agent has been retired. Press <kbd>/</kbd> to message Butler
+					instead.
+				</p>
+			)}
 			{error && (
 				<p class="comment-error" role="alert">
 					{error}
@@ -577,64 +522,6 @@ function ThreadPanel(): JSX.Element | null {
 			}}
 		>
 			<ThreadBody key={thread.id} thread={thread} onClose={close} />
-		</section>
-	);
-}
-
-export function closeButtonPanel(): void {
-	const button = openButton.peek();
-	const thread = button ? buttonThreads.peek().get(button) : undefined;
-	openButton.value = null;
-	if (thread && !thread.running && !thread.resolved) {
-		void resolve(thread.id, true);
-	}
-}
-
-function ButtonPanel(): JSX.Element | null {
-	const button = openButton.value;
-	const thread = button ? buttonThreads.value.get(button) : undefined;
-	const panel = useRef<HTMLElement>(null);
-
-	useEffect(() => {
-		if (!button) return;
-		const closeOutside = (event: PointerEvent) => {
-			const target = event.target as Element;
-			if (panel.current?.contains(target)) return;
-			if (target.closest(`[data-agent-button="${button}"], .confirm-dialog`)) {
-				return;
-			}
-			closeButtonPanel();
-		};
-		addEventListener("pointerdown", closeOutside, true);
-		return () => removeEventListener("pointerdown", closeOutside, true);
-	}, [button]);
-
-	const box = button
-		? document
-				.querySelector(`[data-agent-button="${button}"]`)
-				?.getBoundingClientRect()
-		: undefined;
-	if (!button || !thread || !box) return null;
-	const left = Math.max(
-		8,
-		Math.min(box.right - panelWidth, innerWidth - panelWidth - 8),
-	);
-	return (
-		<section
-			class="comment-thread agent-panel"
-			ref={panel}
-			style={{ left: `${left}px`, top: `${box.bottom + 6}px` }}
-			role="dialog"
-			aria-label="Board agent"
-			onKeyDown={(event) => {
-				if (event.key === "Escape") {
-					event.preventDefault();
-					event.stopPropagation();
-					closeButtonPanel();
-				}
-			}}
-		>
-			<ThreadBody key={thread.id} thread={thread} onClose={closeButtonPanel} />
 		</section>
 	);
 }
@@ -732,13 +619,12 @@ export function CommentOverlays(): JSX.Element {
 		<>
 			<Composer />
 			<ThreadPanel />
-			<ButtonPanel />
 			<ThreadMenu />
 		</>
 	);
 }
 
-function centreTarget() {
+export function centreTarget() {
 	const stage = document.querySelector(".viewport");
 	if (!stage) return null;
 	const box = stage.getBoundingClientRect();

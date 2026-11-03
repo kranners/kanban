@@ -28,7 +28,6 @@ import {
 	topZ,
 } from "../web/notes.ts";
 import type { Rect } from "../web/placement.ts";
-import { fromLoopback } from "./agentAuth.ts";
 import { type AnnotationStore, parseAnnotation } from "./annotations.ts";
 import type { Audit } from "./audit.ts";
 import {
@@ -42,6 +41,7 @@ import {
 import { type ButlerInbox, createButlerInbox } from "./butlerInbox.ts";
 import type { CommentStore } from "./comments.ts";
 import type { BoardSource } from "./http.ts";
+import { fromLoopback } from "./loopback.ts";
 import { createStateFile, readState } from "./stateFile.ts";
 
 // Butler, Aaron's assistant bot on spike, reaches the board over ssh and

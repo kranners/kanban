@@ -338,13 +338,6 @@ export type CommentEvent =
 	| { kind: "reply"; at: number; text: string }
 	| { kind: "error"; at: number; text: string };
 
-export const agentButtons = ["tidy", "snooze"] as const;
-export type AgentButton = (typeof agentButtons)[number];
-
-/** Who a comment is for: Butler on spike, or the board agent on this Mac. */
-export const commentRecipients = ["butler", "agent"] as const;
-export type CommentRecipient = (typeof commentRecipients)[number];
-
 export type BoardRect = { x: number; y: number; w: number; h: number };
 
 /** What a message to Butler was about, worked out by the board when it was sent. */
@@ -370,8 +363,7 @@ export type CommentThread = {
 	id: string;
 	x: number;
 	y: number;
-	button?: AgentButton;
-	/** Set for a thread with Butler; absent for the board agent's. */
+	/** Set on every thread with Butler; absent on the retired board agent's, kept to read. */
 	to?: "butler";
 	context?: BoardContext;
 	/** Butler's messages spike has not taken yet, oldest first. */
@@ -393,41 +385,10 @@ export type CommentDraft = {
 	x: number;
 	y: number;
 	text: string;
-	button?: AgentButton;
-	to?: CommentRecipient;
 	viewport?: BoardRect;
 };
 
 export type CommentPatch = { x?: number; y?: number; resolved?: boolean };
-
-export const scheduleModes = ["replace", "stack"] as const;
-export type ScheduleMode = (typeof scheduleModes)[number];
-
-export type ScheduleDraft = {
-	time: string;
-	prompt: string;
-	x: number;
-	y: number;
-	mode: ScheduleMode;
-};
-
-export type ScheduleRun = {
-	threadId: string;
-	startedAt: number;
-	slot: number | null;
-};
-
-export type Schedule = ScheduleDraft & {
-	id: string;
-	createdAt: number;
-	lastSlot: number;
-	lastRunAt: number | null;
-	lastError: string | null;
-	threadId: string | null;
-	run: ScheduleRun | null;
-	noteId: string | null;
-	reportedAt: number | null;
-};
 
 export type UsageWindow = { percent: number; resetsAt: number | null };
 
@@ -491,7 +452,6 @@ export type BoardFeed =
 	| { type: "digests"; digests: Digests }
 	| { type: "relations"; relations: Relation[] }
 	| { type: "docs"; docs: DocIndex; stores: DocStore[] }
-	| { type: "schedules"; schedules: Schedule[] }
 	| { type: "butler"; butler: ButlerPresence }
 	| { type: "runners"; runners: RunnerView[] };
 

@@ -124,7 +124,6 @@ export const createButlerInbox = (deps: ButlerInboxDeps): ButlerInbox => {
 				x: draft.x,
 				y: draft.y,
 				text: draft.text,
-				to: "butler",
 			});
 			if (!created) {
 				return { error: "The board holds too many comments", status: 409 };
@@ -140,7 +139,10 @@ export const createButlerInbox = (deps: ButlerInboxDeps): ButlerInbox => {
 			const thread = deps.store.get(threadId);
 			if (!thread) return { error: "No such thread", status: 404 };
 			if (!isButler(thread)) {
-				return { error: "That thread is the board agent's", status: 409 };
+				return {
+					error: "That thread is the retired board agent's",
+					status: 409,
+				};
 			}
 			const refused = limited();
 			if (refused) return refused;

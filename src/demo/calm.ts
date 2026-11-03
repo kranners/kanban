@@ -16,7 +16,7 @@ const welcome = [
 	"- Click a card to open its conversation",
 	"- Drag cards, or press **R** for a project region",
 	"- Right-click the board for notes and stickers",
-	"- Press **/** to message Butler or the board agent",
+	"- Press **/** to message Butler",
 ].join("\n");
 
 function digestsAt(start: number): Digests {
@@ -366,7 +366,6 @@ function world(start: number): World {
 			},
 		},
 		comments: [],
-		schedules: [],
 		files: {
 			"acme-api": [
 				"src/auth/middleware.ts",
