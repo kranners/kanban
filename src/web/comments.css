@@ -373,3 +373,80 @@
 .rail-butler-thread .message-summary.failed {
 	color: var(--red);
 }
+
+.comment-cancel,
+.message-butler-fab {
+	display: none;
+}
+
+/* On touch screens a floating button stands in for the / key. */
+@media (hover: none) and (pointer: coarse) {
+	.message-butler-fab {
+		position: fixed;
+		z-index: 30;
+		right: calc(16px + env(safe-area-inset-right));
+		bottom: calc(16px + env(safe-area-inset-bottom));
+		display: grid;
+		place-items: center;
+		width: 56px;
+		height: 56px;
+		border: 2px solid var(--butler);
+		border-radius: 50%;
+		background: var(--surface);
+		box-shadow: var(--shadow-pop);
+	}
+	.comment-hint kbd,
+	.comment-hint {
+		visibility: hidden;
+	}
+	.comment-composer .icon-button,
+	.comment-thread .icon-button {
+		width: 44px;
+		height: 44px;
+	}
+	.comment-cancel {
+		display: grid;
+	}
+}
+
+/* On phones the popup to Butler and its threads are full-screen sheets that
+   stop above the on-screen keyboard. */
+@media (max-width: 720px), (max-height: 500px) and (pointer: coarse) {
+	.message-butler-fab {
+		bottom: calc(120px + env(safe-area-inset-bottom));
+	}
+	.comment-composer,
+	.comment-thread {
+		left: 0 !important;
+		right: 0;
+		top: 0 !important;
+		width: auto;
+		max-width: none;
+		height: var(--app-height, 100dvh);
+		max-height: none;
+		border-radius: 0;
+		box-shadow: none;
+	}
+	.comment-thread {
+		padding: env(safe-area-inset-top) env(safe-area-inset-right)
+			env(safe-area-inset-bottom) env(safe-area-inset-left);
+	}
+	.comment-composer {
+		padding-top: calc(10px + env(safe-area-inset-top));
+		padding-left: calc(12px + env(safe-area-inset-left));
+		padding-right: calc(12px + env(safe-area-inset-right));
+		padding-bottom: calc(8px + env(safe-area-inset-bottom));
+		box-shadow: none;
+	}
+	.comment-composer .comment-input {
+		flex: 1;
+		max-height: none;
+		font-size: 16px;
+	}
+}
+
+@media (max-height: 500px) and (min-width: 721px) and (pointer: coarse) {
+	.message-butler-fab {
+		right: calc(60px + env(safe-area-inset-right));
+	}
+}
