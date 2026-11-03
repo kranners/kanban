@@ -1,4 +1,13 @@
-import { copyFile, cp, mkdir, rename, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import {
+	copyFile,
+	cp,
+	mkdir,
+	readFile,
+	rename,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
 
@@ -6,7 +15,15 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const web = `${root}src/web/`;
 const dist = `${root}dist/`;
 const site = `${root}_site/`;
-const staticFiles = ["index.html", "favicon.svg", "manifest.webmanifest"];
+const staticFiles = [
+	"index.html",
+	"offline.html",
+	"favicon.svg",
+	"manifest.webmanifest",
+	"icon-180.png",
+	"icon-192.png",
+	"icon-512.png",
+];
 const modules = `${root}node_modules/`;
 const siteFiles = {
 	"index.html": `${root}site/index.html`,
@@ -46,6 +63,27 @@ export const runnerBuildOptions = (outfile: string): esbuild.BuildOptions => ({
 	logLevel: "warning",
 });
 
+// The service worker's version is a hash of the shell it caches, so a build
+// that changes the app makes installed copies fetch the new shell.
+export const shellVersion = (files: Buffer[]): string => {
+	const hash = createHash("sha256");
+	for (const file of files) hash.update(file);
+	return hash.digest("hex").slice(0, 16);
+};
+
+async function writeServiceWorker(next: string): Promise<void> {
+	const shell = await Promise.all(
+		["app.js", "app.css", ...staticFiles].map((file) =>
+			readFile(`${next}${file}`).catch(() => Buffer.alloc(0)),
+		),
+	);
+	const worker = await readFile(`${web}sw.js`, "utf8");
+	await writeFile(
+		`${next}sw.js`,
+		worker.replace("__BUILD__", shellVersion(shell)),
+	);
+}
+
 async function bundle(
 	entry: string,
 	outDir: string,
@@ -75,6 +113,7 @@ async function bundle(
 	await Promise.all(
 		staticFiles.map((file) => copyFile(`${web}${file}`, `${next}${file}`)),
 	);
+	await writeServiceWorker(next);
 	await extra(next);
 	await swapIn(next, out);
 }

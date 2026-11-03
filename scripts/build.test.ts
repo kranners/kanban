@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { swapIn } from "./build.ts";
+import { shellVersion, swapIn } from "./build.ts";
 
 describe("swapIn", () => {
 	it("replaces the old build and leaves no staging dirs", async () => {
@@ -27,5 +27,14 @@ describe("swapIn", () => {
 		await writeFile(join(`${out}.next`, "app.js"), "new");
 		await swapIn(`${out}.next`, out);
 		assert.equal(await readFile(join(out, "app.js"), "utf8"), "new");
+	});
+});
+
+describe("shellVersion", () => {
+	it("changes when any shell file changes", () => {
+		const a = shellVersion([Buffer.from("app"), Buffer.from("css")]);
+		assert.equal(a, shellVersion([Buffer.from("app"), Buffer.from("css")]));
+		assert.notEqual(a, shellVersion([Buffer.from("app2"), Buffer.from("css")]));
+		assert.match(a, /^[0-9a-f]{16}$/);
 	});
 });

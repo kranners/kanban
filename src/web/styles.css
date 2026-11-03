@@ -140,8 +140,17 @@ button {
 .app {
 	display: flex;
 	flex-direction: column;
-	height: 100%;
+	height: var(--app-height, 100%);
 	overflow: hidden;
+	padding: env(safe-area-inset-top) env(safe-area-inset-right) 0
+		env(safe-area-inset-left);
+}
+
+@media (pointer: coarse) {
+	.icon-button {
+		width: 40px;
+		height: 40px;
+	}
 }
 
 .topbar {
