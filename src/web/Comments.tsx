@@ -266,6 +266,17 @@ function Composer(): JSX.Element | null {
 					</span>
 				)}
 				<button
+					type="button"
+					class="icon-button comment-cancel"
+					onClick={() => {
+						composer.value = null;
+					}}
+					aria-label="Cancel"
+					title="Cancel"
+				>
+					<X size={15} />
+				</button>
+				<button
 					type="submit"
 					class="icon-button comment-send"
 					disabled={!text.trim() || sending}
@@ -614,9 +625,32 @@ function ThreadMenu(): JSX.Element | null {
 	);
 }
 
+// Touch screens have no / key, so a floating button opens the same popup to
+// Butler at the middle of the board.
+function MessageButlerButton(): JSX.Element | null {
+	if (composer.value || openThreadId.value) return null;
+	return (
+		<button
+			type="button"
+			class="message-butler-fab"
+			aria-label="Message Butler"
+			title="Message Butler"
+			onClick={() => {
+				const at = centreTarget();
+				if (!at) return;
+				openThreadId.value = null;
+				composer.value = at;
+			}}
+		>
+			<ButlerAvatar size={26} />
+		</button>
+	);
+}
+
 export function CommentOverlays(): JSX.Element {
 	return (
 		<>
+			<MessageButlerButton />
 			<Composer />
 			<ThreadPanel />
 			<ThreadMenu />
