@@ -188,10 +188,9 @@ describe("board tools", () => {
 			return JSON.parse(result.text.split("\n")[1] ?? "{}").thisComment;
 		};
 		const pin = comments.create({ x: 30, y: 40, text: "pin" });
-		const tidy = comments.create({ x: 0, y: 0, text: "tidy", button: "tidy" });
-		assert.ok(pin && tidy);
+		assert.ok(pin);
 		assert.deepEqual(await thisComment(pin.id), { x: 30, y: 40 });
-		assert.equal(await thisComment(tidy.id), null);
+		assert.equal(await thisComment("butler"), null);
 	});
 
 	it("moves cards by id or short id, pinned and snapped, all or nothing", async () => {
@@ -373,7 +372,7 @@ describe("board tools", () => {
 			ok: true,
 			text: "acme-bbb is not ready to finish: Uncommitted work",
 		});
-		assert.deepEqual(exits, [["bbbbbbbb-2", false, "board-agent"]]);
+		assert.deepEqual(exits, [["bbbbbbbb-2", false, "butler"]]);
 		assert.equal(events.at(-1)?.action, "board-agent");
 	});
 

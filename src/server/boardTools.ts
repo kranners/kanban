@@ -81,7 +81,8 @@ export type PromptAnswerer = (
 	reply: PromptReply | null,
 ) => Promise<CmuxResult<string>>;
 
-export const agentIdentity = "board-agent";
+/** Who an announce or exit through the board's tools is audited as: Butler, their only caller now. */
+export const agentIdentity = "butler";
 
 const readOnly = new Set<ToolCall["tool"]>([
 	"board_snapshot",
@@ -332,7 +333,7 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 			const view = snapshot(
 				board,
 				deps,
-				thread && !thread.button ? { x: thread.x, y: thread.y } : null,
+				thread ? { x: thread.x, y: thread.y } : null,
 			);
 			return done(
 				`Board: ${plural(view.sessions.length, "session")}, ${plural(view.regions.length, "region")}, ${plural(view.notes.length, "note")}, ${plural(view.stickers.length, "sticker")}\n${JSON.stringify(view)}`,

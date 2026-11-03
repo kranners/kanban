@@ -791,7 +791,6 @@ function world(start: number): World {
 		colours: {},
 		annotations: {},
 		comments: [],
-		schedules: [],
 		digests: noDigests,
 		files: {},
 		stories: {

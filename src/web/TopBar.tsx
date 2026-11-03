@@ -1,3 +1,4 @@
+import { signal } from "@preact/signals";
 import {
 	Bed,
 	Broom,
@@ -12,23 +13,22 @@ import {
 	SunMoon,
 } from "lucide-preact";
 import { useState } from "preact/hooks";
-import type { AgentButton } from "../shared/types.ts";
 import { NotifyToggle } from "./Alerts.tsx";
 import { AnnounceDialog } from "./Announce.tsx";
-import { closeButtonPanel } from "./Comments.tsx";
+import { centreTarget, visibleBoard } from "./Comments.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import {
-	buttonThreads,
-	openButton,
+	composer,
+	openThreadId,
 	pinState,
 	startThread,
+	threads,
 } from "./comments.ts";
 import { held } from "./exits.ts";
 import { optionKey } from "./focus/platform.ts";
 import { Mark } from "./Mark.tsx";
 import { NextNeedingYou } from "./NeedsYou.tsx";
 import { PermissionSurveyDialog } from "./PermissionSurvey.tsx";
-import { scheduleDialog } from "./schedules.ts";
 import { connection, newSessionOpen } from "./state.ts";
 import { cycleTheme, theme } from "./theme.ts";
 
@@ -42,92 +42,96 @@ const themeName = {
 const awayMessage =
 	"I'm stepping away for an extended period and won't be around to answer. Ask me now, in one message, for everything you will need to carry on unattended until your task is done: permissions, credentials, decisions and approvals. Once I've answered, keep working without me.";
 
-const agentButtonCopy = {
+// The top bar's requests to Butler, who carries them out with his kanban
+// tools on spike. Each is an ordinary message, as if typed with /, so it
+// lands in a thread on the board and in Discord, and anything acting
+// through a session still waits for Aaron's approval there.
+const butlerRequests = {
 	tidy: {
 		icon: Broom,
 		label: "Tidy the board",
-		busy: "Tidying the board",
+		busy: "Butler is tidying the board",
 		prompt:
-			"Tidy up the board: group the sessions into project regions by directory, lay out each region's cards in a neat grid, and keep notes and stickers beside what they are about.",
-		ask: "Tidy the board?",
-		confirmLabel: "Tidy",
+			"Tidy up my board: group the sessions into project regions by directory, lay out each region's cards in a neat grid, and keep notes and stickers beside what they are about. Don't delete anything or move things unrelated to tidying. Tell me in a sentence what you changed.",
+		ask: "Ask Butler to tidy the board?",
+		confirmLabel: "Ask Butler",
 		detail:
-			"The board agent groups sessions into project regions by directory and lays out their cards, notes and stickers.",
+			"Butler groups sessions into project regions by directory and lays out their cards, notes and stickers.",
 		note: null,
 	},
 	snooze: {
 		icon: Bed,
 		label: "Leave for a while",
-		busy: "Telling sessions you're leaving",
-		prompt: `The user is leaving for an extended period. Start with board_snapshot, then call send_prompt on every session whose activity is working, watching or idle, with exactly this text: "${awayMessage}" Skip every session whose activity is needs-you: it is waiting on a question or permission prompt, so send it nothing and never answer its prompt with answer_prompt. Skip sessions that are done, failed or stopped. If send_prompt refuses a session, do not retry or work around it. Do not move, note or change anything on the board. Finish with a short summary: the sessions you told, then each session you skipped because it was waiting on the user (by name, with what it is waiting on), then each session send_prompt refused (by name, with the reason).`,
+		busy: "Butler is telling sessions you're leaving",
+		prompt: `I'm leaving for an extended period. On my board, send_prompt every session whose activity is working, watching or idle with exactly this text: "${awayMessage}" Skip every session that is waiting on me (needs-you), and never answer its prompt. Skip sessions that are done, failed or stopped. Don't retry or work around a session that refuses. Don't move, note or change anything else on the board. Then tell me which sessions you told, which you skipped because they were waiting on me (with what each is waiting on), and which refused.`,
 		ask: "Leave for a while?",
-		confirmLabel: "Tell sessions",
+		confirmLabel: "Ask Butler",
 		detail:
-			"The board agent tells every running session you're leaving for an extended period, so each asks you now for every permission, credential, decision and approval it needs to carry on unattended.",
-		note: "Sessions waiting on a question or permission prompt are skipped and listed in its summary.",
+			"Butler tells every running session you're leaving for an extended period, so each asks you now for every permission, credential, decision and approval it needs to carry on unattended.",
+		note: "Each message to a session waits for your approval in Discord, gathered into one DM with Allow all. Sessions waiting on a question are skipped.",
 	},
-} satisfies Record<AgentButton, unknown>;
+} as const;
 
-function BoardAgentButton(props: { button: AgentButton }) {
-	const { button } = props;
-	const copy = agentButtonCopy[button];
+type ButlerRequest = keyof typeof butlerRequests;
+
+/** The thread each top bar request last started, while this page is open. */
+const requestThreads = signal<Partial<Record<ButlerRequest, string>>>({});
+
+async function askButler(request: ButlerRequest): Promise<string | null> {
+	const at = centreTarget()?.board ?? { x: 0, y: 0 };
+	const started = await startThread(
+		at,
+		butlerRequests[request].prompt,
+		visibleBoard(),
+	);
+	if (!started.ok) return started.error;
+	requestThreads.value = {
+		...requestThreads.peek(),
+		[request]: started.value.id,
+	};
+	return null;
+}
+
+function ButlerRequestButton(props: { request: ButlerRequest }) {
+	const { request } = props;
+	const copy = butlerRequests[request];
 	const { label } = copy;
-	const thread = buttonThreads.value.get(button);
+	const threadId = requestThreads.value[request];
+	const thread = threadId ? threads.value.get(threadId) : undefined;
 	const state = thread ? pinState(thread) : null;
-	const unseen = state === "answered" || state === "failed";
-	const open = openButton.value === button;
+	const busy = state === "running" || state === "queued";
 	const [asking, setAsking] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const Icon = copy.icon;
-	const run = async () => {
-		const started = await startThread({ x: 0, y: 0 }, copy.prompt, button);
-		setError(started.ok ? null : started.error);
-	};
+	const run = async () => setError(await askButler(request));
 	const title =
 		error ??
-		(state === "running"
+		(busy
 			? `${copy.busy} · click to watch`
-			: unseen
-				? `${label} · click to see the result`
-				: `${label} with the board agent (hold ${optionKey} to skip confirming)`);
+			: `${label} with Butler (hold ${optionKey} to skip confirming)`);
 	return (
 		<>
 			<button
 				type="button"
 				class="icon-button agent-button"
-				data-agent-button={button}
+				data-agent-button={request}
 				aria-haspopup="dialog"
-				aria-expanded={open}
-				aria-label={state === "running" ? copy.busy : label}
+				aria-label={busy ? copy.busy : label}
 				title={title}
 				onClick={(event) => {
-					if (state === "running") {
-						openButton.value = open ? null : button;
+					if (busy && threadId) {
+						openThreadId.value = threadId;
 						return;
 					}
 					if (event.altKey || held.peek().option) {
 						void run();
 						return;
 					}
-					if (open) {
-						closeButtonPanel();
-						return;
-					}
-					if (unseen) {
-						openButton.value = button;
-						return;
-					}
 					setAsking(true);
 				}}
 			>
-				{state === "running" ? (
-					<LoaderCircle size={16} class="spin" />
-				) : (
-					<Icon size={16} />
-				)}
-				{(unseen || error) && (
-					<span class={`agent-dot dot-${error ? "failed" : state}`} />
-				)}
+				{busy ? <LoaderCircle size={16} class="spin" /> : <Icon size={16} />}
+				{error && <span class="agent-dot dot-failed" />}
 			</button>
 			{asking && (
 				<ConfirmDialog
@@ -145,6 +149,20 @@ function BoardAgentButton(props: { button: AgentButton }) {
 			)}
 		</>
 	);
+}
+
+export const dailyReportRequest =
+	"Every day at 08:00, send me a report on my kanban board: for each session active since the last report, what needs me, what failed, what is still running and what landed, blockers first, a line or two each.";
+
+/** Opens the / popup with a daily report request for Aaron to adjust and send. */
+export function openReportRequest(at?: {
+	board: { x: number; y: number };
+	client: { x: number; y: number };
+}): void {
+	const target = at ?? centreTarget();
+	if (!target) return;
+	openThreadId.value = null;
+	composer.value = { ...target, text: dailyReportRequest };
 }
 
 function PermissionSurveyButton() {
@@ -166,17 +184,15 @@ function PermissionSurveyButton() {
 	);
 }
 
-function ScheduleButton() {
+function ReportButton() {
 	return (
 		<button
 			type="button"
 			class="icon-button"
 			aria-haspopup="dialog"
-			aria-label="Scheduled reports"
-			title="Scheduled reports the board agent writes every day"
-			onClick={() => {
-				scheduleDialog.value = {};
-			}}
+			aria-label="Schedule a report with Butler"
+			title="Ask Butler for a daily report on the board, as one of his scheduled jobs"
+			onClick={() => openReportRequest()}
 		>
 			<CalendarClock size={16} />
 		</button>
@@ -230,9 +246,9 @@ export function TopBar() {
 			</div>
 			<div class="actions">
 				<NextNeedingYou />
-				<BoardAgentButton button="tidy" />
-				<BoardAgentButton button="snooze" />
-				<ScheduleButton />
+				<ButlerRequestButton request="tidy" />
+				<ButlerRequestButton request="snooze" />
+				<ReportButton />
 				<AnnounceButton />
 				<PermissionSurveyButton />
 				<NotifyToggle />

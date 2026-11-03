@@ -62,26 +62,17 @@ describe("comment parsing", () => {
 		assert.ok("error" in parseCommentPatch({}));
 	});
 
-	it("keeps a known button on drafts and threads", () => {
+	it("sends every new comment to Butler and drops the retired agent's button results", () => {
 		assert.deepEqual(
-			parseCommentDraft({ x: 0, y: 0, text: "t", button: "snooze" }),
-			{ x: 0, y: 0, text: "t", button: "snooze" },
+			parseCommentDraft({ x: 0, y: 0, text: "t", to: "agent" }),
+			{ error: "Comments go to Butler; the board agent has been retired" },
 		);
-		for (const button of ["nap", 1]) {
-			assert.deepEqual(parseCommentDraft({ x: 0, y: 0, text: "t", button }), {
-				error: "button must be tidy or snooze",
-			});
-		}
-		assert.equal(
-			"button" in parseCommentDraft({ x: 0, y: 0, text: "t" }),
-			false,
-		);
-		const [tidy, unknown] = parseComments([
-			thread("a", { button: "tidy" }),
-			{ ...thread("b"), button: "nap" },
+		const [kept] = parseComments([
+			thread("a", { to: "butler" }),
+			{ ...thread("b"), button: "tidy" },
 		]);
-		assert.equal(tidy?.button, "tidy");
-		assert.equal(unknown && "button" in unknown, false);
+		assert.equal(kept?.id, "a");
+		assert.equal(kept?.to, "butler");
 	});
 
 	it("keeps valid threads, drops bad ones and settles interrupted runs", () => {
@@ -167,17 +158,14 @@ describe("comment store", () => {
 		assert.equal(store.remove("thread-2"), false);
 		assert.deepEqual(changed, ["thread-1", "thread-1", "thread-2"]);
 		assert.deepEqual(removed, [1]);
-		assert.equal(
-			store.create({ x: 0, y: 0, text: "tidy", button: "tidy" })?.button,
-			"tidy",
-		);
+		assert.equal(store.create({ x: 0, y: 0, text: "tidy" })?.to, "butler");
 		await store.saved();
 		const loaded = await loadComments(file);
 		assert.deepEqual(
-			loaded.map((t) => [t.id, t.button]),
+			loaded.map((t) => [t.id, t.to]),
 			[
-				["thread-1", undefined],
-				["thread-3", "tidy"],
+				["thread-1", "butler"],
+				["thread-3", "butler"],
 			],
 		);
 		assert.equal(JSON.parse(await readFile(file, "utf8")).length, 2);

@@ -15,7 +15,6 @@ import type {
 	Region,
 	Relation,
 	ReportResult,
-	Schedule,
 	Usage,
 } from "../shared/types.ts";
 
@@ -42,7 +41,6 @@ export type Feed = {
 	digests(digests: Digests): void;
 	relations(relations: Relation[]): void;
 	docs(): void;
-	schedules(schedules: Schedule[]): void;
 	butler(butler: ButlerPresence): void;
 	runners(runners: RunnerView[]): void;
 	size(): number;
@@ -61,7 +59,6 @@ export type FeedOptions = {
 	relations: () => Relation[];
 	docs: () => DocIndex;
 	docStores: () => DocStore[];
-	schedules: () => Schedule[];
 	butler?: () => ButlerPresence;
 	runners?: () => RunnerView[];
 };
@@ -81,7 +78,6 @@ export const createFeed = ({
 	relations,
 	docs,
 	docStores,
-	schedules,
 	butler,
 	runners,
 }: FeedOptions): Feed => {
@@ -117,7 +113,6 @@ export const createFeed = ({
 			send(socket, { type: "digests", digests: digests() });
 			send(socket, { type: "relations", relations: relations() });
 			send(socket, docsFrame());
-			send(socket, { type: "schedules", schedules: schedules() });
 			if (butler) send(socket, { type: "butler", butler: butler() });
 			if (runners) send(socket, { type: "runners", runners: runners() });
 			send(socket, { type: "board", board: board() });
@@ -140,7 +135,6 @@ export const createFeed = ({
 		digests: (next) => broadcast({ type: "digests", digests: next }),
 		relations: (next) => broadcast({ type: "relations", relations: next }),
 		docs: () => broadcast(docsFrame()),
-		schedules: (next) => broadcast({ type: "schedules", schedules: next }),
 		butler: (next) => broadcast({ type: "butler", butler: next }),
 		runners: (next) => broadcast({ type: "runners", runners: next }),
 		size: () => clients.size,

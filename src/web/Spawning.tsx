@@ -26,7 +26,6 @@ import { admit, dataUrl, imageFiles, readImages } from "./promptImages.ts";
 import { RunsOnPicker, useRunsOn } from "./RunsOnPicker.tsx";
 import { regionDialog, regionMenu } from "./regionState.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
-import { scheduleDialog } from "./schedules.ts";
 import type { QuickPrompt } from "./spawns.ts";
 import {
 	docked,
@@ -34,6 +33,7 @@ import {
 	focusedSubagentId,
 	newSessionOpen,
 } from "./state.ts";
+import { openReportRequest } from "./TopBar.tsx";
 
 let pointer: { x: number; y: number } | null = null;
 
@@ -251,11 +251,11 @@ export function BoardMenu(): JSX.Element | null {
 				class="board-menu-item"
 				onClick={() => {
 					boardMenu.value = null;
-					scheduleDialog.value = { at: menu.board };
+					openReportRequest({ board: menu.board, client: menu.client });
 				}}
 			>
 				<CalendarClock size={14} aria-hidden="true" />
-				<span class="board-menu-label">Schedule a report here</span>
+				<span class="board-menu-label">Ask Butler for a daily report</span>
 			</button>
 		</div>
 	);

@@ -25,25 +25,18 @@ import {
 	profileHomes,
 	withAccounts,
 } from "./accounts.ts";
-import { createAgentTokens } from "./agentAuth.ts";
 import { createAnnotationStore, loadAnnotations } from "./annotations.ts";
 import { createAnnouncer } from "./announce.ts";
 import { claudeAttachPty, createAttachHub } from "./attach.ts";
 import { fileAudit } from "./audit.ts";
 import { authenticatorFor, runnerTokenCheck } from "./auth.ts";
 import {
-	agentMarker,
-	claudeAgentSpawner,
-	createBoardAgent,
-	isAgentDir,
-} from "./boardAgent.ts";
-import {
 	createBoardTools,
-	occupied,
 	projectsOf,
 	summariesOfBoard,
 } from "./boardTools.ts";
 import { type Butler, createButler, loadButlerState } from "./butler.ts";
+import { agentMarker, isAgentDir } from "./claudeRuns.ts";
 import {
 	type CloudApi,
 	cloudCredentials,
@@ -110,16 +103,11 @@ import {
 } from "./reports.ts";
 import { createRunnerHub } from "./runners.ts";
 import {
-	createScheduler,
-	loadSchedules,
-	type Scheduler,
-	scheduleTickMs,
-} from "./schedules.ts";
-import {
 	claudeLauncher,
 	routedLauncher,
 	type SessionLauncher,
 } from "./sessions.ts";
+import { retireFile } from "./stateFile.ts";
 import { attachTty, cmuxTty, sharedAttachTty } from "./terminals.ts";
 import {
 	claudeCodeToken,
@@ -139,12 +127,10 @@ const configOrExit = (): Config => {
 
 const config = configOrExit();
 const cmuxSyncMs = 5000;
-const agentTimeoutMs = 15 * 60_000;
 const docsFrameMs = 250;
 const audit = fileAudit(config.auditLog);
 
 let feed: Feed | null = null;
-let schedules: Scheduler | null = null;
 let butler: Butler | null = null;
 const layoutFile = join(config.stateDir, "layout.json");
 const layout = createLayoutStore({
@@ -210,10 +196,7 @@ const commentsFile = join(config.stateDir, "comments.json");
 const comments = createCommentStore({
 	file: commentsFile,
 	initial: await loadComments(commentsFile),
-	onChange: (thread) => {
-		feed?.comment(thread);
-		schedules?.observe(thread);
-	},
+	onChange: (thread) => feed?.comment(thread),
 	onRemove: (threads) => feed?.comments(threads),
 });
 const usageFile = join(config.stateDir, "usage.json");
@@ -417,7 +400,6 @@ feed = createFeed({
 	relations: relations.current,
 	docs: docs.index,
 	docStores: docStores.current,
-	schedules: () => schedules?.current() ?? [],
 	butler: () => butler?.current() ?? { presence: null, watching: [] },
 	runners: () => runnerHub.views(),
 });
@@ -541,16 +523,6 @@ const attachedAnywhere = () => [
 	...attach.attached(),
 	...conversation.attached(),
 ];
-const agentTokens = createAgentTokens(agentTimeoutMs);
-const agent = createBoardAgent({
-	store: comments,
-	tokens: agentTokens,
-	spawn: claudeAgentSpawner(config.claudeBin, agentDir),
-	boardUrl,
-	mcpScript: resolve(import.meta.dirname, "../agent/mcp.ts"),
-	node: process.execPath,
-	timeoutMs: agentTimeoutMs,
-});
 const announce = createAnnouncer({
 	board: () => source.board(),
 	prompt: conversation.prompt,
@@ -600,18 +572,9 @@ butler = createButler({
 	comments,
 });
 const relayCheck = setInterval(() => butler?.inbox?.check(), 5000);
-const schedulesFile = join(config.stateDir, "schedules.json");
-schedules = createScheduler({
-	file: schedulesFile,
-	initial: await loadSchedules(schedulesFile),
-	onChange: (next) => feed?.schedules(next),
-	comments,
-	agent,
-	annotations,
-	occupied: () => occupied(source.board(), { layout, annotations, regions }),
-	audit,
-});
-const scheduleTick = setInterval(schedules.tick, scheduleTickMs);
+// Scheduled reports were the retired board agent's. Their file is kept
+// aside, not deleted, so Aaron can ask Butler to schedule them as jobs.
+await retireFile(join(config.stateDir, "schedules.json"));
 
 const server = createKanbanServer({
 	origins: config.origins,
@@ -632,9 +595,6 @@ const server = createKanbanServer({
 	relations,
 	docs: createDocsHttp({ files: docs, stores: docStores }),
 	comments,
-	schedules,
-	agent,
-	agentTokens,
 	tools,
 	butler,
 	csrf: newCsrfToken(),
@@ -679,10 +639,7 @@ const listening = listenAll(server, config.hosts, config.port, (host) => {
 });
 
 const shutdown = () => {
-	schedules.stop();
-	clearInterval(scheduleTick);
 	clearInterval(relayCheck);
-	agent.stopAll();
 	source.stop();
 	cloud.stop();
 	clearInterval(cmuxPoll);

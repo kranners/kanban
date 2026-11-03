@@ -1,6 +1,6 @@
 import { isRegionColour, type RegionColour } from "../shared/colours.ts";
 import type { AskAnswer, PromptReply } from "../shared/conversation.ts";
-import { maxHistoryDays } from "../shared/schedules.ts";
+import { maxHistoryDays } from "../shared/history.ts";
 import {
 	defaultRunsOn,
 	type FixedRunsOn,

@@ -67,7 +67,6 @@ function board(
 		colours: {},
 		annotations: {},
 		comments: [],
-		schedules: [],
 		digests: noDigests,
 		stories: {},
 		files: {},
@@ -236,60 +235,4 @@ export const docs: Scenario = {
 		write(6.2, writer, "guides/rollout.md", handbook.rollout),
 		write(7.2, writer, "index.md", handbook.index),
 	],
-};
-
-const overnightSeats: Seat[] = [
-	{
-		id: "0c1a5e7d21",
-		name: "orders v3",
-		project: "acme-api",
-		goal: "Ship v3 of the orders API",
-		activity: "done",
-		doing: "Landed v3 orders on main as 4f2a9c1",
-		x: 0,
-		y: 0,
-	},
-	{
-		id: "0c1a5e7d22",
-		name: "nightly migration",
-		project: "acme-api",
-		goal: "Backfill order totals into the new tax columns",
-		activity: "failed",
-		doing: "Migration 0042 timed out on the orders table",
-		x: 0,
-		y: 288,
-	},
-	{
-		id: "0c1a5e7d23",
-		name: "dark mode tokens",
-		project: "acme-web",
-		goal: "Move every colour to design tokens for dark mode",
-		activity: "needs-you",
-		doing: "Waiting for approval",
-		needs: "Allow `npx stylelint --fix 'src/**/*.css'`?",
-		x: 504,
-		y: 0,
-	},
-	{
-		id: "0c1a5e7d24",
-		name: "checkout redesign",
-		project: "acme-web",
-		goal: "Redesign the checkout summary for v3 totals",
-		doing: "Running the checkout e2e suite",
-		x: 504,
-		y: 288,
-	},
-];
-
-export const schedules: Scenario = {
-	world: (start) =>
-		board(start, overnightSeats, {
-			regions: ["acme-api", "acme-web"].map((project) =>
-				regionAround(
-					project,
-					overnightSeats.filter((seat) => seat.project === project),
-				),
-			),
-		}),
-	timeline: [],
 };

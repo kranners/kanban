@@ -119,15 +119,6 @@ export const postTool = async (
 	}
 };
 
-export const boardCaller =
-	(url: string, token: string): CallTool =>
-	(name, args) =>
-		postTool(
-			`${url}/api/agent/tools/${encodeURIComponent(name)}`,
-			{ authorization: `Bearer ${token}` },
-			args,
-		);
-
 export const serve = (call: CallTool, server: McpServer) => {
 	const lines = createInterface({ input: process.stdin });
 	const pending = new Set<Promise<void>>();
@@ -160,15 +151,3 @@ export const serve = (call: CallTool, server: McpServer) => {
 		Promise.allSettled(pending).then(() => process.exit(0)),
 	);
 };
-
-if (import.meta.main) {
-	const url = process.env.KANBAN_AGENT_URL;
-	const token = process.env.KANBAN_AGENT_TOKEN;
-	if (!url || !token) {
-		console.error(
-			"kanban mcp: KANBAN_AGENT_URL and KANBAN_AGENT_TOKEN are required",
-		);
-		process.exit(1);
-	}
-	serve(boardCaller(url, token), boardServer);
-}

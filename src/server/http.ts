@@ -11,10 +11,8 @@ import {
 import { extname, join, normalize, sep } from "node:path";
 import { type Duplex, pipeline } from "node:stream";
 import { WebSocketServer } from "ws";
-import { parseToolCall } from "../agent/tools.ts";
 import { maxImageBytes, maxPromptImages } from "../shared/promptImages.ts";
 import { linkRefusal } from "../shared/reach.ts";
-import { maxSchedules } from "../shared/schedules.ts";
 import {
 	type AccountResult,
 	type Board,
@@ -25,7 +23,6 @@ import {
 	type Session,
 	type TranscriptEntry,
 } from "../shared/types.ts";
-import { type AgentTokens, fromLoopback } from "./agentAuth.ts";
 import { type AnnotationStore, parseAnnotation } from "./annotations.ts";
 import type { Announcer } from "./announce.ts";
 import {
@@ -43,7 +40,6 @@ import {
 	type RunnerTokenCheck,
 	runnerIdentity,
 } from "./auth.ts";
-import type { BoardAgent } from "./boardAgent.ts";
 import type { BoardTools } from "./boardTools.ts";
 import { type Butler, butlerAllowed, type SelfFixAction } from "./butler.ts";
 import { type ColourStore, maxColours, parseColourUpdate } from "./colours.ts";
@@ -51,7 +47,6 @@ import type { SlashCommand } from "./commands.ts";
 import {
 	type CommentStore,
 	isThreadId,
-	maxThreads,
 	parseCommentDraft,
 	parseCommentPatch,
 	parseMessage,
@@ -69,6 +64,7 @@ import type { FileListing } from "./files.ts";
 import type { FolderPicker } from "./folders.ts";
 import { type IgnoreStore, maxIgnores, parseIgnoreUpdate } from "./ignores.ts";
 import { boardKeys, type LayoutStore, parseLayoutUpdate } from "./layout.ts";
+import { fromLoopback } from "./loopback.ts";
 import type { MirrorHub } from "./mirror.ts";
 import { type PeerHook, parsePeerHookInput } from "./peers.ts";
 import { type Permissions, parseGrants } from "./permissions.ts";
@@ -87,12 +83,6 @@ import {
 import { reportShotContentType, reportShotName } from "./reportShots.ts";
 import type { RegionReportRunner, ReportRunner } from "./reports.ts";
 import type { RunnerHub } from "./runners.ts";
-import {
-	isScheduleId,
-	parseScheduleDraft,
-	parseSchedulePatch,
-	type Scheduler,
-} from "./schedules.ts";
 import {
 	isAccountNumber,
 	type SessionLauncher,
@@ -124,12 +114,6 @@ export type ServerDeps = {
 	relations: RelationStore;
 	docs: DocsHttp;
 	comments: CommentStore;
-	schedules: Pick<
-		Scheduler,
-		"current" | "create" | "update" | "remove" | "runNow"
-	>;
-	agent: Omit<BoardAgent, "stopAll">;
-	agentTokens: AgentTokens;
 	tools: BoardTools;
 	butler?: Butler;
 	/** The token the board's page sends with every message to Butler. */
@@ -201,11 +185,6 @@ export type Route =
 	| { kind: "cancel-comment"; threadId: string }
 	| { kind: "update-comment"; threadId: string }
 	| { kind: "delete-comment"; threadId: string }
-	| { kind: "create-schedule" }
-	| { kind: "update-schedule"; scheduleId: string }
-	| { kind: "delete-schedule"; scheduleId: string }
-	| { kind: "run-schedule"; scheduleId: string }
-	| { kind: "agent-tool"; tool: string }
 	| { kind: "butler-tool"; tool: string }
 	| { kind: "self-fix-action"; id: string; action: SelfFixAction }
 	| { kind: "peer-hook" }
@@ -431,25 +410,6 @@ export const matchRoute = (method: string, url: URL): Route => {
 			return { kind: "delete-comment", threadId: comment[1] };
 		return { kind: "method-not-allowed" };
 	}
-	if (path === "/api/schedules") {
-		return method === "POST"
-			? { kind: "create-schedule" }
-			: { kind: "method-not-allowed" };
-	}
-	const scheduleRun = path.match(/^\/api\/schedules\/([^/]+)\/run$/);
-	if (scheduleRun?.[1] && isScheduleId(scheduleRun[1])) {
-		return method === "POST"
-			? { kind: "run-schedule", scheduleId: scheduleRun[1] }
-			: { kind: "method-not-allowed" };
-	}
-	const schedule = path.match(/^\/api\/schedules\/([^/]+)$/);
-	if (schedule?.[1] && isScheduleId(schedule[1])) {
-		if (method === "PATCH")
-			return { kind: "update-schedule", scheduleId: schedule[1] };
-		if (method === "DELETE")
-			return { kind: "delete-schedule", scheduleId: schedule[1] };
-		return { kind: "method-not-allowed" };
-	}
 	if (path === "/api/relations") {
 		return method === "POST"
 			? { kind: "create-relation" }
@@ -493,12 +453,6 @@ export const matchRoute = (method: string, url: URL): Route => {
 		if (method === "PUT") return { kind: "put-doc-file", ...located };
 		if (method === "DELETE") return { kind: "delete-doc-file", ...located };
 		return { kind: "method-not-allowed" };
-	}
-	const tool = path.match(/^\/api\/agent\/tools\/([a-z_]{1,64})$/);
-	if (tool?.[1]) {
-		return method === "POST"
-			? { kind: "agent-tool", tool: tool[1] }
-			: { kind: "method-not-allowed" };
 	}
 	const fixAction = path.match(
 		/^\/api\/butler\/self-fixes\/([0-9]{8}-[0-9]{6}-[0-9]+)\/(archive|dismiss)$/,
@@ -1219,47 +1173,22 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if ("error" in draft) {
 			return sendJson(res, 400, { ok: false, error: draft.error });
 		}
-		if (draft.to === "butler") {
-			if (!butlerRequestOk(req)) return refuseButler(res);
-			const inbox = deps.butler?.inbox;
-			if (!inbox) {
-				return sendJson(res, 409, {
-					ok: false,
-					error: "Butler is not set up on this board",
-				});
-			}
-			const started = inbox.start(draft);
-			if ("error" in started) {
-				return sendJson(res, started.status, {
-					ok: false,
-					error: started.error,
-				});
-			}
-			return sendJson(res, 201, started);
-		}
-		const previous = draft.button
-			? deps.comments.current().find((thread) => thread.button === draft.button)
-			: undefined;
-		if (previous?.running) {
+		if (!butlerRequestOk(req)) return refuseButler(res);
+		const inbox = deps.butler?.inbox;
+		if (!inbox) {
 			return sendJson(res, 409, {
 				ok: false,
-				error: "The board agent is still working on this",
+				error: "Butler is not set up on this board",
 			});
 		}
-		const thread = deps.comments.create(draft);
-		if (!thread) {
-			return sendJson(res, 409, {
+		const started = inbox.start(draft);
+		if ("error" in started) {
+			return sendJson(res, started.status, {
 				ok: false,
-				error: `The board holds at most ${maxThreads} comments`,
+				error: started.error,
 			});
 		}
-		const asked = deps.agent.ask(thread.id, draft.text);
-		if ("error" in asked) {
-			if (draft.button) deps.comments.remove(thread.id);
-			return sendJson(res, asked.status, { ok: false, error: asked.error });
-		}
-		if (previous) deps.comments.remove(previous.id);
-		sendJson(res, 201, deps.comments.get(thread.id) ?? thread);
+		sendJson(res, 201, started);
 	};
 
 	const replyComment = async (
@@ -1273,20 +1202,22 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if (typeof text !== "string") {
 			return sendJson(res, 400, { ok: false, error: text.error });
 		}
-		if (deps.comments.get(threadId)?.to === "butler") {
-			if (!butlerRequestOk(req)) return refuseButler(res);
-			const sent = deps.butler?.inbox?.send(threadId, text) ?? {
-				error: "Butler is not set up on this board",
-				status: 409 as const,
-			};
-			if ("error" in sent) {
-				return sendJson(res, sent.status, { ok: false, error: sent.error });
-			}
-			return sendJson(res, 202, { ok: true });
+		const thread = deps.comments.get(threadId);
+		if (!thread) return sendError(res, 404);
+		if (thread.to !== "butler") {
+			return sendJson(res, 410, {
+				ok: false,
+				error:
+					"The board agent has been retired; press / to message Butler instead",
+			});
 		}
-		const asked = deps.agent.ask(threadId, text);
-		if ("error" in asked) {
-			return sendJson(res, asked.status, { ok: false, error: asked.error });
+		if (!butlerRequestOk(req)) return refuseButler(res);
+		const sent = deps.butler?.inbox?.send(threadId, text) ?? {
+			error: "Butler is not set up on this board",
+			status: 409 as const,
+		};
+		if ("error" in sent) {
+			return sendJson(res, sent.status, { ok: false, error: sent.error });
 		}
 		sendJson(res, 202, { ok: true });
 	};
@@ -1299,8 +1230,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if (!originOk(req)) return sendError(res, 403);
 		const thread = deps.comments.get(threadId);
 		if (!thread) return sendError(res, 404);
-		if (thread.to === "butler") deps.butler?.inbox?.cancel(threadId);
-		else deps.agent.cancel(threadId);
+		deps.butler?.inbox?.cancel(threadId);
 		res.writeHead(204, { "cache-control": "no-store" });
 		res.end();
 	};
@@ -1330,97 +1260,9 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		threadId: string,
 	) => {
 		if (!originOk(req)) return sendError(res, 403);
-		deps.agent.cancel(threadId);
 		if (!deps.comments.remove(threadId)) return sendError(res, 404);
 		res.writeHead(204, { "cache-control": "no-store" });
 		res.end();
-	};
-
-	const createSchedule = async (req: IncomingMessage, res: ServerResponse) => {
-		const read = await readBody(req, res);
-		if (!read) return;
-		const draft = parseScheduleDraft(read.body);
-		if ("error" in draft) {
-			return sendJson(res, 400, { ok: false, error: draft.error });
-		}
-		const schedule = deps.schedules.create(draft);
-		if (!schedule) {
-			return sendJson(res, 409, {
-				ok: false,
-				error: `The board holds at most ${maxSchedules} schedules`,
-			});
-		}
-		sendJson(res, 201, schedule);
-	};
-
-	const updateSchedule = async (
-		req: IncomingMessage,
-		res: ServerResponse,
-		scheduleId: string,
-	) => {
-		const read = await readBody(req, res);
-		if (!read) return;
-		const patch = parseSchedulePatch(read.body);
-		if ("error" in patch) {
-			return sendJson(res, 400, { ok: false, error: patch.error });
-		}
-		const schedule = deps.schedules.update(scheduleId, patch);
-		if (!schedule) return sendError(res, 404);
-		sendJson(res, 200, schedule);
-	};
-
-	const deleteSchedule = (
-		req: IncomingMessage,
-		res: ServerResponse,
-		scheduleId: string,
-	) => {
-		if (!originOk(req)) return sendError(res, 403);
-		if (!deps.schedules.remove(scheduleId)) return sendError(res, 404);
-		res.writeHead(204, { "cache-control": "no-store" });
-		res.end();
-	};
-
-	const runSchedule = (
-		req: IncomingMessage,
-		res: ServerResponse,
-		scheduleId: string,
-	) => {
-		if (!originOk(req)) return sendError(res, 403);
-		const started = deps.schedules.runNow(scheduleId);
-		if ("error" in started) {
-			return sendJson(res, started.status, {
-				ok: false,
-				error: started.error,
-			});
-		}
-		sendJson(res, 202, { ok: true });
-	};
-
-	const agentTool = async (
-		req: IncomingMessage,
-		res: ServerResponse,
-		tool: string,
-	) => {
-		const threadId = deps.agentTokens.verify(req);
-		if (!threadId) return sendError(res, 401);
-		if (!req.headers["content-type"]?.startsWith("application/json")) {
-			return sendError(res, 415);
-		}
-		let body: unknown;
-		try {
-			body = await readJson(req);
-		} catch {
-			return sendJson(res, 400, { ok: false, error: "Invalid JSON body" });
-		}
-		const call = parseToolCall(tool, body);
-		if ("error" in call) {
-			return sendJson(res, 400, { ok: false, error: call.error });
-		}
-		const outcome = await deps.tools(threadId, call);
-		if (!outcome.ok) {
-			return sendJson(res, 422, { ok: false, error: outcome.error });
-		}
-		sendJson(res, 200, { ok: true, text: outcome.text });
 	};
 
 	const butlerTool = async (
@@ -1538,7 +1380,6 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			return runnerCall(req, res, route);
 		}
 		if (route.kind === "healthz") return sendJson(res, 200, { ok: true });
-		if (route.kind === "agent-tool") return agentTool(req, res, route.tool);
 		if (route.kind === "butler-tool") return butlerTool(req, res, route.tool);
 		if (route.kind === "peer-hook") return peerHook(req, res);
 		if (route.kind === "docs-tool") return deps.docs.tool(req, res, route.tool);
@@ -1673,14 +1514,6 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return updateComment(req, res, route.threadId);
 			case "delete-comment":
 				return deleteComment(req, res, route.threadId);
-			case "create-schedule":
-				return createSchedule(req, res);
-			case "update-schedule":
-				return updateSchedule(req, res, route.scheduleId);
-			case "delete-schedule":
-				return deleteSchedule(req, res, route.scheduleId);
-			case "run-schedule":
-				return runSchedule(req, res, route.scheduleId);
 			case "static":
 				return serveStatic(
 					req,
