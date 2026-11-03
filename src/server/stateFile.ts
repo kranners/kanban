@@ -46,3 +46,14 @@ export const createStateFile = <T>(file: string): StateFile<T> => {
 		saved: () => writing,
 	};
 };
+
+/** Sets a retired feature's state file aside as `<file>.retired`, once, keeping what it held. */
+export const retireFile = async (file: string): Promise<boolean> => {
+	try {
+		await rename(file, `${file}.retired`);
+		return true;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+		throw error;
+	}
+};

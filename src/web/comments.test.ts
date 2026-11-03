@@ -3,9 +3,9 @@ import { test } from "node:test";
 import type { CommentThread } from "../shared/types.ts";
 import {
 	butlerStatus,
-	buttonThreads,
 	isCommentKey,
-	openButton,
+	isRetired,
+	openThreadId,
 	pinned,
 	pinState,
 	receiveComments,
@@ -55,21 +55,20 @@ test("a pin shows whether its agent is working, failed, resolved or answered", (
 	assert.equal(threadTitle(thread({ events: [] })), "Comment");
 });
 
-test("button threads stay off the board and the latest one per button wins", () => {
-	const pin = thread({ id: "pin" });
-	const tidy = thread({ id: "tidy", button: "tidy" });
-	const laterTidy = thread({ id: "later", button: "tidy" });
-	receiveComments([pin, tidy, laterTidy]);
-	assert.deepEqual(pinned.value, [pin]);
-	assert.equal(buttonThreads.value.get("tidy"), laterTidy);
-	assert.equal(buttonThreads.value.get("snooze"), undefined);
+test("every thread is pinned, and the retired agent's take no replies", () => {
+	const butler = thread({ id: "b", to: "butler" });
+	const retired = thread({ id: "old" });
+	receiveComments([butler, retired]);
+	assert.deepEqual(pinned.value, [butler, retired]);
+	assert.equal(isRetired(butler), false);
+	assert.equal(isRetired(retired), true);
 });
 
-test("a button's popover closes once its thread is gone", () => {
-	receiveComments([thread({ id: "tidy", button: "tidy" })]);
-	openButton.value = "tidy";
+test("an open thread closes once it is gone", () => {
+	receiveComments([thread({ id: "b", to: "butler" })]);
+	openThreadId.value = "b";
 	receiveComments([]);
-	assert.equal(openButton.value, null);
+	assert.equal(openThreadId.value, null);
 });
 
 test("a message to Butler shows queued, unreachable, working, then nothing", () => {

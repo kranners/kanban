@@ -8,10 +8,8 @@ import {
 	summoned,
 	titleFor,
 } from "./alerts.ts";
-import { centreOn } from "./Canvas.tsx";
 import { ignoredSessions } from "./ignoreState.ts";
-import { dismissReport, headlineOf, type ReportReady } from "./schedules.ts";
-import { annotations, board, focusedSessionId, openSession } from "./state.ts";
+import { board, focusedSessionId, openSession } from "./state.ts";
 
 const preferenceKey = "kanban.notifications";
 const shownToasts = 3;
@@ -82,36 +80,6 @@ const open = new Map<string, Notification>();
 
 function lookingAtBoard(): boolean {
 	return document.visibilityState === "visible" && document.hasFocus();
-}
-
-export function reportHeadline(noteId: string): string {
-	const note = annotations.peek()[noteId];
-	return headlineOf(note?.kind === "note" ? note.text : "");
-}
-
-export function showReport(ready: ReportReady): void {
-	dismissReport(ready.scheduleId);
-	const note = annotations.peek()[ready.noteId];
-	if (note) centreOn(note);
-}
-
-export function notifyReport(ready: ReportReady): void {
-	if (!notifying.peek() || lookingAtBoard()) return;
-	let notification: Notification;
-	try {
-		notification = new Notification("Scheduled report ready", {
-			body: reportHeadline(ready.noteId),
-			tag: `report-${ready.scheduleId}`,
-		});
-	} catch {
-		permission.value = "unsupported";
-		return;
-	}
-	notification.onclick = () => {
-		focus();
-		showReport(ready);
-		notification.close();
-	};
 }
 
 function notify(session: Session): void {

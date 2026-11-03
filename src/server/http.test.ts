@@ -30,7 +30,6 @@ import {
 	type Relation,
 	type Session,
 } from "../shared/types.ts";
-import { createAgentTokens } from "./agentAuth.ts";
 import { createAnnotationStore } from "./annotations.ts";
 import type { AttachHub } from "./attach.ts";
 import type { AuditEvent } from "./audit.ts";
@@ -56,7 +55,6 @@ import { createRegionStore } from "./regions.ts";
 import { createRelationStore } from "./relations.ts";
 import { createRegionReportRunner, createReportRunner } from "./reports.ts";
 import { createRunnerHub } from "./runners.ts";
-import { createScheduler } from "./schedules.ts";
 
 const route = (method: string, path: string) =>
 	matchRoute(method, new URL(path, "http://x"));
@@ -190,27 +188,6 @@ describe("matchRoute", () => {
 		});
 		assert.equal(upgrade("/api/sessions/a%2Fb/conversation"), null);
 		assert.equal(upgrade("/api/other"), null);
-	});
-
-	it("parses schedule routes", () => {
-		assert.deepEqual(route("POST", "/api/schedules"), {
-			kind: "create-schedule",
-		});
-		assert.deepEqual(route("PATCH", "/api/schedules/s-1"), {
-			kind: "update-schedule",
-			scheduleId: "s-1",
-		});
-		assert.deepEqual(route("DELETE", "/api/schedules/s-1"), {
-			kind: "delete-schedule",
-			scheduleId: "s-1",
-		});
-		assert.deepEqual(route("POST", "/api/schedules/s-1/run"), {
-			kind: "run-schedule",
-			scheduleId: "s-1",
-		});
-		assert.deepEqual(route("GET", "/api/schedules"), {
-			kind: "method-not-allowed",
-		});
 	});
 
 	it("parses link and doc store routes", () => {
@@ -389,18 +366,13 @@ describe("createKanbanServer", () => {
 	const conversed: string[] = [];
 	const events: AuditEvent[] = [];
 	const origins: string[] = [];
-	const asked: [string, string][] = [];
-	const cancelled: string[] = [];
 	let comments: CommentStore;
 	let threadCount = 0;
 	let butlerIds = 0;
-	let scheduleCount = 0;
-	const scheduleAsked: [string, string][] = [];
 	const toolCalls: [string, ToolCall][] = [];
 	const madeDefault: number[] = [];
 	const granted: PermissionGrant[] = [];
 	const announced: [string, string | null][] = [];
-	const agentTokens = createAgentTokens(60_000);
 	const runnerHub = createRunnerHub({
 		hubHome: "/Users/me",
 		local: () => ({ name: "pilot", usage: null, cap: 4, sessions: [] }),
@@ -507,29 +479,6 @@ describe("createKanbanServer", () => {
 			relations: relations.current,
 			docs: docFiles.index,
 			docStores: docStores.current,
-			schedules: () => schedules.current(),
-		});
-		const schedules = createScheduler({
-			file: join(dist, "state", "schedules.json"),
-			initial: [],
-			onChange: (next) => feed?.schedules(next),
-			comments: createCommentStore({
-				file: join(dist, "state", "schedule-comments.json"),
-				initial: [],
-				onChange: () => {},
-				onRemove: () => {},
-			}),
-			agent: {
-				ask: (threadId, text) => {
-					scheduleAsked.push([threadId, text]);
-					return { ok: true };
-				},
-				cancel: () => false,
-			},
-			annotations,
-			occupied: () => [],
-			audit: (event) => events.push(event),
-			newId: () => `schedule-${++scheduleCount}`,
 		});
 		const server = createKanbanServer({
 			origins,
@@ -615,24 +564,6 @@ describe("createKanbanServer", () => {
 			relations,
 			docs: createDocsHttp({ files: docFiles, stores: docStores }),
 			comments,
-			schedules,
-			agent: {
-				ask: (threadId, text) => {
-					asked.push([threadId, text]);
-					if (text === "no room") {
-						return { error: "At most 4 board agents run at once", status: 409 };
-					}
-					return comments.get(threadId)
-						? { ok: true }
-						: { error: "No such comment", status: 404 };
-				},
-				cancel: (threadId) => {
-					cancelled.push(threadId);
-					return true;
-				},
-				owns: comments.owns,
-			},
-			agentTokens,
 			tools: async (threadId, call) => {
 				toolCalls.push([threadId, call]);
 				return { ok: true, text: `ran ${call.tool}` };
@@ -2050,136 +1981,12 @@ describe("createKanbanServer", () => {
 				"digests",
 				"relations",
 				"docs",
-				"schedules",
 				"board",
 			],
 		);
 		assert.deepEqual(
 			frames.find((frame) => frame.type === "docs"),
 			{ type: "docs", docs: {}, stores: [] },
-		);
-	});
-
-	it("creates, edits, runs and deletes report schedules", async () => {
-		const draft = {
-			time: "08:00",
-			prompt: "report overnight",
-			x: 48,
-			y: 96,
-			mode: "replace",
-		};
-		const created = await send("POST", "/api/schedules", draft);
-		assert.equal(created.status, 201);
-		const schedule = await created.json();
-		assert.equal(schedule.id, "schedule-1");
-		assert.equal(schedule.time, "08:00");
-		assert.equal(
-			(await send("POST", "/api/schedules", { ...draft, time: "8am" })).status,
-			400,
-		);
-		const patched = await send("PATCH", "/api/schedules/schedule-1", {
-			mode: "stack",
-		});
-		assert.equal(patched.status, 200);
-		assert.equal((await patched.json()).mode, "stack");
-		assert.equal(
-			(await send("PATCH", "/api/schedules/schedule-1", { colour: "red" }))
-				.status,
-			400,
-		);
-		assert.equal(
-			(await send("PATCH", "/api/schedules/nope", { mode: "stack" })).status,
-			404,
-		);
-		const before = scheduleAsked.length;
-		assert.equal(
-			(await send("POST", "/api/schedules/schedule-1/run", {})).status,
-			202,
-		);
-		assert.match(scheduleAsked[before]?.[1] ?? "", /^report overnight\n/);
-		assert.equal(
-			(await send("POST", "/api/schedules/schedule-1/run", {})).status,
-			409,
-		);
-		assert.equal(
-			(await send("DELETE", "/api/schedules/schedule-1", {})).status,
-			204,
-		);
-		assert.equal(
-			(await send("DELETE", "/api/schedules/schedule-1", {})).status,
-			404,
-		);
-	});
-
-	it("creates, replies to, moves, resolves and deletes comment threads", async () => {
-		const created = await send("POST", "/api/comments", {
-			x: 120,
-			y: -48,
-			text: "organise my board",
-		});
-		assert.equal(created.status, 201);
-		const thread = await created.json();
-		assert.equal(thread.id, "thread-1");
-		assert.deepEqual([thread.x, thread.y], [120, -48]);
-		assert.match(thread.sessionId, /^[0-9a-f-]{36}$/);
-		assert.equal(
-			(await send("POST", "/api/comments", { x: 1, y: 1, text: " " })).status,
-			400,
-		);
-		assert.equal(
-			(await send("POST", "/api/comments/thread-1/messages", { text: "more" }))
-				.status,
-			202,
-		);
-		assert.equal(
-			(await send("POST", "/api/comments/nope/messages", { text: "more" }))
-				.status,
-			404,
-		);
-		assert.deepEqual(asked, [
-			["thread-1", "organise my board"],
-			["thread-1", "more"],
-			["nope", "more"],
-		]);
-		const moved = await send("PATCH", "/api/comments/thread-1", {
-			x: 240,
-			y: 24,
-			resolved: true,
-		});
-		assert.equal(moved.status, 200);
-		const patched = await moved.json();
-		assert.deepEqual([patched.x, patched.y, patched.resolved], [240, 24, true]);
-		assert.equal(
-			(await send("PATCH", "/api/comments/thread-1", { x: 1 })).status,
-			400,
-		);
-		assert.equal(
-			(
-				await fetch(`${base}/api/comments/thread-1/cancel`, {
-					method: "POST",
-					headers: { ...authed, origin },
-				})
-			).status,
-			204,
-		);
-		assert.equal(
-			(
-				await fetch(`${base}/api/comments/thread-1`, {
-					method: "DELETE",
-					headers: { ...authed, origin },
-				})
-			).status,
-			204,
-		);
-		assert.deepEqual(cancelled, ["thread-1", "thread-1"]);
-		assert.equal(
-			(
-				await fetch(`${base}/api/comments/thread-1`, {
-					method: "DELETE",
-					headers: { ...authed, origin },
-				})
-			).status,
-			404,
 		);
 	});
 
@@ -2202,7 +2009,6 @@ describe("createKanbanServer", () => {
 				body: JSON.stringify(body),
 			});
 		const draft = { x: 10, y: 10, text: "tidy the board", to: "butler" };
-		const askedBefore = asked.length;
 		// No token, a wrong token, another origin and a runner's bearer are all refused.
 		assert.equal((await butlerSend("/api/comments", draft)).status, 403);
 		assert.equal(
@@ -2252,7 +2058,6 @@ describe("createKanbanServer", () => {
 		const thread = await created.json();
 		assert.equal(thread.to, "butler");
 		assert.equal(thread.queued.length, 1);
-		assert.equal(asked.length, askedBefore, "the board agent never sees it");
 
 		// A page can't read the queue: Butler's endpoint refuses any Origin.
 		assert.equal((await tool("board_inbox", {}, { origin })).status, 403);
@@ -2300,83 +2105,6 @@ describe("createKanbanServer", () => {
 			403,
 		);
 		comments.remove(thread.id);
-	});
-
-	it("keeps one thread per top-bar button, refuses a rerun while it works, and keeps the last result when a run can't start", async () => {
-		const post = (button: unknown, text: string) =>
-			send("POST", "/api/comments", { x: 0, y: 0, button, text });
-		const first = await post("snooze", "leaving");
-		assert.equal(first.status, 201);
-		const snooze = await first.json();
-		assert.equal(snooze.button, "snooze");
-		assert.deepEqual(asked.at(-1), [snooze.id, "leaving"]);
-		const tidy = await (await post("tidy", "tidy up")).json();
-		comments.update(snooze.id, (thread) => ({ ...thread, running: true }));
-		const askedBefore = asked.length;
-		assert.equal((await post("snooze", "again")).status, 409);
-		assert.equal(asked.length, askedBefore);
-		const buttons = () =>
-			comments.current().filter((thread) => thread.button === "snooze");
-		assert.equal(buttons().length, 1);
-		comments.update(snooze.id, (thread) => ({ ...thread, running: false }));
-		const rerun = await post("snooze", "again");
-		assert.equal(rerun.status, 201);
-		const replaced = await rerun.json();
-		assert.notEqual(replaced.id, snooze.id);
-		assert.deepEqual(
-			buttons().map((thread) => thread.id),
-			[replaced.id],
-		);
-		assert.equal((await post("snooze", "no room")).status, 409);
-		assert.deepEqual(
-			buttons().map((thread) => thread.id),
-			[replaced.id],
-		);
-		assert.ok(comments.get(tidy.id));
-		assert.equal((await post("nap", "x")).status, 400);
-	});
-
-	it("runs agent tools only for a live token from loopback", async () => {
-		const call = (headers: Record<string, string>, body: unknown = {}) =>
-			fetch(`${base}/api/agent/tools/board_snapshot`, {
-				method: "POST",
-				headers: { "content-type": "application/json", ...headers },
-				body: JSON.stringify(body),
-			});
-		const token = agentTokens.issue("thread-9");
-		assert.equal((await call({})).status, 401);
-		assert.equal(
-			(await call({ authorization: `Bearer ${"x".repeat(43)}` })).status,
-			401,
-		);
-		assert.equal(
-			(await call({ ...authed, origin })).status,
-			401,
-			"browser credentials do not open agent tools",
-		);
-		assert.equal(
-			(
-				await call({
-					authorization: `Bearer ${token}`,
-					"cf-connecting-ip": "203.0.113.9",
-				})
-			).status,
-			401,
-			"requests through the tunnel are refused",
-		);
-		const ok = await call({ authorization: `Bearer ${token}` });
-		assert.equal(ok.status, 200);
-		assert.deepEqual(await ok.json(), { ok: true, text: "ran board_snapshot" });
-		assert.equal(
-			(await call({ authorization: `Bearer ${token}` }, { extra: 1 })).status,
-			400,
-		);
-		assert.deepEqual(toolCalls, [["thread-9", { tool: "board_snapshot" }]]);
-		agentTokens.revoke(token);
-		assert.equal(
-			(await call({ authorization: `Bearer ${token}` })).status,
-			401,
-		);
 	});
 
 	it("answers peer hooks from loopback without browser headers", async () => {

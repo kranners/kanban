@@ -104,17 +104,6 @@ const thread = async (backend: Backend): Promise<string> => {
 	return ((await created.json()) as { id: string }).id;
 };
 
-const schedule = async (backend: Backend): Promise<string> => {
-	const created = await answers(backend, "POST", "/api/schedules", {
-		time: "08:00",
-		prompt: "What ran overnight?",
-		x: 0,
-		y: 0,
-		mode: "replace",
-	});
-	return ((await created.json()) as { id: string }).id;
-};
-
 const docStore = async (backend: Backend): Promise<string> => {
 	const created = await answers(backend, "POST", "/api/docs", {
 		title: "Runbooks",
@@ -134,18 +123,6 @@ const probes: Record<string, Probe> = {
 		});
 		await answers(backend, "DELETE", `/api/docs/${id}/files/index.md`);
 		await answers(backend, "DELETE", `/api/docs/${id}`);
-	},
-	"/api/schedules": async (backend) => {
-		await schedule(backend);
-	},
-	"/api/schedules/:param": async (backend) => {
-		const id = await schedule(backend);
-		await answers(backend, "PATCH", `/api/schedules/${id}`, { mode: "stack" });
-		await answers(backend, "DELETE", `/api/schedules/${id}`);
-	},
-	"/api/schedules/:param/run": async (backend) => {
-		const id = await schedule(backend);
-		await answers(backend, "POST", `/api/schedules/${id}/run`);
 	},
 	"/api/feed": (backend) => opens(backend, "/api/feed"),
 	"/api/attach/:param": (backend) => opens(backend, "/api/attach/a1f0c2d4"),
@@ -338,7 +315,7 @@ test("writes reach every feed socket as the real server's frames", async () => {
 	});
 	backend.stop();
 	const types = (frames as BoardFeed[]).map((frame) => frame.type);
-	assert.deepEqual(types.slice(0, 11), [
+	assert.deepEqual(types.slice(0, 10), [
 		"layout",
 		"annotations",
 		"colours",
@@ -348,10 +325,9 @@ test("writes reach every feed socket as the real server's frames", async () => {
 		"digests",
 		"relations",
 		"docs",
-		"schedules",
 		"board",
 	]);
-	assert.deepEqual(types.slice(11), [
+	assert.deepEqual(types.slice(10), [
 		"colours",
 		"ignores",
 		"regions",
@@ -359,28 +335,17 @@ test("writes reach every feed socket as the real server's frames", async () => {
 	]);
 });
 
-test("a top-bar button keeps one thread and refuses a rerun while it works", async () => {
+test("every comment on the demo goes to Butler", async () => {
 	const backend = createBackend(calm);
-	const tidy = { x: 0, y: 0, button: "tidy", text: "Tidy up" };
-	const first = (await (
-		await answers(backend, "POST", "/api/comments", tidy)
-	).json()) as { id: string };
-	assert.equal(
-		backend.fetch("POST", "/api/comments", new URLSearchParams(), tidy).status,
-		409,
-	);
-	await answers(backend, "POST", `/api/comments/${first.id}/cancel`);
-	await answers(backend, "POST", "/api/comments", tidy);
-	const { frames, peer } = listening();
-	backend.socket("/api/feed")?.(peer);
+	const created = (await (
+		await answers(backend, "POST", "/api/comments", {
+			x: 0,
+			y: 0,
+			text: "Tidy up",
+		})
+	).json()) as { to?: string };
 	backend.stop();
-	const comments = (frames as BoardFeed[]).find(
-		(frame) => frame.type === "comments",
-	);
-	assert.deepEqual(
-		comments?.comments.filter((thread) => thread.button === "tidy").length,
-		1,
-	);
+	assert.equal(created.to, "butler");
 });
 
 test("the shim answers /api requests in memory and passes the rest through", async () => {

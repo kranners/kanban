@@ -1,16 +1,15 @@
 import { computed, signal } from "@preact/signals";
 import type {
-	AgentButton,
 	BoardRect,
 	ButlerPresence,
 	CommentEvent,
-	CommentRecipient,
 	CommentThread,
 	Point,
 } from "../shared/types.ts";
 import type { KeyPress } from "./actions.ts";
 
-export type Composer = { board: Point; client: Point };
+/** Where the `/` popup opens, and any request a top bar button filled in for Aaron to edit. */
+export type Composer = { board: Point; client: Point; text?: string };
 export type ThreadMenu = { id: string; client: Point };
 type Outcome<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -22,27 +21,11 @@ export const composer = signal<Composer | null>(null);
 export const threadMenu = signal<ThreadMenu | null>(null);
 export const pinDrafts = signal<ReadonlyMap<string, Point>>(new Map());
 
-export const openButton = signal<AgentButton | null>(null);
-
-/** Who the `/` popup sends to; Butler unless Aaron picks the board agent. */
-export const recipient = signal<CommentRecipient>("butler");
-
 export const pinned = computed(() =>
-	[...threads.value.values()]
-		.filter((thread) => !thread.button)
-		.map((thread) => {
-			const draft = pinDrafts.value.get(thread.id);
-			return draft ? { ...thread, ...draft } : thread;
-		}),
-);
-
-export const buttonThreads = computed(
-	() =>
-		new Map(
-			[...threads.value.values()].flatMap((thread) =>
-				thread.button ? [[thread.button, thread] as const] : [],
-			),
-		),
+	[...threads.value.values()].map((thread) => {
+		const draft = pinDrafts.value.get(thread.id);
+		return draft ? { ...thread, ...draft } : thread;
+	}),
 );
 
 export const openThread = computed(() =>
@@ -88,8 +71,6 @@ export function receiveComments(list: readonly CommentThread[]): void {
 	threads.value = new Map(list.map((thread) => [thread.id, thread]));
 	const open = openThreadId.peek();
 	if (open && !threads.value.has(open)) openThreadId.value = null;
-	const button = openButton.peek();
-	if (button && !buttonThreads.peek().has(button)) openButton.value = null;
 }
 
 export function receiveComment(thread: CommentThread): void {
@@ -106,6 +87,10 @@ function forgetDraft(id: string, draft: Point): void {
 	next.delete(id);
 	pinDrafts.value = next;
 }
+
+/** The retired board agent's threads stay on the board to read, but take no replies. */
+export const isRetired = (thread: CommentThread): boolean =>
+	thread.to !== "butler";
 
 export const isButlerThread = (thread: CommentThread): boolean =>
 	thread.to === "butler";
@@ -179,24 +164,22 @@ async function request<T>(
 
 const threadPath = (id: string) => `/api/comments/${encodeURIComponent(id)}`;
 
+/** Sends Aaron's message to Butler from a point on the board and opens its thread. */
 export async function startThread(
 	at: Point,
 	text: string,
-	button?: AgentButton,
-	to?: { recipient: CommentRecipient; viewport?: BoardRect },
+	viewport?: BoardRect,
 ): Promise<Outcome<CommentThread>> {
 	const created = await request<CommentThread>("POST", "/api/comments", {
 		x: Math.round(at.x),
 		y: Math.round(at.y),
 		text,
-		...(button ? { button } : {}),
-		...(to ? { to: to.recipient } : {}),
-		...(to?.viewport ? { viewport: to.viewport } : {}),
+		to: "butler",
+		...(viewport ? { viewport } : {}),
 	});
 	if (created.ok) {
 		receiveComment(created.value);
-		if (button) openButton.value = button;
-		else openThreadId.value = created.value.id;
+		openThreadId.value = created.value.id;
 	}
 	return created;
 }

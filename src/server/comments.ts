@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
 import {
-	type AgentButton,
-	agentButtons,
 	type BoardContext,
 	type BoardRect,
 	type ButlerMessage,
@@ -62,27 +60,18 @@ export const parseMessage = (body: unknown): string | { error: string } => {
 	return text;
 };
 
-const isAgentButton = (value: unknown): value is AgentButton =>
-	agentButtons.includes(value as AgentButton);
-
 export const parseCommentDraft = (
 	body: unknown,
 ): CommentDraft | { error: string } => {
 	if (typeof body !== "object" || body === null) {
 		return { error: "Expected a JSON object with x, y and text" };
 	}
-	const { x, y, button, to, viewport } = body as Record<string, unknown>;
+	const { x, y, to, viewport } = body as Record<string, unknown>;
 	if (!isCoordinate(x) || !isCoordinate(y)) {
 		return { error: "x and y must be finite board coordinates" };
 	}
-	if (button !== undefined && !isAgentButton(button)) {
-		return { error: "button must be tidy or snooze" };
-	}
-	if (to !== undefined && to !== "butler" && to !== "agent") {
-		return { error: "to must be butler or agent" };
-	}
-	if (to === "butler" && button !== undefined) {
-		return { error: "A button's request goes to the board agent" };
+	if (to !== undefined && to !== "butler") {
+		return { error: "Comments go to Butler; the board agent has been retired" };
 	}
 	const rect = viewport === undefined ? undefined : parseRect(viewport);
 	if (rect === null) {
@@ -90,14 +79,7 @@ export const parseCommentDraft = (
 	}
 	const text = parseMessage(body);
 	return typeof text === "string"
-		? {
-				x,
-				y,
-				text,
-				...(button === undefined ? {} : { button }),
-				...(to === undefined ? {} : { to }),
-				...(rect === undefined ? {} : { viewport: rect }),
-			}
+		? { x, y, text, ...(rect === undefined ? {} : { viewport: rect }) }
 		: text;
 };
 
@@ -266,7 +248,6 @@ const parseThread = (value: unknown): CommentThread | null => {
 		id,
 		x,
 		y,
-		...(isAgentButton(fields.button) ? { button: fields.button } : {}),
 		createdAt,
 		updatedAt,
 		resolved: resolved === true,
@@ -282,6 +263,8 @@ export const parseComments = (value: unknown): CommentThread[] => {
 	const seen = new Set<string>();
 	return value
 		.flatMap((raw) => {
+			// A top bar button's result was the retired board agent's; it has nowhere to show now.
+			if ((raw as { button?: unknown } | null)?.button !== undefined) return [];
 			const thread = parseThread(raw);
 			if (!thread || seen.has(thread.id)) return [];
 			seen.add(thread.id);
@@ -324,10 +307,9 @@ export const createCommentStore = ({
 				id: newId(),
 				x: draft.x,
 				y: draft.y,
-				...(draft.button ? { button: draft.button } : {}),
-				...(draft.to === "butler"
-					? { to: "butler" as const, queued: [], waiting: [] }
-					: {}),
+				to: "butler" as const,
+				queued: [],
+				waiting: [],
 				createdAt: at,
 				updatedAt: at,
 				resolved: false,

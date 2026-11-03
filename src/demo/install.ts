@@ -1,11 +1,11 @@
 import "./demo.css";
 import { createBackend } from "./backend.ts";
 import { calm } from "./calm.ts";
-import { docs, links, schedules } from "./clips.ts";
+import { docs, links } from "./clips.ts";
 import { headline } from "./headline.ts";
 import { install, routeImages } from "./shim.ts";
 
-const scenarios = { headline, links, docs, schedules };
+const scenarios = { headline, links, docs };
 
 const params = new URLSearchParams(location.search);
 const name = params.get("scenario") ?? "";

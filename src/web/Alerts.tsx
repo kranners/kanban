@@ -1,11 +1,4 @@
-import {
-	Bell,
-	BellOff,
-	BellRing,
-	CalendarClock,
-	TriangleAlert,
-	X,
-} from "lucide-preact";
+import { Bell, BellOff, BellRing, TriangleAlert, X } from "lucide-preact";
 import type { JSX } from "preact";
 import "./alerts.css";
 import {
@@ -13,14 +6,11 @@ import {
 	dismissToast,
 	notifying,
 	permission,
-	reportHeadline,
 	shown,
-	showReport,
 	toasts,
 	toggleNotifications,
 } from "./alertState.ts";
 import { alertBody } from "./alerts.ts";
-import { dismissReport, reportsReady } from "./schedules.ts";
 
 const bellLabel = {
 	default: "Turn on notifications when a session needs you",
@@ -57,38 +47,6 @@ export function AlertToasts(): JSX.Element {
 	const hidden = all.length - visible.length;
 	return (
 		<section class="alert-toasts" aria-live="polite" aria-label="Needs you">
-			{reportsReady.value.map((ready) => (
-				<div
-					key={ready.scheduleId}
-					class="alert-toast report-toast"
-					data-no-pan
-				>
-					<CalendarClock
-						class="alert-toast-icon"
-						size={16}
-						strokeWidth={2.25}
-						aria-hidden="true"
-					/>
-					<button
-						type="button"
-						class="alert-toast-open"
-						onClick={() => showReport(ready)}
-						title="Show the report"
-					>
-						<span class="alert-toast-title">Scheduled report ready</span>
-						<span class="alert-toast-body">{reportHeadline(ready.noteId)}</span>
-					</button>
-					<button
-						type="button"
-						class="icon-button alert-toast-close"
-						onClick={() => dismissReport(ready.scheduleId)}
-						aria-label="Dismiss the report"
-						title="Dismiss"
-					>
-						<X size={14} />
-					</button>
-				</div>
-			))}
 			{visible.map((session) => (
 				<div key={session.id} class="alert-toast" data-no-pan>
 					<TriangleAlert

@@ -12,9 +12,9 @@ import {
 	maxDocTextBytes,
 } from "../shared/docPaths.ts";
 import type { DocFile, DocStore } from "../shared/types.ts";
-import { fromLoopback } from "./agentAuth.ts";
 import type { DocStoreRegistry } from "./docStores.ts";
 import type { DocFiles } from "./docs.ts";
+import { fromLoopback } from "./loopback.ts";
 
 export type DocsReply = { status: number; body?: unknown };
 

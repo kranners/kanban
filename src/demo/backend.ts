@@ -38,14 +38,10 @@ import type {
 	Relation,
 	RelationDraft,
 	RelationEnd,
-	Schedule,
-	ScheduleDraft,
 	Session,
 	Subagent,
 } from "../shared/types.ts";
-import { agentButtons, maxDocTitle, scheduleModes } from "../shared/types.ts";
-import { gridSize } from "../web/grid.ts";
-import { noteSizeFor, topZ } from "../web/notes.ts";
+import { maxDocTitle } from "../shared/types.ts";
 import {
 	closing,
 	type DocText,
@@ -880,8 +876,6 @@ export function createBackend(scenario: Scenario): Backend {
 			x?: unknown;
 			y?: unknown;
 			text?: unknown;
-			button?: unknown;
-			to?: unknown;
 		} | null;
 		if (
 			typeof draft?.x !== "number" ||
@@ -890,25 +884,15 @@ export function createBackend(scenario: Scenario): Backend {
 			draft.text.trim() === ""
 		)
 			return json(400, { ok: false, error: "x, y and text are required" });
-		const button = agentButtons.find((name) => name === draft.button);
-		const previous = button
-			? world.comments.find((thread) => thread.button === button)
-			: undefined;
-		if (previous?.running)
-			return json(409, {
-				ok: false,
-				error: "The board agent is still working on this",
-			});
 		const at = Date.now();
 		const n = next();
 		const thread: CommentThread = {
 			id: `c${n}`,
 			x: draft.x,
 			y: draft.y,
-			...(button ? { button } : {}),
-			...(!button && draft.to === "butler"
-				? { to: "butler" as const, queued: [], waiting: [] }
-				: {}),
+			to: "butler",
+			queued: [],
+			waiting: [],
 			createdAt: at,
 			updatedAt: at,
 			resolved: false,
@@ -920,190 +904,10 @@ export function createBackend(scenario: Scenario): Backend {
 		world.comments.push(thread);
 		broadcast({ type: "comment", comment: thread });
 		ask(thread.id, draft.text);
-		if (previous) {
-			world.comments = world.comments.filter((item) => item !== previous);
-			broadcast({ type: "comments", comments: world.comments });
-		}
 		return json(
 			201,
 			world.comments.find((item) => item.id === thread.id) ?? thread,
 		);
-	};
-
-	const broadcastSchedules = () =>
-		broadcast({ type: "schedules", schedules: world.schedules });
-
-	const updateSchedule = (id: string, fields: Partial<Schedule>) => {
-		world.schedules = world.schedules.map((schedule) =>
-			schedule.id === id ? { ...schedule, ...fields } : schedule,
-		);
-		broadcastSchedules();
-		return world.schedules.find((schedule) => schedule.id === id) ?? null;
-	};
-
-	const overnightReport = () => {
-		const named = (activity: Session["activity"]) =>
-			world.sessions.filter((item) => item.activity === activity);
-		const lines = (
-			title: string,
-			items: Session[],
-			detail: (s: Session) => string,
-		) =>
-			items.length === 0
-				? []
-				: [
-						`### ${title}`,
-						...items.map((item) => `- **${item.name}**: ${detail(item)}`),
-						"",
-					];
-		return (
-			[
-				...lines(
-					"Needs you",
-					named("needs-you"),
-					(item) => item.needs ?? item.doing ?? "waiting",
-				),
-				...lines(
-					"Failed",
-					named("failed"),
-					(item) => item.doing ?? "stopped with an error",
-				),
-				...lines(
-					"Still running",
-					named("working"),
-					(item) => item.doing ?? "working",
-				),
-				...lines(
-					"Landed",
-					named("done"),
-					(item) => item.goal ?? item.doing ?? "finished",
-				),
-			]
-				.join("\n")
-				.trim() || "Nothing ran since the last report."
-		);
-	};
-
-	const reportStamp = (at: number) =>
-		new Date(at).toLocaleString("en-GB", {
-			weekday: "short",
-			day: "numeric",
-			month: "short",
-			hour: "2-digit",
-			minute: "2-digit",
-		});
-
-	const writeReport = (schedule: Schedule, startedAt: number) => {
-		const text = `**Scheduled report · ${reportStamp(startedAt)}**\n\n${overnightReport()}`;
-		const previous = schedule.noteId
-			? world.annotations[schedule.noteId]
-			: undefined;
-		const note =
-			schedule.mode === "replace" && previous?.kind === "note"
-				? { ...previous, text }
-				: {
-						id: `report-${next()}`,
-						kind: "note" as const,
-						x: schedule.x + gridSize * 2,
-						y: schedule.y,
-						...noteSizeFor(text),
-						z: topZ(world.annotations) + 1,
-						text,
-						color: "blue" as const,
-					};
-		world.annotations = { ...world.annotations, [note.id]: note };
-		broadcast({ type: "annotations", annotations: world.annotations });
-		updateSchedule(schedule.id, {
-			run: null,
-			noteId: note.id,
-			reportedAt: Date.now(),
-			lastRunAt: startedAt,
-		});
-	};
-
-	const runReport = (schedule: Schedule): Response => {
-		if (schedule.run)
-			return json(409, { ok: false, error: "This report is already running" });
-		const at = Date.now();
-		const n = next();
-		const thread: CommentThread = {
-			id: `c${n}`,
-			x: schedule.x,
-			y: schedule.y,
-			createdAt: at,
-			updatedAt: at,
-			resolved: false,
-			running: false,
-			sessionId: `00000000-0000-4000-8000-${n.toString(16).padStart(12, "0")}`,
-			resumable: false,
-			events: [],
-		};
-		world.comments = [
-			...world.comments.filter((item) => item.id !== schedule.threadId),
-			thread,
-		];
-		broadcast({ type: "comments", comments: world.comments });
-		updateThread(thread.id, (current) => ({
-			...current,
-			running: true,
-			events: [{ kind: "user", at, text: schedule.prompt }],
-		}));
-		later(700, () =>
-			updateThread(thread.id, (current) => ({
-				...current,
-				events: [
-					...current.events,
-					{
-						kind: "action",
-						at: Date.now(),
-						id: "history",
-						text: "Reading what ran",
-						state: "running",
-					},
-				],
-			})),
-		);
-		later(2400, () => {
-			const report = overnightReport();
-			updateThread(thread.id, (current) => ({
-				...current,
-				running: false,
-				events: [
-					...current.events.map((event) =>
-						event.kind === "action"
-							? {
-									...event,
-									state: "done" as const,
-									text: `Read ${world.sessions.length} sessions`,
-								}
-							: event,
-					),
-					{ kind: "reply", at: Date.now(), text: report },
-				],
-			}));
-			const current = world.schedules.find((item) => item.id === schedule.id);
-			if (current) writeReport(current, at);
-		});
-		updateSchedule(schedule.id, {
-			threadId: thread.id,
-			lastError: null,
-			run: { threadId: thread.id, startedAt: at, slot: null },
-		});
-		return json(202, { ok: true });
-	};
-
-	const scheduleDraft = (body: unknown): Partial<ScheduleDraft> | null => {
-		const fields = body as Partial<ScheduleDraft> | null;
-		if (typeof fields !== "object" || fields === null) return null;
-		if (
-			fields.time !== undefined &&
-			!/^([01]\d|2[0-3]):[0-5]\d$/.test(fields.time)
-		)
-			return null;
-		if (fields.mode !== undefined && !scheduleModes.includes(fields.mode))
-			return null;
-		if (fields.prompt !== undefined && fields.prompt.trim() === "") return null;
-		return fields;
 	};
 
 	const boardKeys = () =>
@@ -1450,75 +1254,6 @@ export function createBackend(scenario: Scenario): Backend {
 			},
 		],
 		[
-			"POST",
-			/^\/api\/schedules$/,
-			(_match, body) => {
-				const draft = scheduleDraft(body);
-				if (
-					!draft?.time ||
-					!draft.prompt ||
-					!draft.mode ||
-					typeof draft.x !== "number" ||
-					typeof draft.y !== "number"
-				)
-					return json(400, {
-						ok: false,
-						error: "time, prompt, x, y and mode are required",
-					});
-				const at = Date.now();
-				const schedule: Schedule = {
-					id: `schedule-${next()}`,
-					time: draft.time,
-					prompt: draft.prompt,
-					x: draft.x,
-					y: draft.y,
-					mode: draft.mode,
-					createdAt: at,
-					lastSlot: at,
-					lastRunAt: null,
-					lastError: null,
-					threadId: null,
-					run: null,
-					noteId: null,
-					reportedAt: null,
-				};
-				world.schedules = [...world.schedules, schedule];
-				broadcastSchedules();
-				return json(201, schedule);
-			},
-		],
-		[
-			"PATCH",
-			/^\/api\/schedules\/([^/]+)$/,
-			([id = ""], body) => {
-				const patch = scheduleDraft(body);
-				if (!patch) return json(400, { ok: false, error: "Invalid schedule" });
-				const updated = updateSchedule(id, patch);
-				return updated ? json(200, updated) : notFound();
-			},
-		],
-		[
-			"DELETE",
-			/^\/api\/schedules\/([^/]+)$/,
-			([id = ""]) => {
-				if (!world.schedules.some((schedule) => schedule.id === id))
-					return notFound();
-				world.schedules = world.schedules.filter(
-					(schedule) => schedule.id !== id,
-				);
-				broadcastSchedules();
-				return empty(204);
-			},
-		],
-		[
-			"POST",
-			/^\/api\/schedules\/([^/]+)\/run$/,
-			([id = ""]) => {
-				const schedule = world.schedules.find((item) => item.id === id);
-				return schedule ? runReport(schedule) : notFound();
-			},
-		],
-		[
 			"DELETE",
 			/^\/api\/comments\/([^/]+)$/,
 			([id = ""]) => {
@@ -1542,7 +1277,6 @@ export function createBackend(scenario: Scenario): Backend {
 		sendFrame(peer, { type: "digests", digests: world.digests });
 		sendFrame(peer, { type: "relations", relations: world.relations });
 		sendFrame(peer, docsFrame());
-		sendFrame(peer, { type: "schedules", schedules: world.schedules });
 		sendFrame(peer, { type: "board", board: snapshot() });
 		return { receive() {}, close: () => feeds.delete(peer) };
 	};
@@ -1843,7 +1577,6 @@ export function createBackend(scenario: Scenario): Backend {
 		broadcast({ type: "colours", colours: world.colours });
 		broadcast({ type: "regions", regions: world.regions });
 		broadcast({ type: "comments", comments: world.comments });
-		broadcastSchedules();
 		broadcast({ type: "board", board: snapshot() });
 		for (const step of scenario.timeline) later(step.at, () => step.run(stage));
 		return new Promise((resolve) => later(duration + 1, resolve));
