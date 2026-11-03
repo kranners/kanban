@@ -128,26 +128,30 @@ Run `npm run launchd-setup` from a checkout of `main`. It installs launchd agent
 
 ## Configuration
 
-| Variable           | Default                                        | Purpose                                                       |
-| ------------------ | ---------------------------------------------- | ------------------------------------------------------------- |
-| `KANBAN_AUTH`      | `access`                                       | Set `off` for local use; allowed only on a loopback host      |
-| `KANBAN_HOST`      | `127.0.0.1`                                    | Bind address                                                  |
-| `KANBAN_PORT`      | `7420`                                         | Port                                                          |
-| `CLAUDE_BIN`       | first `claude` on `PATH`, skipping cmux's shim | The `claude` binary sessions are started and attached with    |
-| `CMUX_BIN`         | cmux.app's bundled `cmux`                      | The `cmux` CLI that mirrors and drives sessions in cmux panes |
-| `CLAUDE_HOME`      | `~/.claude`                                    | Claude Code's state directory                                 |
-| `CSWAP_BIN`        | `cswap`                                        | The `cswap` CLI for several Claude accounts, when installed   |
-| `KANBAN_STATE`     | `~/.local/state/kanban`, or `kanban-<port>`    | Where the layout, notes, colours, regions and threads live    |
-| `KANBAN_AUDIT_LOG` | `~/Library/Logs/kanban/audit.jsonl`            | Audit log of exits, new sessions, sends and board agent edits |
-| `KANBAN_DIST`      | `dist`                                         | Built page                                                    |
-| `KANBAN_SYNC`      | `on`                                           | Set `off` to pause `kanban-sync`                              |
+| Variable              | Default                                        | Purpose                                                            |
+| --------------------- | ---------------------------------------------- | ------------------------------------------------------------------ |
+| `KANBAN_AUTH`         | `access`                                       | Set `off` for local use; allowed only on a loopback host           |
+| `KANBAN_HOST`         | `127.0.0.1`                                    | Bind address or comma-separated addresses; loopback is always kept |
+| `KANBAN_RUNNER_TOKEN` | unset                                          | Shared bearer token for runners and other machines                 |
+| `KANBAN_PORT`         | `7420`                                         | Port                                                               |
+| `CLAUDE_BIN`          | first `claude` on `PATH`, skipping cmux's shim | The `claude` binary sessions are started and attached with         |
+| `CMUX_BIN`            | cmux.app's bundled `cmux`                      | The `cmux` CLI that mirrors and drives sessions in cmux panes      |
+| `CLAUDE_HOME`         | `~/.claude`                                    | Claude Code's state directory                                      |
+| `CSWAP_BIN`           | `cswap`                                        | The `cswap` CLI for several Claude accounts, when installed        |
+| `KANBAN_STATE`        | `~/.local/state/kanban`, or `kanban-<port>`    | Where the layout, notes, colours, regions and threads live         |
+| `KANBAN_AUDIT_LOG`    | `~/Library/Logs/kanban/audit.jsonl`            | Audit log of exits, new sessions, sends and board agent edits      |
+| `KANBAN_DIST`         | `dist`                                         | Built page                                                         |
+| `KANBAN_SYNC`         | `on`                                           | Set `off` to pause `kanban-sync`                                   |
+
+`KANBAN_HOST=127.0.0.1,10.100.0.11` serves the board on loopback and the WireGuard address. `KANBAN_RUNNER_TOKEN` (32-128 characters of `A-Za-z0-9_-`, such as `openssl rand -hex 32`) belongs in `~/.config/kanban/env` at mode 600; the server reads it from there, and it is never logged or written to a plist.
 
 The default, `access`, verifies Cloudflare Access tokens and refuses to start without `KANBAN_ACCESS_TEAM` (the Access team name), `KANBAN_ACCESS_AUD` (the Access application's audience tag) and `KANBAN_ORIGIN` (the board's public origin, such as `https://kanban.example.com`); the [design notes](docs/design.md#infrastructure) describe the tunnel and Access setup. Run locally with `KANBAN_AUTH=off`.
 
 ## Security
 
 kanban is a remote terminal into every background Claude Code session and every session in a cmux pane on the machine, so it is layered:
-- The server binds to localhost; `KANBAN_AUTH=off` is refused on any other address.
+- The server binds to localhost; `KANBAN_AUTH=off` is refused on any other address. Listing a WireGuard address in `KANBAN_HOST` adds it next to loopback, and requests there need Cloudflare Access or the runner token like any other.
+- Machines (runners, spike) authenticate with `Authorization: Bearer $KANBAN_RUNNER_TOKEN`. The token is compared in constant time, never logged, and kept out of launchd plists; a request carrying it skips the browser `Origin` check, since no cookie or browser is involved. Keep `~/.config/kanban/env` at mode 600; `launchd-setup` warns otherwise.
 - WebSocket upgrades must come from the board's own origin.
 - Session keys, the daemon control key and other secrets under `~/.claude` are never read or served.
 - The peer hook endpoint answers only loopback requests with no browser `Origin`, and only says who shares a session's frame or is linked to it and which doc stores the board keeps.

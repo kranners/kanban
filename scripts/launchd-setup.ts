@@ -1,6 +1,8 @@
 // Install the launchd user agents that keep the board running on the Mac:
 // `kanban` (the server), `kanban-tunnel` (cloudflared) and `kanban-sync`
 // (`scripts/sync.ts` every minute). Idempotent; `--uninstall` removes them.
+// `--runner` instead installs only `kanban-runner`, the agent that lets another
+// Mac take sessions from the hub (see src/runner/main.ts).
 import { type SpawnSyncReturns, spawnSync } from "node:child_process";
 import {
 	copyFileSync,
@@ -8,6 +10,7 @@ import {
 	mkdirSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -83,6 +86,37 @@ export const buildPath = (
 	return [...seen].join(":");
 };
 
+// Plists sit world-readable in ~/Library/LaunchAgents, so secrets never go
+// into them: the server and the runner read those from ~/.config/kanban/env.
+export const secretKeys = ["KANBAN_RUNNER_TOKEN"] as const;
+
+export const withoutSecrets = (
+	env: Record<string, string>,
+): Record<string, string> =>
+	Object.fromEntries(
+		Object.entries(env).filter(
+			([key]) => !(secretKeys as readonly string[]).includes(key),
+		),
+	);
+
+// True when a file holding secrets can be read by anyone but its owner.
+export const looseMode = (mode: number): boolean => (mode & 0o077) !== 0;
+
+export const runnerPlist = (opts: {
+	node: string;
+	root: string;
+	path: string;
+	logs: string;
+}): PlistOptions => ({
+	label: "kanban-runner",
+	programArguments: [opts.node, join(opts.root, "src", "runner", "main.ts")],
+	workingDirectory: opts.root,
+	environment: { PATH: opts.path },
+	keepAlive: true,
+	runAtLoad: true,
+	log: join(opts.logs, "runner.log"),
+});
+
 type Run = SpawnSyncReturns<string>;
 
 const run = (cmd: string, args: string[], env?: NodeJS.ProcessEnv): Run =>
@@ -98,7 +132,81 @@ const stop = (message: string): never => {
 	process.exit(1);
 };
 
-const labels = ["kanban", "kanban-tunnel", "kanban-sync"] as const;
+const labels = [
+	"kanban",
+	"kanban-tunnel",
+	"kanban-sync",
+	"kanban-runner",
+] as const;
+
+const bootstrap =
+	(uid: number, plistFor: (label: string) => string) =>
+	(opts: PlistOptions): void => {
+		const file = plistFor(opts.label);
+		const xml = renderPlist(opts);
+		if (existsSync(file) && readFileSync(file, "utf8") !== xml) {
+			copyFileSync(file, `${file}.bak`);
+			console.log(`backed up ${file}.bak`);
+		}
+		writeFileSync(file, xml);
+		run("launchctl", ["bootout", `gui/${uid}/${opts.label}`]);
+		// bootout returns before the job is gone, so bootstrap may need a retry.
+		let boot = run("launchctl", ["bootstrap", `gui/${uid}`, file]);
+		for (let i = 0; i < 10 && boot.status !== 0; i++) {
+			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
+			boot = run("launchctl", ["bootstrap", `gui/${uid}`, file]);
+		}
+		if (boot.status !== 0)
+			console.error(
+				`launchctl bootstrap ${opts.label} failed: ${boot.stderr.trim()}`,
+			);
+		const state = out(run("launchctl", ["print", `gui/${uid}/${opts.label}`]))
+			.split("\n")
+			.filter((line) => /^\s*(state|pid|last exit code) =/.test(line))
+			.map((line) => line.trim())
+			.join(", ");
+		console.log(`${opts.label}: ${state || "not loaded"}`);
+	};
+
+const warnLooseEnv = (file: string, env: Record<string, string>): void => {
+	if (!secretKeys.some((key) => env[key])) return;
+	try {
+		if (looseMode(statSync(file).mode))
+			console.warn(
+				`${file} holds KANBAN_RUNNER_TOKEN but others can read it; run \`chmod 600 ${file}\`.`,
+			);
+	} catch {}
+};
+
+const installRunner = (): void => {
+	if (process.platform !== "darwin") stop("launchd-setup runs on macOS only.");
+	const uid = process.getuid?.() ?? 0;
+	const home = homedir();
+	const agents = join(home, "Library", "LaunchAgents");
+	const logs = join(home, "Library", "Logs", "kanban");
+	const root = out(run("git", ["rev-parse", "--show-toplevel"]));
+	if (!root) stop("Run this from a kanban checkout.");
+	const envFile = kanbanEnvPath(home);
+	const fileEnv = readKanbanEnv(envFile);
+	if (!fileEnv.KANBAN_RUNNER_HUB || !fileEnv.KANBAN_RUNNER_TOKEN)
+		stop(
+			`Set KANBAN_RUNNER_HUB (e.g. http://10.100.0.11:7420) and KANBAN_RUNNER_TOKEN in ${envFile} first.`,
+		);
+	warnLooseEnv(envFile, fileEnv);
+	mkdirSync(agents, { recursive: true });
+	mkdirSync(logs, { recursive: true });
+	const node = which("node") ?? process.execPath;
+	const claudeBin = fileEnv.CLAUDE_BIN ?? which("claude");
+	const path = buildPath([
+		dirname(node),
+		claudeBin ? dirname(claudeBin) : null,
+		"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+	]);
+	bootstrap(uid, (label) => join(agents, `${label}.plist`))(
+		runnerPlist({ node, root, path, logs }),
+	);
+	console.log(`Runner log: ${join(logs, "runner.log")}.`);
+};
 
 const install = (uninstall: boolean): void => {
 	if (process.platform !== "darwin") stop("launchd-setup runs on macOS only.");
@@ -131,6 +239,7 @@ const install = (uninstall: boolean): void => {
 	mkdirSync(agents, { recursive: true });
 	mkdirSync(logs, { recursive: true });
 	const fileEnv = readKanbanEnv(kanbanEnvPath(home));
+	warnLooseEnv(kanbanEnvPath(home), fileEnv);
 	const node = which("node") ?? process.execPath;
 	const claudeBin =
 		fileEnv.CLAUDE_BIN ?? process.env.CLAUDE_BIN ?? which("claude");
@@ -149,7 +258,7 @@ const install = (uninstall: boolean): void => {
 			label: "kanban",
 			programArguments: [node, join(root, "src", "server", "main.ts")],
 			workingDirectory: root,
-			environment: { ...fileEnv, PATH: path },
+			environment: { ...withoutSecrets(fileEnv), PATH: path },
 			keepAlive: true,
 			runAtLoad: true,
 			log: join(logs, "server.log"),
@@ -185,32 +294,7 @@ const install = (uninstall: boolean): void => {
 			"Skipping kanban-tunnel: needs cloudflared on PATH and ~/.config/kanban/tunnel-token (scripts/cloudflare-setup.ts writes it).",
 		);
 
-	for (const opts of plists) {
-		const file = plistFor(opts.label);
-		const xml = renderPlist(opts);
-		if (existsSync(file) && readFileSync(file, "utf8") !== xml) {
-			copyFileSync(file, `${file}.bak`);
-			console.log(`backed up ${file}.bak`);
-		}
-		writeFileSync(file, xml);
-		run("launchctl", ["bootout", `gui/${uid}/${opts.label}`]);
-		// bootout returns before the job is gone, so bootstrap may need a retry.
-		let boot = run("launchctl", ["bootstrap", `gui/${uid}`, file]);
-		for (let i = 0; i < 10 && boot.status !== 0; i++) {
-			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
-			boot = run("launchctl", ["bootstrap", `gui/${uid}`, file]);
-		}
-		if (boot.status !== 0)
-			console.error(
-				`launchctl bootstrap ${opts.label} failed: ${boot.stderr.trim()}`,
-			);
-		const state = out(run("launchctl", ["print", `gui/${uid}/${opts.label}`]))
-			.split("\n")
-			.filter((line) => /^\s*(state|pid|last exit code) =/.test(line))
-			.map((line) => line.trim())
-			.join(", ");
-		console.log(`${opts.label}: ${state || "not loaded"}`);
-	}
+	for (const opts of plists) bootstrap(uid, plistFor)(opts);
 
 	const fetch = run("git", ["fetch", "--quiet", "origin", "main"], {
 		PATH: path,
@@ -229,5 +313,6 @@ const install = (uninstall: boolean): void => {
 };
 
 if (import.meta.main) {
-	install(process.argv.includes("--uninstall"));
+	if (process.argv.includes("--runner")) installRunner();
+	else install(process.argv.includes("--uninstall"));
 }

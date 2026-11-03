@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import type { IncomingMessage } from "node:http";
 import { describe, it } from "node:test";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
-import { accessAuthenticator, accessToken, originAllowed } from "./auth.ts";
+import {
+	accessAuthenticator,
+	accessToken,
+	originAllowed,
+	runnerTokenCheck,
+} from "./auth.ts";
 
 const team = "acme-team";
 const aud = "aud-123";
@@ -108,5 +113,35 @@ describe("originAllowed", () => {
 		assert.ok(
 			!originAllowed(request({ origin: "https://evil.example.com" }), origins),
 		);
+	});
+});
+
+describe("runnerTokenCheck", () => {
+	const token = "t".repeat(48);
+
+	it("accepts the configured bearer token", () => {
+		const check = runnerTokenCheck(token);
+		assert.equal(check(request({ authorization: `Bearer ${token}` })), "ok");
+		assert.equal(check(request({ authorization: `bearer ${token}` })), "ok");
+	});
+
+	it("tells a missing token from a wrong one", () => {
+		const check = runnerTokenCheck(token);
+		assert.equal(check(request({})), "none");
+		assert.equal(check(request({ authorization: "Basic abc" })), "none");
+		assert.equal(
+			check(request({ authorization: `Bearer ${token.slice(1)}` })),
+			"wrong",
+		);
+		assert.equal(
+			check(request({ authorization: `Bearer ${token}x` })),
+			"wrong",
+		);
+	});
+
+	it("refuses every token when none is configured", () => {
+		const check = runnerTokenCheck(null);
+		assert.equal(check(request({ authorization: `Bearer ${token}` })), "wrong");
+		assert.equal(check(request({})), "none");
 	});
 });

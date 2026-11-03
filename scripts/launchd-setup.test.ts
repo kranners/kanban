@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildPath, renderPlist } from "./launchd-setup.ts";
+import {
+	buildPath,
+	looseMode,
+	renderPlist,
+	runnerPlist,
+	withoutSecrets,
+} from "./launchd-setup.ts";
 
 describe("renderPlist", () => {
 	const xml = renderPlist({
@@ -76,5 +82,45 @@ describe("buildPath", () => {
 			]),
 			"/opt/homebrew/bin:/Users/me/.local/bin:/usr/local/bin:/usr/bin:/bin",
 		);
+	});
+});
+
+describe("withoutSecrets", () => {
+	it("keeps the runner token out of plists", () => {
+		assert.deepEqual(
+			withoutSecrets({
+				KANBAN_HOST: "127.0.0.1,10.100.0.11",
+				KANBAN_RUNNER_TOKEN: "s3cret",
+			}),
+			{ KANBAN_HOST: "127.0.0.1,10.100.0.11" },
+		);
+	});
+});
+
+describe("looseMode", () => {
+	it("flags env files others can read", () => {
+		assert.equal(looseMode(0o100600), false);
+		assert.equal(looseMode(0o100644), true);
+		assert.equal(looseMode(0o100640), true);
+	});
+});
+
+describe("runnerPlist", () => {
+	it("runs the runner from the checkout with no secrets in the plist", () => {
+		const plist = renderPlist(
+			runnerPlist({
+				node: "/opt/homebrew/bin/node",
+				root: "/Users/me/kanban",
+				path: "/opt/homebrew/bin:/usr/bin",
+				logs: "/Users/me/Library/Logs/kanban",
+			}),
+		);
+		assert.match(plist, /<string>kanban-runner<\/string>/);
+		assert.match(
+			plist,
+			/<string>\/Users\/me\/kanban\/src\/runner\/main\.ts<\/string>/,
+		);
+		assert.match(plist, /<key>KeepAlive<\/key><true\/>/);
+		assert.doesNotMatch(plist, /TOKEN/);
 	});
 });

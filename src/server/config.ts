@@ -9,7 +9,16 @@ export type AuthConfig =
 
 export type Config = {
 	port: number;
+	/** The first address in `hosts`, kept for callers that need just one. */
 	host: string;
+	/** Every address the board listens on; always includes a loopback one. */
+	hosts: string[];
+	/** Shared secret for machine-to-machine calls (runners, spike); null when unset. */
+	runnerToken: string | null;
+	/** How many Claude sessions this Mac's own runner is meant to carry. */
+	runnerCap: number;
+	/** Runner names to list (as offline) before they first check in. */
+	expectedRunners: string[];
 	auth: AuthConfig;
 	origins: string[];
 	claudeBin: string;
@@ -64,12 +73,60 @@ const parsePort = (raw: string | undefined): number => {
 	return port;
 };
 
-const parseAuth = (env: NodeJS.ProcessEnv, host: string): AuthConfig => {
+const wildcardHosts = new Set(["0.0.0.0", "::"]);
+
+// KANBAN_HOST is one address or a comma-separated list, such as
+// `127.0.0.1,10.100.0.11` for loopback plus the WireGuard address. Loopback
+// stays bound unless a wildcard already covers it, so the board's own agents,
+// hooks and the Cloudflare tunnel keep reaching it.
+export const parseHosts = (raw: string | undefined): string[] => {
+	const listed = (raw ?? "")
+		.split(",")
+		.map((host) => host.trim())
+		.filter((host) => host !== "");
+	for (const host of listed) {
+		if (!/^[A-Za-z0-9.:_-]+$/.test(host)) {
+			throw new Error(`KANBAN_HOST has an invalid address: "${host}"`);
+		}
+	}
+	const hosts = [...new Set(listed)];
+	if (!hosts.some((host) => isLoopback(host) || wildcardHosts.has(host))) {
+		hosts.unshift("127.0.0.1");
+	}
+	return hosts;
+};
+
+export const runnerTokenPattern = /^[A-Za-z0-9_-]{32,128}$/;
+
+const parseRunnerToken = (raw: string | undefined): string | null => {
+	if (raw === undefined || raw === "") return null;
+	if (!runnerTokenPattern.test(raw)) {
+		// Never echo the value: it is a secret even when malformed.
+		throw new Error(
+			"KANBAN_RUNNER_TOKEN must be 32-128 characters of A-Z, a-z, 0-9, _ or - (try `openssl rand -hex 32`)",
+		);
+	}
+	return raw;
+};
+
+const defaultRunnerCap = 4;
+
+export const parseRunnerCap = (raw: string | undefined): number => {
+	if (raw === undefined || raw === "") return defaultRunnerCap;
+	const cap = Number(raw);
+	if (!Number.isInteger(cap) || cap < 1 || cap > 64) {
+		throw new Error(`KANBAN_RUNNER_CAP must be 1-64, got "${raw}"`);
+	}
+	return cap;
+};
+
+const parseAuth = (env: NodeJS.ProcessEnv, hosts: string[]): AuthConfig => {
 	const mode = env.KANBAN_AUTH || "access";
 	if (mode === "off") {
-		if (!isLoopback(host)) {
+		const exposed = hosts.find((host) => !isLoopback(host));
+		if (exposed !== undefined) {
 			throw new Error(
-				`KANBAN_AUTH=off is only allowed on a loopback host, not "${host}"`,
+				`KANBAN_AUTH=off is only allowed on a loopback host, not "${exposed}"`,
 			);
 		}
 		return { mode: "off" };
@@ -117,13 +174,36 @@ const parseOrigins = (
 	];
 };
 
+// Secrets stay out of the launchd plist (scripts/launchd-setup.ts drops
+// them), so the server reads them from ~/.config/kanban/env itself when the
+// environment doesn't carry them.
+export const secretKeys = ["KANBAN_RUNNER_TOKEN"] as const;
+
+export const withFileSecrets = (
+	env: NodeJS.ProcessEnv,
+	fileEnv: Record<string, string>,
+): NodeJS.ProcessEnv => {
+	const merged = { ...env };
+	for (const key of secretKeys) {
+		if (!merged[key] && fileEnv[key]) merged[key] = fileEnv[key];
+	}
+	return merged;
+};
+
 export const loadConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
 	const port = parsePort(env.KANBAN_PORT);
-	const host = env.KANBAN_HOST || "127.0.0.1";
-	const auth = parseAuth(env, host);
+	const hosts = parseHosts(env.KANBAN_HOST);
+	const auth = parseAuth(env, hosts);
 	return {
 		port,
-		host,
+		host: hosts[0] as string,
+		hosts,
+		runnerToken: parseRunnerToken(env.KANBAN_RUNNER_TOKEN),
+		runnerCap: parseRunnerCap(env.KANBAN_RUNNER_CAP),
+		expectedRunners: (env.KANBAN_RUNNERS ?? "")
+			.split(",")
+			.map((name) => name.trim())
+			.filter((name) => name !== ""),
 		auth,
 		origins: parseOrigins(env, auth, port),
 		claudeBin: env.CLAUDE_BIN || findClaude(env.PATH),

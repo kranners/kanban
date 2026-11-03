@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { createRemoteJWKSet, type JWTVerifyGetKey, jwtVerify } from "jose";
 import type { AuthConfig } from "./config.ts";
@@ -64,3 +65,26 @@ export const originAllowed = (
 	const origin = req.headers.origin;
 	return origin !== undefined && origins.includes(origin);
 };
+
+// The shared runner token, sent as `Authorization: Bearer <token>`, admits
+// machine-to-machine calls: runners checking in, and spike or Butler calling
+// the API over WireGuard. Both sides are hashed first so the comparison takes
+// the same time whatever the length or content of the guess.
+export type RunnerTokenCheck = (
+	req: IncomingMessage,
+) => "none" | "ok" | "wrong";
+
+const sha256 = (text: string): Buffer =>
+	createHash("sha256").update(text).digest();
+
+export const runnerTokenCheck = (token: string | null): RunnerTokenCheck => {
+	const expected = token === null ? null : sha256(token);
+	return (req) => {
+		const match = req.headers.authorization?.match(/^Bearer\s+(\S+)$/i);
+		if (!match?.[1]) return "none";
+		if (expected === null) return "wrong";
+		return timingSafeEqual(sha256(match[1]), expected) ? "ok" : "wrong";
+	};
+};
+
+export const runnerIdentity = "runner-token";

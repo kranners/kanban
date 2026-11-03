@@ -35,7 +35,13 @@ import {
 	type TerminalSize,
 } from "./attach.ts";
 import type { Audit } from "./audit.ts";
-import { type Authenticate, originAllowed } from "./auth.ts";
+import {
+	type Authenticate,
+	type AuthResult,
+	originAllowed,
+	type RunnerTokenCheck,
+	runnerIdentity,
+} from "./auth.ts";
 import type { BoardAgent } from "./boardAgent.ts";
 import type { BoardTools } from "./boardTools.ts";
 import { type Butler, butlerAllowed, type SelfFixAction } from "./butler.ts";
@@ -101,6 +107,8 @@ export type ServerDeps = {
 	origins: string[];
 	dist: string;
 	authenticate: Authenticate;
+	/** Checks the shared runner bearer token; absent means none is configured. */
+	runnerToken?: RunnerTokenCheck;
 	source: BoardSource;
 	launch: SessionLauncher;
 	exit: ExitRunner;
@@ -707,13 +715,25 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		noServer: true,
 		maxPayload: 1024 * 1024,
 	});
+	// A request carrying the runner token comes from a machine, not a browser,
+	// so there is no cross-site request to guard against with the Origin check.
+	const byToken = new WeakSet<IncomingMessage>();
+	const originOk = (req: IncomingMessage) =>
+		byToken.has(req) || originAllowed(req, deps.origins);
+	const authenticate = async (req: IncomingMessage): Promise<AuthResult> => {
+		if (deps.runnerToken?.(req) === "ok") {
+			byToken.add(req);
+			return { ok: true, identity: runnerIdentity };
+		}
+		return deps.authenticate(req);
+	};
 
 	const readBody = async (
 		req: IncomingMessage,
 		res: ServerResponse,
 		limit = maxBodyBytes,
 	): Promise<{ body: unknown } | null> => {
-		if (!originAllowed(req, deps.origins)) {
+		if (!originOk(req)) {
 			sendError(res, 403);
 			return null;
 		}
@@ -817,7 +837,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		sessionId: string,
 		identity: string | null,
 	) => {
-		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		if (!originOk(req)) return sendError(res, 403);
 		const session = deps.source
 			.board()
 			.sessions.find((session) => session.id === sessionId);
@@ -835,7 +855,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		req: IncomingMessage,
 		res: ServerResponse,
 	) => {
-		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		if (!originOk(req)) return sendError(res, 403);
 		sendJson(res, 200, await deps.permissions.survey());
 	};
 
@@ -917,7 +937,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res: ServerResponse,
 		id: string,
 	) => {
-		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		if (!originOk(req)) return sendError(res, 403);
 		// Aaron deleting a self-fix's card closes it, which archives the fix.
 		const card = deps.annotations.current()[id];
 		if (card?.kind === "butler-card" && card.selfFix && deps.butler) {
@@ -940,7 +960,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		id: string,
 		action: SelfFixAction,
 	) => {
-		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		if (!originOk(req)) return sendError(res, 403);
 		if (!deps.butler) return sendError(res, 404);
 		const outcome = deps.butler.selfFixAction(id, action);
 		if (!outcome.ok) {
@@ -1021,7 +1041,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res: ServerResponse,
 		regionId: string,
 	) => {
-		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		if (!originOk(req)) return sendError(res, 403);
 		if (!deps.regions.remove(regionId)) return sendError(res, 404);
 		res.writeHead(204, { "cache-control": "no-store" });
 		res.end();
@@ -1033,7 +1053,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		regionId: string,
 		identity: string | null,
 	) => {
-		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		if (!originOk(req)) return sendError(res, 403);
 		const region = deps.regions
 			.current()
 			.find((region) => region.id === regionId);
@@ -1095,7 +1115,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res: ServerResponse,
 		act: () => Promise<DocsReply>,
 	) => {
-		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		if (!originOk(req)) return sendError(res, 403);
 		sendDocsReply(res, await act());
 	};
 
@@ -1104,7 +1124,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res: ServerResponse,
 		relationId: string,
 	) => {
-		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		if (!originOk(req)) return sendError(res, 403);
 		if (!deps.relations.remove(relationId)) return sendError(res, 404);
 		res.writeHead(204, { "cache-control": "no-store" });
 		res.end();
@@ -1165,7 +1185,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res: ServerResponse,
 		threadId: string,
 	) => {
-		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		if (!originOk(req)) return sendError(res, 403);
 		if (!deps.comments.get(threadId)) return sendError(res, 404);
 		deps.agent.cancel(threadId);
 		res.writeHead(204, { "cache-control": "no-store" });
@@ -1196,7 +1216,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res: ServerResponse,
 		threadId: string,
 	) => {
-		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		if (!originOk(req)) return sendError(res, 403);
 		deps.agent.cancel(threadId);
 		if (!deps.comments.remove(threadId)) return sendError(res, 404);
 		res.writeHead(204, { "cache-control": "no-store" });
@@ -1241,7 +1261,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res: ServerResponse,
 		scheduleId: string,
 	) => {
-		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		if (!originOk(req)) return sendError(res, 403);
 		if (!deps.schedules.remove(scheduleId)) return sendError(res, 404);
 		res.writeHead(204, { "cache-control": "no-store" });
 		res.end();
@@ -1252,7 +1272,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res: ServerResponse,
 		scheduleId: string,
 	) => {
-		if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+		if (!originOk(req)) return sendError(res, 403);
 		const started = deps.schedules.runNow(scheduleId);
 		if ("error" in started) {
 			return sendJson(res, started.status, {
@@ -1341,7 +1361,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if (route.kind === "butler-tool") return butlerTool(req, res, route.tool);
 		if (route.kind === "peer-hook") return peerHook(req, res);
 		if (route.kind === "docs-tool") return deps.docs.tool(req, res, route.tool);
-		const auth = await deps.authenticate(req);
+		const auth = await authenticate(req);
 		if (!auth.ok) return sendError(res, auth.status);
 		switch (route.kind) {
 			case "not-found":
@@ -1399,7 +1419,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			case "set-default-account":
 				return setDefaultAccount(req, res, auth.identity);
 			case "pick-folder":
-				if (!originAllowed(req, deps.origins)) return sendError(res, 403);
+				if (!originOk(req)) return sendError(res, 403);
 				return sendJson(res, 200, await deps.pickFolder());
 			case "exit-session":
 				return exitSession(req, res, route.sessionId, auth.identity);
@@ -1494,8 +1514,13 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 	) => {
 		const route = matchUpgrade(requestUrl(req));
 		if (route === null) return rejectUpgrade(socket, 404);
-		if (!originAllowed(req, deps.origins)) return rejectUpgrade(socket, 403);
-		const auth = await deps.authenticate(req);
+		const viaToken = deps.runnerToken?.(req) === "ok";
+		if (!viaToken && !originAllowed(req, deps.origins)) {
+			return rejectUpgrade(socket, 403);
+		}
+		const auth: AuthResult = viaToken
+			? { ok: true, identity: runnerIdentity }
+			: await deps.authenticate(req);
 		if (!auth.ok) return rejectUpgrade(socket, auth.status);
 		const target =
 			route.kind === "attach"

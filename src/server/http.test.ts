@@ -27,7 +27,7 @@ import { createAgentTokens } from "./agentAuth.ts";
 import { createAnnotationStore } from "./annotations.ts";
 import type { AttachHub } from "./attach.ts";
 import type { AuditEvent } from "./audit.ts";
-import type { Authenticate } from "./auth.ts";
+import { type Authenticate, runnerTokenCheck } from "./auth.ts";
 import { createColourStore } from "./colours.ts";
 import { type CommentStore, createCommentStore } from "./comments.ts";
 import { createDocStoreRegistry, type DocStoreRegistry } from "./docStores.ts";
@@ -347,6 +347,7 @@ const backgroundPair = (t: TestContext) => {
 
 describe("createKanbanServer", () => {
 	const token = "good";
+	const runnerSecret = "r".repeat(40);
 	const authenticate: Authenticate = async (req) => {
 		const value = req.headers["cf-access-jwt-assertion"];
 		if (!value) return { ok: false, status: 401 };
@@ -519,6 +520,7 @@ describe("createKanbanServer", () => {
 			origins,
 			dist,
 			authenticate,
+			runnerToken: runnerTokenCheck(runnerSecret),
 			source: {
 				board: () => board,
 				transcript: async (_id, limit) => [
@@ -733,6 +735,29 @@ describe("createKanbanServer", () => {
 			).status,
 			403,
 		);
+	});
+
+	it("admits the runner token in place of Access, without an Origin", async () => {
+		const bearer = { authorization: `Bearer ${runnerSecret}` };
+		assert.equal((await fetch(`${base}/`, { headers: bearer })).status, 200);
+		const placed = await fetch(`${base}/api/folder-picker`, {
+			method: "POST",
+			headers: bearer,
+		});
+		assert.equal(placed.status, 200);
+		assert.equal(
+			(
+				await fetch(`${base}/`, {
+					headers: { authorization: `Bearer ${"x".repeat(40)}` },
+				})
+			).status,
+			401,
+		);
+		const browser = await fetch(`${base}/api/folder-picker`, {
+			method: "POST",
+			headers: authed,
+		});
+		assert.equal(browser.status, 403);
 	});
 
 	it("serves static files with an index fallback", async () => {

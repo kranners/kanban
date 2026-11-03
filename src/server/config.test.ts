@@ -3,7 +3,12 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
-import { findClaude, isLoopback, loadConfig } from "./config.ts";
+import {
+	findClaude,
+	isLoopback,
+	loadConfig,
+	withFileSecrets,
+} from "./config.ts";
 
 const access = {
 	KANBAN_ACCESS_TEAM: "acme-team",
@@ -65,6 +70,79 @@ describe("loadConfig", () => {
 		);
 	});
 
+	it("refuses auth off when any listed host is not loopback", () => {
+		assert.throws(
+			() =>
+				loadConfig({
+					KANBAN_AUTH: "off",
+					KANBAN_HOST: "127.0.0.1,10.100.0.11",
+				}),
+			/loopback host, not "10\.100\.0\.11"/,
+		);
+		assert.throws(
+			() =>
+				loadConfig({
+					KANBAN_AUTH: "off",
+					KANBAN_HOST: "127.0.0.1,10.100.0.11",
+					KANBAN_RUNNER_TOKEN: "a".repeat(64),
+				}),
+			/loopback/,
+		);
+	});
+
+	it("binds loopback alongside a network address", () => {
+		const config = loadConfig({ ...access, KANBAN_HOST: "10.100.0.11" });
+		assert.deepEqual(config.hosts, ["127.0.0.1", "10.100.0.11"]);
+		assert.equal(config.host, "127.0.0.1");
+		assert.deepEqual(
+			loadConfig({
+				...access,
+				KANBAN_HOST: " 127.0.0.1 , 10.100.0.11,127.0.0.1",
+			}).hosts,
+			["127.0.0.1", "10.100.0.11"],
+		);
+		assert.deepEqual(loadConfig({ ...access, KANBAN_HOST: "0.0.0.0" }).hosts, [
+			"0.0.0.0",
+		]);
+		assert.throws(
+			() => loadConfig({ ...access, KANBAN_HOST: "10.0.0.1/24" }),
+			/KANBAN_HOST/,
+		);
+	});
+
+	it("reads the runner token without ever echoing it", () => {
+		assert.equal(loadConfig(access).runnerToken, null);
+		const token = "Zx9_".repeat(10);
+		assert.equal(
+			loadConfig({ ...access, KANBAN_RUNNER_TOKEN: token }).runnerToken,
+			token,
+		);
+		const short = "secret-but-short";
+		assert.throws(
+			() => loadConfig({ ...access, KANBAN_RUNNER_TOKEN: short }),
+			(error: Error) =>
+				/KANBAN_RUNNER_TOKEN/.test(error.message) &&
+				!error.message.includes(short),
+		);
+	});
+
+	it("reads the runner cap and the expected runners", () => {
+		assert.equal(loadConfig(access).runnerCap, 4);
+		assert.equal(
+			loadConfig({ ...access, KANBAN_RUNNER_CAP: "2" }).runnerCap,
+			2,
+		);
+		assert.throws(
+			() => loadConfig({ ...access, KANBAN_RUNNER_CAP: "0" }),
+			/KANBAN_RUNNER_CAP/,
+		);
+		assert.deepEqual(
+			loadConfig({ ...access, KANBAN_RUNNERS: "spike, jimbo,,piggys-MBP" })
+				.expectedRunners,
+			["spike", "jimbo", "piggys-MBP"],
+		);
+	});
+
 	it("allows local origins on the configured port with auth off", () => {
 		const config = loadConfig({ KANBAN_AUTH: "off", KANBAN_PORT: "7499" });
 		assert.deepEqual(config.auth, { mode: "off" });
@@ -100,6 +178,21 @@ describe("loadConfig", () => {
 		assert.equal(config.cmuxBin, "/usr/local/bin/cmux");
 		assert.equal(config.claudeHome, "/Users/me/.claude-test");
 		assert.equal(config.dist, "/Users/me/dev/acme-api/dist");
+	});
+});
+
+describe("withFileSecrets", () => {
+	it("fills the runner token from the env file only when unset", () => {
+		const file = { KANBAN_RUNNER_TOKEN: "from-file", KANBAN_AUTH: "off" };
+		assert.deepEqual(withFileSecrets({ PATH: "/bin" }, file), {
+			PATH: "/bin",
+			KANBAN_RUNNER_TOKEN: "from-file",
+		});
+		assert.equal(
+			withFileSecrets({ KANBAN_RUNNER_TOKEN: "from-env" }, file)
+				.KANBAN_RUNNER_TOKEN,
+			"from-env",
+		);
 	});
 });
 

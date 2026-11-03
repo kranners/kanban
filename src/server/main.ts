@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { readKanbanEnv } from "../shared/envFile.ts";
 import type { Board, Session } from "../shared/types.ts";
 import {
 	accountsIntervalMs,
@@ -17,7 +18,7 @@ import { createAnnotationStore, loadAnnotations } from "./annotations.ts";
 import { createAnnouncer } from "./announce.ts";
 import { claudeAttachPty, createAttachHub } from "./attach.ts";
 import { fileAudit } from "./audit.ts";
-import { authenticatorFor } from "./auth.ts";
+import { authenticatorFor, runnerTokenCheck } from "./auth.ts";
 import {
 	agentMarker,
 	claudeAgentSpawner,
@@ -45,7 +46,12 @@ import { cmuxCli, createCmuxTargets } from "./cmux.ts";
 import { createColourStore, loadColours } from "./colours.ts";
 import { listCommands } from "./commands.ts";
 import { createCommentStore, loadComments } from "./comments.ts";
-import { type Config, isLoopback, loadConfig } from "./config.ts";
+import {
+	type Config,
+	isLoopback,
+	loadConfig,
+	withFileSecrets,
+} from "./config.ts";
 import { createConversationHub } from "./conversationHub.ts";
 import {
 	createDigester,
@@ -76,6 +82,7 @@ import { createKanbanServer } from "./http.ts";
 import { createIgnoreStore, loadIgnores } from "./ignores.ts";
 import { startBoard } from "./ingest/index.ts";
 import { createLayoutStore, loadLayout } from "./layout.ts";
+import { listenAll } from "./listen.ts";
 import { createMirrorHub } from "./mirror.ts";
 import { createPeerHook, peerHookSettings } from "./peers.ts";
 import { createPermissions } from "./permissions.ts";
@@ -110,7 +117,7 @@ import {
 
 const configOrExit = (): Config => {
 	try {
-		return loadConfig();
+		return loadConfig(withFileSecrets(process.env, readKanbanEnv()));
 	} catch (error) {
 		console.error(`kanban: ${(error as Error).message}`);
 		process.exit(1);
@@ -373,7 +380,7 @@ const runRegionReport = createRegionReportRunner({
 	audit,
 	announce: (regionId, result) => feed?.regionReport(regionId, result),
 });
-const agentHost = isLoopback(config.host) ? config.host : "127.0.0.1";
+const agentHost = config.hosts.find(isLoopback) ?? "127.0.0.1";
 const boardUrl = `http://${agentHost.includes(":") ? `[${agentHost}]` : agentHost}:${config.port}`;
 const profileOf = (number: number) =>
 	accounts
@@ -522,6 +529,7 @@ const server = createKanbanServer({
 	origins: config.origins,
 	dist: config.dist,
 	authenticate: authenticatorFor(config.auth),
+	runnerToken: runnerTokenCheck(config.runnerToken),
 	source,
 	launch,
 	exit: runExit,
@@ -570,9 +578,10 @@ const server = createKanbanServer({
 	audit,
 });
 
-server.listen(config.port, config.host, () => {
+const listening = listenAll(server, config.hosts, config.port, (host) => {
+	const shown = host.includes(":") ? `[${host}]` : host;
 	console.log(
-		`kanban listening on http://${config.host}:${config.port} (auth ${config.auth.mode})`,
+		`kanban listening on http://${shown}:${config.port} (auth ${config.auth.mode}${config.runnerToken ? ", runner token set" : ""})`,
 	);
 });
 
@@ -586,6 +595,7 @@ const shutdown = () => {
 	clearInterval(usagePoll);
 	clearInterval(accountsPoll);
 	clearInterval(digestTick);
+	listening.close();
 	server.close();
 	server.closeAllConnections();
 	setTimeout(() => process.exit(0), 500).unref();
