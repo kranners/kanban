@@ -55,6 +55,10 @@ New session takes a folder, an optional name and a first prompt and opens the ca
 
 ![Starting a session from the New session dialog, then another from a quick prompt on the board](docs/media/clip-new-session.gif)
 
+### Runners
+
+Start a session on any of your machines that is up, not only this Mac: each machine running `kanban-runner` appears in the "where it runs" picker, and the Usage sidebar shows every machine's CPU, memory and disk, how many Claude sessions it carries against its cap, and which. A machine that is off or asleep is shown dimmed with when it was last seen. See [Runners: sessions on your other machines](#runners-sessions-on-your-other-machines).
+
 ### Organise the board
 
 Drag cards anywhere on a snapping grid and resize them; the layout is saved and shared by every open board. Cards from one directory are framed in a project group, R adds a project region, and clicking a project label picks one of eight colours. N drops a sticky note in GitHub-flavoured markdown, with tickable checklists, and S places a Twemoji sticker.

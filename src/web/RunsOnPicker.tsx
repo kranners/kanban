@@ -1,4 +1,4 @@
-import { Cloud, Laptop, RadioTower } from "lucide-preact";
+import { Cloud, Laptop, Monitor, RadioTower } from "lucide-preact";
 import type { JSX } from "preact";
 import { useCallback, useEffect, useState } from "preact/hooks";
 import {
@@ -12,6 +12,7 @@ import {
 	remoteHostsUrl,
 	runsOnBlockerUrl,
 } from "./focus/paths.ts";
+import { platformName, runnerBlocker, runners } from "./runners.ts";
 
 export type RunsOnChoices = {
 	runsOn: RunsOn;
@@ -33,6 +34,25 @@ export function useRunsOn(cwd: string, account?: number): RunsOnChoices {
 			blocked: blocked.get("cloud"),
 		},
 		{ value: "local", label: "This Mac", icon: Laptop },
+		...runners.value
+			.filter((runner) => !runner.local)
+			.map(
+				(runner): Choice<RunsOn> => ({
+					value: runner.runsOn,
+					label: runner.label,
+					detail: platformName(runner.platform),
+					meta:
+						runner.state === "online"
+							? `${runner.sessions.length}/${runner.cap}`
+							: runner.state,
+					title:
+						runner.state === "online"
+							? `${runner.sessions.length} of ${runner.cap} Claude sessions`
+							: undefined,
+					icon: Monitor,
+					blocked: runnerBlocker(runner),
+				}),
+			),
 		...hosts.map(
 			(host): Choice<RunsOn> => ({
 				value: host.id as RunsOn,

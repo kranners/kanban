@@ -5,6 +5,7 @@ import {
 	CircleCheck,
 	CircleDot,
 	Cloud,
+	Monitor,
 	Server,
 	SquareTerminal,
 	Terminal,
@@ -246,9 +247,11 @@ function NearPanel(props: {
 	const digest = digests.value.sessions[session.id];
 	const KindIcon = session.cloud
 		? Cloud
-		: session.kind === "interactive"
-			? Terminal
-			: Server;
+		: session.runner
+			? Monitor
+			: session.kind === "interactive"
+				? Terminal
+				: Server;
 	return (
 		<div class="near-panel" data-scrollable>
 			<header class="near-head">
@@ -390,9 +393,11 @@ export function SessionCard(props: {
 	const { session } = props;
 	const KindIcon = session.cloud
 		? Cloud
-		: session.kind === "interactive"
-			? Terminal
-			: Server;
+		: session.runner
+			? Monitor
+			: session.kind === "interactive"
+				? Terminal
+				: Server;
 	const open = (event: MouseEvent) => {
 		const control = event.currentTarget as HTMLElement;
 		const frame =
@@ -444,11 +449,13 @@ export function SessionCard(props: {
 									title={
 										session.cloud
 											? "Cloud"
-											: session.kind === "background"
-												? "Background"
-												: session.cmux
-													? "Interactive · in cmux"
-													: "Interactive"
+											: session.runner
+												? `On ${session.runner.name}`
+												: session.kind === "background"
+													? "Background"
+													: session.cmux
+														? "Interactive · in cmux"
+														: "Interactive"
 									}
 								>
 									<KindIcon size={13} aria-hidden="true" />

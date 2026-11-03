@@ -7,6 +7,7 @@ import type {
 	UsageSample,
 	UsageWindow,
 } from "../shared/types.ts";
+import { RunnersSection } from "./Runners.tsx";
 import { now } from "./state.ts";
 import { ago } from "./time.ts";
 import {
@@ -67,7 +68,13 @@ export function usageGlance(current: Usage): {
 
 export function UsageView(): JSX.Element | null {
 	const current = usage.value;
-	if (!current) return null;
+	if (!current) {
+		return (
+			<div class="usage-view">
+				<RunnersSection />
+			</div>
+		);
+	}
 	const { samples, error, accounts } = current;
 	const at = now.value;
 	const chosen = accounts.length > 1 ? defaultAccount(current) : null;
@@ -120,6 +127,7 @@ export function UsageView(): JSX.Element | null {
 						? `Checked ${ago(current.checkedAt, at)}`
 						: "Checking…")}
 			</p>
+			<RunnersSection />
 		</div>
 	);
 }

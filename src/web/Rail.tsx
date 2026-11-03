@@ -10,6 +10,7 @@ import type { JSX } from "preact";
 import type { NodeRef } from "../shared/types.ts";
 import { DocsView } from "./DocsView.tsx";
 import { docStores } from "./docState.ts";
+import { recentlyGone, runners } from "./runners.ts";
 import { SearchView } from "./SearchView.tsx";
 import { StatusView } from "./StatusView.tsx";
 import {
@@ -64,6 +65,9 @@ function Badge(props: { view: RailView }): JSX.Element | null {
 		case "docs":
 			return null;
 		case "usage": {
+			if (recentlyGone(runners.value, now.value).length > 0) {
+				return <span class="rail-dot runner-gone" />;
+			}
 			const latest = usage.value;
 			if (!latest) return null;
 			const { level, stale } = usageGlance(latest);
@@ -94,7 +98,11 @@ function hint(view: RailView, title: string): string {
 		}
 		case "usage": {
 			const latest = usage.value;
-			return latest ? usageGlance(latest).label : title;
+			const gone = recentlyGone(runners.value, now.value).map(
+				(runner) => runner.label,
+			);
+			const label = latest ? usageGlance(latest).label : title;
+			return gone.length > 0 ? `${label}; offline: ${gone.join(", ")}` : label;
 		}
 		case "messages": {
 			const count = board.value?.messages.length ?? 0;
@@ -120,7 +128,9 @@ function Body(props: { view: RailView }): JSX.Element | null {
 
 export function Rail() {
 	const open = railView.value;
-	const shown = views.filter((v) => v.id !== "usage" || usage.value);
+	const shown = views.filter(
+		(v) => v.id !== "usage" || usage.value || runners.value.length > 0,
+	);
 	const active = shown.find((v) => v.id === open);
 	return (
 		<aside class={`rail${active ? " open" : ""}`} aria-label="Sidebar">
