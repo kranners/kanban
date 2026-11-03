@@ -2,10 +2,14 @@ import { randomUUID } from "node:crypto";
 import {
 	type AgentButton,
 	agentButtons,
+	type BoardContext,
+	type BoardRect,
+	type ButlerMessage,
 	type CommentDraft,
 	type CommentEvent,
 	type CommentPatch,
 	type CommentThread,
+	maxButlerQueue,
 } from "../shared/types.ts";
 import { isCoordinate } from "./layout.ts";
 import { createStateFile, readState } from "./stateFile.ts";
@@ -67,18 +71,107 @@ export const parseCommentDraft = (
 	if (typeof body !== "object" || body === null) {
 		return { error: "Expected a JSON object with x, y and text" };
 	}
-	const { x, y, button } = body as Record<string, unknown>;
+	const { x, y, button, to, viewport } = body as Record<string, unknown>;
 	if (!isCoordinate(x) || !isCoordinate(y)) {
 		return { error: "x and y must be finite board coordinates" };
 	}
 	if (button !== undefined && !isAgentButton(button)) {
 		return { error: "button must be tidy or snooze" };
 	}
+	if (to !== undefined && to !== "butler" && to !== "agent") {
+		return { error: "to must be butler or agent" };
+	}
+	if (to === "butler" && button !== undefined) {
+		return { error: "A button's request goes to the board agent" };
+	}
+	const rect = viewport === undefined ? undefined : parseRect(viewport);
+	if (rect === null) {
+		return { error: "viewport must be x, y, w and h board coordinates" };
+	}
 	const text = parseMessage(body);
 	return typeof text === "string"
-		? { x, y, text, ...(button === undefined ? {} : { button }) }
+		? {
+				x,
+				y,
+				text,
+				...(button === undefined ? {} : { button }),
+				...(to === undefined ? {} : { to }),
+				...(rect === undefined ? {} : { viewport: rect }),
+			}
 		: text;
 };
+
+export const parseRect = (value: unknown): BoardRect | null => {
+	if (typeof value !== "object" || value === null) return null;
+	const { x, y, w, h } = value as Record<string, unknown>;
+	if (![x, y, w, h].every(isCoordinate)) return null;
+	if ((w as number) < 0 || (h as number) < 0) return null;
+	return {
+		x: Math.round(x as number),
+		y: Math.round(y as number),
+		w: Math.round(w as number),
+		h: Math.round(h as number),
+	};
+};
+
+const short = (value: unknown, max: number): string | undefined =>
+	typeof value === "string" ? value.slice(0, max) : undefined;
+
+const parseContext = (value: unknown): BoardContext | undefined => {
+	if (typeof value !== "object" || value === null) return undefined;
+	const fields = value as Record<string, unknown>;
+	const context: BoardContext = {};
+	const card = fields.card as Record<string, unknown> | undefined;
+	if (
+		typeof card === "object" &&
+		card !== null &&
+		typeof card.id === "string" &&
+		(card.kind === "session" || card.kind === "butler-card")
+	) {
+		const optional = (key: string, max: number) => {
+			const found = short(card[key], max);
+			return found === undefined ? {} : { [key]: found };
+		};
+		context.card = {
+			id: card.id.slice(0, 128),
+			kind: card.kind,
+			name: short(card.name, 200) ?? "",
+			...optional("short", 16),
+			...optional("state", 32),
+			...optional("cwd", 1024),
+		};
+	}
+	const region = fields.region as Record<string, unknown> | undefined;
+	if (
+		typeof region === "object" &&
+		region !== null &&
+		typeof region.id === "string"
+	) {
+		context.region = {
+			id: region.id.slice(0, 128),
+			name: short(region.name, 200) ?? "",
+			cwd: short(region.cwd, 1024) ?? "",
+		};
+	}
+	const viewport = fields.viewport ? parseRect(fields.viewport) : null;
+	if (viewport) context.viewport = viewport;
+	return context;
+};
+
+const parseQueued = (value: unknown): ButlerMessage[] =>
+	Array.isArray(value)
+		? value
+				.flatMap((raw) => {
+					const { id, at, text } = (raw ?? {}) as Record<string, unknown>;
+					return typeof id === "string" &&
+						threadIdPattern.test(id) &&
+						isTime(at) &&
+						typeof text === "string"
+						? [{ id, at, text: text.slice(0, maxMessage) }]
+						: [];
+				})
+				.slice(-maxButlerQueue)
+		: [];
 
 export const parseCommentPatch = (
 	body: unknown,
@@ -139,6 +232,36 @@ const parseThread = (value: unknown): CommentThread | null => {
 	const events = Array.isArray(fields.events)
 		? fields.events.flatMap((raw) => parseEvent(raw) ?? []).slice(-maxEvents)
 		: [];
+	if (fields.to === "butler") {
+		const waiting = Array.isArray(fields.waiting)
+			? fields.waiting
+					.filter(
+						(m): m is string =>
+							typeof m === "string" && threadIdPattern.test(m),
+					)
+					.slice(-maxButlerQueue)
+			: [];
+		const context = parseContext(fields.context);
+		const replyNote = short(fields.replyNote, 128);
+		return {
+			id,
+			x,
+			y,
+			to: "butler",
+			...(context ? { context } : {}),
+			queued: parseQueued(fields.queued),
+			waiting,
+			...(replyNote ? { replyNote } : {}),
+			createdAt,
+			updatedAt,
+			resolved: resolved === true,
+			// Butler may still answer what spike took before a restart.
+			running: waiting.length > 0,
+			sessionId,
+			resumable: false,
+			events,
+		};
+	}
 	return {
 		id,
 		x,
@@ -202,6 +325,9 @@ export const createCommentStore = ({
 				x: draft.x,
 				y: draft.y,
 				...(draft.button ? { button: draft.button } : {}),
+				...(draft.to === "butler"
+					? { to: "butler" as const, queued: [], waiting: [] }
+					: {}),
 				createdAt: at,
 				updatedAt: at,
 				resolved: false,

@@ -339,3 +339,37 @@
 .agent-dot.dot-failed {
 	background: var(--red);
 }
+
+.comment-composer-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.comment-composer-pin.to-butler {
+	background: transparent;
+}
+
+.comment-recipient select {
+	font: inherit;
+	font-size: 12px;
+	padding: 2px 6px;
+	border: 1px solid var(--hairline-strong);
+	border-radius: 6px;
+	background: var(--surface);
+	color: var(--ink);
+}
+
+.comment-status.status-queued {
+	color: var(--muted);
+}
+
+.comment-footnote {
+	margin: 2px 0 0;
+	color: var(--muted);
+	font-size: 11px;
+}
+
+.rail-butler-thread .message-summary.failed {
+	color: var(--red);
+}

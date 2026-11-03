@@ -881,6 +881,7 @@ export function createBackend(scenario: Scenario): Backend {
 			y?: unknown;
 			text?: unknown;
 			button?: unknown;
+			to?: unknown;
 		} | null;
 		if (
 			typeof draft?.x !== "number" ||
@@ -905,6 +906,9 @@ export function createBackend(scenario: Scenario): Backend {
 			x: draft.x,
 			y: draft.y,
 			...(button ? { button } : {}),
+			...(!button && draft.to === "butler"
+				? { to: "butler" as const, queued: [], waiting: [] }
+				: {}),
 			createdAt: at,
 			updatedAt: at,
 			resolved: false,
@@ -1411,6 +1415,7 @@ export function createBackend(scenario: Scenario): Backend {
 				return json(202, { ok: true });
 			},
 		],
+		["GET", /^\/api\/csrf$/, () => json(200, { token: "demo" })],
 		["POST", /^\/api\/comments$/, (_, body) => createComment(body)],
 		[
 			"POST",

@@ -1,7 +1,10 @@
 import { computed, signal } from "@preact/signals";
 import type {
 	AgentButton,
+	BoardRect,
+	ButlerPresence,
 	CommentEvent,
+	CommentRecipient,
 	CommentThread,
 	Point,
 } from "../shared/types.ts";
@@ -20,6 +23,9 @@ export const threadMenu = signal<ThreadMenu | null>(null);
 export const pinDrafts = signal<ReadonlyMap<string, Point>>(new Map());
 
 export const openButton = signal<AgentButton | null>(null);
+
+/** Who the `/` popup sends to; Butler unless Aaron picks the board agent. */
+export const recipient = signal<CommentRecipient>("butler");
 
 export const pinned = computed(() =>
 	[...threads.value.values()]
@@ -56,9 +62,15 @@ export function isCommentKey(press: KeyPress, typing: boolean): boolean {
 	);
 }
 
-export type PinState = "running" | "failed" | "resolved" | "answered";
+export type PinState =
+	| "queued"
+	| "running"
+	| "failed"
+	| "resolved"
+	| "answered";
 
 export function pinState(thread: CommentThread): PinState {
+	if ((thread.queued?.length ?? 0) > 0) return "queued";
 	if (thread.running) return "running";
 	if (thread.resolved) return "resolved";
 	return thread.events.at(-1)?.kind === "error" ? "failed" : "answered";
@@ -95,18 +107,58 @@ function forgetDraft(id: string, draft: Point): void {
 	pinDrafts.value = next;
 }
 
+export const isButlerThread = (thread: CommentThread): boolean =>
+	thread.to === "butler";
+
+/** What to say about a thread with Butler while it waits, or null once answered. */
+export function butlerStatus(
+	thread: CommentThread,
+	relay: ButlerPresence["relay"],
+): string | null {
+	if ((thread.queued?.length ?? 0) > 0) {
+		return relay === "down"
+			? "Spike is unreachable. Queued here; it sends once spike is back."
+			: "Waiting for spike to collect it…";
+	}
+	if (thread.running) return "Butler is working on it…";
+	return null;
+}
+
+let csrfToken: Promise<string | null> | null = null;
+
+/** The token that proves a message to Butler came from this page. */
+function csrf(): Promise<string | null> {
+	csrfToken ??= fetch("/api/csrf")
+		.then((r) => (r.ok ? r.json() : null))
+		.then((body: { token?: unknown } | null) =>
+			typeof body?.token === "string" ? body.token : null,
+		)
+		.catch(() => null)
+		.then((token) => {
+			if (token === null) csrfToken = null;
+			return token;
+		});
+	return csrfToken;
+}
+
 async function request<T>(
 	method: string,
 	path: string,
 	body?: unknown,
 ): Promise<Outcome<T>> {
 	try {
+		const token = method === "GET" ? null : await csrf();
 		const response = await fetch(path, {
 			method,
 			...(body === undefined
-				? {}
+				? token
+					? { headers: { "x-kanban-csrf": token } }
+					: {}
 				: {
-						headers: { "content-type": "application/json" },
+						headers: {
+							"content-type": "application/json",
+							...(token ? { "x-kanban-csrf": token } : {}),
+						},
 						body: JSON.stringify(body),
 					}),
 		});
@@ -131,12 +183,15 @@ export async function startThread(
 	at: Point,
 	text: string,
 	button?: AgentButton,
+	to?: { recipient: CommentRecipient; viewport?: BoardRect },
 ): Promise<Outcome<CommentThread>> {
 	const created = await request<CommentThread>("POST", "/api/comments", {
 		x: Math.round(at.x),
 		y: Math.round(at.y),
 		text,
 		...(button ? { button } : {}),
+		...(to ? { to: to.recipient } : {}),
+		...(to?.viewport ? { viewport: to.viewport } : {}),
 	});
 	if (created.ok) {
 		receiveComment(created.value);
