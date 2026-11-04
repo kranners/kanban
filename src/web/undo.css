@@ -19,6 +19,44 @@
 	animation: undo-arrive calc(200ms * var(--motion)) ease-out;
 }
 
+.undo-toast.undoable {
+	padding-right: 6px;
+	pointer-events: auto;
+}
+
+.undo-toast > span {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.undo-toast-hint {
+	flex: none;
+	padding: 1px 6px;
+	border: 1px solid var(--hairline-strong);
+	border-radius: 5px;
+	color: var(--muted);
+	font-family: inherit;
+	font-size: 11px;
+}
+
+.undo-toast-button {
+	flex: none;
+	padding: 3px 10px;
+	border: 1px solid var(--hairline-strong);
+	border-radius: 999px;
+	background: transparent;
+	color: var(--ink);
+	font: inherit;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.undo-toast-button:hover {
+	background: var(--hairline);
+}
+
 .undo-toast > svg {
 	flex: none;
 	color: var(--muted);

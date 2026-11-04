@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { noticeText, undoKey } from "./undo.ts";
+import { noticeText, removalText, undoKey } from "./undo.ts";
 
 const press = (key: string, mods: Partial<Record<string, boolean>> = {}) => ({
 	key,
@@ -53,5 +53,25 @@ test("the notice says what was undone and what was left", () => {
 	assert.equal(
 		noticeText("undo", { ok: false, error: "Nothing to undo" }),
 		"Nothing to undo",
+	);
+});
+
+test("a removal's toast names what went, or counts it", () => {
+	const noun: [string, string] = ["cloud session", "cloud sessions"];
+	assert.equal(
+		removalText("Archived", noun, ["Fix login"]),
+		"Archived “Fix login”",
+	);
+	assert.equal(
+		removalText("Archived", noun, [null]),
+		"Archived a cloud session",
+	);
+	assert.equal(
+		removalText("Archived", noun, ["Fix login", "Docs"]),
+		"Archived 2 cloud sessions",
+	);
+	assert.equal(
+		removalText("Deleted", ["sticker", "stickers"], [null]),
+		"Deleted a sticker",
 	);
 });

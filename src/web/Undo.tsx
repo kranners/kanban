@@ -1,10 +1,10 @@
 import "./undo.css";
-import { RotateCcw, TriangleAlert } from "lucide-preact";
+import { Archive, RotateCcw, Trash2, TriangleAlert } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect } from "preact/hooks";
-import { apple } from "./focus/platform.ts";
+import { apple, commandKey } from "./focus/platform.ts";
 import { blocked, isTyping } from "./Spawning.tsx";
-import { step, undoKey, undoNotice } from "./undo.ts";
+import { step, undoKey, undoNotice, undoRemoval } from "./undo.ts";
 
 export function useUndoShortcut(): void {
 	useEffect(() => {
@@ -23,17 +23,38 @@ export function useUndoShortcut(): void {
 export function UndoToast(): JSX.Element | null {
 	const notice = undoNotice.value;
 	if (!notice) return null;
-	const Icon = notice.failed ? TriangleAlert : RotateCcw;
+	const Icon = notice.failed
+		? TriangleAlert
+		: notice.undoable === "archive"
+			? Archive
+			: notice.undoable === "delete"
+				? Trash2
+				: RotateCcw;
+	const shortcut = `${commandKey}Z`;
 	return (
 		<div
 			key={notice.id}
-			class={`undo-toast${notice.failed ? " failed" : ""}`}
+			class={`undo-toast${notice.failed ? " failed" : ""}${notice.undoable ? " undoable" : ""}`}
 			role="status"
 			aria-live="polite"
 			data-no-pan
 		>
 			<Icon size={14} aria-hidden="true" />
 			<span>{notice.text}</span>
+			{notice.undoable && (
+				<>
+					<kbd class="undo-toast-hint" title={`Press ${shortcut} to undo`}>
+						{shortcut}
+					</kbd>
+					<button
+						type="button"
+						class="undo-toast-button"
+						onClick={() => void undoRemoval()}
+					>
+						Undo
+					</button>
+				</>
+			)}
 		</div>
 	);
 }

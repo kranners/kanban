@@ -23,6 +23,7 @@ import {
 } from "./notes.ts";
 import type { Rect } from "./placement.ts";
 import { annotations as saved } from "./state.ts";
+import { announceRemoval, removalText } from "./undo.ts";
 
 export type AnnotationMenu = { client: Point };
 export type StickerPicker = { client: Point; board: Point };
@@ -93,13 +94,18 @@ async function send(id: string, draft: Annotation | null): Promise<void> {
 	}
 }
 
-function persist(id: string, draft: Annotation | null): void {
-	send(id, draft)
+/** Saves one annotation; resolves true once the board server has it. */
+function persist(id: string, draft: Annotation | null): Promise<boolean> {
+	return send(id, draft)
 		.then(() => {
 			if (echoed(id, draft)) forget(id, draft);
 			else setTimeout(() => forget(id, draft), echoMs);
+			return true;
 		})
-		.catch(() => forget(id, draft));
+		.catch(() => {
+			forget(id, draft);
+			return false;
+		});
 }
 
 export function preview(annotations: readonly Annotation[]): void {
@@ -175,13 +181,30 @@ export function addSticker(sticker: string, at: Point): void {
 }
 
 function remove(ids: readonly string[]): void {
+	if (ids.length === 0) return;
+	const kinds = new Set(ids.map((id) => current.peek()[id]?.kind));
 	setDrafts(ids.map((id) => [id, null]));
-	for (const id of ids) {
+	const sent = ids.map((id) => {
 		clearTimeout(settling.get(id));
-		persist(id, null);
-	}
+		return persist(id, null);
+	});
 	select([]);
 	editing.value = null;
+	// The toast waits for the server, so its undo button finds the deletion in the history.
+	void Promise.all(sent).then((done) => {
+		const count = done.filter(Boolean).length;
+		if (count === 0) return;
+		const noun: [string, string] =
+			kinds.size === 1 && kinds.has("sticker")
+				? ["sticker", "stickers"]
+				: kinds.size === 1 && kinds.has("note")
+					? ["note", "notes"]
+					: ["note or sticker", "notes and stickers"];
+		announceRemoval(
+			removalText("Deleted", noun, Array(count).fill(null)),
+			"delete",
+		);
+	});
 }
 
 export function deleteSelection(): void {
