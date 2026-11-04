@@ -11,6 +11,7 @@ import type {
 	DocIndex,
 	DocStore,
 	ExitResult,
+	LastRuns,
 	Layout,
 	Region,
 	Relation,
@@ -30,6 +31,7 @@ export type Feed = {
 	layout(layout: Layout): void;
 	annotations(annotations: Annotations): void;
 	colours(colours: RegionColours): void;
+	lastRuns(lastRuns: LastRuns): void;
 	ignores(ignores: ProjectIgnores): void;
 	regions(regions: Region[]): void;
 	exit(sessionId: string, result: ExitResult): void;
@@ -61,6 +63,7 @@ export type FeedOptions = {
 	docStores: () => DocStore[];
 	butler?: () => ButlerPresence;
 	runners?: () => RunnerView[];
+	lastRuns?: () => LastRuns;
 };
 
 const socketOpen = 1;
@@ -80,6 +83,7 @@ export const createFeed = ({
 	docStores,
 	butler,
 	runners,
+	lastRuns,
 }: FeedOptions): Feed => {
 	const clients = new Set<FeedSocket>();
 
@@ -106,6 +110,7 @@ export const createFeed = ({
 			send(socket, { type: "layout", layout: layout() });
 			send(socket, { type: "annotations", annotations: annotations() });
 			send(socket, { type: "colours", colours: colours() });
+			if (lastRuns) send(socket, { type: "last-runs", lastRuns: lastRuns() });
 			send(socket, { type: "ignores", ignores: ignores() });
 			send(socket, { type: "regions", regions: regions() });
 			send(socket, { type: "comments", comments: comments() });
@@ -122,6 +127,7 @@ export const createFeed = ({
 		annotations: (next) =>
 			broadcast({ type: "annotations", annotations: next }),
 		colours: (next) => broadcast({ type: "colours", colours: next }),
+		lastRuns: (next) => broadcast({ type: "last-runs", lastRuns: next }),
 		ignores: (next) => broadcast({ type: "ignores", ignores: next }),
 		regions: (next) => broadcast({ type: "regions", regions: next }),
 		exit: (sessionId, result) => broadcast({ type: "exit", sessionId, result }),

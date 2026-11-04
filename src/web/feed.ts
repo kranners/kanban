@@ -6,6 +6,7 @@ import { digests } from "./digests.ts";
 import { docIndex, docStores } from "./docState.ts";
 import { receiveExit } from "./exits.ts";
 import { receiveIgnores } from "./ignoreState.ts";
+import { lastRuns } from "./lastRuns.ts";
 import { regions } from "./regionState.ts";
 import { relations } from "./relationState.ts";
 import {
@@ -54,6 +55,10 @@ function receive(frame: BoardFeed): void {
 	}
 	if (frame.type === "colours") {
 		receiveColours(frame.colours);
+		return;
+	}
+	if (frame.type === "last-runs") {
+		lastRuns.value = frame.lastRuns;
 		return;
 	}
 	if (frame.type === "ignores") {

@@ -9,14 +9,13 @@ import {
 } from "../shared/promptImages.ts";
 import {
 	defaultRunsOn,
-	type FixedRunsOn,
 	isRemoteHost,
 	isRunnerTarget,
+	isRunsOn,
 	type NewSessionRequest,
 	type NewSessionResult,
 	type PromptImage,
 	type RunsOn,
-	runsOnChoices,
 } from "../shared/types.ts";
 import { stripAnsi } from "./ansi.ts";
 import type { CloudLauncher, CloudRecord } from "./cloud.ts";
@@ -115,12 +114,7 @@ export const validateNewSession = async (
 	if (account !== undefined && !isAccountNumber(account)) {
 		return { error: "account must be a positive whole number" };
 	}
-	if (
-		runsOn !== undefined &&
-		!runsOnChoices.includes(runsOn as FixedRunsOn) &&
-		!(typeof runsOn === "string" && isRemoteHost(runsOn)) &&
-		!onRunner
-	) {
+	if (runsOn !== undefined && !isRunsOn(runsOn)) {
 		return {
 			error: "runsOn must be cloud, local, a remote-control host or a runner",
 		};

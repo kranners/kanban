@@ -20,6 +20,7 @@ import { composer, threadMenu } from "./comments.ts";
 import { exitAsk } from "./exits.ts";
 import { FolderPicker } from "./FolderPicker.tsx";
 import { groupUnder, openRegionMenuAtPointer } from "./Groups.tsx";
+import { useAccount } from "./lastRuns.ts";
 import { moveMenuFocus } from "./menuFocus.ts";
 import { sessionSize } from "./placement.ts";
 import { admit, dataUrl, imageFiles, readImages } from "./promptImages.ts";
@@ -272,7 +273,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 	const [dropping, setDropping] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [account, setAccount] = useState<number | undefined>(undefined);
+	const [account, setAccount] = useAccount(open.cwd);
 	const runs = useRunsOn(open.cwd, account);
 	const { k } = view.value;
 	const legible = Math.max(1, 1 / k);

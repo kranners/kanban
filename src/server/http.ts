@@ -63,6 +63,7 @@ import type { Feed } from "./feed.ts";
 import type { FileListing } from "./files.ts";
 import type { FolderPicker } from "./folders.ts";
 import { type IgnoreStore, maxIgnores, parseIgnoreUpdate } from "./ignores.ts";
+import type { LastRunStore } from "./lastRuns.ts";
 import { boardKeys, type LayoutStore, parseLayoutUpdate } from "./layout.ts";
 import { fromLoopback } from "./loopback.ts";
 import type { MirrorHub } from "./mirror.ts";
@@ -109,6 +110,8 @@ export type ServerDeps = {
 	layout: LayoutStore;
 	annotations: AnnotationStore;
 	colours: ColourStore;
+	/** Where each project's last board-started session ran. */
+	lastRuns?: LastRunStore;
 	ignores: IgnoreStore;
 	regions: RegionStore;
 	relations: RelationStore;
@@ -782,6 +785,12 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		}
 		const settle = request.at && deps.layout.expect(request.cwd, request.at);
 		const result = await deps.launch(request);
+		// Sessions with images run on this Mac because they must, not by choice.
+		if (result.ok && !request.images && request.runsOn)
+			deps.lastRuns?.record(request.cwd, {
+				runsOn: request.runsOn,
+				...(request.account !== undefined ? { account: request.account } : {}),
+			});
 		deps.audit({
 			action: "session-create",
 			cwd: request.cwd,

@@ -1,17 +1,14 @@
 import { Cloud, Laptop, Monitor, RadioTower } from "lucide-preact";
 import type { JSX } from "preact";
 import { useCallback, useEffect, useState } from "preact/hooks";
-import {
-	defaultRunsOn,
-	type RemoteHost,
-	type RunsOn,
-} from "../shared/types.ts";
+import type { RemoteHost, RunsOn } from "../shared/types.ts";
 import { type Choice, ChoiceMenu } from "./ChoiceMenu.tsx";
 import {
 	directoryName,
 	remoteHostsUrl,
 	runsOnBlockerUrl,
 } from "./focus/paths.ts";
+import { lastRuns, runsOnDefault } from "./lastRuns.ts";
 import { platformName, runnerBlocker, runners } from "./runners.ts";
 
 export type RunsOnChoices = {
@@ -22,7 +19,8 @@ export type RunsOnChoices = {
 };
 
 export function useRunsOn(cwd: string, account?: number): RunsOnChoices {
-	const [picked, pick] = useState<RunsOn>(defaultRunsOn);
+	const [chosen, pick] = useState<RunsOn | null>(null);
+	const picked = chosen ?? runsOnDefault(lastRuns.value, cwd);
 	const [hosts, refresh] = useRemoteHosts(account);
 	const unchecked: RunsOn[] = ["cloud", ...hosts.map(({ id }) => id as RunsOn)];
 	const blocked = useBlockers(cwd, unchecked, account);

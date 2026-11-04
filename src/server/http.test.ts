@@ -50,6 +50,7 @@ import {
 	staticFile,
 } from "./http.ts";
 import { createIgnoreStore } from "./ignores.ts";
+import { createLastRunStore, type LastRunStore } from "./lastRuns.ts";
 import { createLayoutStore } from "./layout.ts";
 import { createRegionStore } from "./regions.ts";
 import { createRelationStore } from "./relations.ts";
@@ -356,6 +357,7 @@ describe("createKanbanServer", () => {
 	let annotationsSaved = () => Promise.resolve();
 	let coloursFile = "";
 	let coloursSaved = () => Promise.resolve();
+	let lastRuns: LastRunStore;
 	let ignoresFile = "";
 	let ignoresSaved = () => Promise.resolve();
 	let relationsFile = "";
@@ -421,6 +423,11 @@ describe("createKanbanServer", () => {
 			onChange: (next) => feed?.colours(next),
 		});
 		coloursSaved = colours.saved;
+		lastRuns = createLastRunStore({
+			file: join(dist, "state", "last-runs.json"),
+			initial: {},
+			onChange: (next) => feed?.lastRuns(next),
+		});
 		ignoresFile = join(dist, "state", "ignores.json");
 		const ignores = createIgnoreStore({
 			file: ignoresFile,
@@ -559,6 +566,7 @@ describe("createKanbanServer", () => {
 			},
 			annotations,
 			colours,
+			lastRuns,
 			ignores,
 			regions,
 			relations,
@@ -1042,6 +1050,9 @@ describe("createKanbanServer", () => {
 		assert.deepEqual(await created.json(), { ok: true, short: "feedbeef" });
 		assert.deepEqual(launched, [request]);
 		assert.equal(events.at(-1)?.action, "session-create");
+		assert.deepEqual(lastRuns.current(), {
+			[request.cwd]: { runsOn: "local" },
+		});
 
 		const invalid = await post({ ...request, prompt: "" });
 		assert.equal(invalid.status, 400);
@@ -1090,6 +1101,9 @@ describe("createKanbanServer", () => {
 			},
 		);
 		assert.deepEqual(expected.at(-1), ["session_01cloud", { x: 120, y: 80 }]);
+		assert.deepEqual(lastRuns.current(), {
+			[request.cwd]: { runsOn: "cloud" },
+		});
 	});
 
 	const send = (method: string, path: string, body: unknown) =>

@@ -86,6 +86,7 @@ import { gitMainLog, readHistory } from "./history.ts";
 import { createKanbanServer, newCsrfToken } from "./http.ts";
 import { createIgnoreStore, loadIgnores } from "./ignores.ts";
 import { startBoard } from "./ingest/index.ts";
+import { createLastRunStore, loadLastRuns } from "./lastRuns.ts";
 import { createLayoutStore, loadLayout } from "./layout.ts";
 import { listenAll } from "./listen.ts";
 import { createMirrorHub } from "./mirror.ts";
@@ -155,6 +156,12 @@ const colours = createColourStore({
 	file: coloursFile,
 	initial: await loadColours(coloursFile),
 	onChange: (next) => feed?.colours(next),
+});
+const lastRunsFile = join(config.stateDir, "last-runs.json");
+const lastRuns = createLastRunStore({
+	file: lastRunsFile,
+	initial: await loadLastRuns(lastRunsFile),
+	onChange: (next) => feed?.lastRuns(next),
 });
 const ignoresFile = join(config.stateDir, "ignores.json");
 const ignores = createIgnoreStore({
@@ -392,6 +399,7 @@ feed = createFeed({
 	layout: layout.current,
 	annotations: annotations.current,
 	colours: colours.current,
+	lastRuns: lastRuns.current,
 	ignores: ignores.current,
 	regions: regions.current,
 	comments: comments.current,
@@ -590,6 +598,7 @@ const server = createKanbanServer({
 	layout,
 	annotations,
 	colours,
+	lastRuns,
 	ignores,
 	regions,
 	relations,

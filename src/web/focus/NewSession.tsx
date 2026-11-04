@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState } from "preact/hooks";
 import type { Landing } from "../../shared/types.ts";
 import { AccountPicker } from "../AccountPicker.tsx";
 import { FolderPicker } from "../FolderPicker.tsx";
+import { useAccount } from "../lastRuns.ts";
 import { RunsOnPicker, useRunsOn } from "../RunsOnPicker.tsx";
 import { createSession } from "../spawns.ts";
 import { pickableAccounts, usage } from "../usage.ts";
@@ -67,7 +68,7 @@ export function NewSession(props: {
 	const [prompt, setPrompt] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [account, setAccount] = useState<number | undefined>(undefined);
+	const [account, setAccount] = useAccount(cwd);
 	const runs = useRunsOn(cwd, account);
 
 	useEffect(() => {

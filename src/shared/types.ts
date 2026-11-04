@@ -31,6 +31,18 @@ export type RemoteHost = {
 
 export const defaultRunsOn: RunsOn = "cloud";
 
+export const isRunsOn = (value: unknown): value is RunsOn =>
+	typeof value === "string" &&
+	(runsOnChoices.includes(value as FixedRunsOn) ||
+		isRemoteHost(value) ||
+		isRunnerTarget(value));
+
+/** Where a project's last session from the board ran, and on which account. */
+export type LastRun = { runsOn: RunsOn; account?: number };
+
+/** Each project's last run, by its directory. */
+export type LastRuns = Record<string, LastRun>;
+
 export type Activity =
 	| "working"
 	| "needs-you"
@@ -441,6 +453,7 @@ export type BoardFeed =
 	| { type: "layout"; layout: Layout }
 	| { type: "annotations"; annotations: Annotations }
 	| { type: "colours"; colours: RegionColours }
+	| { type: "last-runs"; lastRuns: LastRuns }
 	| { type: "ignores"; ignores: ProjectIgnores }
 	| { type: "regions"; regions: Region[] }
 	| { type: "exit"; sessionId: string; result: ExitResult }
