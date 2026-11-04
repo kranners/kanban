@@ -16,6 +16,49 @@ export function summoned(
 	);
 }
 
+export type AlertKind = "needs" | "finished" | "failed";
+
+/** What a session's current activity would alert as, if it alerts at all. */
+export function alertKind(session: Session): AlertKind | null {
+	switch (session.activity) {
+		case "needs-you":
+			return "needs";
+		case "idle":
+		case "done":
+			return "finished";
+		case "failed":
+			return "failed";
+		default:
+			return null;
+	}
+}
+
+const busy = new Set<Activity>(["working", "watching"]);
+
+/** Sessions that just stopped working, so they have a response to read. */
+export function finished(
+	previous: SeenActivities | null,
+	sessions: readonly Session[],
+): Session[] {
+	if (!previous) return [];
+	return sessions.filter((s) => {
+		const kind = alertKind(s);
+		const before = previous.get(s.id);
+		return (
+			(kind === "finished" || kind === "failed") &&
+			before !== undefined &&
+			busy.has(before)
+		);
+	});
+}
+
+export function alertTitle(session: Session): string {
+	const kind = alertKind(session);
+	if (kind === "finished") return `${session.name} finished`;
+	if (kind === "failed") return `${session.name} failed`;
+	return `${session.name} needs you`;
+}
+
 export function titleFor(count: number): string {
 	return count > 0 ? `(${count}) kanban` : "kanban";
 }

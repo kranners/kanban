@@ -1,9 +1,12 @@
 import { computed, effect, signal } from "@preact/signals";
 import type { Session } from "../shared/types.ts";
-import type { SeenActivities } from "./alerts.ts";
+import type { AlertKind, SeenActivities } from "./alerts.ts";
 import {
 	alertBody,
+	alertKind,
+	alertTitle,
 	faviconFor,
+	finished,
 	seenActivities,
 	summoned,
 	titleFor,
@@ -55,20 +58,36 @@ export const needingSessions = computed(() => {
 	);
 });
 
-const raised = signal<readonly string[]>([]);
+type Raised = { id: string; kind: AlertKind };
+
+const raised = signal<readonly Raised[]>([]);
+
+/** The board's sessions by id, leaving out ignored ones. */
+const standing = computed(() => {
+	const ignored = ignoredSessions.value;
+	const byId = new Map<string, Session>();
+	for (const s of board.value?.sessions ?? [])
+		if (!ignored.has(s.id)) byId.set(s.id, s);
+	return byId;
+});
+
+function stillStanding(entry: Raised, byId: Map<string, Session>): boolean {
+	const session = byId.get(entry.id);
+	return session !== undefined && alertKind(session) === entry.kind;
+}
 
 export const toasts = computed(() => {
-	const waiting = new Map(needingSessions.value.map((s) => [s.id, s]));
-	return raised.value.flatMap((id) => {
-		const session = waiting.get(id);
-		return session ? [session] : [];
+	const byId = standing.value;
+	return raised.value.flatMap((entry) => {
+		const session = byId.get(entry.id);
+		return session && stillStanding(entry, byId) ? [session] : [];
 	});
 });
 
 export const shown = computed(() => toasts.value.slice(0, shownToasts));
 
 export function dismissToast(id: string): void {
-	raised.value = raised.value.filter((raisedId) => raisedId !== id);
+	raised.value = raised.value.filter((entry) => entry.id !== id);
 }
 
 export function answerToast(id: string): void {
@@ -76,16 +95,16 @@ export function answerToast(id: string): void {
 	openSession(id);
 }
 
-const open = new Map<string, Notification>();
+const open = new Map<string, { kind: AlertKind; notification: Notification }>();
 
 function lookingAtBoard(): boolean {
 	return document.visibilityState === "visible" && document.hasFocus();
 }
 
-function notify(session: Session): void {
+function notify(session: Session, kind: AlertKind): void {
 	let notification: Notification;
 	try {
-		notification = new Notification(`${session.name} needs you`, {
+		notification = new Notification(alertTitle(session), {
 			body: alertBody(session),
 			tag: session.id,
 		});
@@ -99,9 +118,10 @@ function notify(session: Session): void {
 		notification.close();
 	};
 	notification.onclose = () => {
-		if (open.get(session.id) === notification) open.delete(session.id);
+		if (open.get(session.id)?.notification === notification)
+			open.delete(session.id);
 	};
-	open.set(session.id, notification);
+	open.set(session.id, { kind, notification });
 }
 
 let seen: SeenActivities | null = null;
@@ -110,9 +130,10 @@ effect(() => {
 	const current = board.value;
 	if (!current) return;
 	const ignored = ignoredSessions.peek();
-	const fresh = summoned(seen, current.sessions).filter(
-		(s) => !ignored.has(s.id),
-	);
+	const fresh = [
+		...summoned(seen, current.sessions),
+		...finished(seen, current.sessions),
+	].filter((s) => !ignored.has(s.id));
 	seen = seenActivities(current.sessions);
 	const viewing = focusedSessionId.peek();
 	const watched = lookingAtBoard();
@@ -120,23 +141,31 @@ effect(() => {
 	if (called.length > 0) {
 		const ids = new Set(called.map((s) => s.id));
 		raised.value = [
-			...called.map((s) => s.id),
-			...raised.peek().filter((id) => !ids.has(id)),
+			...called.flatMap((s) => {
+				const kind = alertKind(s);
+				return kind ? [{ id: s.id, kind }] : [];
+			}),
+			...raised.peek().filter((entry) => !ids.has(entry.id)),
 		];
 	}
-	if (notifying.peek() && !watched) for (const s of called) notify(s);
+	if (notifying.peek() && !watched)
+		for (const s of called) {
+			const kind = alertKind(s);
+			if (kind) notify(s, kind);
+		}
 });
 
 effect(() => {
-	const waiting = new Set(needingSessions.value.map((s) => s.id));
-	for (const [id, notification] of open)
-		if (!waiting.has(id)) notification.close();
-	raised.value = raised.peek().filter((id) => waiting.has(id));
+	const byId = standing.value;
+	for (const [id, { kind, notification }] of open)
+		if (!stillStanding({ id, kind }, byId)) notification.close();
+	raised.value = raised.peek().filter((entry) => stillStanding(entry, byId));
 });
 
 effect(() => {
 	const viewing = focusedSessionId.value;
-	if (viewing && raised.peek().includes(viewing)) dismissToast(viewing);
+	if (viewing && raised.peek().some((entry) => entry.id === viewing))
+		dismissToast(viewing);
 });
 
 const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
@@ -148,7 +177,7 @@ effect(() => {
 });
 
 addEventListener("focus", () => {
-	for (const notification of open.values()) notification.close();
+	for (const { notification } of open.values()) notification.close();
 	if (permission.peek() !== "unsupported")
 		permission.value = Notification.permission;
 	const viewing = focusedSessionId.peek();

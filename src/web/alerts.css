@@ -125,3 +125,23 @@
 .report-toast .alert-toast-icon {
 	color: var(--accent);
 }
+
+.alert-toast.finished {
+	border-color: var(--done-edge);
+	background: color-mix(in srgb, var(--done-edge) 8%, var(--surface));
+	box-shadow: var(--shadow-pop);
+}
+
+.alert-toast.finished .alert-toast-icon {
+	color: var(--done-edge);
+}
+
+.alert-toast.failed {
+	border-color: var(--failed-edge);
+	background: color-mix(in srgb, var(--failed-edge) 8%, var(--surface));
+	box-shadow: var(--shadow-pop);
+}
+
+.alert-toast.failed .alert-toast-icon {
+	color: var(--failed-edge);
+}

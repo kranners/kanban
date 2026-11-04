@@ -3,7 +3,10 @@ import { test } from "node:test";
 import type { Activity, Session } from "../shared/types.ts";
 import {
 	alertBody,
+	alertKind,
+	alertTitle,
 	faviconFor,
+	finished,
 	seenActivities,
 	summoned,
 	titleFor,
@@ -87,4 +90,41 @@ test("the alert body prefers the question, then what it is doing", () => {
 		"Editing",
 	);
 	assert.equal(alertBody(session("a", "needs-you")), "a");
+});
+
+test("a session that stops working has finished", () => {
+	const before = seenActivities([
+		session("a", "working"),
+		session("b", "watching"),
+		session("c", "working"),
+		session("d", "needs-you"),
+	]);
+	const now = [
+		session("a", "idle"),
+		session("b", "done"),
+		session("c", "failed"),
+		session("d", "idle"),
+	];
+	assert.deepEqual(
+		finished(before, now).map((s) => s.id),
+		["a", "b", "c"],
+	);
+	assert.deepEqual(finished(seenActivities(now), now), []);
+	assert.deepEqual(finished(null, now), []);
+});
+
+test("a session first seen idle has not finished", () => {
+	assert.deepEqual(finished(seenActivities([]), [session("a", "idle")]), []);
+});
+
+test("each alerting state has its own kind and title", () => {
+	assert.equal(alertKind(session("a", "needs-you")), "needs");
+	assert.equal(alertKind(session("a", "idle")), "finished");
+	assert.equal(alertKind(session("a", "done")), "finished");
+	assert.equal(alertKind(session("a", "failed")), "failed");
+	assert.equal(alertKind(session("a", "working")), null);
+	assert.equal(alertKind(session("a", "stopped")), null);
+	assert.equal(alertTitle(session("a", "needs-you")), "a needs you");
+	assert.equal(alertTitle(session("a", "idle")), "a finished");
+	assert.equal(alertTitle(session("a", "failed")), "a failed");
 });
