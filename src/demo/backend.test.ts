@@ -175,6 +175,12 @@ const probes: Record<string, Probe> = {
 			"/api/butler/changes/20261101-021240-797168/dismiss",
 		);
 	},
+	"/api/butler/focus": async (backend) => {
+		await answers(backend, "POST", "/api/butler/focus", {
+			client: "page-1",
+			session: sessionId,
+		});
+	},
 	"/api/folder-picker": async (backend) => {
 		await answers(backend, "POST", "/api/folder-picker");
 	},

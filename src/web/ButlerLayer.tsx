@@ -14,6 +14,7 @@ import {
 } from "./Butler.tsx";
 import { butlerPresence, presenceOf } from "./butler.ts";
 import { view } from "./Canvas.tsx";
+import { threads } from "./comments.ts";
 import { nodeKey } from "./layout.ts";
 import type { Rect } from "./placement.ts";
 import { now } from "./state.ts";
@@ -82,7 +83,11 @@ function rectOf(target: string): Rect | null {
 		nodeKey({ kind: "session", id: target }),
 	);
 	if (node) return node;
-	return current.value[target] ?? null;
+	const annotation = current.value[target];
+	if (annotation) return annotation;
+	// A message Butler is answering, pinned where Aaron left it.
+	const thread = threads.value.get(target);
+	return thread ? { x: thread.x, y: thread.y, w: 0, h: 0 } : null;
 }
 
 /** Keeps a chip legible when the board is zoomed out. */
@@ -91,13 +96,20 @@ function chipScale(): number {
 }
 
 /**
- * Butler's presence on the board: his cursor and avatar on the card he is
- * at, and the monocle on every session he watches.
+ * Butler's presence on the board: his face on what he is looking at, which
+ * is what Aaron is working on unless he looks elsewhere, his cursor on what
+ * he is working on, and the monocle on every session he watches.
  */
 export function ButlerLayer(): JSX.Element {
 	const state = butlerPresence.value;
-	const at = presenceOf(state, current.value, now.value);
-	const rect = at ? rectOf(at.target) : null;
+	const { face, cursor, following } = presenceOf(
+		state,
+		current.value,
+		threads.value.values(),
+		now.value,
+	);
+	const faceAt = face ? rectOf(face.target) : null;
+	const cursorAt = cursor ? rectOf(cursor.target) : null;
 	const scale = chipScale();
 	return (
 		<>
@@ -117,25 +129,32 @@ export function ButlerLayer(): JSX.Element {
 					</div>,
 				];
 			})}
-			{at && rect && (
-				<>
-					<div
-						class="butler-presence-avatar"
-						style={{
-							transform: `translate(${rect.x}px, ${rect.y}px) scale(${scale}) translate(-50%, -50%)`,
-						}}
-					>
-						<ButlerAvatar size={28} label={`${at.label} is here`} />
-					</div>
-					<div
-						class="butler-presence-cursor"
-						style={{
-							transform: `translate(${rect.x + rect.w * 0.68}px, ${rect.y + rect.h * 0.58}px) scale(${scale})`,
-						}}
-					>
-						<ButlerCursor label={at.label} />
-					</div>
-				</>
+			{face && faceAt && (
+				<div
+					class={`butler-presence-avatar${following ? " following" : ""}`}
+					style={{
+						transform: `translate(${faceAt.x}px, ${faceAt.y}px) scale(${scale}) translate(-50%, -50%)`,
+					}}
+				>
+					<ButlerAvatar
+						size={28}
+						label={
+							following
+								? "Butler is following what you're working on"
+								: `${face.label} is looking here`
+						}
+					/>
+				</div>
+			)}
+			{cursor && cursorAt && (
+				<div
+					class="butler-presence-cursor"
+					style={{
+						transform: `translate(${cursorAt.x + cursorAt.w * 0.68}px, ${cursorAt.y + cursorAt.h * 0.58}px) scale(${scale})`,
+					}}
+				>
+					<ButlerCursor label={cursor.label} />
+				</div>
 			)}
 		</>
 	);

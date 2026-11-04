@@ -4,6 +4,7 @@ import "@fontsource/jetbrains-mono/latin-500.css";
 import "./styles.css";
 import { render } from "preact";
 import { App } from "./App.tsx";
+import { startFocusReports } from "./butlerFocus.ts";
 import { connectFeed } from "./feed.ts";
 import "./theme.ts";
 import "./keyboard.ts";
@@ -12,6 +13,7 @@ connectFeed();
 
 const root = document.getElementById("app");
 if (root) render(<App />, root);
+startFocusReports();
 
 // Installed on a phone or tablet, the board opens to an offline page when the
 // Mac can't be reached; the worker caches the app shell and never board data.

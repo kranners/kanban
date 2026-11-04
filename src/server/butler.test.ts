@@ -5,12 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import type { ToolCall } from "../agent/tools.ts";
-import type {
-	Board,
-	ButlerCard,
-	ButlerPresence,
-	Note,
-	Session,
+import {
+	aaronFocusStaleMs,
+	type Board,
+	type ButlerCard,
+	type ButlerPresence,
+	type Note,
+	type Session,
 } from "../shared/types.ts";
 import { createAnnotationStore } from "./annotations.ts";
 import type { AuditEvent } from "./audit.ts";
@@ -18,6 +19,7 @@ import {
 	butlerAllowed,
 	createButler,
 	loadWatching,
+	parseFocusReport,
 	selfFixState,
 } from "./butler.ts";
 import { createCommentStore } from "./comments.ts";
@@ -190,7 +192,7 @@ describe("Butler on the board", () => {
 		const card = cardOf(annotations, "butler-id1");
 		assert.equal(card.kind, "butler-card");
 		assert.equal(card.title, "Book the dentist");
-		assert.equal(presences.at(-1)?.presence?.target, "butler-id1");
+		assert.equal(presences.at(-1)?.working?.target, "butler-id1");
 
 		await butler.tool("put_card", {
 			id: "butler-id1",
@@ -239,7 +241,7 @@ describe("Butler on the board", () => {
 		assert.equal(note.kind, "note");
 		assert.equal(note.author, "butler");
 		assert.equal(note.session, "aaaaaaaa-1");
-		assert.equal(presences.at(-1)?.presence?.target, "aaaaaaaa-1");
+		assert.equal(presences.at(-1)?.working?.target, "aaaaaaaa-1");
 		const missing = await butler.tool("note", { target: "nope", text: "x" });
 		assert.equal(missing.ok, false);
 		const unsigned = await butler.tool("put_note", { text: "x" });
@@ -393,7 +395,7 @@ describe("Butler on the board", () => {
 		assert.equal(cardOf(annotations, id).watching, true);
 		const looked = await butler.tool("look", { target: fix.id });
 		assert.equal(looked.ok, true);
-		assert.equal(butler.current().presence?.target, id);
+		assert.equal(butler.current().looking?.target, id);
 	});
 
 	it("takes a change's id as change or its old name selfFix, and syncs by either tool name", async () => {
@@ -438,7 +440,7 @@ describe("Butler on the board", () => {
 		assert.equal(sent.ok, true);
 		assert.equal(calls[0]?.[0], "butler");
 		assert.equal(calls[0]?.[1].tool, "send_prompt");
-		assert.equal(presences.at(-1)?.presence?.target, "aaaaaaaa-1");
+		assert.equal(presences.at(-1)?.working?.target, "aaaaaaaa-1");
 		const snapshot = await butler.tool("board_snapshot", {});
 		assert.match(snapshot.ok ? snapshot.text : "", /Butler watches: \[\]/);
 		const unknown = await butler.tool("rm_rf", {});
@@ -448,9 +450,110 @@ describe("Butler on the board", () => {
 	it("looks at a card, labelled, and steps away", async () => {
 		const { butler } = await setup();
 		await butler.tool("look", { target: "aaaaaaaa-1", label: "Butler" });
-		assert.equal(butler.current().presence?.target, "aaaaaaaa-1");
+		assert.equal(butler.current().looking?.target, "aaaaaaaa-1");
 		await butler.tool("look", {});
-		assert.equal(butler.current().presence, null);
+		assert.equal(butler.current().looking, null);
+	});
+
+	it("looks at a session he reads and works on one he prompts", async () => {
+		const { butler } = await setup();
+		await butler.tool("read_transcript", { session: "aaaaaaaa-1" });
+		assert.equal(butler.current().looking?.target, "aaaaaaaa-1");
+		assert.equal(butler.current().working, null);
+		await butler.tool("work", { target: "aaaaaaaa-1", label: "Butler" });
+		assert.equal(butler.current().working?.target, "aaaaaaaa-1");
+		await butler.tool("work", {});
+		assert.equal(butler.current().working, null);
+		assert.equal((await butler.tool("work", { target: "nope" })).ok, false);
+	});
+});
+
+describe("Butler sees what Aaron is working on", () => {
+	const viewport = { x: 0, y: 0, w: 4000, h: 3000 };
+
+	it("follows the session Aaron has open and tells spike on every poll", async () => {
+		const { butler, presences } = await setup();
+		butler.focus({ client: "a", session: "aaaaaaaa-1", viewport });
+		assert.equal(presences.at(-1)?.following, "aaaaaaaa-1");
+		const polled = await butler.tool("board_inbox", {});
+		const { aaron } = JSON.parse(polled.ok ? polled.text : "{}");
+		assert.equal(aaron.card.id, "aaaaaaaa-1");
+		assert.equal(aaron.card.kind, "session");
+		assert.equal(aaron.open, true);
+		assert.deepEqual(aaron.viewport, viewport);
+		assert.equal(aaron.onScreen[0].id, "aaaaaaaa-1");
+		const asked = await butler.tool("board_focus", {});
+		assert.match(asked.ok ? asked.text : "", /"open":true/);
+		const snapshot = await butler.tool("board_snapshot", {});
+		assert.match(
+			snapshot.ok ? snapshot.text : "",
+			/Aaron has open session acme-aaa \(aaaaaaaa-1, working\)/,
+		);
+	});
+
+	it("follows the card in the middle of Aaron's screen when nothing is open", async () => {
+		const { butler, presences } = await setup();
+		await butler.tool("put_card", { title: "Groceries", x: 5000, y: 5000 });
+		butler.focus({
+			client: "a",
+			viewport: { x: 4800, y: 4800, w: 712, h: 616 },
+		});
+		assert.equal(presences.at(-1)?.following, "butler-id1");
+		const focus = butler.aaron();
+		assert.equal(focus?.open, false);
+		assert.equal(focus?.card?.name, "Groceries");
+		butler.focus({ client: "a", viewport: { x: 0, y: 9000, w: 10, h: 10 } });
+		assert.equal(butler.current().following, null);
+		assert.equal(butler.aaron()?.card, undefined);
+	});
+
+	it("forgets Aaron when his page goes away or goes quiet, but not another tab's", async () => {
+		const { butler, tick } = await setup();
+		butler.focus({ client: "a", session: "aaaaaaaa-1" });
+		butler.focus({ client: "b", away: true });
+		assert.equal(butler.current().following, "aaaaaaaa-1");
+		butler.focus({ client: "a", away: true });
+		assert.equal(butler.current().following, null);
+		assert.equal(butler.aaron(), null);
+		butler.focus({ client: "a", session: "aaaaaaaa-1" });
+		tick(aaronFocusStaleMs + 1);
+		butler.check();
+		assert.equal(butler.current().following, null);
+		const snapshot = await butler.tool("board_snapshot", {});
+		assert.match(snapshot.ok ? snapshot.text : "", /Aaron is not at the board/);
+	});
+
+	it("puts his cursor on the card a message is about once spike takes it", async () => {
+		const { butler } = await setup();
+		const thread = butler.inbox?.start({
+			x: 10,
+			y: 10,
+			text: "What is this doing?",
+		});
+		assert.ok(thread && !("error" in thread));
+		const polled = await butler.tool("board_inbox", {});
+		const { messages } = JSON.parse(polled.ok ? polled.text : "{}");
+		await butler.tool("board_ack", { ids: [messages[0].id] });
+		assert.equal(
+			butler.current().working?.target,
+			thread.context?.card?.id ?? thread.id,
+		);
+	});
+
+	it("checks a page's report", () => {
+		assert.deepEqual(parseFocusReport({ client: "a", away: true }), {
+			client: "a",
+			away: true,
+		});
+		assert.deepEqual(
+			parseFocusReport({ client: "a", session: "s", viewport }),
+			{ client: "a", session: "s", viewport },
+		);
+		assert.ok("error" in parseFocusReport({ session: "s" }));
+		assert.ok("error" in parseFocusReport({ client: "a b" }));
+		assert.ok(
+			"error" in parseFocusReport({ client: "a", viewport: { x: "1" } }),
+		);
 	});
 });
 

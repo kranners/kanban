@@ -41,7 +41,12 @@ import {
 	runnerIdentity,
 } from "./auth.ts";
 import type { BoardTools } from "./boardTools.ts";
-import { type Butler, butlerAllowed, type SelfFixAction } from "./butler.ts";
+import {
+	type Butler,
+	butlerAllowed,
+	parseFocusReport,
+	type SelfFixAction,
+} from "./butler.ts";
 import { type ColourStore, maxColours, parseColourUpdate } from "./colours.ts";
 import type { SlashCommand } from "./commands.ts";
 import {
@@ -189,6 +194,7 @@ export type Route =
 	| { kind: "update-comment"; threadId: string }
 	| { kind: "delete-comment"; threadId: string }
 	| { kind: "butler-tool"; tool: string }
+	| { kind: "butler-focus" }
 	| { kind: "self-fix-action"; id: string; action: SelfFixAction }
 	| { kind: "peer-hook" }
 	| { kind: "runners" }
@@ -467,6 +473,11 @@ export const matchRoute = (method: string, url: URL): Route => {
 					id: fixAction[1],
 					action: fixAction[2] as SelfFixAction,
 				}
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/butler/focus") {
+		return method === "POST"
+			? { kind: "butler-focus" }
 			: { kind: "method-not-allowed" };
 	}
 	const butlerTool = path.match(/^\/api\/butler\/tools\/([a-z_]{1,64})$/);
@@ -1175,6 +1186,21 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			error: "Only the board's own page can message Butler; reload it",
 		});
 
+	// The page tells Butler what Aaron has in front of him, as Aaron, so it
+	// takes the same proof as a message to Butler.
+	const butlerFocus = async (req: IncomingMessage, res: ServerResponse) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const report = parseFocusReport(read.body);
+		if ("error" in report) {
+			return sendJson(res, 400, { ok: false, error: report.error });
+		}
+		if (!butlerRequestOk(req)) return refuseButler(res);
+		deps.butler?.focus(report);
+		res.writeHead(204, { "cache-control": "no-store" });
+		res.end();
+	};
+
 	const createComment = async (req: IncomingMessage, res: ServerResponse) => {
 		const read = await readBody(req, res);
 		if (!read) return;
@@ -1513,6 +1539,8 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				);
 			case "csrf":
 				return sendJson(res, 200, { token: deps.csrf });
+			case "butler-focus":
+				return butlerFocus(req, res);
 			case "create-comment":
 				return createComment(req, res);
 			case "reply-comment":

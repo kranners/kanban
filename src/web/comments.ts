@@ -4,6 +4,7 @@ import type {
 	ButlerPresence,
 	CommentEvent,
 	CommentThread,
+	FocusReport,
 	Point,
 } from "../shared/types.ts";
 import type { KeyPress } from "./actions.ts";
@@ -130,11 +131,13 @@ async function request<T>(
 	method: string,
 	path: string,
 	body?: unknown,
+	keepalive = false,
 ): Promise<Outcome<T>> {
 	try {
 		const token = method === "GET" ? null : await csrf();
 		const response = await fetch(path, {
 			method,
+			...(keepalive ? { keepalive } : {}),
 			...(body === undefined
 				? token
 					? { headers: { "x-kanban-csrf": token } }
@@ -160,6 +163,14 @@ async function request<T>(
 	} catch (caught) {
 		return { ok: false, error: `Couldn't reach the board server (${caught})` };
 	}
+}
+
+/**
+ * Tells Butler what Aaron has in front of him, with the page's token;
+ * kept alive so a report sent as the page closes still arrives.
+ */
+export function reportFocus(report: FocusReport): Promise<Outcome<void>> {
+	return request<void>("POST", "/api/butler/focus", report, true);
 }
 
 const threadPath = (id: string) => `/api/comments/${encodeURIComponent(id)}`;

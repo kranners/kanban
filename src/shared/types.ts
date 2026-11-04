@@ -301,15 +301,37 @@ export type ButlerCard = Annotated & {
 
 export type Annotation = Note | Sticker | ButlerCard;
 
-/** How long Butler's cursor stays on a card after he last acted on it. */
+/** How long Butler's face or cursor stays on a card after he last looked at or acted on it. */
 export const butlerPresenceMs = 2 * 60_000;
 
-/** Where Butler is looking on the board, and the sessions he watches. */
+/** How long the board trusts a page's report of what Aaron is working on without hearing again. */
+export const aaronFocusStaleMs = 3 * 60_000;
+
+/** A card, session or thread Butler looked at or acted on, and when. */
+export type ButlerSpot = { target: string; label: string; at: number };
+
+/**
+ * Where Butler is on the board: his face on what he is looking at, his
+ * cursor on what he is working on, and the sessions he watches.
+ */
 export type ButlerPresence = {
-	presence: { target: string; label: string; at: number } | null;
+	/** What he last looked at; his face sits there for two minutes. */
+	looking: ButlerSpot | null;
+	/** What he last acted on; his cursor sits there for two minutes. */
+	working: ButlerSpot | null;
+	/** What Aaron is working on, which Butler's face follows when he looks at nothing else. */
+	following: string | null;
 	watching: string[];
 	/** Whether spike has collected the board's messages lately; absent until it first does. */
 	relay?: "up" | "down";
+};
+
+/** Butler nowhere on the board. */
+export const noButler: ButlerPresence = {
+	looking: null,
+	working: null,
+	following: null,
+	watching: [],
 };
 
 export type Annotations = Record<string, Annotation>;
@@ -364,6 +386,27 @@ export type BoardContext = {
 	};
 	region?: { id: string; name: string; cwd: string };
 	viewport?: BoardRect;
+};
+
+/** What a page says Aaron has in front of him: the session he has open, and the part of the board on screen. */
+export type FocusReport = {
+	/** A random id per page load, so one tab going away leaves another's report alone. */
+	client: string;
+	/** The session Aaron has open, if any. */
+	session?: string;
+	viewport?: BoardRect;
+	/** The page went to the background or closed. */
+	away?: boolean;
+};
+
+/** What Aaron is working on, as Butler reads it: the card, its region, and what else is on screen. */
+export type AaronFocus = BoardContext & {
+	/** Whether Aaron has the card open, rather than it being in the middle of his screen. */
+	open: boolean;
+	onScreen: { id: string; name: string; state: string }[];
+	/** When the board last heard from his page, and since when he has been on this card. */
+	at: number;
+	since: number;
 };
 
 /** A message to Butler still waiting for spike to take it. */

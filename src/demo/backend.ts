@@ -41,7 +41,7 @@ import type {
 	Session,
 	Subagent,
 } from "../shared/types.ts";
-import { maxDocTitle } from "../shared/types.ts";
+import { maxDocTitle, noButler } from "../shared/types.ts";
 import {
 	closing,
 	type DocText,
@@ -1220,6 +1220,21 @@ export function createBackend(scenario: Scenario): Backend {
 			},
 		],
 		["GET", /^\/api\/csrf$/, () => json(200, { token: "demo" })],
+		[
+			"POST",
+			/^\/api\/butler\/focus$/,
+			(_, body) => {
+				// Butler's face follows the session the visitor has open.
+				const session = (body as { session?: unknown } | null)?.session;
+				const following =
+					typeof session === "string" &&
+					world.sessions.some((s) => s.id === session)
+						? session
+						: null;
+				broadcast({ type: "butler", butler: { ...noButler, following } });
+				return empty(204);
+			},
+		],
 		["POST", /^\/api\/comments$/, (_, body) => createComment(body)],
 		[
 			"POST",

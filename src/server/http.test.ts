@@ -2121,6 +2121,49 @@ describe("createKanbanServer", () => {
 		comments.remove(thread.id);
 	});
 
+	it("takes what Aaron is working on only from the board's own page, for Butler to read", async () => {
+		const report = (body: unknown, extra = {}) =>
+			fetch(`${base}/api/butler/focus`, {
+				method: "POST",
+				headers: {
+					...authed,
+					"content-type": "application/json",
+					origin,
+					...extra,
+				},
+				body: JSON.stringify(body),
+			});
+		const focus = {
+			client: "page-1",
+			viewport: { x: 0, y: 0, w: 800, h: 600 },
+		};
+		assert.equal((await report(focus)).status, 403);
+		assert.equal(
+			(await report({ viewport: 1 }, { "x-kanban-csrf": "test-csrf" })).status,
+			400,
+		);
+		assert.equal(
+			(await report(focus, { "x-kanban-csrf": "test-csrf" })).status,
+			204,
+		);
+		const read = await fetch(`${base}/api/butler/tools/board_focus`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: "{}",
+		});
+		const { text } = (await read.json()) as { text: string };
+		assert.deepEqual(JSON.parse(text).aaron.viewport, focus.viewport);
+		assert.equal(
+			(
+				await report(
+					{ client: "page-1", away: true },
+					{ "x-kanban-csrf": "test-csrf" },
+				)
+			).status,
+			204,
+		);
+	});
+
 	it("answers peer hooks from loopback without browser headers", async () => {
 		const call = (body: unknown, headers: Record<string, string> = {}) =>
 			fetch(`${base}/api/hooks/peers`, {

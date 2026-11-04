@@ -2,14 +2,18 @@ import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { parseToolCall, type ToolCall } from "../agent/tools.ts";
 import {
+	type AaronFocus,
 	type Annotation,
+	aaronFocusStaleMs,
 	type Board,
 	type BoardContext,
 	type BoardRect,
 	type ButlerCard,
 	type ButlerCardState,
 	type ButlerPresence,
+	type ButlerSpot,
 	butlerCardStates,
+	type FocusReport,
 	maxButlerQueue,
 	maxButlerSummary,
 	maxButlerTitle,
@@ -39,7 +43,7 @@ import {
 	type ToolOutcome,
 } from "./boardTools.ts";
 import { type ButlerInbox, createButlerInbox } from "./butlerInbox.ts";
-import type { CommentStore } from "./comments.ts";
+import { type CommentStore, parseRect } from "./comments.ts";
 import type { BoardSource } from "./http.ts";
 import { fromLoopback } from "./loopback.ts";
 import { createStateFile, readState } from "./stateFile.ts";
@@ -49,6 +53,12 @@ import { createStateFile, readState } from "./stateFile.ts";
 // his own name, plus his cards, notes, presence and the sessions he
 // watches. Which of those need Aaron's say-so is decided on spike, by the
 // rules of the command that calls this, as for his other tools.
+//
+// He sees what Aaron is working on: the board's page reports the session
+// Aaron has open and the part of the board on screen, and every board_inbox
+// poll, board_focus and board_snapshot hands it to him. His face follows
+// it unless he looks at something else; his cursor sits on what he is
+// working on.
 
 export const butlerIdentity = "butler";
 export const maxWatching = 100;
@@ -58,6 +68,15 @@ export const selfFixPattern = /^[0-9]{8}-[0-9]{6}-[0-9]+$/;
 const cardSize = { w: 312, h: 216 };
 const gap = 48;
 const noteColor: NoteColor = "blue";
+
+/** The board agent's tools that only read a session: Butler looks at it rather than works on it. */
+const readingTools = new Set<ToolCall["tool"]>([
+	"ask_session",
+	"read_transcript",
+]);
+
+/** At most this many cards listed as on Aaron's screen. */
+export const maxOnScreen = 20;
 
 /** Tools that act through a session: never Butler's own cards or notes. */
 export const sessionTools = new Set<ToolCall["tool"]>([
@@ -85,6 +104,12 @@ export type Butler = {
 	selfFixAction(fixId: string, action: SelfFixAction): ToolOutcome;
 	/** Aaron's messages to Butler, when the board keeps comments. */
 	inbox: ButlerInbox | null;
+	/** What a page of the board says Aaron has in front of him. */
+	focus(report: FocusReport): void;
+	/** What Aaron is working on, or null while no page has told the board lately. */
+	aaron(): AaronFocus | null;
+	/** Forgets what Aaron was working on once his pages have gone quiet. */
+	check(): void;
 	saved(): Promise<void>;
 };
 
@@ -168,6 +193,37 @@ export const loadButlerState = (file: string) =>
 				: null,
 		),
 	}));
+
+const clientPattern = /^[A-Za-z0-9-]{1,64}$/;
+
+/** A page's report of what Aaron has in front of him, or why it is not one. */
+export const parseFocusReport = (
+	body: unknown,
+): FocusReport | { error: string } => {
+	if (typeof body !== "object" || body === null || Array.isArray(body)) {
+		return { error: "Expected a JSON object" };
+	}
+	const { client, session, viewport, away } = body as Record<string, unknown>;
+	if (typeof client !== "string" || !clientPattern.test(client)) {
+		return { error: "client must be the page's id" };
+	}
+	if (away === true) return { client, away: true };
+	if (
+		session !== undefined &&
+		(typeof session !== "string" || session.length > 128)
+	) {
+		return { error: "session must be a session id" };
+	}
+	const rect = viewport === undefined ? undefined : parseRect(viewport);
+	if (rect === null) {
+		return { error: "viewport must be x, y, w and h board coordinates" };
+	}
+	return {
+		client,
+		...(session === undefined ? {} : { session: session as string }),
+		...(rect === undefined ? {} : { viewport: rect }),
+	};
+};
 
 /** Butler's calls come only from a process on this Mac, never a page. */
 export const butlerAllowed = (req: IncomingMessage): boolean =>
@@ -261,12 +317,26 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			selfFixActions: actions,
 			watchedFixes: [...watchedFixes],
 		});
-	let presence: ButlerPresence["presence"] = null;
+	let looking: ButlerSpot | null = null;
+	let working: ButlerSpot | null = null;
+	let aaron:
+		| (Omit<FocusReport, "away"> & {
+				target: string | null;
+				at: number;
+				since: number;
+		  })
+		| null = null;
 
 	let inbox: ButlerInbox | null = null;
 	const current = (): ButlerPresence => {
 		const relay = inbox?.relay();
-		return { presence, watching, ...(relay ? { relay } : {}) };
+		return {
+			looking,
+			working,
+			following: aaron?.target ?? null,
+			watching,
+			...(relay ? { relay } : {}),
+		};
 	};
 	const changed = () => deps.onChange(current());
 
@@ -297,8 +367,17 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		return { id: found.id, rect: found, label };
 	};
 
+	/** Butler's face goes to what he is reading. */
 	const lookAt = (id: string, label = "Butler") => {
-		presence = { target: id, label, at: now() };
+		looking = { target: id, label, at: now() };
+		changed();
+	};
+
+	/** Butler's cursor goes to what he is changing, and his eyes with it. */
+	const workOn = (id: string, label = "Butler") => {
+		const at = now();
+		working = { target: id, label, at };
+		looking = { target: id, label, at };
 		changed();
 	};
 
@@ -437,7 +516,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		const placed = placeCard(card, !existing && x === undefined);
 		const failed = put(placed);
 		if (failed) return failed;
-		lookAt(placed.id);
+		workOn(placed.id);
 		return done(
 			`${existing ? "Updated" : "Created"} card '${placed.title}' (id ${placed.id}) at ${placed.x},${placed.y}`,
 		);
@@ -462,8 +541,9 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				a.kind === "note" && a.author === "butler" && a.session === card.id,
 		);
 		for (const note of notes) deps.annotations.remove(note.id);
-		if (presence?.target === card.id) {
-			presence = null;
+		if (looking?.target === card.id || working?.target === card.id) {
+			if (looking?.target === card.id) looking = null;
+			if (working?.target === card.id) working = null;
 			changed();
 		}
 		const archiving = card.selfFix ? record(card.selfFix, "archive") : "";
@@ -512,7 +592,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		const placed = existing ? draft : clearOf(draft, taken());
 		const failed = put(placed);
 		if (failed) return failed;
-		if (at) lookAt(at.id);
+		if (at) workOn(at.id);
 		return done(
 			`${existing ? "Updated" : "Added"} note (id ${placed.id})${at ? ` on ${at.label}` : ""} at ${placed.x},${placed.y}`,
 		);
@@ -545,26 +625,41 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		}
 		watching = on ? [...others, session.id] : others;
 		persist();
-		changed();
+		if (on) lookAt(session.id);
+		else changed();
 		return done(`${on ? "Watching" : "Stopped watching"} ${session.name}`);
 	};
 
-	const look = (fields: Fields): ToolOutcome => {
-		const unknown = only(fields, ["target", "label"]);
-		if (unknown) return unknown;
-		const target = text(fields, "target", 128);
-		const label = text(fields, "label", 40);
-		for (const value of [target, label]) if (isOutcome(value)) return value;
-		if (!target) {
-			presence = null;
-			changed();
-			return done("Butler stepped away from the board");
-		}
-		const at = resolve(target as string);
-		if (!at) return refused(`No card or session ${target}`);
-		lookAt(at.id, (label as string | undefined) || "Butler");
-		return done(`Butler is at ${at.label}`);
-	};
+	/** Puts his face (look) or his cursor (work) on a card, or takes it off the board. */
+	const place =
+		(kind: "look" | "work") =>
+		(fields: Fields): ToolOutcome => {
+			const unknown = only(fields, ["target", "label"]);
+			if (unknown) return unknown;
+			const target = text(fields, "target", 128);
+			const label = text(fields, "label", 40);
+			for (const value of [target, label]) if (isOutcome(value)) return value;
+			if (!target) {
+				if (kind === "look") looking = null;
+				else working = null;
+				changed();
+				return done(
+					kind === "look"
+						? "Butler looks where Aaron is working again"
+						: "Butler stopped working on the board",
+				);
+			}
+			const at = resolve(target as string);
+			if (!at) return refused(`No card or session ${target}`);
+			const name = (label as string | undefined) || "Butler";
+			if (kind === "look") lookAt(at.id, name);
+			else workOn(at.id, name);
+			return done(
+				`Butler is ${kind === "look" ? "looking at" : "working on"} ${at.label}`,
+			);
+		};
+	const look = place("look");
+	const work = place("work");
 
 	/** Keeps a board action for spike to read back; the latest one wins. */
 	const record = (fixId: string, action: SelfFixAction): string => {
@@ -710,54 +805,176 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		);
 	};
 
-	/** What sits under a point on the board, for a message sent from there. */
-	const contextAt = (point: Point, viewport?: BoardRect): BoardContext => {
-		const context: BoardContext = viewport ? { viewport } : {};
-		const inside = (r: Rect) =>
-			point.x >= r.x &&
-			point.x <= r.x + r.w &&
-			point.y >= r.y &&
-			point.y <= r.y + r.h;
+	const sessionCard = (session: Board["sessions"][number]) => ({
+		id: session.id,
+		kind: "session" as const,
+		name: session.name,
+		short: session.id.slice(0, 8),
+		state: session.activity,
+		cwd: session.cwd,
+	});
+
+	const butlerCards = () =>
+		Object.values(deps.annotations.current())
+			.filter((a): a is ButlerCard => a.kind === "butler-card")
+			.sort((a, b) => b.z - a.z);
+
+	const ownCard = (card: ButlerCard) => ({
+		id: card.selfFix ?? card.id,
+		kind: "butler-card" as const,
+		name: card.title,
+		state: card.state,
+	});
+
+	const contains = (r: Rect, point: Point) =>
+		point.x >= r.x &&
+		point.x <= r.x + r.w &&
+		point.y >= r.y &&
+		point.y <= r.y + r.h;
+
+	/** The session or card of Butler's under a point, with the id his face and cursor go by. */
+	const cardAt = (
+		point: Point,
+	): { target: string; card: NonNullable<BoardContext["card"]> } | null => {
 		const shown = board();
 		const nodes = arranged(shown, deps).nodes;
 		const session = shown.sessions.find((s) => {
 			const node = nodes.get(nodeKey({ kind: "session", id: s.id }));
-			return node ? inside(node) : false;
+			return node ? contains(node, point) : false;
 		});
-		if (session) {
-			context.card = {
-				id: session.id,
-				kind: "session",
-				name: session.name,
-				short: session.id.slice(0, 8),
-				state: session.activity,
-				cwd: session.cwd,
-			};
-		} else {
-			const card = Object.values(deps.annotations.current())
-				.filter((a): a is ButlerCard => a.kind === "butler-card")
-				.sort((a, b) => b.z - a.z)
-				.find(inside);
-			if (card) {
-				context.card = {
-					id: card.selfFix ?? card.id,
-					kind: "butler-card",
-					name: card.title,
-					state: card.state,
-				};
-			}
-		}
+		if (session) return { target: session.id, card: sessionCard(session) };
+		const card = butlerCards().find((c) => contains(c, point));
+		return card ? { target: card.id, card: ownCard(card) } : null;
+	};
+
+	const regionFor = (
+		point: Point | null,
+		cwd: string | undefined,
+	): BoardContext["region"] | undefined => {
 		const region = deps.regions
 			.current()
-			.find((r) => inside(r) || (session && session.cwd === r.cwd));
-		if (region) {
-			context.region = {
-				id: region.id,
-				name: region.name ?? region.cwd.split("/").pop() ?? region.cwd,
-				cwd: region.cwd,
-			};
-		}
+			.find(
+				(r) => (point !== null && contains(r, point)) || (cwd && cwd === r.cwd),
+			);
+		return region
+			? {
+					id: region.id,
+					name: region.name ?? region.cwd.split("/").pop() ?? region.cwd,
+					cwd: region.cwd,
+				}
+			: undefined;
+	};
+
+	/** What sits under a point on the board, for a message sent from there. */
+	const contextAt = (point: Point, viewport?: BoardRect): BoardContext => {
+		const context: BoardContext = viewport ? { viewport } : {};
+		const at = cardAt(point);
+		if (at) context.card = at.card;
+		const region = regionFor(point, at?.card.cwd);
+		if (region) context.region = region;
 		return context;
+	};
+
+	const centreOf = (r: BoardRect): Point => ({
+		x: r.x + r.w / 2,
+		y: r.y + r.h / 2,
+	});
+
+	/** What Aaron is on: the session he has open, or the card in the middle of his screen. */
+	const focusTarget = (report: FocusReport): string | null => {
+		if (report.session) {
+			const session = findSession(board(), report.session);
+			if (session) return session.id;
+		}
+		return report.viewport
+			? (cardAt(centreOf(report.viewport))?.target ?? null)
+			: null;
+	};
+
+	const focus = (report: FocusReport) => {
+		const at = now();
+		if (report.away) {
+			if (aaron?.client !== report.client) return;
+			aaron = null;
+			changed();
+			return;
+		}
+		const target = focusTarget(report);
+		const moved = aaron?.target !== target;
+		aaron = {
+			client: report.client,
+			...(report.session ? { session: report.session } : {}),
+			...(report.viewport ? { viewport: report.viewport } : {}),
+			target,
+			at,
+			since: moved || !aaron ? at : aaron.since,
+		};
+		if (moved) changed();
+	};
+
+	const check = () => {
+		if (aaron && now() - aaron.at > aaronFocusStaleMs) {
+			aaron = null;
+			changed();
+		}
+	};
+
+	const overlaps = (a: Rect, b: BoardRect) =>
+		a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+	const describeAaron = (): AaronFocus | null => {
+		check();
+		if (!aaron) return null;
+		const shown = board();
+		const nodes = arranged(shown, deps).nodes;
+		const view = aaron.viewport;
+		const target = aaron.target;
+		const session = target
+			? shown.sessions.find((s) => s.id === target)
+			: undefined;
+		const own = target ? annotation(target) : undefined;
+		const card: BoardContext["card"] = session
+			? sessionCard(session)
+			: own?.kind === "butler-card"
+				? ownCard(own)
+				: undefined;
+		const region = regionFor(view ? centreOf(view) : null, card?.cwd);
+		const onScreen = view
+			? [
+					...shown.sessions
+						.filter((s) => {
+							const node = nodes.get(nodeKey({ kind: "session", id: s.id }));
+							return node ? overlaps(node, view) : false;
+						})
+						.map((s) => ({ id: s.id, name: s.name, state: s.activity })),
+					...butlerCards()
+						.filter((c) => overlaps(c, view))
+						.map((c) => ({
+							id: c.selfFix ?? c.id,
+							name: c.title,
+							state: c.state,
+						})),
+				].slice(0, maxOnScreen)
+			: [];
+		return {
+			...(card ? { card } : {}),
+			...(region ? { region } : {}),
+			...(view ? { viewport: view } : {}),
+			open: session !== undefined && aaron.session === session.id,
+			onScreen,
+			at: aaron.at,
+			since: aaron.since,
+		};
+	};
+
+	/** One line on what Aaron is working on, for board_snapshot. */
+	const aaronLine = (): string => {
+		const focus = describeAaron();
+		if (!focus) return "Aaron is not at the board";
+		const on = focus.card
+			? `${focus.open ? "has open" : "is looking at"} ${focus.card.kind === "session" ? "session" : "card"} ${focus.card.name} (${focus.card.id}${focus.card.state ? `, ${focus.card.state}` : ""})`
+			: "is looking at an empty part of the board";
+		return `Aaron ${on}${focus.region ? ` in ${focus.region.name}` : ""}; ${focus.onScreen.length} card${focus.onScreen.length === 1 ? "" : "s"} on his screen`;
 	};
 
 	if (deps.comments) {
@@ -774,7 +991,24 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		const unknown = only(fields, []);
 		if (unknown) return unknown;
 		if (!inbox) return refused("This board keeps no messages");
-		return done(JSON.stringify({ messages: inbox.take() }));
+		return done(
+			JSON.stringify({ messages: inbox.take(), aaron: describeAaron() }),
+		);
+	};
+
+	const boardFocus = (fields: Fields): ToolOutcome => {
+		const unknown = only(fields, []);
+		if (unknown) return unknown;
+		return done(JSON.stringify({ aaron: describeAaron() }));
+	};
+
+	/** Where a thread Butler is answering sits: the card it is about, or its pin. */
+	const threadSpot = (threadId: string): string | null => {
+		const thread = deps.comments?.get(threadId);
+		if (!thread) return null;
+		const card = thread.context?.card;
+		const at = card ? resolve(card.id) : null;
+		return at?.id ?? thread.id;
 	};
 
 	const boardAck = (fields: Fields): ToolOutcome => {
@@ -789,7 +1023,14 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		) {
 			return refused(`ids must be a list of at most ${maxButlerQueue} ids`);
 		}
-		return done(`Took ${inbox.ack(ids as string[])}`);
+		const last = ids.at(-1);
+		const thread = deps.comments
+			?.current()
+			.find((t) => t.queued?.some((m) => m.id === last))?.id;
+		const took = inbox.ack(ids as string[]);
+		const spot = thread ? threadSpot(thread) : null;
+		if (took > 0 && spot) workOn(spot);
+		return done(`Took ${took}`);
 	};
 
 	const boardReply = (fields: Fields): ToolOutcome => {
@@ -813,6 +1054,8 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		);
 		// A thread Aaron deleted on the board has nothing to answer; that's fine.
 		if (!thread) return done("No such thread on the board any more");
+		const spot = threadSpot(thread.id);
+		if (spot) workOn(spot);
 		const card = thread.context?.card;
 		if (!ok || !card) return done("Shown on the board");
 		const kept = thread.replyNote
@@ -837,12 +1080,14 @@ export const createButler = (deps: ButlerDeps): Butler => {
 	const own: Record<string, (fields: Fields) => ToolOutcome> = {
 		board_inbox: boardInbox,
 		board_ack: boardAck,
+		board_focus: boardFocus,
 		board_reply: boardReply,
 		put_card: putCard,
 		close_card: closeCard,
 		note,
 		watch,
 		look,
+		work,
 		// The changes' sync, by its new name and its old one, which spike still sends.
 		changes: selfFixes,
 		self_fixes: selfFixes,
@@ -856,7 +1101,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		const handler = own[name];
 		if (handler) {
 			const outcome = handler(fields as Fields);
-			if (name !== "look" && name !== "board_inbox") {
+			if (!["look", "work", "board_inbox", "board_focus"].includes(name)) {
 				deps.audit({
 					action: "butler",
 					tool: name,
@@ -874,12 +1119,15 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		if ("error" in call) return refused(call.error);
 		if ("session" in call) {
 			const session = findSession(board(), call.session);
-			if (session) lookAt(session.id);
+			if (session && readingTools.has(call.tool)) lookAt(session.id);
+			else if (session) workOn(session.id);
 		}
 		const outcome = await deps.tools(butlerIdentity, call);
 		if (call.tool !== "board_snapshot") return outcome;
 		if (!outcome.ok) return outcome;
-		return done(`${outcome.text}\nButler watches: ${JSON.stringify(watching)}`);
+		return done(
+			`${outcome.text}\nButler watches: ${JSON.stringify(watching)}\n${aaronLine()}`,
+		);
 	};
 
 	return {
@@ -887,6 +1135,9 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		tool,
 		selfFixAction,
 		inbox,
+		focus,
+		aaron: describeAaron,
+		check,
 		saved: () => file.saved(),
 	};
 };

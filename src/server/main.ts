@@ -12,6 +12,7 @@ import {
 	type Activity,
 	type Board,
 	isRunnerTarget,
+	noButler,
 	type Session,
 } from "../shared/types.ts";
 import {
@@ -408,7 +409,7 @@ feed = createFeed({
 	relations: relations.current,
 	docs: docs.index,
 	docStores: docStores.current,
-	butler: () => butler?.current() ?? { presence: null, watching: [] },
+	butler: () => butler?.current() ?? noButler,
 	runners: () => runnerHub.views(),
 });
 const digestTick = setInterval(digests.pump, digestTickMs);
@@ -579,7 +580,10 @@ butler = createButler({
 	onChange: (next) => feed?.butler(next),
 	comments,
 });
-const relayCheck = setInterval(() => butler?.inbox?.check(), 5000);
+const relayCheck = setInterval(() => {
+	butler?.inbox?.check();
+	butler?.check();
+}, 5000);
 // Scheduled reports were the retired board agent's. Their file is kept
 // aside, not deleted, so Aaron can ask Butler to schedule them as jobs.
 await retireFile(join(config.stateDir, "schedules.json"));
