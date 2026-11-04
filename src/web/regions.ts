@@ -306,6 +306,36 @@ export function regionGroups(
 	];
 }
 
+/**
+ * Butler's cards dropped into projects, as session cards are: each belongs
+ * to the smallest project frame its centre falls in, and that frame grows
+ * to hold all of it, so the project carries it and makes room for it.
+ */
+export function withCards(
+	projects: readonly Group[],
+	cards: readonly (Rect & { id: string })[],
+): Group[] {
+	const held = new Map<string, (Rect & { id: string })[]>();
+	for (const card of cards) {
+		const home = projects
+			.filter((project) => inside(project.frame, centreOf(card)))
+			.reduce<Group | null>(
+				(best, project) =>
+					best === null || area(project.frame) < area(best.frame)
+						? project
+						: best,
+				null,
+			);
+		if (home) held.set(home.key, [...(held.get(home.key) ?? []), card]);
+	}
+	return projects.map((project) => {
+		const mine = held.get(project.key);
+		if (!mine) return project;
+		const all = areaOf([project.frame, ...mine.map(framedArea)]);
+		return { ...project, frame: all, cards: mine.map((card) => card.id) };
+	});
+}
+
 function lastStart(start: number, span: number, card: number): number {
 	const room = span - gridSize;
 	return start + room - (card <= room ? card : card / 2);

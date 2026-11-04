@@ -281,6 +281,14 @@ export type ButlerCardState = (typeof butlerCardStates)[number];
 export const maxButlerTitle = 200;
 export const maxButlerSummary = 4000;
 export const maxButlerLink = 500;
+export const maxButlerHistory = 40;
+
+/** A state a Butler card was in from `at`, with the status line it had then. */
+export type ButlerCardEvent = {
+	at: number;
+	state: ButlerCardState;
+	status?: string;
+};
 
 /**
  * A card Butler, Aaron's assistant bot, keeps on the board: one per
@@ -297,6 +305,8 @@ export type ButlerCard = Annotated & {
 	selfFix?: string;
 	watching?: boolean;
 	updatedAt: number;
+	/** Each change of state or status, oldest first: the card's timeline. */
+	history?: ButlerCardEvent[];
 };
 
 export type Annotation = Note | Sticker | ButlerCard;

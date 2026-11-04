@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { Annotations, Note, Sticker } from "../shared/types.ts";
+import type {
+	Annotations,
+	ButlerCard,
+	Note,
+	Sticker,
+} from "../shared/types.ts";
 import { gridSize } from "./grid.ts";
 import {
 	annotationCommand,
 	broughtToFront,
+	dragged,
 	duplicated,
 	gridStep,
 	matchingStickers,
@@ -26,7 +32,7 @@ import {
 	stickerSize,
 	topZ,
 } from "./notes.ts";
-import { near } from "./placement.ts";
+import { maxSessionSize, minSessionSize, near } from "./placement.ts";
 import { stickerManifest } from "./stickers/manifest.ts";
 
 const note = (id: string, z: number): Note => ({
@@ -209,6 +215,34 @@ describe("geometry", () => {
 		assert.deepEqual([grown.w, grown.h], [300, 150]);
 		const shrunk = resized(sticker("s", 1), -1000, -1000);
 		assert.deepEqual([shrunk.w, shrunk.h], [minStickerSize, minStickerSize]);
+	});
+
+	it("snaps Butler's cards to the grid like session cards", () => {
+		const card: ButlerCard = {
+			id: "b",
+			kind: "butler-card",
+			title: "Tidy",
+			state: "working",
+			x: 48,
+			y: 24,
+			w: 312,
+			h: 216,
+			z: 1,
+			updatedAt: 0,
+		};
+		const reply = note("r", 2);
+		const [held, carried] = dragged([card, reply], card, 30, -14);
+		assert.deepEqual([held?.x, held?.y], [72, 0]);
+		assert.deepEqual(
+			[carried?.x, carried?.y],
+			[reply.x + 24, reply.y - 24],
+			"what moves with it keeps its place beside it",
+		);
+		const loose = dragged([reply], reply, 30, -14)[0];
+		assert.deepEqual([loose?.x, loose?.y], [reply.x + 30, reply.y - 14]);
+		const grown = resized(card, 40, -1000);
+		assert.deepEqual([grown.w, grown.h], [360, minSessionSize.h]);
+		assert.equal(resized(card, 1e6, 0).w, maxSessionSize.w);
 	});
 
 	it("fits text to the note", () => {

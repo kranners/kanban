@@ -12,7 +12,7 @@ import type { Rect } from "./placement.ts";
 import { arrange, seedsOf } from "./placement.ts";
 import { unreachablePeers } from "./reach.ts";
 import { shownRegions } from "./regionState.ts";
-import { regionGroups } from "./regions.ts";
+import { regionGroups, withCards } from "./regions.ts";
 import { annotations, board, layout } from "./state.ts";
 
 const settleMs = 1500;
@@ -51,11 +51,14 @@ export const groups = computed(() => {
 	if (!current || !placed) return [];
 	const leaving = departing.value;
 	const sessions = current.sessions.filter((s) => !leaving.has(s.id));
-	return regionGroups(
-		shownRegions.value,
-		groupsOf(sessions, placed.nodes),
-		sessions,
-		placed.nodes,
+	return withCards(
+		regionGroups(
+			shownRegions.value,
+			groupsOf(sessions, placed.nodes),
+			sessions,
+			placed.nodes,
+		),
+		Object.values(annotations.value).filter((a) => a.kind === "butler-card"),
 	);
 });
 

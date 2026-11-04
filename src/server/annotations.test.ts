@@ -62,6 +62,37 @@ describe("parseAnnotation", () => {
 		});
 	});
 
+	it("keeps a Butler card's timeline and refuses a malformed one", () => {
+		const card = {
+			kind: "butler-card",
+			x: 0,
+			y: 0,
+			w: 312,
+			h: 216,
+			z: 1,
+			title: "Tidy",
+			state: "working",
+			updatedAt: 5,
+		};
+		const history = [
+			{ at: 1, state: "idle" },
+			{ at: 5, state: "working", status: "running" },
+		];
+		assert.deepEqual(
+			(parseAnnotation("b", { ...card, history }) as { history?: unknown })
+				.history,
+			history,
+		);
+		for (const bad of [
+			[{ at: 1, state: "lost" }],
+			[{ at: "1", state: "idle" }],
+			[{ at: 1, state: "idle", extra: true }],
+			Array.from({ length: 41 }, (_, at) => ({ at, state: "idle" })),
+		]) {
+			assert.ok("error" in parseAnnotation("b", { ...card, history: bad }));
+		}
+	});
+
 	it("holds a long report in one note", () => {
 		assert.ok(maxNoteText >= 20_000);
 		const text = "## Report\n\n".padEnd(maxNoteText, "x");

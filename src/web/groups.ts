@@ -11,6 +11,8 @@ export type Group = {
 	members: NodeKey[];
 	frame: Rect;
 	region?: Region;
+	/** Ids of Butler's cards the project holds. */
+	cards?: string[];
 };
 
 function mostCommon(values: string[]): string {

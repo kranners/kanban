@@ -1,4 +1,5 @@
 import "./butler.css";
+import { TriangleAlert } from "lucide-preact";
 import type { JSX } from "preact";
 import type { ButlerCard, Note } from "../shared/types.ts";
 import { ActivityBadge } from "./activity.tsx";
@@ -13,17 +14,98 @@ import {
 	SelfFixIcon,
 } from "./Butler.tsx";
 import { butlerPresence, presenceOf } from "./butler.ts";
-import { view } from "./Canvas.tsx";
+import { butlerLanes } from "./butlerCards.ts";
+import { detail, view } from "./Canvas.tsx";
 import { threads } from "./comments.ts";
 import { nodeKey } from "./layout.ts";
 import type { Rect } from "./placement.ts";
 import { now } from "./state.ts";
-import { ago } from "./time.ts";
+import { Timeline } from "./Timeline.tsx";
+import { ago, relativeTime } from "./time.ts";
+
+/** A Butler card zoomed in, laid out as a session card's near view, with its timeline. */
+function ButlerNearPanel(props: {
+	card: ButlerCard;
+	now: number;
+}): JSX.Element {
+	const { card } = props;
+	const kind = card.selfFix ? "Change" : "Butler";
+	return (
+		<div class={`near-panel butler-near butler-${card.state}`} data-scrollable>
+			<header class="near-head">
+				<div class="near-meta">
+					<ActivityBadge activity={card.state} />
+					<span class="near-name butler-near-kind">
+						{card.selfFix ? (
+							<SelfFixIcon size={14} />
+						) : (
+							<ButlerMark size={14} />
+						)}
+						{kind}
+					</span>
+					{card.watching && (
+						<ButlerWatchingIcon
+							size={16}
+							class="butler-watching-icon"
+							aria-label="Butler is watching"
+						/>
+					)}
+					<span class="foot-end">
+						<ButlerAvatar size={14} />
+						<time class="num">{relativeTime(card.updatedAt, props.now)}</time>
+					</span>
+				</div>
+				<p class="near-goal">{card.title}</p>
+				{card.status &&
+					(card.state === "needs-you" ? (
+						<p class="near-needs">
+							<TriangleAlert size={14} aria-hidden="true" />
+							<span>{card.status}</span>
+						</p>
+					) : (
+						<p class="near-doing">{card.status}</p>
+					))}
+				{card.link && (
+					<a
+						class="butler-card-link"
+						href={card.link}
+						target="_blank"
+						rel="noopener noreferrer"
+					>
+						Open session ↗
+					</a>
+				)}
+			</header>
+			<div class="near-content">
+				<div class="near-side">
+					{card.summary && (
+						<section class="detail-section" aria-label="Summary">
+							<div class="detail-head">
+								<span>Summary</span>
+							</div>
+							<p class="butler-near-summary">{card.summary}</p>
+						</section>
+					)}
+				</div>
+				<div class="near-main">
+					<Timeline
+						lanes={butlerLanes(card, props.now)}
+						now={props.now}
+						label={`${kind} timeline`}
+						minuteEm={0.8}
+						labelled
+					/>
+				</div>
+			</div>
+		</div>
+	);
+}
 
 /** One of Butler's cards: a change he started, or one he made himself. */
 export function ButlerCardBody(props: { card: ButlerCard }): JSX.Element {
 	const { card } = props;
 	const t = now.value;
+	if (detail.value === "near") return <ButlerNearPanel card={card} now={t} />;
 	return (
 		<div class={`butler-card-body butler-${card.state}`}>
 			<div class="butler-card-head">

@@ -27,6 +27,7 @@ import {
 	clearOfProjects,
 	framesBesideNew,
 	regionGroups,
+	withCards,
 } from "../web/regions.ts";
 import { stickerManifest } from "../web/stickers/manifest.ts";
 import { summariesOf } from "../web/summaries.ts";
@@ -141,11 +142,16 @@ export const projectsOf = (
 	deps: Pick<BoardToolDeps, "layout" | "annotations" | "regions">,
 	placed = arranged(board, deps),
 ) =>
-	regionGroups(
-		deps.regions.current(),
-		groupsOf(board.sessions, placed.nodes),
-		board.sessions,
-		placed.nodes,
+	withCards(
+		regionGroups(
+			deps.regions.current(),
+			groupsOf(board.sessions, placed.nodes),
+			board.sessions,
+			placed.nodes,
+		),
+		Object.values(deps.annotations.current()).filter(
+			(a) => a.kind === "butler-card",
+		),
 	);
 
 export const summariesOfBoard = (
@@ -172,6 +178,7 @@ export const snapshot = (
 	for (const group of groups) {
 		if (!group.region) continue;
 		for (const key of group.members) regionOf.set(key, group.region.id);
+		for (const id of group.cards ?? []) regionOf.set(id, group.region.id);
 	}
 	const colours = deps.colours.current();
 	const annotations = Object.values(deps.annotations.current());
@@ -256,6 +263,7 @@ export const snapshot = (
 							link: a.link ?? null,
 							watching: a.watching === true,
 							updatedAt: new Date(a.updatedAt).toISOString(),
+							region: regionOf.get(a.id) ?? null,
 						},
 					]
 				: [],

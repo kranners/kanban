@@ -13,6 +13,49 @@
 	outline-color: var(--butler);
 }
 
+/* Moves, snaps and resizes as a session card does. */
+.annotation.butler-card {
+	transition:
+		transform calc(320ms * var(--motion)) cubic-bezier(0.2, 0.7, 0.2, 1),
+		width calc(320ms * var(--motion)) cubic-bezier(0.2, 0.7, 0.2, 1),
+		height calc(320ms * var(--motion)) cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.annotation.butler-card[data-arranging] {
+	z-index: 3;
+}
+
+/* In a project region, edged in its colour like the session cards there. */
+.annotation.butler-card.region {
+	border-color: var(--region-border);
+	border-top-color: var(--butler);
+}
+
+.world[data-detail="near"] .annotation.butler-card {
+	border-width: calc(1px * var(--unzoom));
+	border-top-width: calc(3px * var(--unzoom));
+	border-radius: calc(var(--radius) * var(--unzoom));
+}
+
+.butler-near-kind {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	color: var(--butler);
+}
+
+.butler-near .butler-card-link {
+	align-self: flex-start;
+	margin-left: 0;
+}
+
+.butler-near-summary {
+	margin: 0;
+	color: var(--ink);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
 .butler-card-body {
 	flex: 1;
 	min-width: 0;

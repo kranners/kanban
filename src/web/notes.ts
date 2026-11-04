@@ -7,9 +7,14 @@ import type {
 	Sticker,
 } from "../shared/types.ts";
 import type { KeyPress } from "./actions.ts";
-import { gridSize } from "./grid.ts";
+import { gridSize, snap, snapWithin } from "./grid.ts";
 import type { Rect } from "./placement.ts";
-import { clearShift, clearSpot } from "./placement.ts";
+import {
+	clearShift,
+	clearSpot,
+	maxSessionSize,
+	minSessionSize,
+} from "./placement.ts";
 import type { StickerEntry } from "./stickers/manifest.ts";
 
 export const noteSize = 192;
@@ -143,11 +148,35 @@ export function moved<T extends Annotation>(
 	};
 }
 
+/**
+ * Moves annotations by a drag. When the one held is Butler's card, they all
+ * shift by the step that lands it on the grid, as a session card snaps.
+ */
+export function dragged<T extends Annotation>(
+	annotations: readonly T[],
+	held: Annotation,
+	dx: number,
+	dy: number,
+): T[] {
+	const by =
+		held.kind === "butler-card"
+			? { x: snap(held.x + dx) - held.x, y: snap(held.y + dy) - held.y }
+			: { x: dx, y: dy };
+	return annotations.map((a) => moved(a, by.x, by.y));
+}
+
 export function resized<T extends Annotation>(
 	annotation: T,
 	dx: number,
 	dy: number,
 ): T {
+	if (annotation.kind === "butler-card") {
+		return {
+			...annotation,
+			w: snapWithin(annotation.w + dx, minSessionSize.w, maxSessionSize.w),
+			h: snapWithin(annotation.h + dy, minSessionSize.h, maxSessionSize.h),
+		};
+	}
 	if (annotation.kind !== "sticker") {
 		return {
 			...annotation,

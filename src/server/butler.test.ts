@@ -21,6 +21,7 @@ import {
 	loadWatching,
 	parseFocusReport,
 	selfFixState,
+	withHistory,
 } from "./butler.ts";
 import { createCommentStore } from "./comments.ts";
 import { createLayoutStore } from "./layout.ts";
@@ -288,12 +289,21 @@ describe("Butler on the board", () => {
 		assert.equal(waiting.status, "waiting on input (AskUserQuestion)");
 		assert.deepEqual([waiting.x, waiting.y], [4800, 960]);
 		assert.equal(waiting.updatedAt, 61_000);
+		assert.deepEqual(waiting.history, [
+			{ at: 1000, state: "working", status: "running" },
+			{
+				at: 61_000,
+				state: "needs-you",
+				status: "waiting on input (AskUserQuestion)",
+			},
+		]);
 
 		tick(60_000);
 		await butler.tool("self_fixes", {
 			fixes: [{ ...fix, state: "waiting on input (AskUserQuestion)" }],
 		});
 		assert.equal(cardOf(annotations, id).updatedAt, 61_000);
+		assert.equal(cardOf(annotations, id).history?.length, 2);
 
 		await butler.tool("self_fixes", { fixes: [] });
 		assert.equal(annotations.current()[id], undefined);
@@ -571,6 +581,36 @@ describe("Butler's tool calls", () => {
 			false,
 		);
 		assert.equal(butlerAllowed(request("127.0.0.1", { "cf-ray": "1" })), false);
+	});
+
+	it("keep a card's timeline of states, oldest first and capped", () => {
+		const card: ButlerCard = {
+			id: "butler-1",
+			kind: "butler-card",
+			title: "Tidy",
+			state: "idle",
+			x: 0,
+			y: 0,
+			w: 312,
+			h: 216,
+			z: 1,
+			updatedAt: 500,
+		};
+		const working = withHistory(card, { ...card, state: "working" }, 900);
+		assert.deepEqual(working.history, [
+			{ at: 500, state: "idle" },
+			{ at: 900, state: "working" },
+		]);
+		const moved = withHistory(working, { ...working, x: 48 }, 950);
+		assert.equal(moved.history, working.history);
+		const fresh = withHistory(undefined, card, 100);
+		assert.deepEqual(fresh.history, [{ at: 100, state: "idle" }]);
+		let long = fresh;
+		for (let i = 0; i < 60; i++) {
+			long = withHistory(long, { ...long, status: `step ${i}` }, 200 + i);
+		}
+		assert.equal(long.history?.length, 40);
+		assert.equal(long.history?.at(-1)?.status, "step 59");
 	});
 
 	it("fold a self-fix's state into a card's", () => {

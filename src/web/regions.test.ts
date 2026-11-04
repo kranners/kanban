@@ -20,6 +20,7 @@ import {
 	spotBelowRegion,
 	spotInRegion,
 	storableRegion,
+	withCards,
 } from "./regions.ts";
 
 function session(id: string, cwd = "/dev/acme-api"): Session {
@@ -377,4 +378,33 @@ test("a card that can't fit in a full region goes just below it, and the region 
 	assert.ok(grown.x <= r.x && grown.y <= r.y);
 	assert.ok(grown.x + grown.w >= r.x + r.w);
 	assert.ok(grown.y + grown.h >= card.y + card.h + gridSize);
+});
+
+test("a project holds the Butler cards dropped in it, growing to fit them", () => {
+	const [outer, inner] = regionGroups(
+		[region("big", 0, 0), { ...region("small", 48, 48), w: 240, h: 192 }],
+		[],
+		[],
+		new Map(),
+	);
+	assert.ok(outer && inner);
+	const card = (id: string, x: number, y: number) => ({
+		id,
+		x,
+		y,
+		w: 312,
+		h: 216,
+	});
+	const [big, small] = withCards(
+		[outer, inner],
+		[card("in-small", 0, 48), card("in-big", 240, 192), card("out", 960, 0)],
+	);
+	assert.deepEqual(small?.cards, ["in-small"]);
+	assert.deepEqual(big?.cards, ["in-big"]);
+	assert.ok(
+		(big?.frame.x ?? 0) + (big?.frame.w ?? 0) >= 240 + 312,
+		"the frame grows to hold the whole card",
+	);
+	const [untouched] = withCards([outer], []);
+	assert.equal(untouched, outer);
 });

@@ -13,6 +13,7 @@ import {
 } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import type { RegionColour } from "../shared/colours.ts";
 import type { Annotation, Note, Point, Sticker } from "../shared/types.ts";
 import { noteColors } from "../shared/types.ts";
 import {
@@ -20,6 +21,7 @@ import {
 	addSticker,
 	annotationMenu,
 	bringSelectionToFront,
+	current,
 	deleteSelection,
 	duplicateSelection,
 	editing,
@@ -37,8 +39,10 @@ import {
 	toggleSelected,
 	typeText,
 } from "./annotations.ts";
+import { groups } from "./arrangement.ts";
 import { ButlerByline, ButlerCardBody } from "./ButlerLayer.tsx";
 import { boardPointAt, detail, view } from "./Canvas.tsx";
+import { colourOf } from "./colours.ts";
 import { commandKey } from "./focus/platform.ts";
 import {
 	isPlain,
@@ -52,9 +56,9 @@ import {
 	annotationCommand,
 	butlerBylineHeight,
 	documentFont,
+	dragged,
 	gridStep,
 	matchingStickers,
-	moved,
 	noteFontSize,
 	noteTextLimit,
 	resized,
@@ -91,9 +95,27 @@ function onNoteControl(event: MouseEvent): boolean {
 	const onScrollbar =
 		(target.classList.contains("note-text") ||
 			target.classList.contains("report-scroll") ||
+			target.classList.contains("near-panel") ||
 			target.classList.contains("timeline-scroll")) &&
 		(event.offsetX > target.clientWidth || event.offsetY > target.clientHeight);
 	return onScrollbar || target.closest("a, button, input") !== null;
+}
+
+/** Butler's notes pinned beside a card of his go where the card goes. */
+function withReplies(chosen: readonly Annotation[]): Annotation[] {
+	const cards = new Set(
+		chosen.filter((a) => a.kind === "butler-card").map((a) => a.id),
+	);
+	if (cards.size === 0) return [...chosen];
+	const ids = new Set(chosen.map((a) => a.id));
+	const replies = Object.values(current.peek()).filter(
+		(a) =>
+			a.kind === "note" &&
+			a.session !== undefined &&
+			cards.has(a.session) &&
+			!ids.has(a.id),
+	);
+	return [...chosen, ...replies];
 }
 
 function grab(event: PointerEvent, annotation: Annotation): void {
@@ -107,7 +129,7 @@ function grab(event: PointerEvent, annotation: Annotation): void {
 	}
 	const wasSelected = selection.peek().has(annotation.id);
 	if (!wasSelected) select([annotation.id]);
-	const origins = resizing ? [annotation] : selected.peek();
+	const origins = resizing ? [annotation] : withReplies(selected.peek());
 	const start = { x: event.clientX, y: event.clientY };
 	let latest: Annotation[] = origins;
 	let dragging = false;
@@ -118,11 +140,15 @@ function grab(event: PointerEvent, annotation: Annotation): void {
 		const sx = next.clientX - start.x;
 		const sy = next.clientY - start.y;
 		if (!dragging && Math.hypot(sx, sy) < dragThreshold) return;
+		if (!dragging) {
+			element.dataset.arranging = resizing ? "resize" : "move";
+			element.closest(".viewport")?.classList.add("arranging");
+		}
 		dragging = true;
 		const { k } = view.peek();
-		latest = origins.map((a) =>
-			resizing ? resized(a, sx / k, sy / k) : moved(a, sx / k, sy / k),
-		);
+		latest = resizing
+			? origins.map((a) => resized(a, sx / k, sy / k))
+			: dragged(origins, annotation, sx / k, sy / k);
 		preview(latest);
 	};
 	const finish = (next: PointerEvent) => {
@@ -130,6 +156,8 @@ function grab(event: PointerEvent, annotation: Annotation): void {
 		element.removeEventListener("pointermove", move);
 		element.removeEventListener("pointerup", finish);
 		element.removeEventListener("pointercancel", finish);
+		delete element.dataset.arranging;
+		element.closest(".viewport")?.classList.remove("arranging");
 		if (dragging) {
 			save(next.type === "pointercancel" ? origins : latest);
 			justDragged = true;
@@ -273,7 +301,7 @@ function NoteBody(props: { note: Note; editing: boolean }): JSX.Element {
 function scrollNoteText(event: WheelEvent): void {
 	if (event.ctrlKey || event.metaKey) return;
 	const body = (event.currentTarget as Element).querySelector(
-		".note-text, .report-scroll, .butler-card-summary",
+		".note-text, .report-scroll, .butler-card-summary, .near-panel",
 	);
 	if (
 		body &&
@@ -311,12 +339,15 @@ function AnnotationView(props: {
 	annotation: Annotation;
 	selected: boolean;
 	editing: boolean;
+	region?: RegionColour;
 }): JSX.Element {
 	const { annotation } = props;
 	const kindClass =
 		annotation.kind === "note"
 			? `note note-${annotation.color}${annotation.report ? " report-note" : ""}`
-			: annotation.kind;
+			: annotation.kind === "butler-card" && props.region
+				? `butler-card region region-${props.region}`
+				: annotation.kind;
 	return (
 		<div
 			class={`annotation ${kindClass}${props.selected ? " selected" : ""}${props.editing ? " editing" : ""}`}
@@ -370,6 +401,11 @@ export function ReportModalHost(): JSX.Element | null {
 export function AnnotationLayer(): JSX.Element {
 	const chosen = selection.value;
 	const open = editing.value;
+	const regions = new Map<string, RegionColour>();
+	for (const project of groups.value) {
+		for (const id of project.cards ?? [])
+			regions.set(id, colourOf(project.cwd));
+	}
 	return (
 		<>
 			{ordered.value.map((annotation) => (
@@ -378,6 +414,7 @@ export function AnnotationLayer(): JSX.Element {
 					annotation={annotation}
 					selected={chosen.has(annotation.id)}
 					editing={open === annotation.id}
+					region={regions.get(annotation.id)}
 				/>
 			))}
 		</>

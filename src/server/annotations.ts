@@ -1,8 +1,10 @@
 import {
 	type Annotation,
 	type Annotations,
+	type ButlerCardEvent,
 	type ButlerCardState,
 	butlerCardStates,
+	maxButlerHistory,
 	maxButlerLink,
 	maxButlerSummary,
 	maxButlerTitle,
@@ -64,6 +66,22 @@ const isWebLink = (value: unknown): value is string => {
 		return false;
 	}
 };
+
+const isCardHistory = (value: unknown): value is ButlerCardEvent[] =>
+	Array.isArray(value) &&
+	value.length <= maxButlerHistory &&
+	value.every((event) => {
+		if (typeof event !== "object" || event === null) return false;
+		const { at, state, status, ...rest } = event as Record<string, unknown>;
+		return (
+			Object.keys(rest).length === 0 &&
+			typeof at === "number" &&
+			Number.isFinite(at) &&
+			butlerCardStates.includes(state as ButlerCardState) &&
+			(status === undefined ||
+				(typeof status === "string" && status.length <= maxButlerTitle))
+		);
+	});
 
 const shotUrl = /^\/api\/report-shots\/[0-9a-f]{64}\.(?:png|jpg|gif|webp)$/;
 
@@ -149,6 +167,7 @@ export const parseAnnotation = (
 			selfFix,
 			watching,
 			updatedAt,
+			history,
 		} = fields;
 		if (
 			typeof title !== "string" ||
@@ -188,6 +207,11 @@ export const parseAnnotation = (
 		if (typeof updatedAt !== "number" || !Number.isFinite(updatedAt)) {
 			return { error: "updatedAt must be a time in milliseconds" };
 		}
+		if (history !== undefined && !isCardHistory(history)) {
+			return {
+				error: `history must be at most ${maxButlerHistory} states with a time, a card state and a status of at most ${maxButlerTitle}`,
+			};
+		}
 		return {
 			...placed,
 			kind: "butler-card",
@@ -199,6 +223,15 @@ export const parseAnnotation = (
 			...(link === undefined ? {} : { link }),
 			...(selfFix === undefined ? {} : { selfFix }),
 			...(watching === undefined ? {} : { watching }),
+			...(history === undefined
+				? {}
+				: {
+						history: history.map(({ at, state, status }) => ({
+							at,
+							state,
+							...(status === undefined ? {} : { status }),
+						})),
+					}),
 		};
 	}
 	if (fields.kind === "sticker") {

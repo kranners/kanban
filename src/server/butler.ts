@@ -9,11 +9,13 @@ import {
 	type BoardContext,
 	type BoardRect,
 	type ButlerCard,
+	type ButlerCardEvent,
 	type ButlerCardState,
 	type ButlerPresence,
 	type ButlerSpot,
 	butlerCardStates,
 	type FocusReport,
+	maxButlerHistory,
 	maxButlerQueue,
 	maxButlerSummary,
 	maxButlerTitle,
@@ -294,6 +296,36 @@ const dismissedStatus = (status: string): string =>
 		? status
 		: `dismissed on the board; ${status}`.slice(0, maxButlerTitle);
 
+const eventOf = (
+	card: Pick<ButlerCard, "state" | "status">,
+	at: number,
+): ButlerCardEvent => ({
+	at,
+	state: card.state,
+	...(card.status === undefined ? {} : { status: card.status }),
+});
+
+/**
+ * The card's timeline once it is saved: what it had before (a card spike
+ * rebuilds each sync carries none of its own), and a new entry whenever its
+ * state or status line changed. A card from before timelines starts from
+ * its last update.
+ */
+export const withHistory = (
+	before: ButlerCard | undefined,
+	next: ButlerCard,
+	at: number,
+): ButlerCard => {
+	const kept =
+		before?.history ?? (before ? [eventOf(before, before.updatedAt)] : []);
+	const last = kept.at(-1);
+	const history =
+		last && last.state === next.state && last.status === next.status
+			? kept
+			: [...kept, eventOf(next, at)].slice(-maxButlerHistory);
+	return { ...next, history };
+};
+
 const sameCard = (a: ButlerCard, b: ButlerCard): boolean =>
 	a.title === b.title &&
 	a.state === b.state &&
@@ -380,7 +412,16 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		changed();
 	};
 
-	const put = (next: Annotation): ToolOutcome | null => {
+	const put = (given: Annotation): ToolOutcome | null => {
+		const before = deps.annotations.current()[given.id];
+		const next =
+			given.kind === "butler-card"
+				? withHistory(
+						before?.kind === "butler-card" ? before : undefined,
+						given,
+						now(),
+					)
+				: given;
 		const parsed = parseAnnotation(next.id, next);
 		if ("error" in parsed) return refused(parsed.error);
 		const stored = deps.annotations.put(parsed);
