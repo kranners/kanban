@@ -319,8 +319,6 @@ export type ButlerPresence = {
 	looking: ButlerSpot | null;
 	/** What he last acted on; his cursor sits there for two minutes. */
 	working: ButlerSpot | null;
-	/** What Aaron is working on, which Butler's face follows when he looks at nothing else. */
-	following: string | null;
 	watching: string[];
 	/** Whether spike has collected the board's messages lately; absent until it first does. */
 	relay?: "up" | "down";
@@ -330,7 +328,6 @@ export type ButlerPresence = {
 export const noButler: ButlerPresence = {
 	looking: null,
 	working: null,
-	following: null,
 	watching: [],
 };
 

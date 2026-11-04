@@ -96,13 +96,12 @@ function chipScale(): number {
 }
 
 /**
- * Butler's presence on the board: his face on what he is looking at, which
- * is what Aaron is working on unless he looks elsewhere, his cursor on what
- * he is working on, and the monocle on every session he watches.
+ * Butler's presence on the board: his face on what he is looking at, his
+ * cursor on what he is working on, and the monocle on every session he watches.
  */
 export function ButlerLayer(): JSX.Element {
 	const state = butlerPresence.value;
-	const { face, cursor, following } = presenceOf(
+	const { face, cursor } = presenceOf(
 		state,
 		current.value,
 		threads.value.values(),
@@ -131,19 +130,12 @@ export function ButlerLayer(): JSX.Element {
 			})}
 			{face && faceAt && (
 				<div
-					class={`butler-presence-avatar${following ? " following" : ""}`}
+					class="butler-presence-avatar"
 					style={{
 						transform: `translate(${faceAt.x}px, ${faceAt.y}px) scale(${scale}) translate(-50%, -50%)`,
 					}}
 				>
-					<ButlerAvatar
-						size={28}
-						label={
-							following
-								? "Butler is following what you're working on"
-								: `${face.label} is looking here`
-						}
-					/>
+					<ButlerAvatar size={28} label={`${face.label} is looking here`} />
 				</div>
 			)}
 			{cursor && cursorAt && (

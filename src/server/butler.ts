@@ -56,9 +56,9 @@ import { createStateFile, readState } from "./stateFile.ts";
 //
 // He sees what Aaron is working on: the board's page reports the session
 // Aaron has open and the part of the board on screen, and every board_inbox
-// poll, board_focus and board_snapshot hands it to him. His face follows
-// it unless he looks at something else; his cursor sits on what he is
-// working on.
+// poll, board_focus and board_snapshot hands it to him. On the board his
+// face shows what he is looking at and his cursor what he is working on;
+// neither follows Aaron.
 
 export const butlerIdentity = "butler";
 export const maxWatching = 100;
@@ -333,7 +333,6 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		return {
 			looking,
 			working,
-			following: aaron?.target ?? null,
 			watching,
 			...(relay ? { relay } : {}),
 		};
@@ -645,7 +644,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				changed();
 				return done(
 					kind === "look"
-						? "Butler looks where Aaron is working again"
+						? "Butler stopped looking at the board"
 						: "Butler stopped working on the board",
 				);
 			}
@@ -894,9 +893,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 	const focus = (report: FocusReport) => {
 		const at = now();
 		if (report.away) {
-			if (aaron?.client !== report.client) return;
-			aaron = null;
-			changed();
+			if (aaron?.client === report.client) aaron = null;
 			return;
 		}
 		const target = focusTarget(report);
@@ -909,14 +906,10 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			at,
 			since: moved || !aaron ? at : aaron.since,
 		};
-		if (moved) changed();
 	};
 
 	const check = () => {
-		if (aaron && now() - aaron.at > aaronFocusStaleMs) {
-			aaron = null;
-			changed();
-		}
+		if (aaron && now() - aaron.at > aaronFocusStaleMs) aaron = null;
 	};
 
 	const overlaps = (a: Rect, b: BoardRect) =>

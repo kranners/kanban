@@ -64,25 +64,15 @@ test("on a change card his cursor says so", () => {
 	});
 });
 
-test("his face follows what Aaron is working on while his cursor works elsewhere", () => {
-	const state = presence({
-		working: { target: "s1", label: "Butler", at: 0 },
-		following: "s2",
-	});
-	const where = presenceOf(state, {}, [], 10);
-	assert.equal(where.cursor?.target, "s1");
-	assert.equal(where.face?.target, "s2");
-	assert.equal(where.following, true);
-});
-
-test("his face goes where he looks for two minutes, then back to Aaron", () => {
+test("his face goes where he looks for two minutes, then back beside his cursor", () => {
 	const state = presence({
 		looking: { target: "s3", label: "Butler", at: 0 },
-		following: "s2",
+		working: { target: "s1", label: "Butler", at: 0 },
 	});
-	assert.equal(presenceOf(state, {}, [], 10).face?.target, "s3");
-	assert.equal(presenceOf(state, {}, [], 10).following, false);
-	assert.equal(presenceOf(state, {}, [], 121_000).face?.target, "s2");
+	const looking = presenceOf(state, {}, [], 10);
+	assert.equal(looking.face?.target, "s3");
+	assert.equal(looking.cursor?.target, "s1");
+	assert.equal(presenceOf(state, {}, [], 121_000).face, null);
 });
 
 test("while he answers a message his cursor sits on what it was about", () => {
@@ -118,11 +108,9 @@ test("without anything else he sits on his newest running change", () => {
 	assert.deepEqual(presenceOf(noButler, annotations, [], 10), {
 		face: { target: "fresh", label: "Butler (change)" },
 		cursor: { target: "fresh", label: "Butler (change)" },
-		following: false,
 	});
 	assert.deepEqual(presenceOf(noButler, {}, [], 10), {
 		face: null,
 		cursor: null,
-		following: false,
 	});
 });

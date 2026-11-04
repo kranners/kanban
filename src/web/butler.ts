@@ -17,12 +17,8 @@ export const isButlerCard = (a: Annotation | undefined): a is ButlerCard =>
 
 export type Spot = { target: string; label: string };
 
-/** Where Butler's face and cursor sit, and whether his face is following Aaron. */
-export type Whereabouts = {
-	face: Spot | null;
-	cursor: Spot | null;
-	following: boolean;
-};
+/** Where Butler's face and cursor sit. */
+export type Whereabouts = { face: Spot | null; cursor: Spot | null };
 
 const changeLabel = "Butler (change)";
 
@@ -86,8 +82,8 @@ function cursorOf(
 
 /**
  * Where Butler is: his cursor on what he is working on, and his face on
- * what he last looked at for two minutes, otherwise on what Aaron is
- * working on, otherwise beside his cursor.
+ * what he last looked at for two minutes, otherwise beside his cursor on
+ * what he is working on.
  */
 export function presenceOf(
 	presence: ButlerPresence,
@@ -96,19 +92,8 @@ export function presenceOf(
 	now: number,
 ): Whereabouts {
 	const cursor = cursorOf(presence, annotations, threads, now);
-	if (fresh(presence.looking, now)) {
-		return {
-			face: labelled(presence.looking, annotations),
-			cursor,
-			following: false,
-		};
-	}
-	if (presence.following) {
-		return {
-			face: { target: presence.following, label: "Butler" },
-			cursor,
-			following: true,
-		};
-	}
-	return { face: cursor, cursor, following: false };
+	const face = fresh(presence.looking, now)
+		? labelled(presence.looking, annotations)
+		: cursor;
+	return { face, cursor };
 }

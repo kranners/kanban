@@ -472,9 +472,13 @@ describe("Butler sees what Aaron is working on", () => {
 	const viewport = { x: 0, y: 0, w: 4000, h: 3000 };
 
 	it("follows the session Aaron has open and tells spike on every poll", async () => {
-		const { butler, presences } = await setup();
+		const { butler } = await setup();
 		butler.focus({ client: "a", session: "aaaaaaaa-1", viewport });
-		assert.equal(presences.at(-1)?.following, "aaaaaaaa-1");
+		assert.equal(
+			butler.current().looking,
+			null,
+			"his face never follows Aaron",
+		);
 		const polled = await butler.tool("board_inbox", {});
 		const { aaron } = JSON.parse(polled.ok ? polled.text : "{}");
 		assert.equal(aaron.card.id, "aaaaaaaa-1");
@@ -492,18 +496,16 @@ describe("Butler sees what Aaron is working on", () => {
 	});
 
 	it("follows the card in the middle of Aaron's screen when nothing is open", async () => {
-		const { butler, presences } = await setup();
+		const { butler } = await setup();
 		await butler.tool("put_card", { title: "Groceries", x: 5000, y: 5000 });
 		butler.focus({
 			client: "a",
 			viewport: { x: 4800, y: 4800, w: 712, h: 616 },
 		});
-		assert.equal(presences.at(-1)?.following, "butler-id1");
 		const focus = butler.aaron();
 		assert.equal(focus?.open, false);
 		assert.equal(focus?.card?.name, "Groceries");
 		butler.focus({ client: "a", viewport: { x: 0, y: 9000, w: 10, h: 10 } });
-		assert.equal(butler.current().following, null);
 		assert.equal(butler.aaron()?.card, undefined);
 	});
 
@@ -511,14 +513,13 @@ describe("Butler sees what Aaron is working on", () => {
 		const { butler, tick } = await setup();
 		butler.focus({ client: "a", session: "aaaaaaaa-1" });
 		butler.focus({ client: "b", away: true });
-		assert.equal(butler.current().following, "aaaaaaaa-1");
+		assert.equal(butler.aaron()?.card?.id, "aaaaaaaa-1");
 		butler.focus({ client: "a", away: true });
-		assert.equal(butler.current().following, null);
 		assert.equal(butler.aaron(), null);
 		butler.focus({ client: "a", session: "aaaaaaaa-1" });
 		tick(aaronFocusStaleMs + 1);
 		butler.check();
-		assert.equal(butler.current().following, null);
+		assert.equal(butler.aaron(), null);
 		const snapshot = await butler.tool("board_snapshot", {});
 		assert.match(snapshot.ok ? snapshot.text : "", /Aaron is not at the board/);
 	});
