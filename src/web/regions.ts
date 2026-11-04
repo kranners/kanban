@@ -13,6 +13,8 @@ import {
 	centreOf,
 	clearSpot,
 	framedArea,
+	groupHeadroom,
+	groupPadding,
 	housedBy,
 	inside,
 	near,
@@ -353,7 +355,7 @@ export function spotInRegion(
 			lastStart(region.x, region.w, sessionSize.w),
 		),
 		y: Math.min(
-			Math.max(point.y, region.y),
+			Math.max(point.y, ceilToGrid(region.y + groupHeadroom)),
 			lastStart(region.y, region.h, sessionSize.h),
 		),
 	});
@@ -381,13 +383,14 @@ export function spotBelowRegion(
 }
 
 export function regionHolding(region: Rect, card: Rect): Rect {
+	const top = floorToGrid(card.y - groupHeadroom);
 	return areaOf([
 		region,
 		{
-			x: card.x - gridSize,
-			y: card.y - gridSize,
-			w: card.w + 2 * gridSize,
-			h: card.h + 2 * gridSize,
+			x: card.x - groupPadding,
+			y: top,
+			w: card.w + 2 * groupPadding,
+			h: card.y + card.h + groupPadding - top,
 		},
 	]);
 }

@@ -5,7 +5,13 @@ import { gridSize } from "./grid.ts";
 import { groupAt, groupsOf } from "./groups.ts";
 import type { PlacedNode } from "./layout.ts";
 import type { Rect } from "./placement.ts";
-import { belongsTo, near, sessionSize } from "./placement.ts";
+import {
+	belongsTo,
+	groupLabelSpace,
+	groupPadding,
+	near,
+	sessionSize,
+} from "./placement.ts";
 import {
 	arrangedRegion,
 	centredIn,
@@ -407,4 +413,27 @@ test("a project holds the Butler cards dropped in it, growing to fit them", () =
 	);
 	const [untouched] = withCards([outer], []);
 	assert.equal(untouched, outer);
+});
+
+test("cards keep one grid cell below a region's label bar, as at its bottom", () => {
+	const r = { ...region("r", 0, 0), w: 960, h: 960 };
+	const below = (frame: Rect, card: Rect) =>
+		card.y - (frame.y + groupLabelSpace);
+
+	const spot = spotInRegion({ x: 0, y: 0 }, r, []);
+	assert.ok(spot);
+	const placed = { ...spot, ...sessionSize };
+	assert.ok(below(r, placed) >= groupPadding, `top gap ${below(r, placed)}`);
+
+	const pinned = node("s", 0, 0);
+	const [group] = regionGroups([r], [], [session("s")], nodes(pinned));
+	assert.ok(group);
+	assert.equal(below(group.frame, pinned), groupPadding);
+	const bottom = group.frame.y + group.frame.h - (pinned.y + pinned.h);
+	assert.ok(bottom >= groupPadding);
+
+	const above = { x: 0, y: -480, ...sessionSize };
+	const grown = regionHolding(r, above);
+	assert.ok(below(grown, above) >= groupPadding, `held ${below(grown, above)}`);
+	assert.ok(Number.isInteger(grown.y / gridSize));
 });

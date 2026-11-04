@@ -23,6 +23,8 @@ export const maxSessionSize = { w: 40 * gridSize, h: 30 * gridSize };
 export const groupReach = 4 * gridSize;
 export const groupPadding = gridSize;
 export const groupLabelSpace = gridSize + 8;
+/** Room above a frame's cards: its label bar, then one grid cell, as below. */
+export const groupHeadroom = groupLabelSpace + groupPadding;
 
 const clearance = gridSize;
 const searchRings = 64;
@@ -110,9 +112,9 @@ export function areaOf(rects: Iterable<Rect>): Rect {
 export function framedArea(area: Rect): Rect {
 	return {
 		x: area.x - groupPadding,
-		y: area.y - groupLabelSpace,
+		y: area.y - groupHeadroom,
 		w: area.w + groupPadding * 2,
-		h: area.h + groupPadding + groupLabelSpace,
+		h: area.h + groupPadding + groupHeadroom,
 	};
 }
 
@@ -209,9 +211,9 @@ export function clearMove(
 export function unframed(frame: Rect): Rect {
 	return {
 		x: frame.x + groupPadding,
-		y: frame.y + groupLabelSpace,
+		y: frame.y + groupHeadroom,
 		w: frame.w - groupPadding * 2,
-		h: frame.h - groupPadding - groupLabelSpace,
+		h: frame.h - groupPadding - groupHeadroom,
 	};
 }
 
@@ -457,7 +459,7 @@ export function arrange(
 
 	const below = (start: Point): Point => {
 		const taken = boundsOf(occupied);
-		const gap = groupPadding + groupLabelSpace + clearance;
+		const gap = groupPadding + groupHeadroom + clearance;
 		return { x: start.x, y: snap(taken.y + taken.height + gap) };
 	};
 
