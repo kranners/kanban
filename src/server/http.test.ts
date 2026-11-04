@@ -56,6 +56,7 @@ import { createRegionStore } from "./regions.ts";
 import { createRelationStore } from "./relations.ts";
 import { createRegionReportRunner, createReportRunner } from "./reports.ts";
 import { createRunnerHub } from "./runners.ts";
+import { boardParts, createUndo, yourGapMs } from "./undo.ts";
 
 const route = (method: string, path: string) =>
 	matchRoute(method, new URL(path, "http://x"));
@@ -466,6 +467,17 @@ describe("createKanbanServer", () => {
 			onRemove: (threads) => feed?.comments(threads),
 			newId: () => `thread-${++threadCount}`,
 		});
+		let tick = 0;
+		const undo = createUndo({
+			parts: boardParts({
+				layout: store,
+				annotations,
+				regions,
+				colours,
+				relations,
+			}),
+			now: () => (tick += yourGapMs * 2),
+		});
 		feed = createFeed({
 			comments: comments.current,
 			layout: store.current,
@@ -554,17 +566,22 @@ describe("createKanbanServer", () => {
 				now: () => new Date(2026, 9, 27, 14, 5),
 				newId: () => "region-report-1",
 			}),
-			layout: {
-				...store,
-				expect: (cwd, at) => {
-					const settle = store.expect(cwd, at);
-					return (landing) => {
-						if (landing) expected.push([landingId(landing), at]);
-						settle(landing);
-					};
+			layout: undo.track(
+				"layout",
+				{
+					...store,
+					expect: (cwd, at) => {
+						const settle = store.expect(cwd, at);
+						return (landing) => {
+							if (landing) expected.push([landingId(landing), at]);
+							settle(landing);
+						};
+					},
 				},
-			},
-			annotations,
+				["set", "setMany"],
+			),
+			undo,
+			annotations: undo.track("annotations", annotations, ["put", "remove"]),
 			colours,
 			lastRuns,
 			ignores,
@@ -1599,6 +1616,37 @@ describe("createKanbanServer", () => {
 		assert.deepEqual(JSON.parse(await readFile(layoutFile, "utf8")), {
 			[key]: placement,
 		});
+	});
+
+	it("undoes and redoes your moves, but not the page's own first placement", async () => {
+		const key = `session:${board.sessions[1]?.id}`;
+		const first = { x: 7000, y: 7000 };
+		const moved = { x: 7200, y: 7000, pinned: true };
+		const saved = async () => {
+			await layoutSaved();
+			return JSON.parse(await readFile(layoutFile, "utf8"))[key];
+		};
+		assert.equal(
+			(await send("PUT", "/api/layout", { key, placement: first })).status,
+			204,
+		);
+		assert.equal(
+			(await send("PUT", "/api/layout", { key, placement: moved })).status,
+			204,
+		);
+		const undone = await send("POST", "/api/undo", undefined);
+		assert.equal(undone.status, 200);
+		const reply = (await undone.json()) as Record<string, unknown>;
+		assert.equal(reply.ok, true);
+		assert.equal(reply.label, "Move a card");
+		assert.equal(reply.redo, "Move a card");
+		// The first, unpinned placement was the page's, so no move is left to undo.
+		assert.notEqual(reply.undo, "Move a card");
+		assert.deepEqual(await saved(), first);
+		const redone = await send("POST", "/api/redo", undefined);
+		assert.equal(((await redone.json()) as { ok: boolean }).ok, true);
+		assert.deepEqual(await saved(), moved);
+		assert.equal((await send("GET", "/api/undo", undefined)).status, 405);
 	});
 
 	it("stores and deletes annotations and broadcasts them", async () => {

@@ -13,6 +13,8 @@ export type RelationStore = {
 	current(): Relation[];
 	create(draft: RelationDraft): Relation | { error: string };
 	remove(id: string): boolean;
+	/** Puts a link back as it was, under its own id. */
+	restore(relation: Relation): void;
 	removeEnd(end: RelationEnd): void;
 	observe(board: Board): void;
 	saved(): Promise<void>;
@@ -145,6 +147,12 @@ export const createRelationStore = ({
 			if (!relations.some((relation) => relation.id === id)) return false;
 			commit(relations.filter((relation) => relation.id !== id));
 			return true;
+		},
+		restore(relation) {
+			const kept = relations.filter(
+				(other) => other.id !== relation.id && !samePair(other, relation),
+			);
+			commit([...kept, relation]);
 		},
 		removeEnd(end) {
 			const kept = relations.filter((relation) => !touches(relation, end));

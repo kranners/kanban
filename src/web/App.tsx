@@ -81,6 +81,7 @@ import {
 } from "./subagentCounts.ts";
 import { sessionsOnly, summariesOf } from "./summaries.ts";
 import { TopBar } from "./TopBar.tsx";
+import { UndoToast, useUndoShortcut } from "./Undo.tsx";
 
 function visibility(): (key: NodeKey) => boolean {
 	const sessions = sessionsById.value;
@@ -341,6 +342,7 @@ function created(landing: Landing): void {
 export function App() {
 	useBoardGestures();
 	useAnnotationGestures();
+	useUndoShortcut();
 	useNeedsYouShortcut();
 	useCommentGestures();
 	const session = focusedSession.value;
@@ -389,6 +391,7 @@ export function App() {
 				<DocOverlays />
 			</div>
 			<AlertToasts />
+			<UndoToast />
 		</>
 	);
 }

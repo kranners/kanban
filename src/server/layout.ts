@@ -13,6 +13,8 @@ export type LayoutStore = {
 	current(): Layout;
 	set(update: LayoutUpdate): void;
 	setMany(updates: LayoutUpdate[]): void;
+	/** Puts a card back where it was, or forgets its spot when null. */
+	restore(key: string, placement: Placement | null): void;
 	expect(cwd: string, at: Point): (landing: Landing | null) => void;
 	observe(board: Board): void;
 	saved(): Promise<void>;
@@ -128,6 +130,13 @@ export const createLayoutStore = ({
 		current: () => layout,
 		set: (update) => setMany([update]),
 		setMany,
+		restore(key, placement) {
+			if (placement) return setMany([{ key, placement }]);
+			if (!layout[key]) return;
+			const next = { ...layout };
+			delete next[key];
+			commit(next);
+		},
 		expect(cwd, at) {
 			const spawn: Spawn = { cwd, at, since: now() };
 			pending.add(spawn);

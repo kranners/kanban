@@ -195,6 +195,12 @@ const probes: Record<string, Probe> = {
 	"/api/announce": async (backend) => {
 		await answers(backend, "POST", "/api/announce", { text: "Pull main" });
 	},
+	"/api/undo": async (backend) => {
+		await answers(backend, "POST", "/api/undo");
+	},
+	"/api/redo": async (backend) => {
+		await answers(backend, "POST", "/api/redo");
+	},
 	"/api/layout": async (backend) => {
 		await answers(backend, "PUT", "/api/layout", {
 			key: `session:${sessionId}`,

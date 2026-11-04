@@ -1017,6 +1017,17 @@ export function createBackend(scenario: Scenario): Backend {
 		],
 		[
 			"POST",
+			/^\/api\/(undo|redo)$/,
+			() =>
+				json(200, {
+					ok: false,
+					error: "The demo keeps no undo history",
+					undo: null,
+					redo: null,
+				}),
+		],
+		[
+			"POST",
 			/^\/api\/announce$/,
 			() =>
 				json(200, {

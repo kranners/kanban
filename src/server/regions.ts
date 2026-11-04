@@ -11,6 +11,8 @@ export type RegionStore = {
 	create(draft: RegionDraft): Region | null;
 	update(id: string, patch: RegionPatch): Region | null;
 	remove(id: string): boolean;
+	/** Puts a region back as it was, under its own id. */
+	restore(region: Region): void;
 	saved(): Promise<void>;
 };
 
@@ -182,6 +184,10 @@ export const createRegionStore = ({
 			if (!regions.some((region) => region.id === id)) return false;
 			commit(regions.filter((region) => region.id !== id));
 			return true;
+		},
+		restore(region) {
+			const kept = regions.filter((other) => other.id !== region.id);
+			commit([...kept, region]);
 		},
 		saved: stored.saved,
 	};

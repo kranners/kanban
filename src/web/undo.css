@@ -1,0 +1,36 @@
+.undo-toast {
+	position: fixed;
+	bottom: calc(24px + env(safe-area-inset-bottom));
+	left: 50%;
+	z-index: 60;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	max-width: min(480px, calc(100vw - 32px));
+	padding: 8px 14px;
+	border: 1px solid var(--hairline-strong);
+	border-radius: 999px;
+	background: var(--surface);
+	box-shadow: var(--shadow-pop);
+	color: var(--ink);
+	font-size: 13px;
+	translate: -50% 0;
+	pointer-events: none;
+	animation: undo-arrive calc(200ms * var(--motion)) ease-out;
+}
+
+.undo-toast > svg {
+	flex: none;
+	color: var(--muted);
+}
+
+.undo-toast.failed > svg {
+	color: var(--amber);
+}
+
+@keyframes undo-arrive {
+	from {
+		opacity: 0;
+		translate: -50% 8px;
+	}
+}

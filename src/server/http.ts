@@ -94,6 +94,7 @@ import {
 	type SessionLauncher,
 	validateNewSession,
 } from "./sessions.ts";
+import type { Undo } from "./undo.ts";
 
 export type BoardSource = {
 	board(): Board;
@@ -151,6 +152,8 @@ export type ServerDeps = {
 	feed: Feed;
 	audit: Audit;
 	reportShots?: string;
+	/** The board's undo history; edits made here are recorded as yours. */
+	undo?: Undo;
 };
 
 export type Route =
@@ -170,6 +173,7 @@ export type Route =
 	| { kind: "grant-permissions" }
 	| { kind: "announce" }
 	| { kind: "update-layout" }
+	| { kind: "undo"; direction: "undo" | "redo" }
 	| { kind: "put-annotation"; id: string }
 	| { kind: "delete-annotation"; id: string }
 	| { kind: "update-colour" }
@@ -350,6 +354,11 @@ export const matchRoute = (method: string, url: URL): Route => {
 	if (path === "/api/announce") {
 		return method === "POST"
 			? { kind: "announce" }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/undo" || path === "/api/redo") {
+		return method === "POST"
+			? { kind: "undo", direction: path === "/api/undo" ? "undo" : "redo" }
 			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api/layout") {
@@ -938,6 +947,22 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		sendJson(res, result.ok ? 200 : 400, result);
 	};
 
+	const yours = <T>(run: () => T): T =>
+		deps.undo ? deps.undo.as("you", run) : run();
+	const asNobody = <T>(run: () => T): T =>
+		deps.undo ? deps.undo.as(null, run) : run();
+
+	const undoStep = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+		direction: "undo" | "redo",
+	) => {
+		if (!originOk(req)) return sendError(res, 403);
+		if (!deps.undo) return sendError(res, 404);
+		const outcome = await deps.undo[direction]();
+		sendJson(res, 200, { ...outcome, ...deps.undo.peek() });
+	};
+
 	const updateLayout = async (req: IncomingMessage, res: ServerResponse) => {
 		const read = await readBody(req, res);
 		if (!read) return;
@@ -948,7 +973,12 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if (!boardKeys(deps.source.board()).has(update.key)) {
 			return sendError(res, 404);
 		}
-		deps.layout.set(update);
+		// The page saves the spot it first picked for a new card, unpinned; that
+		// isn't something you did, so it stays out of the undo history.
+		const first =
+			!update.placement.pinned && !deps.layout.current()[update.key];
+		if (first) asNobody(() => deps.layout.set(update));
+		else deps.layout.set(update);
 		res.writeHead(204, { "cache-control": "no-store" });
 		res.end();
 	};
@@ -1480,8 +1510,12 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			case "pick-folder":
 				if (!originOk(req)) return sendError(res, 403);
 				return sendJson(res, 200, await deps.pickFolder());
+			case "undo":
+				return undoStep(req, res, route.direction);
 			case "exit-session":
-				return exitSession(req, res, route.sessionId, auth.identity);
+				return yours(() =>
+					exitSession(req, res, route.sessionId, auth.identity),
+				);
 			case "report-session":
 				return reportSession(req, res, route.sessionId, auth.identity);
 			case "survey-permissions":
@@ -1491,29 +1525,29 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			case "announce":
 				return announce(req, res, auth.identity);
 			case "update-layout":
-				return updateLayout(req, res);
+				return yours(() => updateLayout(req, res));
 			case "put-annotation":
-				return putAnnotation(req, res, route.id);
+				return yours(() => putAnnotation(req, res, route.id));
 			case "delete-annotation":
-				return deleteAnnotation(req, res, route.id);
+				return yours(() => deleteAnnotation(req, res, route.id));
 			case "self-fix-action":
 				return selfFixAction(req, res, route.id, route.action);
 			case "update-colour":
-				return updateColour(req, res);
+				return yours(() => updateColour(req, res));
 			case "update-ignore":
 				return updateIgnore(req, res);
 			case "create-region":
-				return createRegion(req, res);
+				return yours(() => createRegion(req, res));
 			case "update-region":
-				return updateRegion(req, res, route.regionId);
+				return yours(() => updateRegion(req, res, route.regionId));
 			case "delete-region":
-				return deleteRegion(req, res, route.regionId);
+				return yours(() => deleteRegion(req, res, route.regionId));
 			case "report-region":
 				return reportRegion(req, res, route.regionId, auth.identity);
 			case "create-relation":
-				return createRelation(req, res);
+				return yours(() => createRelation(req, res));
 			case "delete-relation":
-				return deleteRelation(req, res, route.relationId);
+				return yours(() => deleteRelation(req, res, route.relationId));
 			case "doc-file":
 				return deps.docs.file(req, res, route.store, route.path);
 			case "create-doc-store":

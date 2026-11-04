@@ -1,4 +1,4 @@
-const apple = /Mac|iPhone|iPad/.test(navigator.userAgent);
+export const apple = /Mac|iPhone|iPad/.test(navigator.userAgent);
 
 export const commandKey = apple ? "⌘" : "Ctrl+";
 

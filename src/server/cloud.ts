@@ -219,6 +219,7 @@ export type CloudApi = {
 		response: Record<string, unknown>,
 	): Promise<CmuxResult<null>>;
 	archive(id: string): Promise<CmuxResult<null>>;
+	unarchive(id: string): Promise<CmuxResult<null>>;
 	profile(): Promise<CmuxResult<unknown>>;
 };
 
@@ -389,6 +390,14 @@ export const createCloudApi = ({
 			);
 			return archived.ok ? { ok: true, value: null } : archived;
 		},
+		async unarchive(id) {
+			const restored = await call(
+				"POST",
+				`${sessionPath(id)}/unarchive?beta=true`,
+				{},
+			);
+			return restored.ok ? { ok: true, value: null } : restored;
+		},
 		profile: () => call("GET", "/api/oauth/profile"),
 	};
 };
@@ -436,6 +445,10 @@ export type CloudSessions = {
 		answers: Record<string, string>,
 	): Promise<CmuxResult<null>>;
 	archive(id: string): Promise<CmuxResult<null>>;
+	/** What the board knows of a cloud session it shows, to bring it back later. */
+	record(id: string): CloudRecord | null;
+	/** Unarchives a session on claude.ai and shows it on the board again. */
+	restore(record: CloudRecord): Promise<CmuxResult<null>>;
 	stop(): void;
 };
 
@@ -800,15 +813,17 @@ export const createCloudSessions = async ({
 	const timer = setInterval(pollAll, pollMs);
 	void pollAll();
 
+	const add = (record: CloudRecord) => {
+		track(record);
+		persist();
+		void writeFile(mirrorOf(record.id), openingPrompt(record), { flag: "a" })
+			.then(pollAll)
+			.catch((error: unknown) => report(record.id, String(error)));
+		onChange();
+	};
+
 	return {
-		add(record) {
-			track(record);
-			persist();
-			void writeFile(mirrorOf(record.id), openingPrompt(record), { flag: "a" })
-				.then(pollAll)
-				.catch((error: unknown) => report(record.id, String(error)));
-			onChange();
-		},
+		add,
 		remove,
 		sessions: () => [...tracked.values()].map(({ session }) => session),
 		transcriptPath: (id) => tracked.get(id)?.session.transcript ?? null,
@@ -857,6 +872,14 @@ export const createCloudSessions = async ({
 			const archived = await apiFor(item.record.configDir).archive(id);
 			if (!archived.ok && !isGone(archived)) return archived;
 			remove(id);
+			return { ok: true, value: null };
+		},
+		record: (id) => tracked.get(id)?.record ?? null,
+		async restore(record) {
+			if (tracked.has(record.id)) return { ok: true, value: null };
+			const restored = await apiFor(record.configDir).unarchive(record.id);
+			if (!restored.ok) return restored;
+			if (!tracked.has(record.id)) add(record);
 			return { ok: true, value: null };
 		},
 		stop: () => clearInterval(timer),

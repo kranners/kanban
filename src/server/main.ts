@@ -111,6 +111,7 @@ import {
 } from "./sessions.ts";
 import { retireFile } from "./stateFile.ts";
 import { attachTty, cmuxTty, sharedAttachTty } from "./terminals.ts";
+import { boardParts, createUndo } from "./undo.ts";
 import {
 	claudeCodeToken,
 	createUsageMonitor,
@@ -414,11 +415,37 @@ feed = createFeed({
 });
 const digestTick = setInterval(digests.pump, digestTickMs);
 
+// cmd+z on the board: your edits and Butler's, and cloud sessions exited,
+// which come back by unarchiving them on claude.ai.
+const undo = createUndo({
+	parts: boardParts({
+		layout,
+		annotations,
+		regions,
+		colours,
+		relations,
+		cloud,
+	}),
+});
+const undoable = {
+	layout: undo.track("layout", layout, ["set", "setMany"]),
+	annotations: undo.track("annotations", annotations, ["put", "remove"]),
+	regions: undo.track("regions", regions, ["create", "update", "remove"]),
+	colours: undo.track("colours", colours, ["set"]),
+	relations: undo.track("relations", relations, ["create", "remove"]),
+};
+const archiveCloud = async (id: string) => {
+	const record = cloud.record(id);
+	const archived = await cloud.archive(id);
+	if (archived.ok && record) undo.note("cloud", id, record, null);
+	return archived;
+};
+
 const exitDeps = claudeExitDeps({
 	claudeBin: config.claudeBin,
 	claudeHome: config.claudeHome,
 	probes,
-	archive: cloud.archive,
+	archive: archiveCloud,
 });
 const runExit = createExitRunner({
 	exit: (session, force) =>
@@ -537,12 +564,9 @@ const announce = createAnnouncer({
 	prompt: conversation.prompt,
 	audit,
 });
-const tools = createBoardTools({
+const boardTools = createBoardTools({
 	source,
-	layout,
-	annotations,
-	colours,
-	regions,
+	...undoable,
 	comments,
 	launch,
 	exit: runExit,
@@ -567,6 +591,9 @@ const tools = createBoardTools({
 		),
 	audit,
 });
+// Butler's changes for one thread are recorded as one undo step per request.
+const tools: typeof boardTools = (threadId, call) =>
+	undo.as(`butler:${threadId}`, () => boardTools(threadId, call));
 const butlerFile = join(config.stateDir, "butler.json");
 butler = createButler({
 	source,
@@ -599,13 +626,10 @@ const server = createKanbanServer({
 	report: runReport,
 	regionReport: runRegionReport,
 	reportShots: shotsDir,
-	layout,
-	annotations,
-	colours,
+	...undoable,
 	lastRuns,
 	ignores,
-	regions,
-	relations,
+	undo,
 	docs: createDocsHttp({ files: docs, stores: docStores }),
 	comments,
 	tools,

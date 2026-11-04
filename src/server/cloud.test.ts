@@ -422,6 +422,7 @@ type FakeCloud = {
 	log: Map<string, CloudEvent[]>;
 	cursors: (string | null)[];
 	archived: string[];
+	unarchived: string[];
 	down: Set<string>;
 	responses: [string, string, Record<string, unknown>][];
 };
@@ -446,6 +447,7 @@ const fakeCloud = (): FakeCloud => {
 		log: new Map(),
 		cursors: [],
 		archived: [],
+		unarchived: [],
 		down: new Set(),
 		responses: [],
 		api: {
@@ -479,6 +481,13 @@ const fakeCloud = (): FakeCloud => {
 					return { ok: false, error: "Cloud API POST failed with HTTP 404" };
 				}
 				fake.archived.push(sessionId);
+				return { ok: true, value: null };
+			},
+			unarchive: async (sessionId) => {
+				if (!fake.info.has(sessionId)) {
+					return { ok: false, error: "Cloud API POST failed with HTTP 404" };
+				}
+				fake.unarchived.push(sessionId);
 				return { ok: true, value: null };
 			},
 		},
@@ -631,6 +640,35 @@ describe("createCloudSessions", () => {
 		store.add(record);
 		assert.deepEqual(await store.archive(id), { ok: true, value: null });
 		assert.deepEqual(fake.archived, [id]);
+		assert.deepEqual(store.sessions(), []);
+		store.stop();
+	});
+
+	it("unarchives a session it archived and shows it again", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		fake.info.set(id, info("idle", "2026-10-30T12:00:00Z"));
+		const { store } = await storeIn(dir, fake);
+		store.add(record);
+		const kept = store.record(id);
+		assert.deepEqual(kept, record);
+		await store.archive(id);
+		assert.equal(store.record(id), null);
+		assert.deepEqual(await store.restore(record), { ok: true, value: null });
+		assert.deepEqual(fake.unarchived, [id]);
+		assert.deepEqual(
+			store.sessions().map((session) => session.id),
+			[id],
+		);
+		store.stop();
+	});
+
+	it("keeps a session off the board when claude.ai won't unarchive it", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		const { store } = await storeIn(dir, fake);
+		const restored = await store.restore(record);
+		assert.equal(restored.ok, false);
 		assert.deepEqual(store.sessions(), []);
 		store.stop();
 	});
