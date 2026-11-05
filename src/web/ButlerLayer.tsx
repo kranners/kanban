@@ -101,7 +101,11 @@ function ButlerNearPanel(props: {
 	);
 }
 
-/** One of Butler's cards: a change he started, or one he made himself. */
+/**
+ * One of Butler's cards: a change he started, or one he made himself. Away
+ * from near zoom it reads like a session card, with nothing that scrolls, so
+ * the wheel always moves the board; the summary waits for the near view.
+ */
 export function ButlerCardBody(props: { card: ButlerCard }): JSX.Element {
 	const { card } = props;
 	const t = now.value;
@@ -128,9 +132,19 @@ export function ButlerCardBody(props: { card: ButlerCard }): JSX.Element {
 					<ActivityBadge activity={card.state} />
 				</span>
 			</div>
-			<div class="butler-card-title">{card.title}</div>
-			{card.status && <div class="butler-card-status">{card.status}</div>}
-			{card.summary && <div class="butler-card-summary">{card.summary}</div>}
+			<p class="butler-card-title">{card.title}</p>
+			{card.status && (
+				<div
+					class={
+						card.state === "needs-you"
+							? "butler-card-status butler-card-needs"
+							: "butler-card-status"
+					}
+					title={card.status}
+				>
+					{card.status}
+				</div>
+			)}
 			<div class="butler-card-foot">
 				<ButlerAvatar size={16} />
 				<span>Butler · {ago(card.updatedAt, t)}</span>

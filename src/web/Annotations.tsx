@@ -330,7 +330,7 @@ function NoteBody(props: { note: Note; editing: boolean }): JSX.Element {
 function scrollNoteText(event: WheelEvent): void {
 	if (event.ctrlKey || event.metaKey) return;
 	const body = (event.currentTarget as Element).querySelector(
-		".note-text, .report-scroll, .butler-card-summary, .near-panel",
+		".note-text, .report-scroll, .near-panel",
 	);
 	if (
 		body &&
