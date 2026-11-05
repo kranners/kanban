@@ -29,7 +29,12 @@ export type ToolCall =
 	| { tool: "send_prompt"; session: string; text: string }
 	| { tool: "announce"; text: string }
 	| { tool: "answer_prompt"; session: string; reply: PromptReply | null }
-	| { tool: "finish_session"; session: string }
+	| {
+			tool: "finish_session";
+			session: string;
+			force?: boolean;
+			duplicateOf?: string;
+	  }
 	| {
 			tool: "start_session";
 			cwd: string;
@@ -241,8 +246,23 @@ export const toolDefinitions: ToolDefinition[] = [
 	{
 		name: "finish_session",
 		description:
-			"End a session the way the board's exit button does: the session is asked whether it is safe to exit and only exits if it says so. Never forces.",
-		inputSchema: object({ session: sessionRef }, ["session"]),
+			"End a session the way the board's exit button does: the session is asked whether it is safe to exit and only exits if it says so. force skips that question only for a session stopped on a Claude usage limit, which can't answer it; duplicateOf skips it for a session that duplicates another live session in the same folder. A forced background session is stopped and removed, its transcript kept.",
+		inputSchema: object(
+			{
+				session: sessionRef,
+				force: {
+					type: "boolean",
+					description:
+						"Skip the readiness question; refused unless the session is stopped on a usage limit",
+				},
+				duplicateOf: {
+					...sessionRef,
+					description:
+						"The session this one duplicates, in the same folder; skips the readiness question",
+				},
+			},
+			["session"],
+		),
 	},
 	{
 		name: "start_session",
@@ -543,10 +563,21 @@ const readers: { [K in ToolName]: (fields: Fields) => ToolCall } = {
 			reply: prompt && answers ? { prompt, answers } : null,
 		};
 	},
-	finish_session: (fields) => ({
-		tool: "finish_session",
-		session: string(fields, "session", 128),
-	}),
+	finish_session: (fields) => {
+		const force = fields.force;
+		if (force !== undefined && typeof force !== "boolean") {
+			return fail("force must be true or false");
+		}
+		const duplicateOf = optional(fields, "duplicateOf", (f, k) =>
+			string(f, k, 128),
+		);
+		return {
+			tool: "finish_session",
+			session: string(fields, "session", 128),
+			...(force ? { force } : {}),
+			...(duplicateOf ? { duplicateOf } : {}),
+		};
+	},
 	start_session: (fields) => {
 		const x = optional(fields, "x", number);
 		const y = optional(fields, "y", number);

@@ -5,15 +5,56 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, sep } from "node:path";
+import { delimiter, dirname, isAbsolute, join, sep } from "node:path";
+import {
+	accountName,
+	bestAccount,
+	continuePrompt,
+	cooldownUntil,
+	isLimitText,
+	maxRunnerMoves,
+} from "../shared/failover.ts";
 import type {
 	RunnerCommandResult,
 	RunnerLaunch,
 	RunnerSession,
 } from "../shared/runners.ts";
 import { liveRunnerStates } from "../shared/runners.ts";
+import type { AccountUsage } from "../shared/types.ts";
 
 export type ClaudeCommand = { file: string; args: string[] };
+
+/**
+ * This machine's cswap accounts, when it has cswap: each session starts on the
+ * one with the most headroom and moves to another when it ends on a limit.
+ */
+export type RunnerAccounts = {
+	cswap: string;
+	list(): Promise<AccountUsage[] | null>;
+};
+
+/** The command that runs claude with these args on an account: cswap run for a profile, plain claude for the default login. */
+export const accountSpawn = (
+	claude: ClaudeCommand,
+	cswap: string,
+	account: AccountUsage | null,
+	args: string[],
+	env: NodeJS.ProcessEnv = process.env,
+): { file: string; args: string[]; env: NodeJS.ProcessEnv } =>
+	!account || account.isDefault
+		? { file: claude.file, args, env }
+		: {
+				file: cswap,
+				args: ["run", String(account.number), "--share-history", "--", ...args],
+				env: isAbsolute(claude.file)
+					? {
+							...env,
+							PATH: [dirname(claude.file), env.PATH]
+								.filter(Boolean)
+								.join(delimiter),
+						}
+					: env,
+			};
 
 export type SessionManagerOptions = {
 	claude: ClaudeCommand;
@@ -26,6 +67,7 @@ export type SessionManagerOptions = {
 	keepFinishedMs?: number;
 	maxFinished?: number;
 	stopGraceMs?: number;
+	accounts?: RunnerAccounts | null;
 	onChange?: () => void;
 };
 
@@ -156,6 +198,8 @@ type Tracked = {
 	stopping: boolean;
 	result: { ok: boolean; text: string | null } | null;
 	stderr: string;
+	account: AccountUsage | null;
+	moves: number;
 };
 
 export const createSessionManager = ({
@@ -168,10 +212,20 @@ export const createSessionManager = ({
 	keepFinishedMs = 60 * 60_000,
 	maxFinished = 20,
 	stopGraceMs = 10_000,
+	accounts = null,
 	onChange = () => {},
 }: SessionManagerOptions): SessionManager => {
 	const sessions = new Map<string, Tracked>();
 	const windows = platform === "win32";
+	const cooldowns: Record<number, number> = {};
+
+	const pick = async (
+		exclude: ReadonlySet<number> = new Set(),
+	): Promise<{ listed: AccountUsage[]; best: AccountUsage | null } | null> => {
+		const listed = accounts ? await accounts.list().catch(() => null) : null;
+		if (!listed || listed.length < 2) return null;
+		return { listed, best: bestAccount(listed, cooldowns, now(), exclude) };
+	};
 
 	const touch = (tracked: Tracked, patch: Partial<RunnerSession>) => {
 		tracked.session = { ...tracked.session, ...patch, updatedAt: now() };
@@ -209,7 +263,70 @@ export const createSessionManager = ({
 		}
 	};
 
+	const failover = async (tracked: Tracked): Promise<boolean> => {
+		const resume = tracked.session.claudeSessionId;
+		if (!accounts || !resume || tracked.moves >= maxRunnerMoves) return false;
+		const listed = await accounts.list().catch(() => null);
+		if (!listed || listed.length < 2) return false;
+		const from =
+			tracked.account ?? listed.find((account) => account.isDefault) ?? null;
+		if (from) {
+			cooldowns[from.number] = Math.max(
+				cooldowns[from.number] ?? 0,
+				cooldownUntil(from, now()),
+			);
+		}
+		const to = bestAccount(
+			listed,
+			cooldowns,
+			now(),
+			new Set(from ? [from.number] : []),
+		);
+		const fromName = accountName(from);
+		if (!to) {
+			tracked.result = {
+				ok: false,
+				text: `Every Claude account on this machine is at its limit (last on ${fromName}); resume it once one frees up`,
+			};
+			return false;
+		}
+		// Stopped from the board while the accounts were read: leave it stopped.
+		if (sessions.get(tracked.session.id) !== tracked) return false;
+		tracked.moves += 1;
+		tracked.result = null;
+		tracked.stderr = "";
+		const started = spawnClaude(
+			tracked,
+			to,
+			["--resume", resume],
+			continuePrompt(fromName, accountName(to)),
+		);
+		const ok = (await started).ok;
+		if (ok) {
+			touch(tracked, {
+				state: "working",
+				detail: `Moved from ${fromName} to ${accountName(to)} (limit)`,
+			});
+		}
+		return ok;
+	};
+
 	const finish = (tracked: Tracked, code: number | null) => {
+		const limited =
+			!tracked.stopping &&
+			(isLimitText(tracked.result?.text) ||
+				isLimitText(tracked.session.detail));
+		if (limited && accounts) {
+			tracked.child = null;
+			void failover(tracked).then((moved) => {
+				if (!moved) settle(tracked, code);
+			});
+			return;
+		}
+		settle(tracked, code);
+	};
+
+	const settle = (tracked: Tracked, code: number | null) => {
 		const { result, stopping, stderr } = tracked;
 		tracked.child = null;
 		const state = stopping
@@ -236,6 +353,78 @@ export const createSessionManager = ({
 		});
 		prune();
 	};
+
+	// Starts (or, with --resume, continues) claude for a tracked session on an account.
+	function spawnClaude(
+		tracked: Tracked,
+		account: AccountUsage | null,
+		extra: string[],
+		prompt: string,
+	): Promise<RunnerCommandResult> {
+		return (async (): Promise<RunnerCommandResult> => {
+			const run = accountSpawn(claude, accounts?.cswap ?? "cswap", account, [
+				...claude.args,
+				...extra,
+				"-p",
+				"--output-format",
+				"stream-json",
+				"--verbose",
+			]);
+			let child: ChildProcess;
+			try {
+				child = spawn(run.file, run.args, {
+					cwd: tracked.session.localCwd,
+					env: run.env,
+					stdio: ["pipe", "pipe", "pipe"],
+					detached: !windows,
+					windowsHide: true,
+					shell: windows && !/\.exe$/i.test(run.file),
+				});
+			} catch (error) {
+				return { ok: false, error: `Couldn't start claude: ${error}` };
+			}
+			const spawned = await new Promise<RunnerCommandResult>((resolve) => {
+				child.once("spawn", () => resolve({ ok: true }));
+				child.once("error", (error) =>
+					resolve({
+						ok: false,
+						error: `Couldn't start claude: ${error.message}`,
+					}),
+				);
+			});
+			if (!spawned.ok) return spawned;
+			tracked.child = child;
+			tracked.account = account;
+			child.on("error", () => {});
+			child.stdin?.on("error", () => {});
+			child.stdin?.end(prompt);
+			let buffered = "";
+			child.stdout?.setEncoding("utf8");
+			child.stdout?.on("data", (chunk: string) => {
+				buffered += chunk;
+				const lines = buffered.split("\n");
+				buffered = lines.pop() ?? "";
+				for (const line of lines) {
+					const event = readStreamLine(line);
+					if (!event) continue;
+					if (event.result) tracked.result = event.result;
+					const patch: Partial<RunnerSession> = {};
+					if (event.sessionId && !tracked.session.claudeSessionId) {
+						patch.claudeSessionId = event.sessionId;
+					}
+					if (event.detail) patch.detail = event.detail;
+					if (tracked.session.state === "starting") patch.state = "working";
+					if (Object.keys(patch).length > 0) touch(tracked, patch);
+				}
+			});
+			child.stderr?.setEncoding("utf8");
+			child.stderr?.on("data", (chunk: string) => {
+				tracked.stderr = (tracked.stderr + chunk).slice(-4096);
+			});
+			child.on("close", (code) => finish(tracked, code));
+			return { ok: true };
+		})();
+	}
 
 	const launch = async (
 		command: RunnerLaunch,
@@ -271,66 +460,15 @@ export const createSessionManager = ({
 			stopping: false,
 			result: null,
 			stderr: "",
+			account: null,
+			moves: 0,
 		};
-		const args = [
-			...claude.args,
-			"-p",
-			"--output-format",
-			"stream-json",
-			"--verbose",
-		];
-		let child: ChildProcess;
-		try {
-			child = spawn(claude.file, args, {
-				cwd: localCwd,
-				stdio: ["pipe", "pipe", "pipe"],
-				detached: !windows,
-				windowsHide: true,
-				shell: windows && !/\.exe$/i.test(claude.file),
-			});
-		} catch (error) {
-			return { ok: false, error: `Couldn't start claude: ${error}` };
-		}
-		const spawned = await new Promise<RunnerCommandResult>((resolve) => {
-			child.once("spawn", () => resolve({ ok: true }));
-			child.once("error", (error) =>
-				resolve({
-					ok: false,
-					error: `Couldn't start claude: ${error.message}`,
-				}),
-			);
-		});
-		if (!spawned.ok) return spawned;
-		tracked.child = child;
+		const placed = await pick();
+		tracked.account = placed?.best ?? null;
+		const ok = await spawnClaude(tracked, tracked.account, [], prompt);
+		if (!ok.ok) return ok;
 		sessions.set(id, tracked);
 		onChange();
-		child.on("error", () => {});
-		child.stdin?.on("error", () => {});
-		child.stdin?.end(prompt);
-		let buffered = "";
-		child.stdout?.setEncoding("utf8");
-		child.stdout?.on("data", (chunk: string) => {
-			buffered += chunk;
-			const lines = buffered.split("\n");
-			buffered = lines.pop() ?? "";
-			for (const line of lines) {
-				const event = readStreamLine(line);
-				if (!event) continue;
-				if (event.result) tracked.result = event.result;
-				const patch: Partial<RunnerSession> = {};
-				if (event.sessionId && !tracked.session.claudeSessionId) {
-					patch.claudeSessionId = event.sessionId;
-				}
-				if (event.detail) patch.detail = event.detail;
-				if (tracked.session.state === "starting") patch.state = "working";
-				if (Object.keys(patch).length > 0) touch(tracked, patch);
-			}
-		});
-		child.stderr?.setEncoding("utf8");
-		child.stderr?.on("data", (chunk: string) => {
-			tracked.stderr = (tracked.stderr + chunk).slice(-4096);
-		});
-		child.on("close", (code) => finish(tracked, code));
 		return { ok: true };
 	};
 

@@ -8,7 +8,12 @@ const runs: LastRuns = {
 	"/dev/hkjc": { runsOn: "runner_pilot", account: 2 },
 };
 
-const accounts = [{ number: 1 }, { number: 2 }] as AccountUsage[];
+const window = { percent: 20, resetsAt: null };
+const healthy = { session: window, week: window, blocked: null };
+const accounts = [
+	{ number: 1, ...healthy },
+	{ number: 2, ...healthy },
+] as AccountUsage[];
 
 describe("runsOnDefault", () => {
 	it("starts where the project last ran, else in the cloud", () => {
@@ -27,5 +32,21 @@ describe("accountDefault", () => {
 			undefined,
 		);
 		assert.equal(accountDefault(runs, "/dev/hkjc", null), undefined);
+	});
+
+	it("drops the last account once it is at its limit or held out", () => {
+		const full = { percent: 100, resetsAt: null };
+		assert.equal(
+			accountDefault(runs, "/dev/hkjc", [
+				{ number: 2, ...healthy, week: full },
+			] as AccountUsage[]),
+			undefined,
+		);
+		assert.equal(
+			accountDefault(runs, "/dev/hkjc", [
+				{ number: 2, ...healthy, disabled: true },
+			] as AccountUsage[]),
+			undefined,
+		);
 	});
 });

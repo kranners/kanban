@@ -1,5 +1,6 @@
 import { signal } from "@preact/signals";
 import { useState } from "preact/hooks";
+import { unavailable } from "../shared/failover.ts";
 import {
 	type AccountUsage,
 	defaultRunsOn,
@@ -15,16 +16,20 @@ export const lastRuns = signal<LastRuns>({});
 export const runsOnDefault = (runs: LastRuns, cwd: string): RunsOn =>
 	runs[cwd]?.runsOn ?? defaultRunsOn;
 
-/** The project's last account, while it is still one of the accounts. */
+/**
+ * The project's last account, while it is still one of the accounts and can
+ * take a session; one at its limit or held out gives way to the server's pick
+ * of the account with the most headroom.
+ */
 export const accountDefault = (
 	runs: LastRuns,
 	cwd: string,
 	accounts: readonly AccountUsage[] | null,
 ): number | undefined => {
 	const account = runs[cwd]?.account;
-	return account !== undefined &&
-		accounts?.some(({ number }) => number === account)
-		? account
+	const found = accounts?.find(({ number }) => number === account);
+	return found && unavailable(found, {}, Date.now()) === null
+		? found.number
 		: undefined;
 };
 

@@ -20,6 +20,8 @@ export type NotificationStore = {
 	/** Raises a notification for each session that just needs you, finished or failed. */
 	observe(board: Board): void;
 	update(update: NotificationUpdate): void;
+	/** Raises a notification of the board's own, such as an account failover. */
+	raise(sessionId: string, title: string, body: string): void;
 	saved(): Promise<void>;
 };
 
@@ -154,6 +156,23 @@ export const createNotificationStore = ({
 				[
 					...added,
 					...fresh(notifications, at).filter((n) => !replaced.has(n.sessionId)),
+				].slice(0, maxNotifications),
+			);
+		},
+		raise(sessionId, title, body) {
+			const at = now();
+			set(
+				[
+					{
+						id: randomUUID(),
+						sessionId,
+						kind: "failed" as const,
+						title: title.slice(0, maxText),
+						body: body.slice(0, maxText),
+						at,
+						read: false,
+					},
+					...fresh(notifications, at),
 				].slice(0, maxNotifications),
 			);
 		},

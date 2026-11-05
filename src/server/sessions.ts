@@ -205,6 +205,7 @@ export const launchArgs = (
 	...(saved ? [`--add-dir=${saved.folder}`] : []),
 	...(settings ? [`--settings=${settings}`] : []),
 	...(mcpConfig ? [`--mcp-config=${mcpConfig}`] : []),
+	...(request.resume ? ["--resume", request.resume] : []),
 	"--",
 	promptText(request, saved),
 ];

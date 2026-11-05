@@ -80,6 +80,7 @@ import {
 	liveInteractiveEntry,
 	runClaude,
 } from "./exit.ts";
+import { createFailover, type Failover } from "./failover.ts";
 import { createFeed, type Feed } from "./feed.ts";
 import { listFiles } from "./files.ts";
 import { osascriptFolderPicker } from "./folders.ts";
@@ -135,6 +136,7 @@ const docsFrameMs = 250;
 const audit = fileAudit(config.auditLog);
 
 let feed: Feed | null = null;
+let failover: Failover | null = null;
 let butler: Butler | null = null;
 const layoutFile = join(config.stateDir, "layout.json");
 const layout = createLayoutStore({
@@ -249,7 +251,10 @@ const accounts = createAccountMonitor({
 		return profile.ok ? planBlock(profile.value, account.email) : undefined;
 	},
 });
-const currentUsage = () => withAccounts(usage.current(), accounts.current());
+const currentUsage = () => ({
+	...withAccounts(usage.current(), accounts.current()),
+	...(failover ? { failover: failover.view() } : {}),
+});
 const checkUsage = async () => {
 	if (!(await accounts.check())) await usage.check();
 };
@@ -538,13 +543,29 @@ const routed = routedLauncher(
 	cloud.add,
 	(account) => accountOf(account)?.configDir,
 );
-const launch: SessionLauncher = async (request) => {
-	if (request.runsOn && isRunnerTarget(request.runsOn)) {
-		return runnerHub.launch(request);
+const launch: SessionLauncher = async (asked) => {
+	if (asked.runsOn && isRunnerTarget(asked.runsOn)) {
+		return runnerHub.launch(asked);
 	}
+	// A new session starts on the account with the most headroom, unless the one asked for can take it.
+	const request = failover?.place(asked) ?? asked;
 	const blocked = accountOf(request.account)?.blocked;
 	return blocked ? { ok: false, error: blocked } : routed(request);
 };
+failover = createFailover({
+	accounts: () => accounts.current().accounts,
+	now: Date.now,
+	stop: (session) => exitDeps.stop(session),
+	launch: routed,
+	notify: (sessionId, title, body) =>
+		notifications.raise(sessionId, title, body),
+	audit,
+	onChange: () => feed?.usage(currentUsage()),
+});
+const failoverPoll = setInterval(
+	() => void failover?.observe(source.board()),
+	accountsIntervalMs,
+);
 const attachPty = claudeAttachPty(config.claudeBin);
 const attach = createAttachHub(attachPty, audit, (short) =>
 	conversation.release(short),
@@ -590,6 +611,7 @@ const boardTools = createBoardTools({
 	comments,
 	launch,
 	exit: runExit,
+	limited: (session) => failover?.limited(session) ?? false,
 	ask,
 	prompt: createPromptSender({
 		spawnPty: attachPty,
@@ -705,6 +727,7 @@ const shutdown = () => {
 	runnerHub.stopAll();
 	clearInterval(usagePoll);
 	clearInterval(accountsPoll);
+	clearInterval(failoverPoll);
 	clearInterval(digestTick);
 	listening.close();
 	server.close();

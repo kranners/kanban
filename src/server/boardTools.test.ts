@@ -112,6 +112,7 @@ const setup = async (shown: Board = board) => {
 				reason: "Uncommitted work",
 			});
 		},
+		limited: (s) => s.doing?.startsWith("You've hit") ?? false,
 		ask: async () => ({ ok: true, answer: "12" }),
 		prompt: async () => ({ ok: true, via: "claude attach" }),
 		announce: async (text) =>
@@ -374,6 +375,52 @@ describe("board tools", () => {
 		});
 		assert.deepEqual(exits, [["bbbbbbbb-2", false, "butler"]]);
 		assert.equal(events.at(-1)?.action, "board-agent");
+	});
+
+	it("finishes a rate-limited session or a duplicate without asking it, and nothing else", async () => {
+		const limited = session("cccccccc-3", {
+			doing: "You've hit your weekly limit · resets Nov 6 at 10pm",
+		});
+		const { tools, exits } = await setup({
+			...board,
+			sessions: [
+				...board.sessions,
+				limited,
+				session("dddddddd-4", { cwd: "/elsewhere" }),
+			],
+		});
+		assert.deepEqual(
+			await tools("t", {
+				tool: "finish_session",
+				session: "aaaaaaa0",
+				force: true,
+			}),
+			{
+				ok: false,
+				error:
+					"acme-aaa isn't stopped on a usage limit, so it is asked before it finishes; finish it without force",
+			},
+		);
+		await tools("t", {
+			tool: "finish_session",
+			session: "ccccccc0",
+			force: true,
+		});
+		await tools("t", {
+			tool: "finish_session",
+			session: "bbbbbbb0",
+			duplicateOf: "aaaaaaa0",
+		});
+		const elsewhere = await tools("t", {
+			tool: "finish_session",
+			session: "ddddddd0",
+			duplicateOf: "aaaaaaa0",
+		});
+		assert.equal(elsewhere.ok, false);
+		assert.deepEqual(exits, [
+			["cccccccc-3", true, "butler"],
+			["bbbbbbbb-2", true, "butler"],
+		]);
 	});
 
 	it("draws a new region clear of the projects already on the board", async () => {

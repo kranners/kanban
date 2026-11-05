@@ -110,6 +110,7 @@ const listedOf = (value: unknown, root: string): Listed | null => {
 		organization: asString(row.organizationName) ?? "",
 		configDir: profileDir(root, number, email),
 		isDefault: row.active === true,
+		...(row.disabled === true ? { disabled: true } : {}),
 		session: windowOf(usage?.fiveHour),
 		week: windowOf(usage?.sevenDay),
 		error: statusError(asString(row.usageStatus), email),

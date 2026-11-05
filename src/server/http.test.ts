@@ -820,6 +820,7 @@ describe("createKanbanServer", () => {
 				claudeBin: "claude",
 				claudeArgs: [],
 				paths: [],
+				cswapBin: "off",
 			},
 			sessions,
 			sample: async () => ({

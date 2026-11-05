@@ -1,7 +1,9 @@
 import { signal } from "@preact/signals";
+import { unavailable } from "../shared/failover.ts";
 import type {
 	AccountResult,
 	AccountUsage,
+	Session,
 	Usage,
 	UsageSample,
 	UsageWindow,
@@ -120,3 +122,40 @@ export async function makeDefault(account: number): Promise<AccountResult> {
 		return { ok: false, error: `Couldn't reach the board server (${caught})` };
 	}
 }
+
+/**
+ * The board's sessions by the account each runs on, so the sidebar shows
+ * where the work sits: a profile's sessions by its config dir, the rest on
+ * the default login. Runner sessions use their own machine's login.
+ */
+export const sessionsByAccount = (
+	sessions: readonly Session[],
+	accounts: readonly AccountUsage[],
+): Map<string, Session[]> => {
+	const byAccount = new Map<string, Session[]>();
+	const fallback = accounts.find((account) => account.isDefault) ?? null;
+	for (const session of sessions) {
+		if (session.runner) continue;
+		const account = session.configDir
+			? accountOf(session.configDir, accounts)
+			: fallback;
+		if (!account) continue;
+		byAccount.set(account.id, [...(byAccount.get(account.id) ?? []), session]);
+	}
+	return byAccount;
+};
+
+/** Why failover would skip an account now, for its row in the sidebar. */
+export const accountHold = (
+	account: AccountUsage,
+	cooldowns: Readonly<Record<number, number>>,
+	now: number,
+): string | null => {
+	const why = unavailable(account, cooldowns, now);
+	if (why === null || why === account.blocked || why === "usage unknown")
+		return null;
+	const until = cooldowns[account.number];
+	return until !== undefined && until > now
+		? `Skipped for new sessions until ${new Date(until).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}: ${why}`
+		: `Skipped for new sessions: ${why}`;
+};

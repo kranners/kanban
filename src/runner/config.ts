@@ -13,6 +13,8 @@ export type RunnerConfig = {
 	claudeBin: string;
 	claudeArgs: string[];
 	paths: [string, string][];
+	/** cswap, when this machine rotates Claude accounts with it; "off" turns failover off. */
+	cswapBin: string;
 };
 
 export const runnerUsage = `Usage: node dist/runner.js --hub URL [options]
@@ -24,6 +26,8 @@ export const runnerUsage = `Usage: node dist/runner.js --hub URL [options]
   --claude PATH    The claude binary                         (CLAUDE_BIN, default: claude on PATH)
   --claude-args A  Extra claude flags, space-separated       (KANBAN_RUNNER_CLAUDE_ARGS)
   --paths MAP      Hub-to-local folders, "from=to;from=to"   (KANBAN_RUNNER_PATHS)
+  --cswap PATH     cswap, to start each session on the account
+                   with most headroom and move it off a limit (CSWAP_BIN, default: cswap on PATH; off to disable)
 
 Settings not given as flags or in the environment are read from
 ~/.config/kanban/env. Prefer KANBAN_RUNNER_TOKEN there (mode 600) to --token.`;
@@ -63,6 +67,7 @@ export const parseRunnerConfig = (
 			claude: { type: "string" },
 			"claude-args": { type: "string" },
 			paths: { type: "string" },
+			cswap: { type: "string" },
 		},
 		strict: true,
 	});
@@ -106,5 +111,6 @@ export const parseRunnerConfig = (
 			.split(/\s+/)
 			.filter((arg) => arg !== ""),
 		paths: parsePaths(pick(values.paths, "KANBAN_RUNNER_PATHS") ?? ""),
+		cswapBin: pick(values.cswap, "CSWAP_BIN") ?? "cswap",
 	};
 };

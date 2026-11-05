@@ -1,10 +1,21 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	mkdtemp as makeTemp,
+	mkdtemp,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { before, describe, it } from "node:test";
 import type { RunnerLaunch } from "../shared/runners.ts";
-import { createSessionManager, mapCwd, readStreamLine } from "./sessions.ts";
+import type { AccountUsage } from "../shared/types.ts";
+import {
+	accountSpawn,
+	createSessionManager,
+	mapCwd,
+	readStreamLine,
+} from "./sessions.ts";
 
 describe("mapCwd", () => {
 	const dirs = new Set([
@@ -205,5 +216,138 @@ process.stdin.on("end", () => {
 		await settled(manager, "s6");
 		at += 1_000;
 		assert.equal(manager.list().length, 0);
+	});
+});
+
+const account = (
+	number: number,
+	week: number,
+	extra: Partial<AccountUsage> = {},
+): AccountUsage => ({
+	id: `a${number}`,
+	number,
+	email: `a${number}@example.com`,
+	alias: `ap${number}`,
+	organization: "",
+	configDir: `/profiles/${number}`,
+	isDefault: number === 1,
+	session: { percent: 10, resetsAt: null },
+	week: { percent: week, resetsAt: null },
+	samples: [],
+	error: null,
+	blocked: null,
+	...extra,
+});
+
+describe("accountSpawn", () => {
+	const claude = { file: "/opt/claude/bin/claude", args: ["--x"] };
+	it("runs plain claude on the default login and cswap run on a profile", () => {
+		assert.deepEqual(accountSpawn(claude, "cswap", account(1, 0), ["-p"], {}), {
+			file: "/opt/claude/bin/claude",
+			args: ["-p"],
+			env: {},
+		});
+		assert.deepEqual(
+			accountSpawn(claude, "cswap", account(2, 0), ["-p"], {
+				PATH: "/usr/bin",
+			}),
+			{
+				file: "cswap",
+				args: ["run", "2", "--share-history", "--", "-p"],
+				env: { PATH: "/opt/claude/bin:/usr/bin" },
+			},
+		);
+	});
+});
+
+describe("runner account failover", {
+	skip: process.platform === "win32",
+}, () => {
+	let dir = "";
+	let fake = "";
+	let cswap = "";
+
+	before(async () => {
+		dir = await makeTemp(join(tmpdir(), "kanban-failover-"));
+		fake = join(dir, "fake-claude.mjs");
+		cswap = join(dir, "fake-cswap");
+		// Hits a weekly limit on the default login; works on any cswap profile.
+		await writeFile(
+			fake,
+			`
+process.stdin.resume();
+process.stdin.on("end", () => {
+	const out = (event) => process.stdout.write(JSON.stringify(event) + "\\n");
+	const on = process.env.FAKE_ACCOUNT;
+	const resumed = process.argv.includes("--resume");
+	out({ type: "system", subtype: "init", session_id: "claude-9" });
+	if (!on) {
+		out({ type: "result", subtype: "success", is_error: true, result: "You've hit your weekly limit · resets Nov 6 at 10pm" });
+		return;
+	}
+	out({ type: "result", subtype: "success", is_error: false, result: "resumed " + resumed + " on account " + on });
+});
+`,
+		);
+		await writeFile(
+			cswap,
+			`#!/bin/sh\nn=$2\nshift 4\nFAKE_ACCOUNT=$n exec "${process.execPath}" "$@"\n`,
+		);
+		await chmod(cswap, 0o755);
+	});
+
+	const launchOf = (id: string): RunnerLaunch => ({
+		type: "launch",
+		commandId: `c-${id}`,
+		session: { id, cwd: dir, prompt: "go", name: id },
+		hubHome: null,
+	});
+
+	const settled = async (
+		manager: ReturnType<typeof createSessionManager>,
+		id: string,
+	) => {
+		for (let i = 0; i < 300; i++) {
+			const session = manager.list().find((s) => s.id === id);
+			if (session?.endedAt) return session;
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+		throw new Error(`${id} never finished`);
+	};
+
+	it("resumes a session that hit its limit on the account with most headroom", async () => {
+		const manager = createSessionManager({
+			claude: { file: process.execPath, args: [fake] },
+			accounts: {
+				cswap,
+				list: async () => [account(1, 10), account(2, 40), account(3, 30)],
+			},
+		});
+		await manager.launch(launchOf("f1"));
+		const session = await settled(manager, "f1");
+		assert.equal(session.detail, "resumed true on account 3");
+		assert.equal(session.state, "done");
+		assert.equal(session.detail, "resumed true on account 3");
+	});
+
+	it("says so when every other account is spent or held out", async () => {
+		const manager = createSessionManager({
+			claude: { file: process.execPath, args: [fake] },
+			accounts: {
+				cswap,
+				list: async () => [
+					account(1, 10),
+					account(2, 99),
+					account(3, 10, { disabled: true }),
+				],
+			},
+		});
+		await manager.launch(launchOf("f2"));
+		const session = await settled(manager, "f2");
+		assert.equal(session.state, "failed");
+		assert.match(
+			session.detail ?? "",
+			/Every Claude account on this machine is at its limit/,
+		);
 	});
 });

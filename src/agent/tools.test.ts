@@ -62,8 +62,12 @@ describe("parseToolCall", () => {
 			"Unknown argument force",
 		);
 		assert.equal(
-			error("finish_session", { session: "a", force: true }),
-			"Unknown argument force",
+			error("finish_session", { session: "a", now: true }),
+			"Unknown argument now",
+		);
+		assert.equal(
+			error("finish_session", { session: "a", force: "yes" }),
+			"force must be true or false",
 		);
 		assert.equal(error("board_snapshot", []), "Arguments must be an object");
 	});
@@ -322,7 +326,7 @@ describe("MCP server", () => {
 					method: "tools/call",
 					params: {
 						name: "finish_session",
-						arguments: { session: "a", force: true },
+						arguments: { session: "a", now: true },
 					},
 				},
 				call,
@@ -331,7 +335,7 @@ describe("MCP server", () => {
 				jsonrpc: "2.0",
 				id: 6,
 				result: {
-					content: [{ type: "text", text: "Unknown argument force" }],
+					content: [{ type: "text", text: "Unknown argument now" }],
 					isError: true,
 				},
 			},

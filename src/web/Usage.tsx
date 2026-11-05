@@ -3,14 +3,18 @@ import type { JSX } from "preact";
 import { useState } from "preact/hooks";
 import type {
 	AccountUsage,
+	FailoverView,
+	Session,
 	Usage,
 	UsageSample,
 	UsageWindow,
 } from "../shared/types.ts";
+import { ActivityIcon, activityLabel } from "./activity.tsx";
 import { RunnersSection } from "./Runners.tsx";
-import { now } from "./state.ts";
+import { board, now, openSession } from "./state.ts";
 import { ago } from "./time.ts";
 import {
+	accountHold,
 	accountLabel,
 	chartSpanMs,
 	defaultAccount,
@@ -19,6 +23,7 @@ import {
 	makeDefault,
 	nearestSample,
 	type Severity,
+	sessionsByAccount,
 	severity,
 	untilReset,
 	usage,
@@ -118,8 +123,23 @@ export function UsageView(): JSX.Element | null {
 				})}
 			</dl>
 			<UsageChart samples={samples} to={at} />
+			{current.failover?.allLimited && (
+				<p class="usage-all-limited" role="alert">
+					Every Claude account is at its limit.
+					{current.failover.allLimited.until !== null &&
+						` The first frees up ${clock(current.failover.allLimited.until)}; sessions stopped on a limit move then.`}
+				</p>
+			)}
 			{accounts.some((account) => !account.isDefault) && (
-				<AccountList accounts={accounts} at={at} />
+				<AccountList
+					accounts={accounts}
+					at={at}
+					sessions={sessionsByAccount(board.value?.sessions ?? [], accounts)}
+					failover={current.failover ?? null}
+				/>
+			)}
+			{current.failover && current.failover.moves.length > 0 && (
+				<MovedList moves={current.failover.moves} at={at} />
 			)}
 			<p class={`usage-status${error ? " usage-error" : ""}`}>
 				{error ??
@@ -135,6 +155,8 @@ export function UsageView(): JSX.Element | null {
 function AccountList(props: {
 	accounts: readonly AccountUsage[];
 	at: number;
+	sessions: Map<string, Session[]>;
+	failover: FailoverView | null;
 }): JSX.Element {
 	const [pending, setPending] = useState<number | null>(null);
 	const [failure, setFailure] = useState<{
@@ -161,6 +183,8 @@ function AccountList(props: {
 							? failure.error
 							: (account.blocked ?? account.error)
 					}
+					hold={accountHold(account, props.failover?.cooldowns ?? {}, props.at)}
+					sessions={props.sessions.get(account.id) ?? []}
 					onChoose={() => void choose(account.number)}
 				/>
 			))}
@@ -173,9 +197,12 @@ function AccountRow(props: {
 	at: number;
 	pending: number | null;
 	error: string | null;
+	hold: string | null;
+	sessions: readonly Session[];
 	onChoose: () => void;
 }): JSX.Element {
 	const { account } = props;
+	const name = account.alias ?? account.email;
 	return (
 		<li class={`usage-account-row${account.isDefault ? " is-default" : ""}`}>
 			<div class="usage-account-head">
@@ -191,6 +218,11 @@ function AccountRow(props: {
 				>
 					<path d={linePath(account.samples, "week", sparkFrame(props.at))} />
 				</svg>
+				{account.disabled && (
+					<span class="usage-default-tag" title="Held out with cswap disable">
+						Held out
+					</span>
+				)}
 				{account.isDefault ? (
 					<span class="usage-default-tag">Default</span>
 				) : (
@@ -219,7 +251,69 @@ function AccountRow(props: {
 				at={props.at}
 			/>
 			{props.error && <p class="usage-account-error">{props.error}</p>}
+			{props.hold && <p class="usage-account-hold">{props.hold}</p>}
+			<p class="usage-account-count">
+				{props.sessions.length === 0
+					? "No sessions on it"
+					: `${props.sessions.length} ${props.sessions.length === 1 ? "session" : "sessions"} on it`}
+			</p>
+			{props.sessions.length > 0 && (
+				<ul class="usage-runner-sessions" aria-label={`On ${name}`}>
+					{props.sessions.map((session) => (
+						<li key={session.id}>
+							<button
+								type="button"
+								class={`usage-runner-session act-${session.activity}`}
+								title={`${activityLabel[session.activity]} · ${session.cwd}`}
+								onClick={(event) =>
+									openSession(
+										session.id,
+										event.currentTarget.getBoundingClientRect(),
+									)
+								}
+							>
+								<ActivityIcon activity={session.activity} size={11} />
+								<span class="usage-runner-session-name">{session.name}</span>
+							</button>
+						</li>
+					))}
+				</ul>
+			)}
 		</li>
+	);
+}
+
+function MovedList(props: {
+	moves: FailoverView["moves"];
+	at: number;
+}): JSX.Element {
+	return (
+		<section class="usage-moves" aria-labelledby="usage-moves-title">
+			<h3 id="usage-moves-title" class="usage-section-title">
+				Moved off a limit
+			</h3>
+			<ul class="usage-runner-sessions">
+				{props.moves.slice(0, 6).map((move) => (
+					<li key={`${move.sessionId}-${move.at}`}>
+						<button
+							type="button"
+							class="usage-runner-session"
+							title={`Moved ${ago(move.at, props.at)}`}
+							onClick={(event) =>
+								openSession(
+									move.sessionId,
+									event.currentTarget.getBoundingClientRect(),
+								)
+							}
+						>
+							<span class="usage-runner-session-name">
+								{move.name}: {move.from} to {move.to}
+							</span>
+						</button>
+					</li>
+				))}
+			</ul>
+		</section>
 	);
 }
 

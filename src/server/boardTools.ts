@@ -67,6 +67,8 @@ export type BoardToolDeps = {
 	comments: CommentStore;
 	launch: SessionLauncher;
 	exit: ExitRunner;
+	/** Whether a session is stopped on a usage limit, so it may be finished without asking it. */
+	limited?: (session: Session) => boolean;
 	ask: SessionAsker;
 	prompt: PromptSender;
 	announce: Announcer;
@@ -399,10 +401,29 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 			const result = await deps.answer(session, reply);
 			return result.ok ? done(result.value) : refused(result.error);
 		},
-		finish_session: async ({ session: ref }) => {
+		finish_session: async ({ session: ref, force, duplicateOf }) => {
 			const session = sessionFor(ref);
 			if ("ok" in session) return session;
-			const exiting = deps.exit(session, false, agentIdentity);
+			let skipAsk = false;
+			if (duplicateOf !== undefined) {
+				const original = sessionFor(duplicateOf);
+				if ("ok" in original) return original;
+				if (original.id === session.id || original.cwd !== session.cwd) {
+					return refused(
+						`${session.name} isn't a duplicate of ${original.name}: a duplicate is another session in the same folder`,
+					);
+				}
+				skipAsk = true;
+			}
+			if (force) {
+				if (!deps.limited?.(session)) {
+					return refused(
+						`${session.name} isn't stopped on a usage limit, so it is asked before it finishes; finish it without force`,
+					);
+				}
+				skipAsk = true;
+			}
+			const exiting = deps.exit(session, skipAsk, agentIdentity);
 			if (!exiting) return refused(`${session.name} is already exiting`);
 			const result = await exiting;
 			if (!result.ok) return refused(result.error);

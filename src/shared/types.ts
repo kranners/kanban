@@ -470,6 +470,25 @@ export type AccountUsage = {
 	samples: UsageSample[];
 	error: string | null;
 	blocked: string | null;
+	/** Held out of rotation with `cswap disable`; failover never picks it. */
+	disabled?: boolean;
+};
+
+/** A session the board moved to another account because its own hit a limit. */
+export type FailoverMove = {
+	sessionId: string;
+	name: string;
+	from: string;
+	to: string;
+	at: number;
+};
+
+/** What account failover knows: cool-downs, recent moves, whether all are spent. */
+export type FailoverView = {
+	cooldowns: Record<number, number>;
+	moves: FailoverMove[];
+	/** Set while every rotating account is at its limit: when the first frees up. */
+	allLimited: { since: number; until: number | null } | null;
 };
 
 export type Usage = {
@@ -479,6 +498,7 @@ export type Usage = {
 	checkedAt: number | null;
 	error: string | null;
 	accounts: AccountUsage[];
+	failover?: FailoverView;
 };
 
 export type AccountResult = { ok: true } | { ok: false; error: string };
@@ -528,6 +548,8 @@ export type NewSessionRequest = {
 	at?: Point;
 	account?: number;
 	runsOn?: RunsOn;
+	/** Set only by the board's failover: the Claude session id to resume. */
+	resume?: string;
 };
 
 export type PromptImage = { type: string; data: string };

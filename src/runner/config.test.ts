@@ -25,6 +25,7 @@ describe("parseRunnerConfig", () => {
 			claudeBin: "claude",
 			claudeArgs: ["--permission-mode", "acceptEdits"],
 			paths: [["/Users/aaron/code", "/srv/code"]],
+			cswapBin: "cswap",
 		});
 	});
 
