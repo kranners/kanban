@@ -11,15 +11,18 @@ import {
 	belongsTo,
 	boundsOf,
 	centreOf,
+	clearance,
 	clearSpot,
 	framedArea,
 	groupHeadroom,
 	groupPadding,
+	holds,
 	housedBy,
 	inside,
 	near,
 	nearestFree,
 	sessionSize,
+	unframed,
 } from "./placement.ts";
 
 export type RegionHandle =
@@ -170,21 +173,42 @@ function stoppedShort(
 	return stops;
 }
 
+/**
+ * A region's edges stop a grid cell short of what is beside it: other
+ * projects always, and `joinable` things, such as notes or its own
+ * directory's cards, unless the region grows to hold them inside its padding.
+ */
 export function resizedClear(
 	origin: Rect,
 	rect: Rect,
 	handle: RegionHandle,
 	others: readonly Rect[],
+	joinable: readonly Rect[] = [],
 ): Rect {
-	return others
-		.filter((other) => !near(origin, other, 0))
-		.reduce((resized, other) => {
-			if (!near(resized, other, gridSize)) return resized;
+	const beside = [
+		...others.map((other) => ({ other, joins: false })),
+		...joinable.map((other) => ({ other, joins: true })),
+	].filter(({ other }) => !near(origin, other, 0));
+	const pass = (from: Rect) =>
+		beside.reduce((resized, { other, joins }) => {
+			if (!near(resized, other, clearance)) return resized;
+			if (joins && holds(unframed(resized), other)) return resized;
 			return stoppedShort(origin, resized, handle, other).reduce<Rect>(
 				(best, stop) => (area(stop) > area(best) ? stop : best),
 				origin,
 			);
-		}, rect);
+		}, from);
+	let resized = rect;
+	for (let i = 0; i < 4; i++) {
+		const next = pass(resized);
+		if (sameRect(next, resized)) break;
+		resized = next;
+	}
+	return resized;
+}
+
+function sameRect(a: Rect, b: Rect): boolean {
+	return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 }
 
 export function clearOfProjects<T extends Rect>(

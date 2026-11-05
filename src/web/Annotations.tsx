@@ -56,13 +56,16 @@ import {
 	annotationCommand,
 	butlerBylineHeight,
 	documentFont,
-	dragged,
+	dragStep,
 	gridStep,
 	matchingStickers,
+	moved,
 	noteFontSize,
 	noteTextLimit,
 	resized,
 } from "./notes.ts";
+import type { Rect } from "./placement.ts";
+import { spacedFrom, spacedMove, spacedResize } from "./placement.ts";
 import {
 	openReport,
 	ReportDashboard,
@@ -73,6 +76,7 @@ import {
 import { regionDialog } from "./regionState.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 import { blocked, isTyping, pointerTarget } from "./Spawning.tsx";
+import { standing } from "./spacing.ts";
 import { boardMenu } from "./spawns.ts";
 import { stickerFiles } from "./stickers/files.ts";
 import { stickerManifest } from "./stickers/manifest.ts";
@@ -118,6 +122,17 @@ function withReplies(chosen: readonly Annotation[]): Annotation[] {
 	return [...chosen, ...replies];
 }
 
+/**
+ * Where annotations may go: a grid cell from every card and annotation
+ * not moving with them, and from every project frame, unless inside one,
+ * clear of its edges and label bar.
+ */
+function spacing(moving: readonly Annotation[]): (rect: Rect) => boolean {
+	const loose = standing({ annotations: moving.map((a) => a.id) });
+	const frames = groups.peek().map((group) => group.frame);
+	return (rect) => spacedFrom(rect, loose, frames);
+}
+
 function grab(event: PointerEvent, annotation: Annotation): void {
 	if (event.button !== 0 || editing.peek() === annotation.id) return;
 	if (onNoteControl(event)) return;
@@ -132,6 +147,8 @@ function grab(event: PointerEvent, annotation: Annotation): void {
 	const origins = resizing ? [annotation] : withReplies(selected.peek());
 	const start = { x: event.clientX, y: event.clientY };
 	let latest: Annotation[] = origins;
+	const fits = spacing(origins);
+	let by: Point = { x: 0, y: 0 };
 	let dragging = false;
 	element.setPointerCapture(event.pointerId);
 
@@ -146,9 +163,21 @@ function grab(event: PointerEvent, annotation: Annotation): void {
 		}
 		dragging = true;
 		const { k } = view.peek();
-		latest = resizing
-			? origins.map((a) => resized(a, sx / k, sy / k))
-			: dragged(origins, annotation, sx / k, sy / k);
+		if (resizing) {
+			latest = origins.map((a, i) =>
+				spacedResize(
+					resized(a, sx / k, sy / k),
+					latest[i] ?? a,
+					fits,
+					a.kind !== "sticker",
+				),
+			);
+		} else {
+			const step = dragStep(annotation, sx / k, sy / k);
+			const wanted = { x: Math.round(step.x), y: Math.round(step.y) };
+			by = spacedMove(origins, wanted, by, fits);
+			latest = origins.map((a) => moved(a, by.x, by.y));
+		}
 		preview(latest);
 	};
 	const finish = (next: PointerEvent) => {

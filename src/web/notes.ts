@@ -158,11 +158,15 @@ export function dragged<T extends Annotation>(
 	dx: number,
 	dy: number,
 ): T[] {
-	const by =
-		held.kind === "butler-card"
-			? { x: snap(held.x + dx) - held.x, y: snap(held.y + dy) - held.y }
-			: { x: dx, y: dy };
+	const by = dragStep(held, dx, dy);
 	return annotations.map((a) => moved(a, by.x, by.y));
+}
+
+/** How far a drag moves what it holds: on the grid for Butler's cards. */
+export function dragStep(held: Annotation, dx: number, dy: number): Point {
+	return held.kind === "butler-card"
+		? { x: snap(held.x + dx) - held.x, y: snap(held.y + dy) - held.y }
+		: { x: dx, y: dy };
 }
 
 export function resized<T extends Annotation>(

@@ -18,11 +18,19 @@ import type { Rect } from "./placement.ts";
 import {
 	areaOf,
 	belongsTo,
+	centreOf,
+	clearance,
 	clearMove,
 	framedArea,
 	growsApart,
+	inside,
+	near,
+	spacedFrom,
+	spacedResize,
 	unframed,
 } from "./placement.ts";
+import { rectOf } from "./regions.ts";
+import { standing } from "./spacing.ts";
 import { board } from "./state.ts";
 
 type Passenger = {
@@ -107,7 +115,9 @@ export function cancelLoad(load: Load): void {
 	if (load.notes.length > 0) save(load.notes);
 }
 
-type Around = { own: Rect[]; others: Rect[] };
+type Home = { region: Rect; frame: Rect };
+
+type Around = { own: Rect[]; others: Rect[]; homes: Home[] };
 
 function projectsAround(key: NodeKey): Around {
 	const current = board.peek();
@@ -116,7 +126,7 @@ function projectsAround(key: NodeKey): Around {
 		? current?.subagents.find((agent) => agent.id === id)?.sessionId
 		: id;
 	const session = current?.sessions.find((s) => s.id === sessionId);
-	if (!session) return { own: [], others: [] };
+	if (!session) return { own: [], others: [], homes: [] };
 	const mine = (group: Group) =>
 		group.region
 			? belongsTo(group.region, session.cwd)
@@ -127,37 +137,114 @@ function projectsAround(key: NodeKey): Around {
 			.filter((group) => mine(group) && !group.region)
 			.map((group) => unframed(group.frame)),
 		others: all.filter((group) => !mine(group)).map((group) => group.frame),
+		homes: all.flatMap((group) =>
+			group.region && mine(group)
+				? [{ region: rectOf(group.region), frame: group.frame }]
+				: [],
+		),
 	};
+}
+
+/** A card joins a region of its own by its centre, or keeps a cell from it. */
+function settlesBy(root: Rect, rects: readonly Rect[], homes: readonly Home[]) {
+	return homes.every(
+		(home) =>
+			inside(home.region, centreOf(root)) ||
+			rects.every((rect) => !near(rect, home.frame, clearance)),
+	);
 }
 
 type Carrying = {
 	key: NodeKey;
 	origin: Point;
+	root: Rect;
 	load: Load;
+	rects: Rect[];
 	framed: Rect[];
 	area: Rect;
 	around: Around;
+	standing: Rect[];
 	by: Point;
 };
 
 let carrying: Carrying | null = null;
 
+type Resizing = { key: NodeKey; last: Rect; fits: (rect: Rect) => boolean };
+
+let resizing: Resizing | null = null;
+
+function startResizing(key: NodeKey): Resizing | null {
+	const node = arrangement.peek()?.nodes.get(key);
+	if (!node) return null;
+	const loose = standing({ nodes: [key] });
+	const { others } = projectsAround(key);
+	return {
+		key,
+		last: { x: node.x, y: node.y, w: node.w, h: node.h },
+		fits: (rect) =>
+			spacedFrom(rect, loose) &&
+			others.every((frame) => !near(framedArea(rect), frame, clearance)),
+	};
+}
+
+/** A card grows only as far as leaves a grid cell around it. */
+function resizeCard(gesture: Arranging): void {
+	if (gesture.phase === "cancel") {
+		resizing = null;
+		arrangeNode(gesture);
+		return;
+	}
+	if (resizing?.key !== gesture.key) resizing = startResizing(gesture.key);
+	const current = resizing;
+	if (!current) {
+		arrangeNode(gesture);
+		return;
+	}
+	current.last = spacedResize(gesture.rect, current.last, current.fits);
+	if (gesture.phase === "drop") resizing = null;
+	arrangeNode({ ...gesture, rect: current.last });
+}
+
 function startCarrying(key: NodeKey): Carrying | null {
 	const load = loadOf([key]);
 	const root = load.nodes.find((passenger) => passenger.key === key);
 	if (!root) return null;
+	const rects = footprintOf(load);
 	return {
 		key,
 		origin: { x: root.rect.x, y: root.rect.y },
+		root: root.rect,
 		load,
-		framed: footprintOf(load).map(framedArea),
-		area: areaOf(footprintOf(load)),
+		rects,
+		framed: rects.map(framedArea),
+		area: areaOf(rects),
 		around: projectsAround(key),
+		standing: standing({
+			nodes: load.nodes.map((passenger) => passenger.key),
+			annotations: load.notes.map((note) => note.id),
+		}),
 		by: { x: 0, y: 0 },
 	};
 }
 
+function fitsBy(carried: Carrying, by: Point): boolean {
+	const shift = (rect: Rect) => ({
+		...rect,
+		x: rect.x + by.x,
+		y: rect.y + by.y,
+	});
+	const rects = carried.rects.map(shift);
+	return (
+		rects.every((rect) => spacedFrom(rect, carried.standing)) &&
+		settlesBy(shift(carried.root), rects, carried.around.homes)
+	);
+}
+
 export function arrangeCard(gesture: Arranging): void {
+	if (gesture.mode === "resize") {
+		resizeCard(gesture);
+		return;
+	}
 	if (gesture.mode === "move" && gesture.phase === "move")
 		if (carrying?.key !== gesture.key) carrying = startCarrying(gesture.key);
 	const carried =
@@ -185,7 +272,7 @@ export function arrangeCard(gesture: Arranging): void {
 				{ ...area, x: area.x + by.x, y: area.y + by.y },
 				around.own,
 				around.others,
-			),
+			) && fitsBy(carried, by),
 	);
 	if (gesture.phase === "move") {
 		previewLoad(carried.load, carried.by);

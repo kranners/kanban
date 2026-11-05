@@ -1,7 +1,7 @@
 import { batch, effect } from "@preact/signals";
-import type { Annotation, Point } from "../shared/types.ts";
+import type { Annotation, Point, Region } from "../shared/types.ts";
 import { current as shownAnnotations } from "./annotations.ts";
-import { groups, savedPlacement } from "./arrangement.ts";
+import { arrangement, groups, savedPlacement } from "./arrangement.ts";
 import { view } from "./Canvas.tsx";
 import type { Load } from "./carrying.ts";
 import {
@@ -14,7 +14,7 @@ import {
 import { snap } from "./grid.ts";
 import type { Group } from "./groups.ts";
 import type { Rect } from "./placement.ts";
-import { clearMove } from "./placement.ts";
+import { belongsTo, clearMove, near, spacedFrom } from "./placement.ts";
 import { cancelRegion, commitRegion, previewRegion } from "./regionState.ts";
 import type { RegionHandle } from "./regions.ts";
 import {
@@ -25,7 +25,9 @@ import {
 	resizedClear,
 	storableRegion,
 } from "./regions.ts";
+import { standing } from "./spacing.ts";
 import { quickPrompt } from "./spawns.ts";
+import { board } from "./state.ts";
 
 const dragThreshold = 4;
 const settleMs = 600;
@@ -42,6 +44,9 @@ type Drag = {
 	by: Point;
 	load: Load;
 	moving: Rect[];
+	standing: Rect[];
+	outsiders: Rect[];
+	joinable: Rect[];
 	moved: boolean;
 };
 
@@ -75,6 +80,23 @@ function notesOf(project: Group): Annotation[] {
 	);
 }
 
+/** Cards on the board of sessions outside a region's directory. */
+function foreignCards(region: Region): Set<Rect> {
+	const current = board.peek();
+	const cwds = new Map<string, string>();
+	for (const s of current?.sessions ?? []) cwds.set(s.id, s.cwd);
+	const owner = new Map<string, string>();
+	for (const a of current?.subagents ?? []) owner.set(a.id, a.sessionId);
+	const foreign = new Set<Rect>();
+	for (const node of arrangement.peek()?.nodes.values() ?? []) {
+		const id =
+			node.ref.kind === "session" ? node.ref.id : owner.get(node.ref.id);
+		const cwd = id === undefined ? undefined : cwds.get(id);
+		if (cwd === undefined || !belongsTo(region, cwd)) foreign.add(node);
+	}
+	return foreign;
+}
+
 function beginDrag(
 	event: PointerEvent,
 	project: Group,
@@ -87,6 +109,13 @@ function beginDrag(
 		handle === "move"
 			? loadOf(project.members, notesOf(project))
 			: { nodes: [], notes: [] };
+	const notes = notesOf(project);
+	const loose = standing({
+		nodes: [...project.members, ...load.nodes.map((p) => p.key)],
+		annotations: [...notes, ...load.notes].map((note) => note.id),
+	}).filter((rect) => !near(project.frame, rect, 0));
+	const region = project.region;
+	const foreign = region ? foreignCards(region) : new Set<Rect>();
 	drag = {
 		pointerId: event.pointerId,
 		grip: event.currentTarget as Element,
@@ -102,6 +131,9 @@ function beginDrag(
 		by: { x: 0, y: 0 },
 		load,
 		moving: [project.frame, ...footprintOf(load)],
+		standing: loose,
+		outsiders: loose.filter((rect) => foreign.has(rect)),
+		joinable: loose.filter((rect) => !foreign.has(rect)),
 		moved: false,
 	};
 	follow(true);
@@ -111,11 +143,17 @@ function movedBy(current: Drag, dx: number, dy: number): Point {
 	const wanted = current.project.region
 		? arrangedRegion(current.origin, "move", dx, dy)
 		: { x: current.origin.x + snap(dx), y: current.origin.y + snap(dy) };
+	const { frame } = current.project;
 	return clearMove(
 		current.moving,
 		current.others,
 		{ x: wanted.x - current.origin.x, y: wanted.y - current.origin.y },
 		current.by,
+		(by) =>
+			spacedFrom(
+				{ ...frame, x: frame.x + by.x, y: frame.y + by.y },
+				current.standing,
+			),
 	);
 }
 
@@ -141,7 +179,8 @@ function continueDrag(event: PointerEvent): void {
 			drag.origin,
 			arrangedRegion(drag.origin, drag.handle, dx / k, dy / k),
 			drag.handle,
-			drag.others,
+			[...drag.others, ...drag.outsiders],
+			drag.joinable,
 		);
 	}
 	if (drag.project.region) previewRegion(drag.project.region.id, drag.rect);

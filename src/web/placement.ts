@@ -26,7 +26,8 @@ export const groupLabelSpace = gridSize + 8;
 /** Room above a frame's cards: its label bar, then one grid cell, as below. */
 export const groupHeadroom = groupLabelSpace + groupPadding;
 
-const clearance = gridSize;
+/** The gap every card, note, sticker and project frame keeps from the next. */
+export const clearance = gridSize;
 const searchRings = 64;
 
 type Offset = { session: NodeKey; dx: number; dy: number };
@@ -206,6 +207,64 @@ export function clearMove(
 		}) &&
 			allowed(by));
 	return nearestFree(wanted, fits) ?? fallback;
+}
+
+/** Whether `inner` lies wholly within `outer`. */
+export function holds(outer: Rect, inner: Rect): boolean {
+	return (
+		inner.x >= outer.x &&
+		inner.y >= outer.y &&
+		inner.x + inner.w <= outer.x + outer.w &&
+		inner.y + inner.h <= outer.y + outer.h
+	);
+}
+
+/**
+ * Whether a rect keeps a grid cell from every loose rect, and from every
+ * frame unless it sits inside that frame's padding, below its label bar.
+ */
+export function spacedFrom(
+	rect: Rect,
+	loose: readonly Rect[],
+	frames: readonly Rect[] = [],
+): boolean {
+	return (
+		loose.every((other) => !near(rect, other, clearance)) &&
+		frames.every(
+			(frame) => !near(rect, frame, clearance) || holds(unframed(frame), rect),
+		)
+	);
+}
+
+/** The step nearest `wanted` that leaves every rect fitting, else `fallback`. */
+export function spacedMove(
+	rects: readonly Rect[],
+	wanted: Point,
+	fallback: Point,
+	fits: (rect: Rect) => boolean,
+): Point {
+	const fitsBy = (by: Point) =>
+		(by.x === 0 && by.y === 0) ||
+		rects.every((rect) =>
+			fits({ ...rect, x: rect.x + by.x, y: rect.y + by.y }),
+		);
+	return nearestFree(wanted, fitsBy) ?? fallback;
+}
+
+/**
+ * The wanted size if it fits, else the wanted size along whichever axis
+ * still fits (when the axes may change apart), else the last size that did.
+ */
+export function spacedResize<T extends Rect>(
+	wanted: T,
+	last: T,
+	fits: (rect: T) => boolean,
+	apart = true,
+): T {
+	const tries = apart
+		? [wanted, { ...wanted, h: last.h }, { ...wanted, w: last.w }]
+		: [wanted];
+	return tries.find(fits) ?? last;
 }
 
 export function unframed(frame: Rect): Rect {

@@ -21,7 +21,11 @@ import {
 	nearestFree,
 	seedsOf,
 	sessionSize,
+	spacedFrom,
+	spacedMove,
+	spacedResize,
 	subagentSize,
+	unframed,
 } from "./placement.ts";
 
 const _stage = { width: 1600, height: 900 };
@@ -549,4 +553,52 @@ test("a card in its own region still gives way to a card dropped on it", () => {
 	assertApart(
 		arrange(b, saved, seedsOf(b), new Map(), [], [home]).nodes.values(),
 	);
+});
+
+test("a rect keeps a grid cell from loose rects, or sits inside a frame's padding", () => {
+	const card = { x: 0, y: 0, w: 480, h: 336 };
+	const note = (x: number) => ({ x, y: 0, w: 192, h: 192 });
+	assert.ok(spacedFrom(note(480 + gridSize), [card]));
+	assert.ok(!spacedFrom(note(480 + gridSize - 1), [card]));
+	assert.ok(!spacedFrom(note(480), [card]), "touching");
+	assert.ok(!spacedFrom(note(200), [card]), "overlapping");
+
+	const frame = { x: 0, y: 0, w: 1200, h: 960 };
+	const inner = unframed(frame);
+	const tucked = { x: inner.x, y: inner.y, w: 192, h: 192 };
+	assert.ok(spacedFrom(tucked, [], [frame]));
+	assert.ok(
+		!spacedFrom({ ...tucked, y: inner.y - 1 }, [], [frame]),
+		"under the label",
+	);
+	assert.ok(!spacedFrom({ ...tucked, x: -100 }, [], [frame]), "on the edge");
+	assert.ok(spacedFrom({ ...tucked, x: -192 - gridSize }, [], [frame]));
+});
+
+test("a move steps to the nearest spot a grid cell clear of what stands there", () => {
+	const card = { x: 0, y: 0, w: 480, h: 336 };
+	const note = { x: 1000, y: 0, w: 192, h: 192 };
+	const fits = (rect: { x: number; y: number; w: number; h: number }) =>
+		spacedFrom(rect, [card]);
+	const by = spacedMove([note], { x: -600, y: 0 }, { x: 0, y: 0 }, fits);
+	const moved = { ...note, x: note.x + by.x, y: note.y + by.y };
+	assert.ok(fits(moved), JSON.stringify(moved));
+	assert.deepEqual(by, { x: -600 + 5 * gridSize, y: 0 }, "stops beside it");
+	assert.deepEqual(spacedMove([note], { x: -50, y: 0 }, { x: 0, y: 0 }, fits), {
+		x: -50,
+		y: 0,
+	});
+});
+
+test("a resize stops at the last size that kept a grid cell clear", () => {
+	const wall = { x: 600, y: 0, w: 192, h: 192 };
+	const fits = (rect: { x: number; y: number; w: number; h: number }) =>
+		spacedFrom(rect, [wall]);
+	const last = { x: 0, y: 300, w: 480, h: 336 };
+	const wider = { ...last, w: 960 };
+	assert.deepEqual(spacedResize(wider, last, fits), wider, "below the wall");
+	const card = { x: 0, y: 0, w: 480, h: 192 };
+	const grown = { ...card, w: 960, h: 480 };
+	assert.deepEqual(spacedResize(grown, card, fits), { ...card, h: 480 });
+	assert.deepEqual(spacedResize(grown, card, fits, false), card);
 });

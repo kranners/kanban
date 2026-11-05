@@ -437,3 +437,19 @@ test("cards keep one grid cell below a region's label bar, as at its bottom", ()
 	assert.ok(below(grown, above) >= groupPadding, `held ${below(grown, above)}`);
 	assert.ok(Number.isInteger(grown.y / gridSize));
 });
+
+test("a region's edge stops short of a note unless it grows to hold it", () => {
+	const origin = { x: 0, y: 0, w: 480, h: 480 };
+	const note = { x: 600, y: 96, w: 192, h: 192 };
+	assert.deepEqual(
+		resizedClear(origin, { ...origin, w: 600 }, "e", [], [note]),
+		{ ...origin, w: 600 - gridSize },
+	);
+	const past = { ...origin, w: 600 + 192 + groupPadding };
+	assert.deepEqual(resizedClear(origin, past, "e", [], [note]), past);
+	assert.deepEqual(
+		resizedClear(origin, past, "e", [note]),
+		{ ...origin, w: 600 - gridSize },
+		"another project's card always stops it",
+	);
+});
