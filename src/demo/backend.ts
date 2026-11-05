@@ -17,6 +17,11 @@ import {
 } from "../shared/docPaths.ts";
 import type { ProjectIgnores } from "../shared/ignores.ts";
 import {
+	applyNotificationUpdate,
+	type BoardNotification,
+	type NotificationUpdate,
+} from "../shared/notifications.ts";
+import {
 	outstandingStates,
 	subagentCountsBySession,
 } from "../shared/subagents.ts";
@@ -197,6 +202,7 @@ function screenOf(items: readonly ConversationItem[], newline: string): string {
 export function createBackend(scenario: Scenario): Backend {
 	let world: World = scenario.world(Date.now());
 	let ignores: ProjectIgnores = {};
+	let notifications: BoardNotification[] = [];
 	let conversations = new Map<string, Conversation>();
 	const feeds = new Set<Peer>();
 	const timers = new Set<ReturnType<typeof setTimeout>>();
@@ -1141,6 +1147,21 @@ export function createBackend(scenario: Scenario): Backend {
 						? { ...rest, [update.cwd]: update.until }
 						: rest;
 				broadcast({ type: "ignores", ignores });
+				return empty(204);
+			},
+		],
+		[
+			"POST",
+			/^\/api\/notifications$/,
+			(_, body) => {
+				const update = body as Partial<NotificationUpdate> | null;
+				if (!Array.isArray(update?.ids) || !update.action)
+					return json(400, { ok: false, error: "action and ids are required" });
+				notifications = applyNotificationUpdate(notifications, {
+					action: update.action,
+					ids: update.ids,
+				});
+				broadcast({ type: "notifications", notifications });
 				return empty(204);
 			},
 		],

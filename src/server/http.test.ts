@@ -129,6 +129,12 @@ describe("matchRoute", () => {
 		});
 		assert.deepEqual(route("PUT", "/api/colours"), { kind: "update-colour" });
 		assert.deepEqual(route("PUT", "/api/ignores"), { kind: "update-ignore" });
+		assert.deepEqual(route("POST", "/api/notifications"), {
+			kind: "update-notifications",
+		});
+		assert.deepEqual(route("GET", "/api/notifications"), {
+			kind: "method-not-allowed",
+		});
 		assert.deepEqual(route("GET", "/api/colours"), {
 			kind: "method-not-allowed",
 		});

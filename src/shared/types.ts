@@ -1,5 +1,6 @@
 import type { RegionColours } from "./colours.ts";
 import type { ProjectIgnores } from "./ignores.ts";
+import type { BoardNotification } from "./notifications.ts";
 import type { RunnerView } from "./runners.ts";
 import type { SubagentCounts, SubagentState } from "./subagents.ts";
 
@@ -505,6 +506,7 @@ export type BoardFeed =
 	| { type: "colours"; colours: RegionColours }
 	| { type: "last-runs"; lastRuns: LastRuns }
 	| { type: "ignores"; ignores: ProjectIgnores }
+	| { type: "notifications"; notifications: BoardNotification[] }
 	| { type: "regions"; regions: Region[] }
 	| { type: "exit"; sessionId: string; result: ExitResult }
 	| { type: "report"; sessionId: string; result: ReportResult }

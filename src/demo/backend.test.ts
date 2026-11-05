@@ -232,6 +232,12 @@ const probes: Record<string, Probe> = {
 			until: Date.now() + 60_000,
 		});
 	},
+	"/api/notifications": async (backend) => {
+		await answers(backend, "POST", "/api/notifications", {
+			action: "read",
+			ids: ["n1"],
+		});
+	},
 	"/api/regions": async (backend) => {
 		await region(backend);
 	},

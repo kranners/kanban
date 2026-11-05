@@ -28,6 +28,7 @@ import { held } from "./exits.ts";
 import { optionKey } from "./focus/platform.ts";
 import { Mark } from "./Mark.tsx";
 import { NextNeedingYou } from "./NeedsYou.tsx";
+import { NotificationsMenu } from "./Notifications.tsx";
 import { PermissionSurveyDialog } from "./PermissionSurvey.tsx";
 import { connection, newSessionOpen } from "./state.ts";
 import { cycleTheme, theme } from "./theme.ts";
@@ -251,6 +252,7 @@ export function TopBar() {
 				<ReportButton />
 				<AnnounceButton />
 				<PermissionSurveyButton />
+				<NotificationsMenu />
 				<NotifyToggle />
 				<button
 					type="button"

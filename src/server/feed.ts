@@ -1,5 +1,6 @@
 import type { RegionColours } from "../shared/colours.ts";
 import type { ProjectIgnores } from "../shared/ignores.ts";
+import type { BoardNotification } from "../shared/notifications.ts";
 import type { RunnerView } from "../shared/runners.ts";
 import type {
 	Annotations,
@@ -33,6 +34,7 @@ export type Feed = {
 	colours(colours: RegionColours): void;
 	lastRuns(lastRuns: LastRuns): void;
 	ignores(ignores: ProjectIgnores): void;
+	notifications(notifications: BoardNotification[]): void;
 	regions(regions: Region[]): void;
 	exit(sessionId: string, result: ExitResult): void;
 	report(sessionId: string, result: ReportResult): void;
@@ -64,6 +66,7 @@ export type FeedOptions = {
 	butler?: () => ButlerPresence;
 	runners?: () => RunnerView[];
 	lastRuns?: () => LastRuns;
+	notifications?: () => BoardNotification[];
 };
 
 const socketOpen = 1;
@@ -84,6 +87,7 @@ export const createFeed = ({
 	butler,
 	runners,
 	lastRuns,
+	notifications,
 }: FeedOptions): Feed => {
 	const clients = new Set<FeedSocket>();
 
@@ -112,6 +116,11 @@ export const createFeed = ({
 			send(socket, { type: "colours", colours: colours() });
 			if (lastRuns) send(socket, { type: "last-runs", lastRuns: lastRuns() });
 			send(socket, { type: "ignores", ignores: ignores() });
+			if (notifications)
+				send(socket, {
+					type: "notifications",
+					notifications: notifications(),
+				});
 			send(socket, { type: "regions", regions: regions() });
 			send(socket, { type: "comments", comments: comments() });
 			send(socket, { type: "usage", usage: usage() });
@@ -129,6 +138,8 @@ export const createFeed = ({
 		colours: (next) => broadcast({ type: "colours", colours: next }),
 		lastRuns: (next) => broadcast({ type: "last-runs", lastRuns: next }),
 		ignores: (next) => broadcast({ type: "ignores", ignores: next }),
+		notifications: (next) =>
+			broadcast({ type: "notifications", notifications: next }),
 		regions: (next) => broadcast({ type: "regions", regions: next }),
 		exit: (sessionId, result) => broadcast({ type: "exit", sessionId, result }),
 		report: (sessionId, result) =>

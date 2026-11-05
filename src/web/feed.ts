@@ -7,6 +7,7 @@ import { docIndex, docStores } from "./docState.ts";
 import { receiveExit } from "./exits.ts";
 import { receiveIgnores } from "./ignoreState.ts";
 import { lastRuns } from "./lastRuns.ts";
+import { receiveNotifications } from "./notificationState.ts";
 import { regions } from "./regionState.ts";
 import { relations } from "./relationState.ts";
 import {
@@ -63,6 +64,10 @@ function receive(frame: BoardFeed): void {
 	}
 	if (frame.type === "ignores") {
 		receiveIgnores(frame.ignores);
+		return;
+	}
+	if (frame.type === "notifications") {
+		receiveNotifications(frame.notifications);
 		return;
 	}
 	if (frame.type === "regions") {

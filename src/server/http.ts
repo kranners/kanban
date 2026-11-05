@@ -72,6 +72,10 @@ import type { LastRunStore } from "./lastRuns.ts";
 import { boardKeys, type LayoutStore, parseLayoutUpdate } from "./layout.ts";
 import { fromLoopback } from "./loopback.ts";
 import type { MirrorHub } from "./mirror.ts";
+import {
+	type NotificationStore,
+	parseNotificationUpdate,
+} from "./notifications.ts";
 import { type PeerHook, parsePeerHookInput } from "./peers.ts";
 import { type Permissions, parseGrants } from "./permissions.ts";
 import {
@@ -119,6 +123,8 @@ export type ServerDeps = {
 	/** Where each project's last board-started session ran. */
 	lastRuns?: LastRunStore;
 	ignores: IgnoreStore;
+	/** The notifications menu: alerts kept until they are dismissed. */
+	notifications?: NotificationStore;
 	regions: RegionStore;
 	relations: RelationStore;
 	docs: DocsHttp;
@@ -178,6 +184,7 @@ export type Route =
 	| { kind: "delete-annotation"; id: string }
 	| { kind: "update-colour" }
 	| { kind: "update-ignore" }
+	| { kind: "update-notifications" }
 	| { kind: "create-region" }
 	| { kind: "update-region"; regionId: string }
 	| { kind: "delete-region"; regionId: string }
@@ -382,6 +389,11 @@ export const matchRoute = (method: string, url: URL): Route => {
 	if (path === "/api/ignores") {
 		return method === "PUT"
 			? { kind: "update-ignore" }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/notifications") {
+		return method === "POST"
+			? { kind: "update-notifications" }
 			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api/regions") {
@@ -1073,6 +1085,22 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		res.end();
 	};
 
+	const updateNotifications = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+	) => {
+		if (!deps.notifications) return sendError(res, 404);
+		const read = await readBody(req, res);
+		if (!read) return;
+		const update = parseNotificationUpdate(read.body);
+		if ("error" in update) {
+			return sendJson(res, 400, { ok: false, error: update.error });
+		}
+		deps.notifications.update(update);
+		res.writeHead(204, { "cache-control": "no-store" });
+		res.end();
+	};
+
 	const createRegion = async (req: IncomingMessage, res: ServerResponse) => {
 		const read = await readBody(req, res);
 		if (!read) return;
@@ -1536,6 +1564,8 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return yours(() => updateColour(req, res));
 			case "update-ignore":
 				return updateIgnore(req, res);
+			case "update-notifications":
+				return updateNotifications(req, res);
 			case "create-region":
 				return yours(() => createRegion(req, res));
 			case "update-region":

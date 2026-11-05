@@ -91,6 +91,7 @@ import { createLastRunStore, loadLastRuns } from "./lastRuns.ts";
 import { createLayoutStore, loadLayout } from "./layout.ts";
 import { listenAll } from "./listen.ts";
 import { createMirrorHub } from "./mirror.ts";
+import { createNotificationStore, loadNotifications } from "./notifications.ts";
 import { createPeerHook, peerHookSettings } from "./peers.ts";
 import { createPermissions } from "./permissions.ts";
 import { createPromptSender } from "./prompts.ts";
@@ -171,6 +172,22 @@ const ignores = createIgnoreStore({
 	initial: await loadIgnores(ignoresFile),
 	now: Date.now,
 	onChange: (next) => feed?.ignores(next),
+});
+const notificationsFile = join(config.stateDir, "notifications.json");
+const notifications = createNotificationStore({
+	file: notificationsFile,
+	initial: await loadNotifications(notificationsFile),
+	now: Date.now,
+	ignored: (session) => {
+		const at = Date.now();
+		return Object.entries(ignores.current()).some(
+			([root, until]) =>
+				until > at &&
+				(session.cwd === root ||
+					session.cwd.startsWith(`${root.replace(/\/+$/, "")}/`)),
+		);
+	},
+	onChange: (next) => feed?.notifications(next),
 });
 const regionsFile = join(config.stateDir, "regions.json");
 const regions = createRegionStore({
@@ -373,6 +390,7 @@ const source = startBoard({
 	onChange: (board) => {
 		layout.observe(board);
 		relations.observe(board);
+		notifications.observe(board);
 		feed?.board(board);
 		syncCmuxOnNewPids(board);
 	},
@@ -381,6 +399,7 @@ void syncCmux();
 const cmuxPoll = setInterval(syncCmux, cmuxSyncMs);
 layout.observe(source.board());
 relations.observe(source.board());
+notifications.observe(source.board());
 const agentDir = join(config.stateDir, "agent");
 await mkdir(agentDir, { recursive: true });
 await writeFile(join(agentDir, agentMarker), "");
@@ -403,6 +422,7 @@ feed = createFeed({
 	colours: colours.current,
 	lastRuns: lastRuns.current,
 	ignores: ignores.current,
+	notifications: notifications.current,
 	regions: regions.current,
 	comments: comments.current,
 	usage: currentUsage,
@@ -629,6 +649,7 @@ const server = createKanbanServer({
 	...undoable,
 	lastRuns,
 	ignores,
+	notifications,
 	undo,
 	docs: createDocsHttp({ files: docs, stores: docStores }),
 	comments,
