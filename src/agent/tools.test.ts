@@ -70,6 +70,42 @@ describe("parseToolCall", () => {
 			"force must be true or false",
 		);
 		assert.equal(error("board_snapshot", []), "Arguments must be an object");
+		assert.deepEqual(
+			parseToolCall("finish_session", {
+				session: "a",
+				force: true,
+				ownerMessage: "1234567890123456789",
+			}),
+			{
+				tool: "finish_session",
+				session: "a",
+				force: true,
+				ownerMessage: "1234567890123456789",
+			},
+		);
+		assert.equal(
+			error("finish_session", {
+				session: "a",
+				force: true,
+				ownerMessage: "12345",
+			}),
+			"ownerMessage must be a Discord message id",
+		);
+		assert.equal(
+			error("finish_session", {
+				session: "a",
+				force: true,
+				ownerMessage: 123456789012345,
+			}),
+			"ownerMessage must be a Discord message id",
+		);
+		assert.equal(
+			error("finish_session", {
+				session: "a",
+				ownerMessage: "1234567890123456789",
+			}),
+			"ownerMessage goes with force",
+		);
 	});
 
 	it("checks types, ranges and pairs", () => {

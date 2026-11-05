@@ -12,6 +12,7 @@ import type { AuditEvent } from "./audit.ts";
 import { createBoardTools } from "./boardTools.ts";
 import { createColourStore } from "./colours.ts";
 import { createCommentStore } from "./comments.ts";
+import { TranscriptUnreadable } from "./ingest/tail.ts";
 import { createLayoutStore } from "./layout.ts";
 import {
 	blockedReason,
@@ -57,7 +58,7 @@ const board: Board = {
 const setup = async (shown: Board = board) => {
 	const dir = await mkdtemp(join(tmpdir(), "kanban-tools-"));
 	const events: AuditEvent[] = [];
-	const exits: [string, boolean, string | null][] = [];
+	const exits: [string, boolean, string | null, string?][] = [];
 	const layout = createLayoutStore({
 		file: join(dir, "l.json"),
 		initial: {},
@@ -90,9 +91,14 @@ const setup = async (shown: Board = board) => {
 	const tools = createBoardTools({
 		source: {
 			board: () => shown,
-			transcript: async () => [
-				{ at: 0, role: "assistant", text: "Fixed the bug" },
-			],
+			transcript: async (id) => {
+				if (id === "eeeeeeee-5") {
+					throw new TranscriptUnreadable("Cannot create a string longer", [
+						{ at: 0, role: "assistant", text: "Got this far" },
+					]);
+				}
+				return [{ at: 0, role: "assistant", text: "Fixed the bug" }];
+			},
 			transcriptPath: () => null,
 		},
 		layout,
@@ -104,13 +110,17 @@ const setup = async (shown: Board = board) => {
 			request.runsOn === "cloud"
 				? { ok: true, id: "session_01cloud" }
 				: { ok: true, short: "feedbeef" },
-		exit: (s, force, identity) => {
-			exits.push([s.id, force, identity]);
-			return Promise.resolve({
-				ok: true,
-				exited: false,
-				reason: "Uncommitted work",
-			});
+		exit: (s, force, identity, ownerMessage) => {
+			exits.push(
+				ownerMessage
+					? [s.id, force, identity, ownerMessage]
+					: [s.id, force, identity],
+			);
+			return Promise.resolve(
+				force
+					? { ok: true, exited: true }
+					: { ok: true, exited: false, reason: "Uncommitted work" },
+			);
 		},
 		limited: (s) => s.doing?.startsWith("You've hit") ?? false,
 		ask: async () => ({ ok: true, answer: "12" }),
@@ -421,6 +431,58 @@ describe("board tools", () => {
 			["cccccccc-3", true, "butler"],
 			["bbbbbbbb-2", true, "butler"],
 		]);
+	});
+
+	it("force-finishes any session that is not busy on Aaron's message", async () => {
+		const { tools, exits } = await setup({
+			...board,
+			sessions: [
+				session("aaaaaaaa-1", { activity: "needs-you" }),
+				session("bbbbbbbb-2", { activity: "working" }),
+				session("cccccccc-3", { activity: "watching" }),
+				session("dddddddd-4", { activity: "done" }),
+			],
+		});
+		const force = (ref: string) =>
+			tools("t", {
+				tool: "finish_session",
+				session: ref,
+				force: true,
+				ownerMessage: "1234567890123456789",
+			});
+		assert.deepEqual(await force("aaaaaaa0"), {
+			ok: true,
+			text: "Force-finished acme-aaa on Aaron's message 1234567890123456789",
+		});
+		assert.ok((await force("ddddddd0")).ok);
+		assert.deepEqual(await force("bbbbbbb0"), {
+			ok: false,
+			error:
+				"acme-bbb is working right now, so it cannot be force-finished; wait until it stops",
+		});
+		assert.equal((await force("ccccccc0")).ok, false);
+		assert.deepEqual(exits, [
+			["aaaaaaaa-1", true, "butler", "1234567890123456789"],
+			["dddddddd-4", true, "butler", "1234567890123456789"],
+		]);
+	});
+
+	it("reads what it can of a transcript too large to read whole", async () => {
+		const { tools } = await setup({
+			...board,
+			sessions: [...board.sessions, session("eeeeeeee-5")],
+		});
+		const read = await tools("t", {
+			tool: "read_transcript",
+			session: "eeeeeee0",
+			limit: 40,
+		});
+		assert.ok(read.ok);
+		assert.match(
+			read.text,
+			/^acme-eee's transcript was too large to read whole/,
+		);
+		assert.match(read.text, /Read 1 entry from acme-eee\n.*Got this far/);
 	});
 
 	it("draws a new region clear of the projects already on the board", async () => {

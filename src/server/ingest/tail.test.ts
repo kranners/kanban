@@ -59,3 +59,27 @@ test("survives a missing file and malformed lines", async () => {
 		["ok"],
 	);
 });
+
+test("skips a record over the cap and reads the rest in small chunks", async () => {
+	const path = join(dir, "d.jsonl");
+	writeFileSync(path, line("before") + line("x".repeat(400)) + line("after"));
+	const limits = { cap: 200, chunkBytes: 17 };
+	const tail = createTail(path);
+	assert.equal(advanceTail(tail, resolve, limits), true);
+	assert.deepEqual(
+		tail.facts.entries.map((entry) => entry.text),
+		["before", "after"],
+	);
+	assert.equal(tail.lines.skipped, 1);
+	appendFileSync(path, line("later"));
+	advanceTail(tail, resolve, limits);
+	assert.deepEqual(
+		tail.facts.entries.map((entry) => entry.text),
+		["before", "after", "later"],
+	);
+	const facts = await readFacts(path, resolve, limits);
+	assert.deepEqual(
+		facts.entries.map((entry) => entry.text),
+		["before", "after", "later"],
+	);
+});

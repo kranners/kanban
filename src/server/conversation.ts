@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { closeSync, openSync, readSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import type {
 	BackgroundTask,
 	ConversationItem,
@@ -17,12 +17,19 @@ import {
 	type Json,
 	parseJson,
 } from "./ingest/json.ts";
+import {
+	createLineState,
+	type LineState,
+	readChunks,
+	splitLines,
+} from "./ingest/lines.ts";
 
 export type ConversationLog = {
 	path: string;
 	epoch: string;
 	offset: number;
-	leftover: Buffer;
+	/** The partial line the last read ended in, and how many records were too large to read. */
+	lines: LineState;
 	items: ConversationItem[];
 	rev: number;
 	tools: Map<string, number>;
@@ -41,7 +48,6 @@ type Draft = ConversationItem extends infer Item
 const textLimit = 40_000;
 const resultLimit = 12_000;
 const inputLimit = 20_000;
-const newline = 0x0a;
 const interruptedPattern = /^\[Request interrupted by user( for tool use)?\]/;
 const tagPattern = (tag: string) => new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`);
 
@@ -50,7 +56,7 @@ export function createLog(path: string): ConversationLog {
 		path,
 		epoch: randomUUID(),
 		offset: 0,
-		leftover: Buffer.alloc(0),
+		lines: createLineState(),
 		items: [],
 		rev: 0,
 		tools: new Map(),
@@ -70,7 +76,10 @@ export function createLog(path: string): ConversationLog {
 	};
 }
 
-export function advanceLog(log: ConversationLog): boolean {
+export function advanceLog(
+	log: ConversationLog,
+	limits: { cap?: number; chunkBytes?: number } = {},
+): boolean {
 	let size: number;
 	try {
 		size = statSync(log.path).size;
@@ -79,26 +88,22 @@ export function advanceLog(log: ConversationLog): boolean {
 	}
 	if (size < log.offset) Object.assign(log, createLog(log.path));
 	if (size === log.offset) return false;
-	const chunk = Buffer.alloc(size - log.offset);
-	const fd = openSync(log.path, "r");
-	let read: number;
-	try {
-		read = readSync(fd, chunk, 0, chunk.length, log.offset);
-	} finally {
-		closeSync(fd);
-	}
-	log.offset += read;
-	const data = Buffer.concat([log.leftover, chunk.subarray(0, read)]);
-	const end = data.lastIndexOf(newline);
-	if (end === -1) {
-		log.leftover = data;
-		return false;
-	}
-	log.leftover = Buffer.from(data.subarray(end + 1));
 	const before = log.rev;
-	for (const line of data.toString("utf8", 0, end).split("\n")) {
-		if (line.trim() !== "") applyConversationRecord(log, parseJson(line));
-	}
+	readChunks(
+		log.path,
+		log.offset,
+		size,
+		(chunk) => {
+			splitLines(
+				log.lines,
+				chunk,
+				(line) => applyConversationRecord(log, parseJson(line)),
+				limits.cap,
+			);
+			log.offset += chunk.length;
+		},
+		limits.chunkBytes,
+	);
 	return log.rev !== before;
 }
 

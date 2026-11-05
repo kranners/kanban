@@ -33,6 +33,8 @@ export type AuditEvent =
 			kind: "interactive" | "background";
 			force: boolean;
 			identity: string | null;
+			/** The Discord message in which Aaron asked for this forced finish. */
+			ownerMessage?: string;
 			result: string;
 	  }
 	| {

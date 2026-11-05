@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Session } from "../shared/types.ts";
+import type { AuditEvent } from "./audit.ts";
 import {
+	createExitRunner,
 	type ExitDeps,
 	exitSession,
 	parseProcessInfo,
@@ -169,6 +171,26 @@ describe("exitSession", () => {
 			error: "no answer",
 		});
 		assert.equal(calls.length, 1);
+	});
+});
+
+describe("createExitRunner", () => {
+	it("audits the owner's message a forced finish was made on", async () => {
+		const events: AuditEvent[] = [];
+		const run = createExitRunner({
+			exit: async () => ({ ok: true, exited: true }),
+			audit: (event) => events.push(event),
+			announce: () => {},
+		});
+		await run(background, true, "butler", "1234567890123456789");
+		await run(background, false, "butler");
+		const [forced, asked] = events;
+		assert.equal(forced?.action, "session-exit");
+		assert.equal(
+			forced?.action === "session-exit" && forced.ownerMessage,
+			"1234567890123456789",
+		);
+		assert.equal("ownerMessage" in (asked ?? {}), false);
 	});
 });
 

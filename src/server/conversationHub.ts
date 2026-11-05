@@ -587,7 +587,12 @@ export const createConversationHub = (
 				log.path =
 					deps.transcriptPath({ kind: "session", id: sessionId }) ?? "";
 			}
-			advanceLog(log);
+			try {
+				advanceLog(log);
+			} catch {
+				// A transcript that cannot be read leaves the log as it was: the
+				// screen still shows and answers the session's prompt.
+			}
 		};
 
 		const broadcast = (frame: ConversationServerFrame) => {

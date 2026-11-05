@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	appendFileSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
@@ -510,6 +516,22 @@ describe("conversation log", () => {
 		advanceLog(log);
 		assert.notEqual(log.epoch, epoch);
 		assert.deepEqual(kinds(log.items), ["user"]);
+	});
+
+	it("skips a record over the cap and reads across small chunks", () => {
+		const path = join(dir, "huge.jsonl");
+		writeFileSync(
+			path,
+			line(user("one")) + line(user("x".repeat(500))) + line(user("two")),
+		);
+		const log = createLog(path);
+		assert.equal(advanceLog(log, { cap: 300, chunkBytes: 23 }), true);
+		assert.deepEqual(
+			log.items.map((item) => item.kind === "user" && item.text),
+			["one", "two"],
+		);
+		assert.equal(log.lines.skipped, 1);
+		assert.equal(log.offset, Buffer.byteLength(readFileSync(path)));
 	});
 
 	it("pages older items before an index", () => {

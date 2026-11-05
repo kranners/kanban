@@ -42,7 +42,13 @@ import {
 	settleSubagents,
 	workflowRunsOf,
 } from "./subagents.ts";
-import { advanceTail, createTail, readFacts, type Tail } from "./tail.ts";
+import {
+	advanceTail,
+	createTail,
+	readFacts,
+	type Tail,
+	TranscriptUnreadable,
+} from "./tail.ts";
 
 export type BoardHandle = {
 	board(): Board;
@@ -371,14 +377,31 @@ export function startBoard(opts: {
 			if (count === 0) return [];
 			const tail = tails.get(sessionId);
 			if (tail) {
-				advanceTail(tail, resolve);
+				try {
+					advanceTail(tail, resolve);
+				} catch (error) {
+					throw new TranscriptUnreadable(
+						(error as Error).message,
+						tail.facts.entries.slice(-count),
+					);
+				}
 				return tail.facts.entries.slice(-count);
 			}
 			const path =
 				cloudPaths.get(sessionId) ??
 				locateTranscript(claudeHome, sessionId, "");
 			if (!path) return [];
-			return (await readFacts(path, resolve)).entries.slice(-count);
+			try {
+				return (await readFacts(path, resolve)).entries.slice(-count);
+			} catch (error) {
+				if (error instanceof TranscriptUnreadable) {
+					throw new TranscriptUnreadable(
+						error.message,
+						error.entries.slice(-count),
+					);
+				}
+				throw error;
+			}
 		},
 		transcriptPath(node) {
 			if (node.kind === "subagent") return subagentPaths.get(node.id) ?? null;

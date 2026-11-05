@@ -34,6 +34,7 @@ export type ToolCall =
 			session: string;
 			force?: boolean;
 			duplicateOf?: string;
+			ownerMessage?: string;
 	  }
 	| {
 			tool: "start_session";
@@ -246,14 +247,20 @@ export const toolDefinitions: ToolDefinition[] = [
 	{
 		name: "finish_session",
 		description:
-			"End a session the way the board's exit button does: the session is asked whether it is safe to exit and only exits if it says so. force skips that question only for a session stopped on a Claude usage limit, which can't answer it; duplicateOf skips it for a session that duplicates another live session in the same folder. A forced background session is stopped and removed, its transcript kept.",
+			"End a session the way the board's exit button does: the session is asked whether it is safe to exit and only exits if it says so. force skips that question only for a session stopped on a Claude usage limit, which can't answer it, unless ownerMessage names the Discord message in which Aaron himself asked for it to end, when force skips it for any session that is not working or watching right now; duplicateOf skips it for a session that duplicates another live session in the same folder. A forced background session is stopped and removed, its transcript kept.",
 		inputSchema: object(
 			{
 				session: sessionRef,
 				force: {
 					type: "boolean",
 					description:
-						"Skip the readiness question; refused unless the session is stopped on a usage limit",
+						"Skip the readiness question; refused unless the session is stopped on a usage limit, or, with ownerMessage, unless it is working or watching",
+				},
+				ownerMessage: {
+					type: "string",
+					pattern: "^\\d{15,22}$",
+					description:
+						"With force, the id of Aaron's own Discord message asking for this session to end, which Butler's daemon checked; recorded in the exit's audit",
 				},
 				duplicateOf: {
 					...sessionRef,
@@ -394,6 +401,9 @@ export const isToolName = (name: string): name is ToolName =>
 class Invalid extends Error {}
 
 type Fields = Record<string, unknown>;
+
+/** A Discord message id, a snowflake: the message in which Aaron asked for a forced finish. */
+export const ownerMessagePattern = /^\d{15,22}$/;
 
 const fail = (message: string): never => {
 	throw new Invalid(message);
@@ -571,11 +581,22 @@ const readers: { [K in ToolName]: (fields: Fields) => ToolCall } = {
 		const duplicateOf = optional(fields, "duplicateOf", (f, k) =>
 			string(f, k, 128),
 		);
+		const ownerMessage = optional(fields, "ownerMessage", (f, k) => {
+			const value = f[k];
+			if (typeof value !== "string" || !ownerMessagePattern.test(value)) {
+				return fail(`${k} must be a Discord message id`);
+			}
+			return value;
+		});
+		if (ownerMessage !== undefined && force !== true) {
+			return fail("ownerMessage goes with force");
+		}
 		return {
 			tool: "finish_session",
 			session: string(fields, "session", 128),
 			...(force ? { force } : {}),
 			...(duplicateOf ? { duplicateOf } : {}),
+			...(ownerMessage ? { ownerMessage } : {}),
 		};
 	},
 	start_session: (fields) => {

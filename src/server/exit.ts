@@ -162,6 +162,8 @@ export type ExitRunner = (
 	session: Session,
 	force: boolean,
 	identity: string | null,
+	/** The Discord message in which Aaron asked for this forced finish, kept in the audit. */
+	ownerMessage?: string,
 ) => Promise<ExitResult> | null;
 
 export const createExitRunner = (deps: {
@@ -170,7 +172,7 @@ export const createExitRunner = (deps: {
 	announce: (sessionId: string, result: ExitResult) => void;
 }): ExitRunner & { isExiting(sessionId: string): boolean } => {
 	const exiting = new Set<string>();
-	const run: ExitRunner = (session, force, identity) => {
+	const run: ExitRunner = (session, force, identity, ownerMessage) => {
 		if (exiting.has(session.id)) return null;
 		exiting.add(session.id);
 		return deps
@@ -190,6 +192,7 @@ export const createExitRunner = (deps: {
 					kind: session.kind,
 					force,
 					identity,
+					...(ownerMessage ? { ownerMessage } : {}),
 					result: !result.ok
 						? `error: ${result.error}`
 						: result.exited

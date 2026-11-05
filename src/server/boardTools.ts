@@ -10,6 +10,7 @@ import {
 	type Placement,
 	type Region,
 	type Session,
+	type TranscriptEntry,
 } from "../shared/types.ts";
 import { snap } from "../web/grid.ts";
 import { groupsOf } from "../web/groups.ts";
@@ -40,6 +41,7 @@ import type { CommentStore } from "./comments.ts";
 import type { ExitRunner, SessionAsker } from "./exit.ts";
 import type { BoardSource } from "./http.ts";
 import { truncate } from "./ingest/json.ts";
+import { TranscriptUnreadable } from "./ingest/tail.ts";
 import { boardKeys, type LayoutStore } from "./layout.ts";
 import type { PromptSender } from "./prompts.ts";
 import {
@@ -93,6 +95,8 @@ const readOnly = new Set<ToolCall["tool"]>([
 	"board_history",
 	"find_stickers",
 ]);
+/** A session doing something right now, which even Aaron's word cannot force-finish mid-step. */
+const busyActivities = new Set<Session["activity"]>(["working", "watching"]);
 const noteTextShown = 400;
 const transcriptTextShown = 600;
 const transcriptBudget = 24_000;
@@ -352,7 +356,14 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 		read_transcript: async ({ session: ref, limit }) => {
 			const session = sessionFor(ref);
 			if ("ok" in session) return session;
-			const entries = await deps.source.transcript(session.id, limit);
+			let entries: TranscriptEntry[];
+			let unreadable = "";
+			try {
+				entries = await deps.source.transcript(session.id, limit);
+			} catch (error) {
+				entries = error instanceof TranscriptUnreadable ? error.entries : [];
+				unreadable = `${session.name}'s transcript was too large to read whole (${(error as Error).message}), so this is what could be read\n`;
+			}
 			let budget = transcriptBudget;
 			const lines = entries
 				.toReversed()
@@ -363,7 +374,7 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				})
 				.toReversed();
 			return done(
-				`Read ${plural(lines.length, "entry", "entries")} from ${session.name}\n${lines.join("\n")}`,
+				`${unreadable}Read ${plural(lines.length, "entry", "entries")} from ${session.name}\n${lines.join("\n")}`,
 			);
 		},
 		board_history: ({ since }) =>
@@ -401,7 +412,12 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 			const result = await deps.answer(session, reply);
 			return result.ok ? done(result.value) : refused(result.error);
 		},
-		finish_session: async ({ session: ref, force, duplicateOf }) => {
+		finish_session: async ({
+			session: ref,
+			force,
+			duplicateOf,
+			ownerMessage,
+		}) => {
 			const session = sessionFor(ref);
 			if ("ok" in session) return session;
 			let skipAsk = false;
@@ -415,7 +431,14 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				}
 				skipAsk = true;
 			}
-			if (force) {
+			if (force && ownerMessage) {
+				if (busyActivities.has(session.activity)) {
+					return refused(
+						`${session.name} is working right now, so it cannot be force-finished; wait until it stops`,
+					);
+				}
+				skipAsk = true;
+			} else if (force) {
 				if (!deps.limited?.(session)) {
 					return refused(
 						`${session.name} isn't stopped on a usage limit, so it is asked before it finishes; finish it without force`,
@@ -423,10 +446,20 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				}
 				skipAsk = true;
 			}
-			const exiting = deps.exit(session, skipAsk, agentIdentity);
+			const exiting = deps.exit(
+				session,
+				skipAsk,
+				agentIdentity,
+				force ? ownerMessage : undefined,
+			);
 			if (!exiting) return refused(`${session.name} is already exiting`);
 			const result = await exiting;
 			if (!result.ok) return refused(result.error);
+			if (result.exited && force && ownerMessage) {
+				return done(
+					`Force-finished ${session.name} on Aaron's message ${ownerMessage}`,
+				);
+			}
 			return result.exited
 				? done(`Finished ${session.name}`)
 				: done(`${session.name} is not ready to finish: ${result.reason}`);
