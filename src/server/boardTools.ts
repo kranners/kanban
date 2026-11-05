@@ -362,7 +362,7 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				entries = await deps.source.transcript(session.id, limit);
 			} catch (error) {
 				entries = error instanceof TranscriptUnreadable ? error.entries : [];
-				unreadable = `${session.name}'s transcript was too large to read whole (${(error as Error).message}), so this is what could be read\n`;
+				unreadable = `${session.name}'s transcript could not be read whole (${(error as Error).message}), so this is what could be read\n`;
 			}
 			let budget = transcriptBudget;
 			const lines = entries

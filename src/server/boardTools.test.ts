@@ -478,10 +478,7 @@ describe("board tools", () => {
 			limit: 40,
 		});
 		assert.ok(read.ok);
-		assert.match(
-			read.text,
-			/^acme-eee's transcript was too large to read whole/,
-		);
+		assert.match(read.text, /^acme-eee's transcript could not be read whole/);
 		assert.match(read.text, /Read 1 entry from acme-eee\n.*Got this far/);
 	});
 
