@@ -51,7 +51,7 @@ Terminal in the header switches to the session's own TUI: a full-window `claude 
 
 ### Start and exit sessions
 
-New session takes a folder, an optional name and a first prompt and opens the card. Beside the folder, Runs on picks where it runs: Cloud by default (`claude --cloud`, seeded from the folder's git commits, on the chosen account), This Mac (`claude --bg`), or a Remote Control host serving that folder. Cloud sessions open in the same conversation view and composer; their terminal, permission prompts and questions are answered on claude.ai, one click away, and exiting one archives it. When claude.ai can't be reached or the board isn't signed in to it, exiting still takes the card off the board, unpinned, and says the session wasn't ended there; one claude.ai last said was working stays until it stops. Press A to start one in place with just a prompt, in the project under the pointer. Every folder chooser lists recent projects and ends with Choose folder…, which opens the macOS folder panel on the Mac running the board. A card's × asks the agent whether it is safe to exit first; hold Shift to force it.
+New session takes a folder, an optional name and a first prompt and opens the card. Beside the folder, Runs on picks where it runs: Cloud by default (`claude --cloud`, seeded from the folder's git commits, on the chosen account), This Mac (`claude --bg`), or a Remote Control host serving that folder. Cloud sessions start with `--permission-mode auto` (`KANBAN_CLOUD_PERMISSION_MODE` picks another), so they run without asking for every tool. They open in the same conversation view and composer; their terminal, permission prompts and questions are answered on claude.ai, one click away, and exiting one archives it. When claude.ai can't be reached or the board isn't signed in to it, exiting still takes the card off the board, unpinned, and says the session wasn't ended there; one claude.ai last said was working stays until it stops. Press A to start one in place with just a prompt, in the project under the pointer. Every folder chooser lists recent projects and ends with Choose folder…, which opens the macOS folder panel on the Mac running the board. A card's × asks the agent whether it is safe to exit first; hold Shift to force it.
 
 ![Starting a session from the New session dialog, then another from a quick prompt on the board](docs/media/clip-new-session.gif)
 
@@ -153,19 +153,21 @@ Flags win over the environment, which wins over `~/.config/kanban/env` (`%USERPR
 
 ## Configuration
 
-| Variable              | Default                                        | Purpose                                                            |
-| --------------------- | ---------------------------------------------- | ------------------------------------------------------------------ |
-| `KANBAN_AUTH`         | `access`                                       | Set `off` for local use; allowed only on a loopback host           |
-| `KANBAN_HOST`         | `127.0.0.1`                                    | Bind address or comma-separated addresses; loopback is always kept |
-| `KANBAN_RUNNER_TOKEN` | unset                                          | Shared bearer token for runners and other machines                 |
-| `KANBAN_PORT`         | `7420`                                         | Port                                                               |
-| `CLAUDE_BIN`          | first `claude` on `PATH`, skipping cmux's shim | The `claude` binary sessions are started and attached with         |
-| `CMUX_BIN`            | cmux.app's bundled `cmux`                      | The `cmux` CLI that mirrors and drives sessions in cmux panes      |
-| `CLAUDE_HOME`         | `~/.claude`                                    | Claude Code's state directory                                      |
-| `CSWAP_BIN`           | `cswap`                                        | The `cswap` CLI for several Claude accounts, when installed        |
-| `KANBAN_STATE`        | `~/.local/state/kanban`, or `kanban-<port>`    | Where the layout, notes, colours, regions and threads live         |
-| `KANBAN_AUDIT_LOG`    | `~/Library/Logs/kanban/audit.jsonl`            | Audit log of exits, new sessions, sends and Butler's board edits   |
-| `KANBAN_DIST`         | `dist`                                         | Built page                                                         |
+| Variable                       | Default                                        | Purpose                                                                                                                                                   |
+| ------------------------------ | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KANBAN_AUTH`                  | `access`                                       | Set `off` for local use; allowed only on a loopback host                                                                                                  |
+| `KANBAN_HOST`                  | `127.0.0.1`                                    | Bind address or comma-separated addresses; loopback is always kept                                                                                        |
+| `KANBAN_RUNNER_TOKEN`          | unset                                          | Shared bearer token for runners and other machines                                                                                                        |
+| `KANBAN_PORT`                  | `7420`                                         | Port                                                                                                                                                      |
+| `CLAUDE_BIN`                   | first `claude` on `PATH`, skipping cmux's shim | The `claude` binary sessions are started and attached with                                                                                                |
+| `CMUX_BIN`                     | cmux.app's bundled `cmux`                      | The `cmux` CLI that mirrors and drives sessions in cmux panes                                                                                             |
+| `CLAUDE_HOME`                  | `~/.claude`                                    | Claude Code's state directory                                                                                                                             |
+| `CSWAP_BIN`                    | `cswap`                                        | The `cswap` CLI for several Claude accounts, when installed                                                                                               |
+| `KANBAN_STATE`                 | `~/.local/state/kanban`, or `kanban-<port>`    | Where the layout, notes, colours, regions and threads live                                                                                                |
+| `KANBAN_AUDIT_LOG`             | `~/Library/Logs/kanban/audit.jsonl`            | Audit log of exits, new sessions, sends and Butler's board edits                                                                                          |
+| `KANBAN_DIST`                  | `dist`                                         | Built page                                                                                                                                                |
+| `KANBAN_CLOUD_PERMISSION_MODE` | `auto`                                         | Mode cloud sessions start in (`--permission-mode`): `acceptEdits`, `auto`, `bypassPermissions`, `dontAsk`, `plan` or `manual`; anything else means `auto` |
+| `KANBAN_REVIEW_TOOLS`          | unset                                          | Comma-separated names of the work review tooling, whose MCP tools and commands the safe set approves but their merges, deploys and deletes                |
 
 `KANBAN_HOST=127.0.0.1,10.100.0.11` serves the board on loopback and the WireGuard address. `KANBAN_RUNNER_TOKEN` (32-128 characters of `A-Za-z0-9_-`, such as `openssl rand -hex 32`) belongs in `~/.config/kanban/env` at mode 600; the server reads it from there, and it is never logged or written to a plist.
 

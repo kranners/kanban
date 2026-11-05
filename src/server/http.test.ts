@@ -640,6 +640,7 @@ describe("createKanbanServer", () => {
 					socket.close(1000, "fake");
 				},
 				respond: async () => ({ ok: false, error: "fake" }),
+				waiting: async () => ({ ok: true, value: [] }),
 				prompt: async () => ({ ok: false, error: "fake" }),
 				attached: () => [],
 				release() {},

@@ -57,6 +57,14 @@ export type ConversationDeps = {
 	windowSize?: number;
 };
 
+/** A prompt a session waits on; requestId is the prompt id answer_prompt takes. */
+export type WaitingPrompt = {
+	requestId: string;
+	toolName: string;
+	title: string;
+	input: Record<string, unknown>;
+};
+
 export type ConversationHub = {
 	open(
 		socket: AttachSocket,
@@ -68,6 +76,8 @@ export type ConversationHub = {
 		session: Session,
 		reply: PromptReply | null,
 	): Promise<CmuxResult<string>>;
+	/** The prompt a session's terminal shows, with its tool's name and input from the transcript. */
+	waiting(session: Session): Promise<CmuxResult<WaitingPrompt[]>>;
 	prompt(session: Session, text: string): Promise<Outcome>;
 	attached(): string[];
 	release(short: string): void;
@@ -530,6 +540,7 @@ type Watch = {
 	join(viewer: Viewer, since: Since): void;
 	leave(viewer: Viewer): void;
 	respond(reply: PromptReply | null): Promise<CmuxResult<string>>;
+	waiting(): Promise<CmuxResult<WaitingPrompt[]>>;
 	prompt(text: string): Promise<Outcome>;
 	request(
 		viewer: Viewer,
@@ -879,17 +890,19 @@ export const createConversationHub = (
 			}
 		};
 
-		const respondNow = async (
-			reply: PromptReply | null,
-		): Promise<CmuxResult<string>> => {
+		const readOpen = async () => {
 			const current = session();
 			if (!current)
-				return { ok: false, error: "The session has left the board" };
+				return { ok: false as const, error: "The session has left the board" };
 			const drive = driveOf(current);
-			if (drive.mode === "read") return { ok: false, error: drive.reason };
+			if (drive.mode === "read")
+				return { ok: false as const, error: drive.reason };
 			const tty = ttyFor(current);
 			if (!tty)
-				return { ok: false, error: "The session cannot be driven from here" };
+				return {
+					ok: false as const,
+					error: "The session cannot be driven from here",
+				};
 			lastUse = Date.now();
 			advance();
 			const screen = await tty.screen();
@@ -903,6 +916,43 @@ export const createConversationHub = (
 				block(),
 				remote,
 			);
+			return {
+				ok: true as const,
+				value: { current, tty, remote, dialog, answerable },
+			};
+		};
+
+		const waitingNow = async (): Promise<CmuxResult<WaitingPrompt[]>> => {
+			const read = await readOpen();
+			if (!read.ok) return read;
+			const { current, dialog } = read.value;
+			if (!dialog || dialog.kind === "menu") return { ok: true, value: [] };
+			const index =
+				dialog.toolUseId === null ? undefined : log.tools.get(dialog.toolUseId);
+			const item = index === undefined ? undefined : log.items[index];
+			const tool = item?.kind === "tool" ? item : null;
+			return {
+				ok: true,
+				value: [
+					{
+						requestId: promptId(current.name, dialog),
+						toolName:
+							dialog.kind === "question"
+								? "AskUserQuestion"
+								: (tool?.name ?? dialog.title),
+						title: dialog.kind === "question" ? "a question" : dialog.title,
+						input: tool?.input ?? {},
+					},
+				],
+			};
+		};
+
+		const respondNow = async (
+			reply: PromptReply | null,
+		): Promise<CmuxResult<string>> => {
+			const read = await readOpen();
+			if (!read.ok) return read;
+			const { current, tty, remote, dialog, answerable } = read.value;
 			if (!dialog || dialog.kind === "menu") {
 				return {
 					ok: false,
@@ -982,6 +1032,16 @@ export const createConversationHub = (
 			leave(viewer) {
 				viewers.delete(viewer);
 				if (viewers.size === 0) stop();
+			},
+			waiting() {
+				held += 1;
+				const task = busy.then(() => waitingNow());
+				busy = task.catch(() => null);
+				return task.finally(() => {
+					held -= 1;
+					screenAt = 0;
+					if (viewers.size === 0) stop();
+				});
 			},
 			respond(reply) {
 				held += 1;
@@ -1089,6 +1149,8 @@ export const createConversationHub = (
 		open,
 		respond: (session, reply) =>
 			watchOf({ kind: "session", session, path: null }).respond(reply),
+		waiting: (session) =>
+			watchOf({ kind: "session", session, path: null }).waiting(),
 		prompt: (session, text) =>
 			watchOf({ kind: "session", session, path: null }).prompt(text),
 		attached: () => [

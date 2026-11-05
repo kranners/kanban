@@ -33,6 +33,7 @@ import { fileAudit } from "./audit.ts";
 import { authenticatorFor, runnerTokenCheck } from "./auth.ts";
 import {
 	createBoardTools,
+	createPromptApprover,
 	projectsOf,
 	summariesOfBoard,
 } from "./boardTools.ts";
@@ -630,6 +631,7 @@ const boardTools = createBoardTools({
 	}),
 	announce,
 	answer: conversation.respond,
+	approver: createPromptApprover({ cloud, terminal: conversation }),
 	history: (since) =>
 		readHistory(
 			{

@@ -9,7 +9,11 @@ import { noteSizeFor } from "../web/notes.ts";
 import { arrange, near, seedsOf, sessionSize } from "../web/placement.ts";
 import { createAnnotationStore } from "./annotations.ts";
 import type { AuditEvent } from "./audit.ts";
-import { createBoardTools } from "./boardTools.ts";
+import {
+	createBoardTools,
+	createPromptApprover,
+	type OpenPrompt,
+} from "./boardTools.ts";
 import { localRemovalNote } from "./cloud.ts";
 import { createColourStore } from "./colours.ts";
 import { createCommentStore } from "./comments.ts";
@@ -88,6 +92,8 @@ const setup = async (shown: Board = board) => {
 		onRemove: () => {},
 	});
 	const answered: [string, PromptReply | null][] = [];
+	const prompts = new Map<string, OpenPrompt[]>();
+	const approvals: [string, string][] = [];
 	let ids = 0;
 	const tools = createBoardTools({
 		source: {
@@ -154,6 +160,25 @@ const setup = async (shown: Board = board) => {
 				? { ok: true, value: `Answered ${s.name}'s prompt` }
 				: { ok: false, error: `${s.name} is not waiting on a question` };
 		},
+		approver: {
+			open: async (s) =>
+				s.id === "dddddddd-4"
+					? { ok: false, error: "The session cannot be driven from here" }
+					: { ok: true, value: prompts.get(s.id) ?? [] },
+			approve: async (s, prompt) => {
+				if (prompt.requestId === "fails") {
+					return { ok: false, error: "That prompt is no longer open" };
+				}
+				approvals.push([s.id, prompt.requestId]);
+				prompts.set(
+					s.id,
+					(prompts.get(s.id) ?? []).filter(
+						(open) => open.requestId !== prompt.requestId,
+					),
+				);
+				return { ok: true, value: null };
+			},
+		},
 		audit: (event) => events.push(event),
 		history: async (since) => `history since ${new Date(since).toISOString()}`,
 		now: () => Date.UTC(2026, 10, 1),
@@ -169,6 +194,8 @@ const setup = async (shown: Board = board) => {
 		events,
 		exits,
 		answered,
+		prompts,
+		approvals,
 	};
 };
 
@@ -597,6 +624,213 @@ describe("board tools", () => {
 			),
 			[JSON.stringify(reply), "null"],
 		);
+	});
+
+	it("approves a session's safe prompts and leaves the rest for Aaron", async () => {
+		const shown: Board = {
+			...board,
+			sessions: [
+				session("aaaaaaaa-1", {
+					cloud: { url: "https://claude.ai/code/session_01acme" },
+					activity: "needs-you",
+				}),
+				session("bbbbbbbb-2", {
+					activity: "needs-you",
+					cwd: "/Users/me/dev/acme-api",
+				}),
+				session("cccccccc-3", { activity: "idle" }),
+				session("dddddddd-4", { activity: "needs-you" }),
+			],
+		};
+		const { tools, prompts, approvals, events } = await setup(shown);
+		prompts.set("aaaaaaaa-1", [
+			{
+				requestId: "r-title",
+				toolName: "mcp__claude-code-remote__set_session_title",
+				title: "Set session title",
+				input: { title: "Fix it" },
+			},
+			{
+				requestId: "r-push",
+				toolName: "Bash",
+				title: "Bash",
+				input: { command: "git push origin main" },
+			},
+			{
+				requestId: "fails",
+				toolName: "Read",
+				title: "Read",
+				input: { file_path: "/tmp/x" },
+			},
+		]);
+		const answered = await tools("t", {
+			tool: "answer_prompt",
+			session: "aaaaaaa0",
+			reply: null,
+			allowSafe: true,
+		});
+		assert.deepEqual(answered, {
+			ok: true,
+			text: [
+				"Approved 1, left 2 for Aaron",
+				"acme-aaa: approved Set session title (mcp__claude-code-remote__set_session_title, request r-title)",
+				"acme-aaa: left for Aaron Bash (Bash, request r-push): pushes to main (git push origin main)",
+				"acme-aaa: left for Aaron Read (Read, request fails): approving failed: That prompt is no longer open",
+			].join("\n"),
+		});
+		assert.deepEqual(approvals, [["aaaaaaaa-1", "r-title"]]);
+		assert.deepEqual(
+			events.filter((event) => event.action === "prompt-approve"),
+			[
+				{
+					action: "prompt-approve",
+					sessionId: "aaaaaaaa-1",
+					tool: "mcp__claude-code-remote__set_session_title",
+					requestId: "r-title",
+					via: "safe set",
+					identity: "butler",
+					result: "ok",
+				},
+				{
+					action: "prompt-approve",
+					sessionId: "aaaaaaaa-1",
+					tool: "Read",
+					requestId: "fails",
+					via: "safe set",
+					identity: "butler",
+					result: "That prompt is no longer open",
+				},
+			],
+		);
+		assert.deepEqual(
+			events.flatMap((event) =>
+				event.action === "board-agent" ? [event.input] : [],
+			),
+			["allow_safe"],
+		);
+
+		prompts.set("bbbbbbbb-2", [
+			{
+				requestId: "p-edit",
+				toolName: "Edit",
+				title: "Edit",
+				input: { file_path: "/Users/me/dev/acme-api/src/a.ts" },
+			},
+		]);
+		prompts.set("cccccccc-3", [
+			{
+				requestId: "p-idle",
+				toolName: "Read",
+				title: "Read",
+				input: { file_path: "src/a.ts" },
+			},
+		]);
+		const all = await tools("t", {
+			tool: "approve_safe_prompts",
+			sessions: null,
+		});
+		assert.deepEqual(all, {
+			ok: true,
+			text: [
+				"acme-aaa: left for Aaron Bash (Bash, request r-push): pushes to main (git push origin main)",
+				"acme-aaa: left for Aaron Read (Read, request fails): approving failed: That prompt is no longer open",
+				"acme-bbb: approved Edit (Edit, request p-edit)",
+				"acme-ddd: could not read its prompts: The session cannot be driven from here",
+				"Approved 1, left 2 for Aaron",
+			].join("\n"),
+		});
+		assert.deepEqual(approvals.at(-1), ["bbbbbbbb-2", "p-edit"]);
+		assert.deepEqual(
+			await tools("t", {
+				tool: "approve_safe_prompts",
+				sessions: ["cccccccc-3", "zzzz"],
+			}),
+			{
+				ok: true,
+				text: [
+					"zzzz: no session zzzz on the board",
+					"acme-ccc: approved Read (Read, request p-idle)",
+					"Approved 1, left 0 for Aaron",
+				].join("\n"),
+			},
+		);
+		assert.deepEqual(
+			await tools("t", {
+				tool: "answer_prompt",
+				session: "bbbbbbbb-2",
+				reply: null,
+				allowSafe: true,
+			}),
+			{
+				ok: true,
+				text: "Approved 0, left 0 for Aaron\nacme-bbb: no open permission prompt",
+			},
+		);
+	});
+
+	it("approves through claude.ai for cloud sessions and the terminal's Yes for others", async () => {
+		const sent: [string, string][] = [];
+		const replies: [string, PromptReply | null][] = [];
+		const approver = createPromptApprover({
+			cloud: {
+				prompts: (id) => [
+					{
+						requestId: `req-${id}`,
+						toolName: "Read",
+						title: "Read",
+						input: { file_path: "src/a.ts" },
+					},
+				],
+				approveSafe: async (id, requestId) => {
+					sent.push([id, requestId]);
+					return { ok: true, value: null };
+				},
+			},
+			terminal: {
+				waiting: async () => ({ ok: true, value: [] }),
+				respond: async (s, reply) => {
+					replies.push([s.id, reply]);
+					return { ok: true, value: "Answered" };
+				},
+			},
+		});
+		const cloudSession = session("aaaaaaaa-1", {
+			cloud: { url: "https://claude.ai/code/session_01acme" },
+		});
+		const local = session("bbbbbbbb-2");
+		assert.deepEqual(await approver.open(cloudSession), {
+			ok: true,
+			value: [
+				{
+					requestId: "req-aaaaaaaa-1",
+					toolName: "Read",
+					title: "Read",
+					input: { file_path: "src/a.ts" },
+				},
+			],
+		});
+		assert.deepEqual(await approver.open(local), { ok: true, value: [] });
+		const prompt = {
+			requestId: "abc123",
+			toolName: "Read",
+			title: "Read",
+			input: { file_path: "src/a.ts" },
+		};
+		assert.deepEqual(await approver.approve(cloudSession, prompt), {
+			ok: true,
+			value: null,
+		});
+		assert.deepEqual(await approver.approve(local, prompt), {
+			ok: true,
+			value: null,
+		});
+		assert.deepEqual(sent, [["aaaaaaaa-1", "abc123"]]);
+		assert.deepEqual(replies, [
+			[
+				"bbbbbbbb-2",
+				{ prompt: "abc123", answers: [{ selected: ["Yes"], other: null }] },
+			],
+		]);
 	});
 
 	it("announces to every session and lists the ones it missed", async () => {

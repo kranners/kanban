@@ -84,6 +84,16 @@ export type AuditEvent =
 			input: string | null;
 			result: string;
 	  }
+	| {
+			action: "prompt-approve";
+			sessionId: string;
+			tool: string;
+			requestId: string;
+			/** Why the board approved it without the user: only ever the safe set. */
+			via: "safe set";
+			identity: string | null;
+			result: string;
+	  }
 	| { action: "butler"; tool: string; result: string }
 	| {
 			action: "mirror-send";

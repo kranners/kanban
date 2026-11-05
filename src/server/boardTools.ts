@@ -35,6 +35,7 @@ import { summariesOf } from "../web/summaries.ts";
 import { type AnnotationStore, parseAnnotation } from "./annotations.ts";
 import { type Announcer, describeDeliveries } from "./announce.ts";
 import type { Audit } from "./audit.ts";
+import { allowOnce } from "./cloud.ts";
 import type { CmuxResult } from "./cmux.ts";
 import type { ColourStore } from "./colours.ts";
 import type { CommentStore } from "./comments.ts";
@@ -49,6 +50,7 @@ import {
 	parseRegionPatch,
 	type RegionStore,
 } from "./regions.ts";
+import { safeVerdict } from "./safePrompts.ts";
 import { type SessionLauncher, validateNewSession } from "./sessions.ts";
 
 export type ToolOutcome =
@@ -75,6 +77,8 @@ export type BoardToolDeps = {
 	prompt: PromptSender;
 	announce: Announcer;
 	answer: PromptAnswerer;
+	/** Reads and approves the permission prompts a session waits on, for the safe set. */
+	approver: PromptApprover;
 	history: (since: number) => Promise<string>;
 	audit: Audit;
 	newId?: () => string;
@@ -85,6 +89,57 @@ export type PromptAnswerer = (
 	session: Session,
 	reply: PromptReply | null,
 ) => Promise<CmuxResult<string>>;
+
+/** A permission prompt a session waits on, as the safe set judges it. */
+export type OpenPrompt = {
+	requestId: string;
+	toolName: string;
+	title: string;
+	input: Record<string, unknown>;
+};
+
+export type PromptApprover = {
+	/** Every prompt the session is waiting on; none while it waits on nothing. */
+	open(session: Session): Promise<CmuxResult<OpenPrompt[]>>;
+	/**
+	 * Approves one, as a cloud session's whole safe set for the rest of its
+	 * life, or a terminal session's Yes.
+	 */
+	approve(session: Session, prompt: OpenPrompt): Promise<CmuxResult<null>>;
+};
+
+/**
+ * Cloud sessions' prompts come from claude.ai, where an approval grants the
+ * whole safe set; other sessions' from their terminal, where it picks Yes.
+ */
+export const createPromptApprover = (deps: {
+	cloud: {
+		prompts(id: string): OpenPrompt[];
+		approveSafe(id: string, requestId: string): Promise<CmuxResult<null>>;
+	};
+	terminal: {
+		waiting(session: Session): Promise<CmuxResult<OpenPrompt[]>>;
+		respond(
+			session: Session,
+			reply: PromptReply | null,
+		): Promise<CmuxResult<string>>;
+	};
+}): PromptApprover => ({
+	open: async (session) =>
+		session.cloud
+			? { ok: true, value: deps.cloud.prompts(session.id) }
+			: deps.terminal.waiting(session),
+	approve: async (session, prompt) => {
+		if (session.cloud) {
+			return deps.cloud.approveSafe(session.id, prompt.requestId);
+		}
+		const answered = await deps.terminal.respond(session, {
+			prompt: prompt.requestId,
+			answers: [{ selected: [allowOnce], other: null }],
+		});
+		return answered.ok ? { ok: true, value: null } : answered;
+	},
+});
 
 /** Who an announce or exit through the board's tools is audited as: Butler, their only caller now. */
 export const agentIdentity = "butler";
@@ -321,6 +376,65 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 		findSession(deps.source.board(), ref) ??
 		refused(`No session ${ref} on the board; use board_snapshot for ids`);
 
+	type SafeReport = { lines: string[]; approved: number; left: number };
+
+	const approveSafe = async (session: Session): Promise<SafeReport> => {
+		const open = await deps.approver.open(session);
+		if (!open.ok) {
+			return {
+				lines: [`${session.name}: could not read its prompts: ${open.error}`],
+				approved: 0,
+				left: 0,
+			};
+		}
+		if (open.value.length === 0) {
+			return {
+				lines: [`${session.name}: no open permission prompt`],
+				approved: 0,
+				left: 0,
+			};
+		}
+		const report: SafeReport = { lines: [], approved: 0, left: 0 };
+		for (const prompt of open.value) {
+			const named = `${prompt.title} (${prompt.toolName}, request ${prompt.requestId})`;
+			const verdict = safeVerdict(
+				prompt.toolName,
+				prompt.input,
+				session.cloud ? undefined : session.cwd,
+			);
+			if (!verdict.safe) {
+				report.left += 1;
+				report.lines.push(
+					`${session.name}: left for Aaron ${named}: ${verdict.reason}`,
+				);
+				continue;
+			}
+			const approved = await deps.approver.approve(session, prompt);
+			deps.audit({
+				action: "prompt-approve",
+				sessionId: session.id,
+				tool: prompt.toolName,
+				requestId: prompt.requestId,
+				via: "safe set",
+				identity: agentIdentity,
+				result: approved.ok ? "ok" : approved.error,
+			});
+			if (approved.ok) {
+				report.approved += 1;
+				report.lines.push(`${session.name}: approved ${named}`);
+			} else {
+				report.left += 1;
+				report.lines.push(
+					`${session.name}: left for Aaron ${named}: approving failed: ${approved.error}`,
+				);
+			}
+		}
+		return report;
+	};
+
+	const tally = ({ approved, left }: SafeReport) =>
+		`Approved ${approved}, left ${left} for Aaron`;
+
 	const store = (
 		annotation: unknown,
 		id: string,
@@ -406,11 +520,41 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				? done(describeDeliveries(result.deliveries))
 				: refused(result.error);
 		},
-		answer_prompt: async ({ session: ref, reply }) => {
+		answer_prompt: async ({ session: ref, reply, allowSafe }) => {
 			const session = sessionFor(ref);
 			if ("ok" in session) return session;
+			if (allowSafe) {
+				const report = await approveSafe(session);
+				return done([tally(report), ...report.lines].join("\n"));
+			}
 			const result = await deps.answer(session, reply);
 			return result.ok ? done(result.value) : refused(result.error);
+		},
+		approve_safe_prompts: async ({ sessions: refs }) => {
+			const board = deps.source.board();
+			const missing: string[] = [];
+			const targets = refs
+				? refs.flatMap((ref) => {
+						const found = findSession(board, ref);
+						if (!found) missing.push(ref);
+						return found ? [found] : [];
+					})
+				: board.sessions.filter((s) => s.activity === "needs-you");
+			const total: SafeReport = {
+				lines: missing.map((ref) => `${ref}: no session ${ref} on the board`),
+				approved: 0,
+				left: 0,
+			};
+			for (const session of new Set(targets)) {
+				const report = await approveSafe(session);
+				total.lines.push(...report.lines);
+				total.approved += report.approved;
+				total.left += report.left;
+			}
+			if (targets.length === 0 && missing.length === 0) {
+				total.lines.push("No session needs Aaron");
+			}
+			return done([...total.lines, tally(total)].join("\n"));
 		},
 		finish_session: async ({
 			session: ref,
@@ -699,7 +843,14 @@ const inputOf = (call: ToolCall): string | null => {
 		return call.text;
 	}
 	if (call.tool === "ask_session") return call.question;
-	if (call.tool === "answer_prompt") return JSON.stringify(call.reply);
+	if (call.tool === "answer_prompt") {
+		return call.allowSafe ? "allow_safe" : JSON.stringify(call.reply);
+	}
+	if (call.tool === "approve_safe_prompts") {
+		return call.sessions
+			? call.sessions.join(", ")
+			: "every session needing Aaron";
+	}
 	if (call.tool === "start_session") return call.prompt;
 	return null;
 };

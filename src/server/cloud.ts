@@ -21,6 +21,7 @@ import { claudeEnv } from "./accounts.ts";
 import { lastLine, stripAnsi } from "./ansi.ts";
 import type { CmuxResult } from "./cmux.ts";
 import { asObject, asString } from "./ingest/json.ts";
+import { SAFE_SESSION_RULES, safeVerdict } from "./safePrompts.ts";
 import { accountCommand, untrustedHint } from "./sessions.ts";
 import { createStateFile, readState } from "./stateFile.ts";
 import type { RemotePrompt, SessionTty } from "./terminals.ts";
@@ -211,7 +212,16 @@ export type CloudApi = {
 		title?: string,
 	): Promise<CmuxResult<string>>;
 	get(id: string): Promise<CmuxResult<CloudSessionInfo>>;
-	events(id: string, afterId: string | null): Promise<CmuxResult<CloudEvent[]>>;
+	/**
+	 * Events after afterId. With onPage each page is handed over as it
+	 * arrives and none are kept, so a long history never sits in memory
+	 * whole; without it they are all returned.
+	 */
+	events(
+		id: string,
+		afterId: string | null,
+		onPage?: (page: CloudEvent[]) => Promise<void>,
+	): Promise<CmuxResult<CloudEvent[]>>;
 	send(id: string, text: string): Promise<CmuxResult<null>>;
 	respond(
 		id: string,
@@ -352,7 +362,7 @@ export const createCloudApi = ({
 				? got
 				: unexpected(`GET ${sessionPath(id)}`);
 		},
-		async events(id, afterId) {
+		async events(id, afterId, onPage) {
 			const events: CloudEvent[] = [];
 			let cursor = afterId;
 			for (;;) {
@@ -364,7 +374,8 @@ export const createCloudApi = ({
 				if (!Array.isArray(page.value?.data)) {
 					return unexpected(`GET ${sessionPath(id)}/events`);
 				}
-				events.push(...page.value.data);
+				if (onPage) await onPage(page.value.data);
+				else events.push(...page.value.data);
 				const last = page.value.data.at(-1);
 				if (!page.value.has_more || !last) return { ok: true, value: events };
 				cursor = last.uuid;
@@ -436,6 +447,14 @@ export type CloudSessions = {
 	transcriptPath(id: string): string | null;
 	send(id: string, text: string): Promise<CmuxResult<null>>;
 	pending(id: string): RemotePrompt | null;
+	/** Every prompt the session is waiting on, oldest first. */
+	prompts(id: string): RemotePrompt[];
+	/**
+	 * Approves an open prompt the safe set allows, granting the session the
+	 * whole input-free safe set for the rest of its life, so it stops asking
+	 * for those tools.
+	 */
+	approveSafe(id: string, requestId: string): Promise<CmuxResult<null>>;
 	choose(
 		id: string,
 		requestId: string,
@@ -565,6 +584,16 @@ const promptFor = (action: OpenAction, asked?: Asked): CloudPrompt => ({
 	suggestions: asked?.suggestions ?? [],
 });
 
+/** The permission update that grants a cloud session the safe set for the rest of its life. */
+export const safeSessionGrant = () => [
+	{
+		type: "addRules",
+		rules: SAFE_SESSION_RULES.map((toolName) => ({ toolName })),
+		behavior: "allow",
+		destination: "session",
+	},
+];
+
 const answering = (prompt: CloudPrompt) => ({
 	...(prompt.toolUseId !== null && { toolUseID: prompt.toolUseId }),
 });
@@ -598,7 +627,10 @@ type Tracked = {
 	record: CloudRecord;
 	session: CloudSession;
 	seenUpdatedAt: string | null;
+	/** The newest mirrored event ids, for rereading late ones. */
 	mirrored: string[];
+	/** Every mirrored event id. */
+	seen: Set<string>;
 	echoes: string[];
 	waiting: OpenAction[];
 	asked: Map<string, Asked>;
@@ -608,6 +640,11 @@ type Tracked = {
 };
 
 const lateEventReach = 50;
+const mirroredKept = 1000;
+
+/** At most this many events, or about this many bytes, go into one write of a mirror. */
+export type MirrorBatch = { events: number; bytes: number };
+const defaultMirrorBatch: MirrorBatch = { events: 500, bytes: 8 * 1024 * 1024 };
 
 export const createCloudSessions = async ({
 	file,
@@ -615,6 +652,8 @@ export const createCloudSessions = async ({
 	apiFor,
 	pollMs = 3000,
 	answerGraceMs = 60_000,
+	mirrorBatch = defaultMirrorBatch,
+	append = appendFile,
 	onChange,
 }: {
 	file: string;
@@ -622,6 +661,9 @@ export const createCloudSessions = async ({
 	apiFor: (configDir?: string) => CloudApi;
 	pollMs?: number;
 	answerGraceMs?: number;
+	mirrorBatch?: MirrorBatch;
+	/** Appends a batch of mirrored events to a transcript. */
+	append?: (path: string, text: string) => Promise<void>;
 	onChange: () => void;
 }): Promise<CloudSessions> => {
 	const stored = createStateFile<CloudRecord[]>(file);
@@ -644,6 +686,7 @@ export const createCloudSessions = async ({
 			},
 			seenUpdatedAt: null,
 			mirrored: [],
+			seen: new Set(),
 			echoes: record.prompt === undefined ? [] : [record.prompt],
 			waiting: [],
 			asked: new Map(),
@@ -713,24 +756,43 @@ export const createCloudSessions = async ({
 			.map((action) => promptFor(action, item.asked.get(action.requestId)));
 	};
 
+	// Written in bounded batches, each recorded as mirrored once it lands,
+	// so a long history read after a restart never becomes one giant string
+	// and a failed write resumes from the last batch that landed.
 	const mirror = async (item: Tracked, events: CloudEvent[]) => {
-		const known = new Set(item.mirrored);
-		const fresh = events.filter((event) => !known.has(event.uuid));
+		const fresh = events.filter((event) => !item.seen.has(event.uuid));
 		trackPrompts(item, fresh);
-		const shown = fresh.filter((event) => !echoed(item, event));
-		if (shown.length > 0) {
-			await appendFile(
-				item.session.transcript,
-				shown
-					.map(
-						(event) =>
-							`${JSON.stringify({ ...event, timestamp: event.created_at })}\n`,
-					)
-					.join(""),
-			);
+		let lines: string[] = [];
+		let ids: string[] = [];
+		let bytes = 0;
+		let wrote = false;
+		const flush = async () => {
+			if (lines.length > 0) {
+				await append(item.session.transcript, lines.join(""));
+				wrote = true;
+			}
+			for (const uuid of ids) item.seen.add(uuid);
+			item.mirrored.push(...ids);
+			if (item.mirrored.length > mirroredKept) {
+				item.mirrored.splice(0, item.mirrored.length - mirroredKept);
+			}
+			lines = [];
+			ids = [];
+			bytes = 0;
+		};
+		for (const event of fresh) {
+			ids.push(event.uuid);
+			if (!echoed(item, event)) {
+				const line = `${JSON.stringify({ ...event, timestamp: event.created_at })}\n`;
+				lines.push(line);
+				bytes += line.length;
+			}
+			if (lines.length >= mirrorBatch.events || bytes >= mirrorBatch.bytes) {
+				await flush();
+			}
 		}
-		item.mirrored.push(...fresh.map((event) => event.uuid));
-		return shown.length > 0;
+		await flush();
+		return wrote;
 	};
 
 	const pollOne = async (item: Tracked) => {
@@ -765,16 +827,33 @@ export const createCloudSessions = async ({
 			({ requestId }) => !item.asked.has(requestId),
 		);
 		if (info.updated_at !== item.seenUpdatedAt || unread) {
-			const events = await api.events(
-				id,
-				item.mirrored.at(-lateEventReach - 1) ?? null,
-			);
-			if (tracked.get(id) !== item) return;
-			if (!events.ok) return report(id, events.error);
+			const stale = new Error("The session left the board");
+			let events: CmuxResult<CloudEvent[]>;
 			try {
-				mirrored = await mirror(item, events.value);
+				events = await api.events(
+					id,
+					item.mirrored.at(-lateEventReach - 1) ?? null,
+					async (page) => {
+						if (tracked.get(id) !== item) throw stale;
+						if (await mirror(item, page)) mirrored = true;
+					},
+				);
+				if (
+					events.ok &&
+					tracked.get(id) === item &&
+					(await mirror(item, events.value))
+				) {
+					mirrored = true;
+				}
 			} catch (error) {
+				if (error === stale) return;
+				if (mirrored) onChange();
 				return report(id, `mirror write failed (${error})`);
+			}
+			if (tracked.get(id) !== item) return;
+			if (!events.ok) {
+				if (mirrored) onChange();
+				return report(id, events.error);
 			}
 			item.seenUpdatedAt = info.updated_at;
 		}
@@ -860,6 +939,34 @@ export const createCloudSessions = async ({
 			if (!prompt) return null;
 			const { suggestions: _, ...shown } = prompt;
 			return shown;
+		},
+		prompts(id) {
+			const item = tracked.get(id);
+			return item
+				? openPrompts(item).map(({ suggestions: _, ...shown }) => shown)
+				: [];
+		},
+		approveSafe(id, requestId) {
+			const item = tracked.get(id);
+			const prompt = item
+				? openPrompts(item).find((open) => open.requestId === requestId)
+				: undefined;
+			if (!prompt) return Promise.resolve(closed);
+			const verdict = safeVerdict(prompt.toolName, prompt.input);
+			if (!verdict.safe) {
+				return Promise.resolve({
+					ok: false,
+					error: `That prompt is not in the safe set: ${verdict.reason}`,
+				});
+			}
+			return respond(id, requestId, (open) => ({
+				behavior: "allow",
+				updatedInput: open.input,
+				updatedPermissions: safeSessionGrant(),
+				...answering(open),
+				decisionClassification: "user_permanent",
+				tool_name: open.toolName,
+			}));
 		},
 		choose: (id, requestId, label) =>
 			respond(id, requestId, (prompt) => decisionFor(prompt, label)),
@@ -986,8 +1093,33 @@ export const cloudBlocker = (
 		);
 	});
 
+/** The permission modes claude --cloud takes. */
+export const cloudPermissionModes = [
+	"acceptEdits",
+	"auto",
+	"bypassPermissions",
+	"dontAsk",
+	"plan",
+	"manual",
+] as const;
+export type CloudPermissionMode = (typeof cloudPermissionModes)[number];
+export const defaultCloudPermissionMode: CloudPermissionMode = "auto";
+
+/**
+ * The mode cloud sessions start in: KANBAN_CLOUD_PERMISSION_MODE when it
+ * names one, else auto, the one mode --cloud forwards that runs unattended
+ * without asking for every tool.
+ */
+export const cloudPermissionMode = (
+	value: string | undefined = process.env.KANBAN_CLOUD_PERMISSION_MODE,
+): CloudPermissionMode =>
+	cloudPermissionModes.find((mode) => mode === value?.trim()) ??
+	defaultCloudPermissionMode;
+
 export type CloudLauncherOptions = {
 	claudeBin: string;
+	/** The mode every cloud session starts in. */
+	permissionMode?: CloudPermissionMode;
 	cswapBin?: string;
 	defaultConfig?: string;
 	profileOf?: (account: number) => string | null;
@@ -999,6 +1131,7 @@ export type CloudLauncherOptions = {
 export const cloudLauncher =
 	({
 		claudeBin,
+		permissionMode = cloudPermissionMode(),
 		cswapBin = "cswap",
 		defaultConfig = join(homedir(), ".claude.json"),
 		profileOf = () => null,
@@ -1017,6 +1150,8 @@ export const cloudLauncher =
 			request.account,
 			[
 				`--cloud=${request.prompt}`,
+				"--permission-mode",
+				permissionMode,
 				...(request.name ? ["--name", request.name] : []),
 			],
 		);

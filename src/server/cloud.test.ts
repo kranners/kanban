@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import {
+	appendFile,
+	mkdir,
+	mkdtemp,
+	readFile,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -14,6 +20,7 @@ import {
 	cloudBlocker,
 	cloudCredentials,
 	cloudLauncher,
+	cloudPermissionMode,
 	cloudTty,
 	createCloudApi,
 	createCloudSessions,
@@ -22,6 +29,7 @@ import {
 	remoteLauncher,
 	runsOnBlocker,
 } from "./cloud.ts";
+import { SAFE_SESSION_RULES } from "./safePrompts.ts";
 import { keychainService } from "./usage.ts";
 
 const id = "session_01Thu3Jg2qaDGVcVCQbuTiuP";
@@ -174,6 +182,12 @@ describe("createCloudApi", () => {
 			calls.map((call) => new URL(call.url).search),
 			["?beta=true&limit=100", "?beta=true&limit=100&after_id=e2"],
 		);
+		const pagesSeen: string[][] = [];
+		const streamed = await api.events(id, null, async (page) => {
+			pagesSeen.push(page.map((event) => event.uuid));
+		});
+		assert.deepEqual(streamed, { ok: true, value: [] });
+		assert.deepEqual(pagesSeen, [["e1", "e2"], ["e3"]]);
 		const missing = await api.get("missing");
 		assert.equal(missing.ok, false);
 		assert.match(!missing.ok ? missing.error : "", /HTTP 404/);
@@ -812,6 +826,73 @@ describe("createCloudSessions", () => {
 		store.stop();
 	});
 
+	it("lists every open prompt and approves a safe one for the rest of the session", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		const title = "mcp__claude-code-remote__set_session_title";
+		fake.info.set(
+			id,
+			waitingOn("2026-10-30T12:00:00Z", [
+				listed("title", title, { title: "Fix the build" }),
+				listed("push", "Bash", { command: "git push origin main" }),
+			]),
+		);
+		fake.log.set(id, [
+			asked("e1", "title", title, { title: "Fix the build" }),
+			asked("e2", "push", "Bash", { command: "git push origin main" }),
+		]);
+		const { store } = await storeIn(dir, fake);
+		store.add(record);
+		await until(() => store.prompts(id).length === 2);
+		assert.deepEqual(
+			store.prompts(id).map((prompt) => [prompt.requestId, prompt.toolName]),
+			[
+				["title", title],
+				["push", "Bash"],
+			],
+		);
+		assert.equal(store.pending(id)?.requestId, "push");
+		const refused = await store.approveSafe(id, "push");
+		assert.equal(refused.ok, false);
+		assert.match(
+			!refused.ok ? refused.error : "",
+			/not in the safe set: pushes to main/,
+		);
+		assert.equal((await store.approveSafe(id, "nope")).ok, false);
+		assert.deepEqual(fake.responses, []);
+		assert.deepEqual(await store.approveSafe(id, "title"), {
+			ok: true,
+			value: null,
+		});
+		assert.deepEqual(fake.responses, [
+			[
+				id,
+				"title",
+				{
+					behavior: "allow",
+					updatedInput: { title: "Fix the build" },
+					updatedPermissions: [
+						{
+							type: "addRules",
+							rules: SAFE_SESSION_RULES.map((toolName) => ({ toolName })),
+							behavior: "allow",
+							destination: "session",
+						},
+					],
+					toolUseID: "toolu_title",
+					decisionClassification: "user_permanent",
+					tool_name: title,
+				},
+			],
+		]);
+		assert.deepEqual(
+			store.prompts(id).map((prompt) => prompt.requestId),
+			["push"],
+		);
+		assert.equal(store.prompts("session_unknown").length, 0);
+		store.stop();
+	});
+
 	it("denies, answers questions, and shows nothing while the session is not waiting", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
 		const fake = fakeCloud();
@@ -1006,6 +1087,57 @@ describe("createCloudSessions", () => {
 		await until(async () => (await mirrored(second.store)).length === 3);
 		assert.deepEqual(fake.cursors, [null]);
 		second.store.stop();
+	});
+
+	it("mirrors a long history page by page in bounded batches, resuming from the last batch that landed", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		const at = (second: number) =>
+			new Date(Date.UTC(2026, 9, 30, 12, 0, second)).toISOString();
+		const history = Array.from({ length: 95 }, (_, n) => event(`e${n}`, at(n)));
+		fake.info.set(id, info("idle", at(95)));
+		let failures = 1;
+		const cursors: (string | null)[] = [];
+		const api: CloudApi = {
+			...fake.api,
+			events: async (_sessionId, afterId, onPage) => {
+				cursors.push(afterId);
+				const from = afterId
+					? history.findIndex((item) => item.uuid === afterId) + 1
+					: 0;
+				for (let page = from; page < history.length; page += 30) {
+					if (page >= from + 60 && failures > 0) {
+						failures -= 1;
+						return { ok: false, error: "Cloud API GET failed with HTTP 500" };
+					}
+					await onPage?.(history.slice(page, page + 30));
+				}
+				return { ok: true, value: [] };
+			},
+		};
+		const writes: number[] = [];
+		const store = await createCloudSessions({
+			file: join(dir, "cloud.json"),
+			dir: join(dir, "cloud"),
+			apiFor: () => api,
+			pollMs: 5,
+			mirrorBatch: { events: 20, bytes: 1024 * 1024 },
+			append: async (path, text) => {
+				writes.push(text.split("\n").filter(Boolean).length);
+				await appendFile(path, text);
+			},
+			onChange: () => {},
+		});
+		store.add(record);
+		await until(async () => (await mirrored(store)).length === 95);
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		assert.deepEqual(
+			(await mirrored(store)).map((line) => line.uuid),
+			history.map((item) => item.uuid),
+		);
+		assert.deepEqual(cursors, [null, "e9"]);
+		assert.deepEqual(writes, [20, 10, 20, 10, 10, 20, 5]);
+		store.stop();
 	});
 
 	it("mirrors an event the api lists late, behind ones already mirrored", async () => {
@@ -1320,13 +1452,37 @@ describe("cloudLauncher", () => {
 		const terminal = await started(ptys);
 		assert.deepEqual(terminal.spawned, {
 			file: "claude",
-			args: ["--cloud=Fix it", "--name", "fix"],
+			args: ["--cloud=Fix it", "--permission-mode", "auto", "--name", "fix"],
 			cwd: request.cwd,
 		});
 		terminal.emit(created.slice(0, 60));
 		terminal.emit(created.slice(60));
 		assert.deepEqual(await launching, { ok: true, id });
 		assert.deepEqual(terminal.killed, ["SIGHUP"]);
+	});
+
+	it("starts the session in the mode asked for, or auto", async () => {
+		const { ptys, spawn } = fakePtySpawn();
+		void cloudLauncher({
+			claudeBin: "claude",
+			permissionMode: "acceptEdits",
+			blocker: ready,
+			spawnPty: spawn,
+		})(request);
+		const terminal = await started(ptys);
+		assert.deepEqual(terminal.spawned.args, [
+			"--cloud=Fix it",
+			"--permission-mode",
+			"acceptEdits",
+			"--name",
+			"fix",
+		]);
+		terminal.exit(1);
+		assert.equal(cloudPermissionMode(undefined), "auto");
+		assert.equal(cloudPermissionMode("plan"), "plan");
+		assert.equal(cloudPermissionMode(" dontAsk "), "dontAsk");
+		assert.equal(cloudPermissionMode("yolo"), "auto");
+		assert.equal(cloudPermissionMode(""), "auto");
 	});
 
 	it("reports the last line when claude exits without a session", async () => {
@@ -1340,7 +1496,11 @@ describe("cloudLauncher", () => {
 			prompt: "Fix it",
 		});
 		const terminal = await started(ptys);
-		assert.deepEqual(terminal.spawned.args, ["--cloud=Fix it"]);
+		assert.deepEqual(terminal.spawned.args, [
+			"--cloud=Fix it",
+			"--permission-mode",
+			"auto",
+		]);
 		terminal.emit("Error: Cloud sessions are not available.\r\n");
 		terminal.exit(1);
 		assert.deepEqual(await launching, {
@@ -1415,6 +1575,8 @@ describe("cloudLauncher", () => {
 				"--share-history",
 				"--",
 				"--cloud=Fix it",
+				"--permission-mode",
+				"auto",
 				"--name",
 				"fix",
 			],

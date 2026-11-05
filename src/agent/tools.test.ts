@@ -233,6 +233,43 @@ describe("parseToolCall", () => {
 		);
 	});
 
+	it("approves safe prompts of one session or of every session needing the user", () => {
+		assert.deepEqual(
+			parseToolCall("answer_prompt", { session: "a", allow_safe: true }),
+			{ tool: "answer_prompt", session: "a", reply: null, allowSafe: true },
+		);
+		assert.match(
+			error("answer_prompt", { session: "a", allow_safe: false }) ?? "",
+			/allow_safe must be true/,
+		);
+		assert.match(
+			error("answer_prompt", {
+				session: "a",
+				allow_safe: true,
+				prompt: "p",
+				answers: [{ selected: ["Yes"] }],
+			}) ?? "",
+			/takes no prompt or answers/,
+		);
+		assert.match(error("answer_prompt", { allow_safe: true }) ?? "", /session/);
+		assert.deepEqual(parseToolCall("approve_safe_prompts", {}), {
+			tool: "approve_safe_prompts",
+			sessions: null,
+		});
+		assert.deepEqual(
+			parseToolCall("approve_safe_prompts", { sessions: ["a", "b"] }),
+			{ tool: "approve_safe_prompts", sessions: ["a", "b"] },
+		);
+		assert.match(
+			error("approve_safe_prompts", { sessions: [] }) ?? "",
+			/1 to 100/,
+		);
+		assert.match(
+			error("approve_safe_prompts", { sessions: [""] }) ?? "",
+			/session ids/,
+		);
+	});
+
 	it("keeps only given optional fields and allows clearing a colour", () => {
 		assert.deepEqual(
 			parseToolCall("update_region", { id: "r", colour: null }),
