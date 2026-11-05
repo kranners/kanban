@@ -10,6 +10,7 @@ import { arrange, near, seedsOf, sessionSize } from "../web/placement.ts";
 import { createAnnotationStore } from "./annotations.ts";
 import type { AuditEvent } from "./audit.ts";
 import { createBoardTools } from "./boardTools.ts";
+import { localRemovalNote } from "./cloud.ts";
 import { createColourStore } from "./colours.ts";
 import { createCommentStore } from "./comments.ts";
 import { TranscriptUnreadable } from "./ingest/tail.ts";
@@ -116,6 +117,13 @@ const setup = async (shown: Board = board) => {
 					? [s.id, force, identity, ownerMessage]
 					: [s.id, force, identity],
 			);
+			if (s.cloud) {
+				return Promise.resolve({
+					ok: true,
+					exited: true,
+					note: localRemovalNote("Cloud API unreachable: offline"),
+				});
+			}
 			return Promise.resolve(
 				force
 					? { ok: true, exited: true }
@@ -464,6 +472,42 @@ describe("board tools", () => {
 		assert.deepEqual(exits, [
 			["aaaaaaaa-1", true, "butler", "1234567890123456789"],
 			["dddddddd-4", true, "butler", "1234567890123456789"],
+		]);
+	});
+
+	it("says when a cloud session only left the board, forced or not", async () => {
+		const cloud = (id: string, activity: Session["activity"]) =>
+			session(id, {
+				short: null,
+				pid: null,
+				activity,
+				cloud: { url: `https://claude.ai/code/${id}` },
+			});
+		const { tools, exits } = await setup({
+			...board,
+			sessions: [
+				cloud("session_01idle", "idle"),
+				cloud("session_02done", "done"),
+			],
+		});
+		const note =
+			"removed from the board only: the cloud session was not ended on claude.ai (Cloud API unreachable: offline)";
+		assert.deepEqual(
+			await tools("t", { tool: "finish_session", session: "session_01idle" }),
+			{ ok: true, text: `Removed acme-ses: ${note}` },
+		);
+		assert.deepEqual(
+			await tools("t", {
+				tool: "finish_session",
+				session: "session_02done",
+				force: true,
+				ownerMessage: "1234567890123456789",
+			}),
+			{ ok: true, text: `Removed acme-ses: ${note}` },
+		);
+		assert.deepEqual(exits, [
+			["session_01idle", false, "butler"],
+			["session_02done", true, "butler", "1234567890123456789"],
 		]);
 	});
 

@@ -455,6 +455,9 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 			if (!exiting) return refused(`${session.name} is already exiting`);
 			const result = await exiting;
 			if (!result.ok) return refused(result.error);
+			if (result.exited && result.note) {
+				return done(`Removed ${session.name}: ${result.note}`);
+			}
 			if (result.exited && force && ownerMessage) {
 				return done(
 					`Force-finished ${session.name} on Aaron's message ${ownerMessage}`,

@@ -383,6 +383,8 @@ export const createCloudApi = ({
 				response: { subtype: "success", request_id: requestId, response },
 			}),
 		async archive(id) {
+			// An explicit close reads the sign-in afresh, not a failure cached a minute ago.
+			credentials.forget?.();
 			const archived = await call(
 				"POST",
 				`${sessionPath(id)}/archive?beta=true`,
@@ -444,13 +446,25 @@ export type CloudSessions = {
 		requestId: string,
 		answers: Record<string, string>,
 	): Promise<CmuxResult<null>>;
-	archive(id: string): Promise<CmuxResult<null>>;
+	/**
+	 * Archives a session on claude.ai and stops showing it. When claude.ai
+	 * cannot be reached or refuses, the card still leaves the board and the
+	 * result says the remote session was not ended, unless claude.ai last
+	 * reported it working.
+	 */
+	archive(id: string): Promise<CmuxResult<CloudArchive>>;
 	/** What the board knows of a cloud session it shows, to bring it back later. */
 	record(id: string): CloudRecord | null;
 	/** Unarchives a session on claude.ai and shows it on the board again. */
 	restore(record: CloudRecord): Promise<CmuxResult<null>>;
 	stop(): void;
 };
+
+/** How an exit left a cloud session: archived on claude.ai, or only taken off the board. */
+export type CloudArchive = { remote: true } | { remote: false; reason: string };
+
+export const localRemovalNote = (reason: string) =>
+	`removed from the board only: the cloud session was not ended on claude.ai (${reason})`;
 
 const cloudIdPattern = /^session_[A-Za-z0-9]{1,128}$/;
 
@@ -589,6 +603,8 @@ type Tracked = {
 	waiting: OpenAction[];
 	asked: Map<string, Asked>;
 	answered: Map<string, number>;
+	/** What claude.ai's last answer to a poll said, null until one answers. */
+	polledActivity: Activity | null;
 };
 
 const lateEventReach = 50;
@@ -610,6 +626,8 @@ export const createCloudSessions = async ({
 }): Promise<CloudSessions> => {
 	const stored = createStateFile<CloudRecord[]>(file);
 	const tracked = new Map<string, Tracked>();
+	/** Sessions taken off the board without claude.ai archiving them, for undo. */
+	const localOnly = new Set<string>();
 	const reported = new Map<string, string>();
 	const mirrorOf = (id: string) => join(dir, `${id}.jsonl`);
 
@@ -630,6 +648,7 @@ export const createCloudSessions = async ({
 			waiting: [],
 			asked: new Map(),
 			answered: new Map(),
+			polledActivity: null,
 		});
 
 	const promptLine = (text: string, at: number) =>
@@ -720,9 +739,17 @@ export const createCloudSessions = async ({
 		const got = await api.get(id);
 		if (tracked.get(id) !== item) return;
 		if (isGone(got)) return remove(id);
-		if (!got.ok) return report(id, got.error);
+		if (!got.ok) {
+			// Never heard from: don't keep claiming it is working.
+			if (item.polledActivity === null && item.session.activity === "working") {
+				item.session = { ...item.session, activity: "idle", detail: got.error };
+				onChange();
+			}
+			return report(id, got.error);
+		}
 		const info = got.value;
 		if (info.session_status === "archived") return remove(id);
+		item.polledActivity = cloudActivity(info);
 		const before = JSON.stringify(item.session);
 		item.waiting = waitingOn(info);
 		item.session = {
@@ -870,13 +897,34 @@ export const createCloudSessions = async ({
 			const item = tracked.get(id);
 			if (!item) return untracked(id);
 			const archived = await apiFor(item.record.configDir).archive(id);
-			if (!archived.ok && !isGone(archived)) return archived;
+			if (archived.ok || isGone(archived)) {
+				localOnly.delete(id);
+				remove(id);
+				return { ok: true, value: { remote: true } };
+			}
+			if (tracked.get(id) !== item)
+				return { ok: true, value: { remote: true } };
+			// claude.ai is unreachable, signed out or refusing: the card still
+			// leaves the board, but not one claude.ai last said was working.
+			if (item.polledActivity === "working") {
+				return {
+					ok: false,
+					error: `${archived.error}; claude.ai last said it was working, so it stays on the board until it stops`,
+				};
+			}
+			report(id, `removed from the board only: ${archived.error}`);
+			localOnly.add(id);
 			remove(id);
-			return { ok: true, value: null };
+			return { ok: true, value: { remote: false, reason: archived.error } };
 		},
 		record: (id) => tracked.get(id)?.record ?? null,
 		async restore(record) {
 			if (tracked.has(record.id)) return { ok: true, value: null };
+			// One only taken off the board was never archived: put it back as is.
+			if (localOnly.delete(record.id)) {
+				add(record);
+				return { ok: true, value: null };
+			}
 			const restored = await apiFor(record.configDir).unarchive(record.id);
 			if (!restored.ok) return restored;
 			if (!tracked.has(record.id)) add(record);

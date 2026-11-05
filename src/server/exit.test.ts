@@ -45,7 +45,7 @@ const fakeDeps = (
 	readiness: Readiness,
 	removeOk = true,
 	stopOk = true,
-	archiveOk = true,
+	archiveOk: boolean | "local" = true,
 ): { deps: ExitDeps; calls: string[] } => {
 	const calls: string[] = [];
 	return {
@@ -73,8 +73,14 @@ const fakeDeps = (
 			},
 			archive: async (id) => {
 				calls.push(`archive ${id}`);
+				if (archiveOk === "local") {
+					return {
+						ok: true,
+						value: { remote: false, reason: "Cloud API unreachable: offline" },
+					};
+				}
 				return archiveOk
-					? { ok: true, value: null }
+					? { ok: true, value: { remote: true } }
 					: { ok: false, error: "Cloud API failed with HTTP 500" };
 			},
 		},
@@ -118,6 +124,24 @@ describe("exitSession", () => {
 			ok: false,
 			error: "Cloud API failed with HTTP 500",
 		});
+	});
+
+	it("says when a cloud session only left the board", async () => {
+		const cloud: Session = {
+			...background,
+			id: "session_01cloud",
+			short: null,
+			pid: null,
+			attachable: false,
+			cloud: { url: "https://claude.ai/code/session_01cloud" },
+		};
+		const { deps } = fakeDeps(ready, true, true, "local");
+		const result = await exitSession(deps, cloud, false);
+		assert.equal(result.ok && result.exited, true);
+		assert.match(
+			result.ok && result.exited ? (result.note ?? "") : "",
+			/removed from the board only: the cloud session was not ended on claude\.ai \(Cloud API unreachable: offline\)/,
+		);
 	});
 
 	it("leaves a session that is not ready alone", async () => {

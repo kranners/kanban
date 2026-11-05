@@ -3,9 +3,10 @@ import type { ExitResult, Session } from "../shared/types.ts";
 import { arrangement } from "./arrangement.ts";
 import type { ExitState } from "./exitState.ts";
 import { exits } from "./exitState.ts";
+import { exitToast, type Left } from "./exitToast.ts";
 import { nodeKey } from "./layout.ts";
 import { board } from "./state.ts";
-import { announceRemoval, removalText } from "./undo.ts";
+import { announceRemoval } from "./undo.ts";
 
 export type ExitAsk = {
 	sessions: readonly Session[];
@@ -127,41 +128,33 @@ export function askToExitProject(
 	if (idle.length > 0) exitAsk.value = { sessions: idle, force, project };
 }
 
-/** Cloud sessions come back by unarchiving them, so their exit offers undo; local exits end the process. */
-function offerUndo(exited: readonly Session[]): void {
-	const archived = exited.filter((session) => session.cloud);
-	if (archived.length === 0) return;
-	announceRemoval(
-		removalText(
-			"Archived",
-			["cloud session", "cloud sessions"],
-			archived.map((session) => session.name || null),
-		),
-		"archive",
-	);
+function offerUndo(left: readonly Left[]): void {
+	const text = exitToast(left);
+	if (text) announceRemoval(text, "archive");
 }
 
 export async function exitSessions(
 	sessions: readonly Session[],
 	force: boolean,
 ): Promise<void> {
-	const exited = await Promise.all(
+	const left = await Promise.all(
 		sessions.map((session) => leave(session, force)),
 	);
-	offerUndo(sessions.filter((_, index) => exited[index]));
+	offerUndo(left.filter((item): item is Left => item !== null));
 }
 
 export async function exitSession(
 	session: Session,
 	force: boolean,
 ): Promise<void> {
-	if (await leave(session, force)) offerUndo([session]);
+	const left = await leave(session, force);
+	if (left) offerUndo([left]);
 }
 
-/** Exits one session; true once it has gone. */
-async function leave(session: Session, force: boolean): Promise<boolean> {
+/** Exits one session; what left once it has gone, else null. */
+async function leave(session: Session, force: boolean): Promise<Left | null> {
 	const { id } = session;
-	if (busy(id)) return false;
+	if (busy(id)) return null;
 	const placed = () =>
 		arrangement.peek()?.nodes.get(nodeKey({ kind: "session", id }));
 	const node = placed();
@@ -172,18 +165,18 @@ async function leave(session: Session, force: boolean): Promise<boolean> {
 	const result = accepted.ok ? await answer : accepted;
 	if (!result.ok) {
 		refuse(id, "Couldn't exit", result.error);
-		return false;
+		return null;
 	}
 	if (!result.exited) {
 		refuse(id, "Can't exit yet", result.reason);
-		return false;
+		return null;
 	}
 	setExit(id, { phase: "leaving", session, node: placed() ?? node });
 	setTimeout(() => {
 		const listed = board.peek()?.sessions.some((s) => s.id === id);
 		setExit(id, listed ? { phase: "gone" } : null);
 	}, leaveMs);
-	return true;
+	return { session, boardOnly: result.note !== undefined };
 }
 
 export function dismissExit(id: string): void {

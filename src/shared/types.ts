@@ -557,7 +557,8 @@ export type PromptImage = { type: string; data: string };
 export type ExitRequest = { force: boolean };
 
 export type ExitResult =
-	| { ok: true; exited: true }
+	/** `note` says when the card only left the board, such as a cloud session claude.ai could not archive. */
+	| { ok: true; exited: true; note?: string }
 	| { ok: true; exited: false; reason: string }
 	| { ok: false; error: string };
 

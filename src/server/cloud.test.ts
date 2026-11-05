@@ -424,6 +424,8 @@ type FakeCloud = {
 	archived: string[];
 	unarchived: string[];
 	down: Set<string>;
+	/** Answers every call as a board with no claude.ai sign-in does. */
+	signedOut: boolean;
 	responses: [string, string, Record<string, unknown>][];
 };
 
@@ -441,6 +443,9 @@ const prompted = (uuid: string, at: string, text: string): CloudEvent => ({
 	message: { role: "user", content: text },
 });
 
+const signedOutError =
+	"Cloud API unreachable: Cloud sessions need claude signed in to claude.ai";
+
 const fakeCloud = (): FakeCloud => {
 	const fake: FakeCloud = {
 		info: new Map(),
@@ -449,9 +454,11 @@ const fakeCloud = (): FakeCloud => {
 		archived: [],
 		unarchived: [],
 		down: new Set(),
+		signedOut: false,
 		responses: [],
 		api: {
 			get: async (sessionId) => {
+				if (fake.signedOut) return { ok: false, error: signedOutError };
 				if (fake.down.has(sessionId)) {
 					return { ok: false, error: "Cloud API GET failed with HTTP 500" };
 				}
@@ -477,6 +484,7 @@ const fakeCloud = (): FakeCloud => {
 				return { ok: true, value: null };
 			},
 			archive: async (sessionId) => {
+				if (fake.signedOut) return { ok: false, error: signedOutError };
 				if (!fake.info.has(sessionId)) {
 					return { ok: false, error: "Cloud API POST failed with HTTP 404" };
 				}
@@ -484,6 +492,7 @@ const fakeCloud = (): FakeCloud => {
 				return { ok: true, value: null };
 			},
 			unarchive: async (sessionId) => {
+				if (fake.signedOut) return { ok: false, error: signedOutError };
 				if (!fake.info.has(sessionId)) {
 					return { ok: false, error: "Cloud API POST failed with HTTP 404" };
 				}
@@ -638,8 +647,79 @@ describe("createCloudSessions", () => {
 		fake.info.set(id, info("idle", "2026-10-30T12:00:00Z"));
 		const { store } = await storeIn(dir, fake);
 		store.add(record);
-		assert.deepEqual(await store.archive(id), { ok: true, value: null });
+		assert.deepEqual(await store.archive(id), {
+			ok: true,
+			value: { remote: true },
+		});
 		assert.deepEqual(fake.archived, [id]);
+		assert.deepEqual(store.sessions(), []);
+		store.stop();
+	});
+
+	it("takes a card off the board when claude.ai can't be reached, and says so", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		fake.signedOut = true;
+		const { store } = await storeIn(dir, fake);
+		store.add(record);
+		assert.deepEqual(await store.archive(id), {
+			ok: true,
+			value: { remote: false, reason: signedOutError },
+		});
+		assert.deepEqual(fake.archived, []);
+		assert.deepEqual(store.sessions(), []);
+		await until(
+			async () =>
+				(
+					await readFile(join(dir, "cloud.json"), "utf8").catch(() => "")
+				).trim() === "[]",
+		);
+		// Undo puts it back as it was, without asking claude.ai to unarchive it.
+		assert.deepEqual(await store.restore(record), { ok: true, value: null });
+		assert.deepEqual(fake.unarchived, []);
+		assert.deepEqual(
+			store.sessions().map((session) => session.id),
+			[id],
+		);
+		store.stop();
+	});
+
+	it("keeps a card claude.ai last said was working when it can't be reached", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		fake.info.set(id, info("running", "2026-10-30T12:00:00Z"));
+		const { store } = await storeIn(dir, fake);
+		store.add(record);
+		await until(() => store.sessions()[0]?.updatedAt !== record.createdAt);
+		fake.signedOut = true;
+		const kept = await store.archive(id);
+		assert.equal(kept.ok, false);
+		assert.match(kept.ok ? "" : kept.error, /last said it was working/);
+		assert.equal(store.sessions().length, 1);
+		store.stop();
+	});
+
+	it("stops calling a card working when claude.ai never answers", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		fake.signedOut = true;
+		const { store } = await storeIn(dir, fake);
+		store.add(record);
+		await until(() => store.sessions()[0]?.activity === "idle");
+		assert.equal(store.sessions()[0]?.detail, signedOutError);
+		store.stop();
+	});
+
+	it("takes an idle card off the board when claude.ai can't be reached", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		fake.info.set(id, info("idle", "2026-10-30T12:00:00Z"));
+		const { store } = await storeIn(dir, fake);
+		store.add(record);
+		await until(() => store.sessions()[0]?.activity === "idle");
+		fake.signedOut = true;
+		const removed = await store.archive(id);
+		assert.equal(removed.ok && !removed.value.remote, true);
 		assert.deepEqual(store.sessions(), []);
 		store.stop();
 	});
@@ -1102,7 +1182,10 @@ describe("createCloudSessions", () => {
 				await readFile(join(dir, "cloud.json"), "utf8").catch(() => "")
 			).includes("/profiles/2"),
 		);
-		assert.deepEqual(await store.archive(other), { ok: true, value: null });
+		assert.deepEqual(await store.archive(other), {
+			ok: true,
+			value: { remote: true },
+		});
 		assert.deepEqual(theirs.archived, [other]);
 		assert.deepEqual(mine.archived, []);
 		assert.equal((await store.archive("session_01Gone")).ok, false);
@@ -1146,7 +1229,10 @@ describe("createCloudSessions", () => {
 		fake.info.delete(id);
 		await until(() => store.sessions().length === 0);
 		store.add(record);
-		assert.deepEqual(await store.archive(id), { ok: true, value: null });
+		assert.deepEqual(await store.archive(id), {
+			ok: true,
+			value: { remote: true },
+		});
 		assert.deepEqual(store.sessions(), []);
 		store.stop();
 	});

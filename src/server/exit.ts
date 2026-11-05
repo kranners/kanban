@@ -4,6 +4,7 @@ import type { ExitResult, Session } from "../shared/types.ts";
 import { claudeEnv } from "./accounts.ts";
 import { lastLine } from "./ansi.ts";
 import type { Audit } from "./audit.ts";
+import { type CloudArchive, localRemovalNote } from "./cloud.ts";
 import type { CmuxResult } from "./cmux.ts";
 import {
 	isAlive,
@@ -24,7 +25,7 @@ export type ExitDeps = {
 	stop(session: Session): Promise<CommandResult>;
 	remove(session: Session): Promise<CommandResult>;
 	terminate(session: Session): Promise<CommandResult>;
-	archive(id: string): Promise<CmuxResult<null>>;
+	archive(id: string): Promise<CmuxResult<CloudArchive>>;
 };
 
 export type SessionExiter = (
@@ -121,7 +122,14 @@ export const exitSession = async (
 ): Promise<ExitResult> => {
 	if (session.cloud) {
 		const archived = await deps.archive(session.id);
-		return archived.ok ? { ok: true, exited: true } : archived;
+		if (!archived.ok) return archived;
+		return archived.value.remote
+			? { ok: true, exited: true }
+			: {
+					ok: true,
+					exited: true,
+					note: localRemovalNote(archived.value.reason),
+				};
 	}
 	if (session.kind === "interactive" && session.pid === null) {
 		return { ok: false, error: "This session is not running" };
@@ -196,7 +204,9 @@ export const createExitRunner = (deps: {
 					result: !result.ok
 						? `error: ${result.error}`
 						: result.exited
-							? "exited"
+							? result.note
+								? `exited: ${result.note}`
+								: "exited"
 							: `not ready: ${result.reason}`,
 				});
 				deps.announce(session.id, result);

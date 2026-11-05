@@ -459,10 +459,18 @@ const undoable = {
 	colours: undo.track("colours", colours, ["set"]),
 	relations: undo.track("relations", relations, ["create", "remove"]),
 };
+/** Lets a card taken off the board go: a pinned spot no longer holds it there. */
+const unpin = (key: string) => {
+	const placement = layout.current()[key];
+	if (!placement?.pinned) return;
+	const { pinned: _, ...rest } = placement;
+	layout.set({ key, placement: rest });
+};
 const archiveCloud = async (id: string) => {
 	const record = cloud.record(id);
 	const archived = await cloud.archive(id);
 	if (archived.ok && record) undo.note("cloud", id, record, null);
+	if (archived.ok && !archived.value.remote) unpin(`session:${id}`);
 	return archived;
 };
 
