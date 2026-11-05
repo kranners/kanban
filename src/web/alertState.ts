@@ -5,7 +5,7 @@ import {
 	alertBody,
 	alertKind,
 	alertTitle,
-	faviconFor,
+	favicon,
 	finished,
 	seenActivities,
 	summoned,
@@ -169,11 +169,18 @@ effect(() => {
 });
 
 const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+const showFavicon =
+	icon &&
+	favicon(icon, (src) => {
+		const image = new Image();
+		image.src = src;
+		return image.decode();
+	});
 
 effect(() => {
 	const count = needingSessions.value.length;
 	document.title = titleFor(count);
-	icon?.setAttribute("href", faviconFor(count));
+	void showFavicon?.(count);
 });
 
 addEventListener("focus", () => {

@@ -5,6 +5,8 @@ import {
 	alertBody,
 	alertKind,
 	alertTitle,
+	badgeLabel,
+	favicon,
 	faviconFor,
 	finished,
 	seenActivities,
@@ -74,10 +76,71 @@ test("the title counts the sessions that need you", () => {
 
 test("the favicon carries a badge only while someone needs you", () => {
 	assert.equal(faviconFor(0), "favicon.svg");
-	const one = decodeURIComponent(faviconFor(1));
-	assert.match(one, /^data:image\/svg\+xml,<svg/);
-	assert.match(one, />1<\/text>/);
-	assert.match(decodeURIComponent(faviconFor(12)), />9\+<\/text>/);
+	assert.equal(titleFor(1), "(1) kanban");
+	assert.equal(titleFor(10), "(10) kanban");
+	assert.equal(titleFor(100), "(100) kanban");
+	assert.deepEqual([0, 1, 9, 10, 100].map(badgeLabel), [
+		"",
+		"1",
+		"9",
+		"9+",
+		"9+",
+	]);
+	for (const [count, label] of [
+		[1, "1"],
+		[10, "9+"],
+		[100, "9+"],
+	] as const) {
+		const svg = decodeURIComponent(faviconFor(count));
+		assert.match(svg, /^data:image\/svg\+xml,<svg/);
+		assert.ok(svg.includes(`>${label}</text>`));
+		// Every attribute stands apart, or the browser refuses the image.
+		assert.doesNotMatch(svg, /"[a-z-]+=/);
+	}
+});
+
+function link() {
+	const set: string[] = [];
+	return {
+		set,
+		setAttribute: (_: string, href: string) => void set.push(href),
+	};
+}
+
+test("the favicon shows the badge once it draws and reverts at zero", async () => {
+	const icon = link();
+	const show = favicon(icon, async () => {});
+	await show(3);
+	await show(0);
+	assert.equal(icon.set.length, 2);
+	assert.match(icon.set[0] ?? "", /^data:image\/svg\+xml,/);
+	assert.equal(icon.set[1], "favicon.svg");
+});
+
+test("the favicon falls back to the plain icon when the badge fails", async () => {
+	const icon = link();
+	const show = favicon(icon, async () => {
+		throw new Error("broken");
+	});
+	await show(1);
+	assert.deepEqual(icon.set, ["favicon.svg"]);
+});
+
+test("a slow badge never overwrites a newer count", async () => {
+	const icon = link();
+	let release = () => {};
+	const show = favicon(icon, (src) =>
+		src.includes("%3E1%3C")
+			? new Promise<void>((done) => {
+					release = done;
+				})
+			: Promise.resolve(),
+	);
+	const first = show(1);
+	await show(0);
+	release();
+	await first;
+	assert.deepEqual(icon.set, ["favicon.svg"]);
 });
 
 test("the alert body prefers the question, then what it is doing", () => {
