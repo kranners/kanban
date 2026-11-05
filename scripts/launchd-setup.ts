@@ -1,6 +1,6 @@
 // Install the launchd user agents that keep the board running on the Mac:
-// `kanban` (the server), `kanban-tunnel` (cloudflared) and `kanban-sync`
-// (`scripts/sync.ts` every minute). Idempotent; `--uninstall` removes them.
+// `kanban` (the server) and `kanban-tunnel` (cloudflared). Idempotent;
+// `--uninstall` removes them, and the retired `kanban-sync` updater too.
 // `--runner` instead installs only `kanban-runner`, the agent that lets another
 // Mac take sessions from the hub (see src/runner/main.ts).
 import { type SpawnSyncReturns, spawnSync } from "node:child_process";
@@ -263,15 +263,6 @@ const install = (uninstall: boolean): void => {
 			runAtLoad: true,
 			log: join(logs, "server.log"),
 		},
-		{
-			label: "kanban-sync",
-			programArguments: [node, join(root, "scripts", "sync.ts")],
-			workingDirectory: root,
-			environment: { PATH: path },
-			runAtLoad: true,
-			startInterval: 60,
-			log: join(logs, "sync.log"),
-		},
 	];
 	const tokenFile = join(home, ".config", "kanban", "tunnel-token");
 	const cloudflared = which("cloudflared");
@@ -295,18 +286,6 @@ const install = (uninstall: boolean): void => {
 		);
 
 	for (const opts of plists) bootstrap(uid, plistFor)(opts);
-
-	const fetch = run("git", ["fetch", "--quiet", "origin", "main"], {
-		PATH: path,
-		HOME: home,
-		SSH_AUTH_SOCK: process.env.SSH_AUTH_SOCK,
-		GIT_TERMINAL_PROMPT: "0",
-		GIT_SSH_COMMAND: "ssh -o BatchMode=yes",
-	});
-	if (fetch.status !== 0)
-		console.warn(
-			`A non-interactive \`git fetch\` failed, so kanban-sync can't pull:\n${fetch.stderr.trim()}\nUse an HTTPS remote with a credential helper, or an SSH key launchd can reach.`,
-		);
 	console.log(
 		`Logs: ${logs}. Check for leftover agents with \`launchctl list | grep -i kanban\`.`,
 	);

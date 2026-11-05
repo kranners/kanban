@@ -218,10 +218,9 @@ The hub is a runner too: "This Mac" reports the same usage (`src/runner/usage.ts
 
 ## Infrastructure
 
-The host runs three launchd user agents, installed by `npm run launchd-setup` (`scripts/launchd-setup.ts`) from the main checkout, logging to `~/Library/Logs/kanban/`:
-- `kanban`: plain `node src/server/main.ts` from the main checkout on `main`, with `~/.config/kanban/env` in its environment and a `PATH` that reaches `claude` (or `CLAUDE_BIN` set). KeepAlive; `kanban-sync` restarts it.
+The host runs two launchd user agents, installed by `npm run launchd-setup` (`scripts/launchd-setup.ts`) from the main checkout, logging to `~/Library/Logs/kanban/`:
+- `kanban`: plain `node src/server/main.ts` from the main checkout on `main`, with `~/.config/kanban/env` in its environment and a `PATH` that reaches `claude` (or `CLAUDE_BIN` set). KeepAlive.
 - `kanban-tunnel`: `cloudflared tunnel run --token-file ~/.config/kanban/tunnel-token` for the `kanban` tunnel.
-- `kanban-sync`: `scripts/sync.ts` every 60 seconds. It only fast-forwards, and refuses, with a log line and one notification per `origin/main` commit, when the checkout is off `main`, has uncommitted tracked changes or holds commits `origin/main` lacks; it never resets or stashes. A lock in the git dir keeps runs apart. When `package.json` or the lockfile changed it runs `npm ci` in the git dir before fast-forwarding and swaps the result into `node_modules`, so a failed install leaves the checkout alone. It builds into `dist.next/` and swaps it in, then records the built commit in `dist/.commit`. It restarts `kanban` once with `launchctl kickstart -k`, unless every change is page-only (components, styles and assets in `src/web/`, `docs/`, `site/`, `.github/` and Markdown), so a page-only change keeps terminals open; the server imports `src/web/*.ts`, so those restart it. After a restart it waits up to 30 seconds for `/healthz` and notifies if the server doesn't answer. A failed build keeps the old `dist/`, posts a notification and is not retried until `origin/main` moves. `KANBAN_SYNC=off` in the environment or `~/.config/kanban/env` pauses it. Its log is `sync.log`.
 
 `app.js` and `app.css` keep fixed names, so they are served `no-cache` with an ETag and a rebuild shows on the next load; hashed files under `assets/` are cached as immutable.
 
@@ -229,7 +228,7 @@ A hostname such as `kanban.example.com` routes through the tunnel and is gated b
 
 The board can also listen on the WireGuard network (10.100.0.0/24): `KANBAN_HOST=127.0.0.1,10.100.0.11` binds both, one server behind both listeners (`src/server/listen.ts`), and a network address that isn't up yet (WireGuard still starting after boot or wake) is retried every 10 seconds instead of crashing the server. Loopback stays bound whatever is listed, so hooks, session tools and the tunnel keep working; the loopback-only endpoints (peer hook, session and board-agent tools) check the peer address, so they stay closed on the network listener. Machines authenticate there with the shared `KANBAN_RUNNER_TOKEN` as a bearer token (`runnerTokenCheck` in `src/server/auth.ts`, a SHA-256-then-`timingSafeEqual` compare); browsers keep using Access. `KANBAN_AUTH=off` is still refused when any listed address isn't loopback. The token lives only in `~/.config/kanban/env`: `launchd-setup` drops it from the plist environment and the server reads it from the file itself.
 
-Development happens in worktrees or cloud clones with `KANBAN_AUTH=off`, which binds to localhost only, on another `KANBAN_PORT`; only the main checkout serves the live board. Changes reach it through `origin/main`: `npm run land` pushes, `kanban-sync` pulls.
+Development happens in worktrees or cloud clones with `KANBAN_AUTH=off`, which binds to localhost only, on another `KANBAN_PORT`; only the main checkout serves the live board. Changes reach it through `origin/main`: `npm run land` pushes. The owner's live board runs on spike, whose `kanban-update` builds `main` within a minute or two; the Mac's old `kanban-sync` updater is retired.
 
 `scripts/cloudflare-setup.ts` creates the tunnel, its DNS record and the Access application from an API token and the account, zone, hostname, Access team and allowed email it is given, idempotently, and writes the tunnel token and audience to `~/.config/kanban/`.
 

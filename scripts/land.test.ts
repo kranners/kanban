@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { isNonFastForward, parseConflicts, shouldSyncHere } from "./land.ts";
+import { isNonFastForward, parseConflicts } from "./land.ts";
 
 describe("isNonFastForward", () => {
 	it("matches git's rejections when main moved", () => {
@@ -62,23 +62,5 @@ describe("parseConflicts", () => {
 			"CLAUDE.md",
 		]);
 		assert.deepEqual(parseConflicts(""), []);
-	});
-});
-
-describe("shouldSyncHere", () => {
-	it("syncs only on a Mac whose main checkout is on main", () => {
-		assert.equal(
-			shouldSyncHere({ platform: "darwin", mainBranch: "main" }),
-			true,
-		);
-		assert.equal(
-			shouldSyncHere({ platform: "linux", mainBranch: "main" }),
-			false,
-		);
-		assert.equal(
-			shouldSyncHere({ platform: "darwin", mainBranch: "feature" }),
-			false,
-		);
-		assert.equal(shouldSyncHere({ platform: "darwin", mainBranch: "" }), false);
 	});
 });

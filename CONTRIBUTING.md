@@ -17,7 +17,7 @@ Changes land directly on `main`; there are no pull requests. Commit, then run:
 npm run land
 ```
 
-It rebases onto `origin/main`, runs `npm run check` (`tsc`, Biome and the tests; must pass), pushes `HEAD:main` and retries if `main` moved. It refuses untracked files, since the check would see them and `main` would not. The owner's Mac picks it up within a minute through `kanban-sync`. Never force-push `main`. `npx biome check --write .` fixes formatting.
+It rebases onto `origin/main`, runs `npm run check` (`tsc`, Biome and the tests; must pass), pushes `HEAD:main` and retries if `main` moved. It refuses untracked files, since the check would see them and `main` would not. Spike's `kanban-update` builds it and restarts the board within a minute or two. Never force-push `main`. `npx biome check --write .` fixes formatting.
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/): `feat(web): ...`, `fix(server): ...`, `docs: ...`, one change each, with a body that says why. Each commit lands on `main` as is, so each must build and pass on its own.
 

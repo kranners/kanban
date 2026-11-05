@@ -16,7 +16,6 @@
 		"test": "node --test",
 		"demo": "npm run build:site && node scripts/demo-server.ts",
 		"land": "node scripts/land.ts",
-		"sync": "node scripts/sync.ts",
 		"launchd-setup": "node scripts/launchd-setup.ts"
 	},
 	"dependencies": {

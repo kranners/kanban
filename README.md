@@ -124,7 +124,7 @@ Then open <http://127.0.0.1:7420>. `npm run dev` rebuilds and restarts on change
 
 ### Keep a board running
 
-Run `npm run launchd-setup` from a checkout of `main`. It installs launchd agents for the server, the tunnel and `kanban-sync`, which fast-forwards to `origin/main` every minute and reinstalls, rebuilds and restarts as needed. `npm run sync` does one round by hand. Logs are in `~/Library/Logs/kanban/`. See [Infrastructure](docs/design.md#infrastructure).
+Run `npm run launchd-setup` from a checkout of `main`. It installs launchd agents for the server and the tunnel; keep the checkout up to date yourself. The owner's own board runs on spike, which builds `main` itself. Logs are in `~/Library/Logs/kanban/`. See [Infrastructure](docs/design.md#infrastructure).
 
 ### Runners: sessions on your other machines
 
@@ -166,7 +166,6 @@ Flags win over the environment, which wins over `~/.config/kanban/env` (`%USERPR
 | `KANBAN_STATE`        | `~/.local/state/kanban`, or `kanban-<port>`    | Where the layout, notes, colours, regions and threads live         |
 | `KANBAN_AUDIT_LOG`    | `~/Library/Logs/kanban/audit.jsonl`            | Audit log of exits, new sessions, sends and Butler's board edits   |
 | `KANBAN_DIST`         | `dist`                                         | Built page                                                         |
-| `KANBAN_SYNC`         | `on`                                           | Set `off` to pause `kanban-sync`                                   |
 
 `KANBAN_HOST=127.0.0.1,10.100.0.11` serves the board on loopback and the WireGuard address. `KANBAN_RUNNER_TOKEN` (32-128 characters of `A-Za-z0-9_-`, such as `openssl rand -hex 32`) belongs in `~/.config/kanban/env` at mode 600; the server reads it from there, and it is never logged or written to a plist.
 

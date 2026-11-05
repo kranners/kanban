@@ -1,10 +1,10 @@
 // Land HEAD on origin/main: fetch, rebase, `npm run check`, push HEAD:main,
-// and retry when another session pushed first. On the Mac it then syncs the
-// main checkout so the change is live. Never force-pushes, stashes or checks
+// and retry when another session pushed first. Spike's `kanban-update` then
+// builds main and restarts the board. Never force-pushes, stashes or checks
 // out main, so it works from a worktree, the main checkout or a cloud clone.
 import { type SpawnSyncReturns, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 const attempts = 5;
 
@@ -24,11 +24,6 @@ export const parseConflicts = (out: string): string[] =>
 		.split("\n")
 		.map((line) => line.trim())
 		.filter(Boolean);
-
-export const shouldSyncHere = (where: {
-	platform: string;
-	mainBranch: string;
-}): boolean => where.platform === "darwin" && where.mainBranch === "main";
 
 type Run = SpawnSyncReturns<string>;
 
@@ -112,44 +107,9 @@ const pushMain = (): "ok" | "retry" => {
 };
 
 const makeLive = (): void => {
-	const common = out(
-		git("rev-parse", "--path-format=absolute", "--git-common-dir"),
+	console.log(
+		"On main. Not live yet: spike's kanban-update builds main and restarts the board within a minute or two. Say so in your final message.",
 	);
-	const main = dirname(common);
-	const mainBranch = out(
-		run("git", ["symbolic-ref", "--short", "-q", "HEAD"], { cwd: main }),
-	);
-	if (!shouldSyncHere({ platform: process.platform, mainBranch })) {
-		console.log(
-			"On main. Not live yet: the Mac's kanban-sync agent fast-forwards, builds and restarts within a minute. Say so in your final message.",
-		);
-		return;
-	}
-	const uid = process.getuid?.() ?? 0;
-	if (run("launchctl", ["print", `gui/${uid}/kanban-sync`]).status !== 0)
-		console.error(
-			"Automatic pickup not installed: run `npm run launchd-setup` in the main checkout.",
-		);
-	const script = join(main, "scripts", "sync.ts");
-	if (!existsSync(script))
-		stop(
-			`landed but NOT live: ${main} has no scripts/sync.ts yet; run \`git pull --ff-only && npm ci && npm run launchd-setup\` there.`,
-			2,
-		);
-	const sync = run(process.execPath, [script, "--now"], { cwd: main });
-	const output = `${sync.stdout ?? ""}${sync.stderr ?? ""}`.trim();
-	if (output) console.log(output);
-	if (sync.status !== 0) {
-		const lines = output.split("\n");
-		const reason =
-			lines
-				.find((line) => / refused: /.test(line))
-				?.replace(/^.* refused: /, "") ??
-			lines.at(-1) ??
-			`sync exited ${sync.status}`;
-		stop(`landed but NOT live: ${reason}`, 2);
-	}
-	console.log("Live. Check the change on the board.");
 };
 
 export const land = (dryRun: boolean): void => {

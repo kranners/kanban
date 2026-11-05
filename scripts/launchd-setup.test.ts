@@ -10,10 +10,10 @@ import {
 
 describe("renderPlist", () => {
 	const xml = renderPlist({
-		label: "kanban-sync",
+		label: "kanban-example",
 		programArguments: [
 			"/opt/homebrew/bin/node",
-			"/Users/me/kanban/scripts/sync.ts",
+			"/Users/me/kanban/scripts/example.ts",
 		],
 		workingDirectory: "/Users/me/kanban",
 		environment: {
@@ -22,15 +22,15 @@ describe("renderPlist", () => {
 		},
 		runAtLoad: true,
 		startInterval: 60,
-		log: "/Users/me/Library/Logs/kanban/sync.log",
+		log: "/Users/me/Library/Logs/kanban/example.log",
 	});
 
 	it("writes the keys launchd needs", () => {
 		assert.match(xml, /^<\?xml version="1.0" encoding="UTF-8"\?>/);
-		assert.match(xml, /<key>Label<\/key><string>kanban-sync<\/string>/);
+		assert.match(xml, /<key>Label<\/key><string>kanban-example<\/string>/);
 		assert.match(
 			xml,
-			/<array>\n\t\t<string>\/opt\/homebrew\/bin\/node<\/string>\n\t\t<string>\/Users\/me\/kanban\/scripts\/sync.ts<\/string>\n\t<\/array>/,
+			/<array>\n\t\t<string>\/opt\/homebrew\/bin\/node<\/string>\n\t\t<string>\/Users\/me\/kanban\/scripts\/example.ts<\/string>\n\t<\/array>/,
 		);
 		assert.match(
 			xml,
@@ -40,7 +40,7 @@ describe("renderPlist", () => {
 		assert.match(xml, /<key>StartInterval<\/key><integer>60<\/integer>/);
 		assert.match(
 			xml,
-			/<key>StandardErrorPath<\/key><string>\/Users\/me\/Library\/Logs\/kanban\/sync.log<\/string>/,
+			/<key>StandardErrorPath<\/key><string>\/Users\/me\/Library\/Logs\/kanban\/example.log<\/string>/,
 		);
 		assert.doesNotMatch(xml, /KeepAlive/);
 	});
