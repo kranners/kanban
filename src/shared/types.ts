@@ -160,8 +160,11 @@ export type Workflow = {
 	runId: string;
 	sessionId: string;
 	name: string;
+	/** Agents finished and started; both 0 when the board cannot count them. */
 	done: number;
 	total: number;
+	/** When the run ended; absent while it runs. */
+	endedAt?: number;
 };
 
 export type NodeRef =

@@ -345,6 +345,126 @@ describe("applyRecord", () => {
 		assert.equal(facts.workflowNames.get("wf_a"), "audit");
 	});
 
+	test("keeps Agent calls until their result or task notification", () => {
+		const at = (time: string) => ({ timestamp: `2026-10-24T${time}.000Z` });
+		const facts = apply(
+			{
+				...toolUse("t1", "Agent", {
+					description: "Survey the tests",
+					subagent_type: "Explore",
+				}),
+				...at("10:00:01"),
+			},
+			{
+				...toolResult("t1", { status: "completed", agentId: "agentA" }),
+				...at("10:00:05"),
+			},
+			{
+				...toolUse("t2", "Task", { description: "Read the docs" }),
+				...at("10:00:06"),
+			},
+			{
+				...toolResult("t2", { status: "async_launched", agentId: "agentB" }),
+				...at("10:00:07"),
+			},
+			{ ...toolUse("t3", "Agent", { description: "Hang" }), ...at("10:00:08") },
+			{
+				type: "user",
+				origin: { kind: "task-notification" },
+				message: {
+					content:
+						"<task-notification><task-id>agentB</task-id><status>completed</status></task-notification>",
+				},
+				...at("10:00:09"),
+			},
+		);
+		const calls = [...facts.agentCalls.values()];
+		assert.deepEqual(
+			calls.map((call) => [
+				call.toolUseId,
+				call.agentId,
+				call.type,
+				call.description,
+				call.endedAt === null ? null : new Date(call.endedAt).toISOString(),
+			]),
+			[
+				[
+					"t1",
+					"agentA",
+					"Explore",
+					"Survey the tests",
+					"2026-10-24T10:00:05.000Z",
+				],
+				["t2", "agentB", "agent", "Read the docs", "2026-10-24T10:00:09.000Z"],
+				["t3", null, "agent", "Hang", null],
+			],
+		);
+	});
+
+	test("keeps Workflow calls with their run until it ends", () => {
+		const at = (time: string) => ({ timestamp: `2026-10-24T${time}.000Z` });
+		const facts = apply(
+			{ ...toolUse("t1", "Workflow", { script: "a.js" }), ...at("10:00:01") },
+			{
+				...toolResult("t1", {
+					status: "async_launched",
+					taskId: "w1",
+					runId: "wf_a",
+					workflowName: "audit",
+				}),
+				...at("10:00:02"),
+			},
+			{
+				type: "user",
+				origin: { kind: "task-notification" },
+				message: {
+					content:
+						"<task-notification><task-id>w1</task-id><status>completed</status></task-notification>",
+				},
+				...at("10:00:30"),
+			},
+		);
+		const [call] = facts.workflowCalls.values();
+		assert.equal(call?.name, "audit");
+		assert.equal(call?.runId, "wf_a");
+		assert.equal(call?.endedAt, Date.parse("2026-10-24T10:00:30.000Z"));
+		assert.equal(
+			facts.workflowEnded.get("wf_a"),
+			Date.parse("2026-10-24T10:00:30.000Z"),
+		);
+	});
+
+	test("a subagent's records in the parent stream leave its doing alone", () => {
+		const at = (time: string) => ({ timestamp: `2026-10-24T${time}.000Z` });
+		const facts = apply(
+			{
+				...toolUse("t1", "Agent", { description: "Survey" }),
+				...at("10:00:01"),
+			},
+			{
+				type: "assistant",
+				parent_tool_use_id: "t1",
+				message: {
+					id: "m-sub",
+					content: [
+						{ type: "text", text: "Reading inside the subagent" },
+						{ type: "tool_use", id: "s1", name: "Read", input: {} },
+					],
+					usage: { input_tokens: 10, output_tokens: 5 },
+				},
+				...at("10:00:04"),
+			},
+		);
+		assert.equal(facts.doing, "Agent: Survey");
+		assert.equal(facts.steps.length, 1);
+		assert.deepEqual([...facts.tools.keys()], ["t1"]);
+		assert.equal(facts.tokens.output, 5);
+		assert.equal(
+			facts.agentCalls.get("t1")?.updatedAt,
+			Date.parse("2026-10-24T10:00:04.000Z"),
+		);
+	});
+
 	test("tracks background shells and monitors until they end", () => {
 		const at = (time: string) => ({ timestamp: `2026-10-24T${time}.000Z` });
 		const facts = apply(
@@ -822,5 +942,85 @@ describe("token usage", () => {
 	test("skips usage inherited from a forked parent", () => {
 		const facts = apply({ ...usage("msg_1", 10, 5), session_id: "other" });
 		assert.equal(facts.tokens.input, 0);
+	});
+});
+
+describe("claude.ai's own shapes for subagents and workflows", () => {
+	const at = (time: string) => ({ timestamp: `2026-10-24T${time}.000Z` });
+
+	test("an Agent ends when its subagent hands back, before any result", () => {
+		const facts = apply(
+			{
+				...toolUse("t1", "Agent", { description: "Review" }),
+				...at("10:00:01"),
+			},
+			{
+				type: "assistant",
+				parent_tool_use_id: "t1",
+				message: {
+					content: [
+						{
+							type: "tool_use",
+							id: "h1",
+							name: "SubagentHandback",
+							input: { message: "done" },
+						},
+					],
+				},
+				...at("10:00:09"),
+			},
+		);
+		assert.equal(
+			facts.agentCalls.get("t1")?.endedAt,
+			Date.parse("2026-10-24T10:00:09.000Z"),
+		);
+	});
+
+	test("a Workflow is named from its script's meta and runs until its task ends", () => {
+		const script =
+			"export const meta = {\n  name: 'review-quoted-replies',\n  description: 'x',\n}\nphase('Review')";
+		const facts = apply(
+			{ ...toolUse("w1", "Workflow", { script }), ...at("10:00:01") },
+			{
+				type: "user",
+				message: {
+					content: [
+						{
+							type: "tool_result",
+							tool_use_id: "w1",
+							content: [
+								{
+									type: "text",
+									text: "Workflow launched in background. Task ID: wqx2hcqns\nRun ID: wf_abc-123",
+								},
+							],
+						},
+					],
+				},
+				...at("10:00:02"),
+			},
+		);
+		const [call] = facts.workflowCalls.values();
+		assert.equal(call?.name, "review-quoted-replies");
+		assert.equal(call?.taskId, "wqx2hcqns");
+		assert.equal(call?.runId, "wf_abc-123");
+		assert.equal(call?.endedAt, null);
+	});
+
+	test("reads a snake_cased tool_use_result", () => {
+		const facts = apply(
+			{ ...toolUse("t2", "Agent", { description: "Sync" }), ...at("10:00:01") },
+			{
+				type: "user",
+				message: {
+					content: [{ type: "tool_result", tool_use_id: "t2", content: "" }],
+				},
+				tool_use_result: { status: "async_launched", agentId: "a-9" },
+				...at("10:00:02"),
+			},
+		);
+		const call = facts.agentCalls.get("t2");
+		assert.equal(call?.agentId, "a-9");
+		assert.equal(call?.endedAt, null);
 	});
 });

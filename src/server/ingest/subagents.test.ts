@@ -15,11 +15,12 @@ import {
 	abandoned,
 	type FoundSubagent,
 	newestPerSession,
-	runningWorkflows,
 	scanSubagents,
+	sessionWorkflows,
 	settleSubagents,
 	subagentLimit,
 	subagentWindowMs,
+	workflowShownMs,
 } from "./subagents.ts";
 
 function found(
@@ -209,17 +210,33 @@ test("counts a workflow's steps by journal key, so a resumed step counts once", 
 	};
 	const facts = createFacts();
 	facts.workflowNames.set("wf_resumed", "audit");
+	const live = () => ({ facts, live: true });
+	assert.deepEqual(sessionWorkflows([step], live, 1000), [
+		{ runId: "wf_resumed", sessionId: "s", name: "audit", done: 2, total: 3 },
+	]);
 	assert.deepEqual(
-		runningWorkflows([step], () => facts),
-		[{ runId: "wf_resumed", sessionId: "s", name: "audit", done: 2, total: 3 }],
+		sessionWorkflows([step], () => ({ facts, live: false }), 1000),
+		[],
 	);
 	facts.finishedTasks.add("wf_resumed");
+	assert.deepEqual(sessionWorkflows([step], live, 1000), []);
+	facts.workflowEnded.set("wf_resumed", 500);
+	assert.deepEqual(sessionWorkflows([step], live, 1000), [
+		{
+			runId: "wf_resumed",
+			sessionId: "s",
+			name: "audit",
+			done: 2,
+			total: 3,
+			endedAt: 500,
+		},
+	]);
 	assert.deepEqual(
-		runningWorkflows([step], () => facts),
+		sessionWorkflows([step], live, 500 + workflowShownMs + 1),
 		[],
 	);
 	assert.deepEqual(
-		runningWorkflows([step], () => null),
+		sessionWorkflows([step], () => null, 1000),
 		[],
 	);
 });

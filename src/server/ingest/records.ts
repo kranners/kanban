@@ -46,6 +46,28 @@ export type BackgroundShell = {
 	endedAt: number | null;
 };
 
+/** An Agent or Task tool call, for sessions whose subagents have no files. */
+export type AgentCall = {
+	toolUseId: string;
+	agentId: string | null;
+	type: string;
+	description: string;
+	startedAt: number;
+	updatedAt: number;
+	endedAt: number | null;
+};
+
+/** A Workflow tool call, for sessions whose runs have no files. */
+export type WorkflowCall = {
+	toolUseId: string;
+	name: string;
+	runId: string | null;
+	taskId: string | null;
+	startedAt: number;
+	updatedAt: number;
+	endedAt: number | null;
+};
+
 export type TranscriptFacts = {
 	doing: string | null;
 	aiTitle: string | null;
@@ -62,6 +84,9 @@ export type TranscriptFacts = {
 	shells: Map<string, BackgroundShell>;
 	workflowRuns: Map<string, string>;
 	workflowNames: Map<string, string>;
+	workflowEnded: Map<string, number>;
+	agentCalls: Map<string, AgentCall>;
+	workflowCalls: Map<string, WorkflowCall>;
 	artifacts: Map<string, Artifact>;
 	tasks: Map<string, Task>;
 	steps: Step[];
@@ -95,6 +120,9 @@ export function createFacts(): TranscriptFacts {
 		shells: new Map(),
 		workflowRuns: new Map(),
 		workflowNames: new Map(),
+		workflowEnded: new Map(),
+		agentCalls: new Map(),
+		workflowCalls: new Map(),
 		artifacts: new Map(),
 		tasks: new Map(),
 		steps: [],
@@ -132,6 +160,11 @@ export function applyRecord(
 	if (!record || isInheritedFromFork(record)) return;
 	const at = asTime(record.timestamp) ?? 0;
 	if (at > facts.lastAt) facts.lastAt = at;
+	const parentToolUse = asString(record.parent_tool_use_id);
+	if (parentToolUse) {
+		applyNested(facts, record, parentToolUse, at);
+		return;
+	}
 	switch (record.type) {
 		case "assistant":
 			applyAssistant(facts, record, at);
@@ -186,6 +219,154 @@ function humanGoal(prompt: string | null): string | null {
 	return text;
 }
 
+/**
+ * A record a subagent wrote into its parent's stream (cloud and stream-json
+ * transcripts mark them with parent_tool_use_id). It counts toward the
+ * session's tokens and keeps the call it belongs to fresh, but never becomes
+ * the parent's doing, steps or pending tools.
+ */
+function applyNested(
+	facts: TranscriptFacts,
+	record: Json,
+	parentToolUse: string,
+	at: number,
+) {
+	const message = asObject(record.message);
+	if (record.type === "assistant") countTokens(facts, message);
+	const call =
+		facts.agentCalls.get(parentToolUse) ??
+		facts.workflowCalls.get(parentToolUse);
+	if (call && call.endedAt === null && at > call.updatedAt) call.updatedAt = at;
+	// A cloud subagent hands back with SubagentHandback, its last word.
+	const agent = facts.agentCalls.get(parentToolUse);
+	const content = Array.isArray(message?.content) ? message.content : [];
+	if (
+		agent &&
+		record.type === "assistant" &&
+		content.some((c) => {
+			const block = asObject(c);
+			return block?.type === "tool_use" && block.name === "SubagentHandback";
+		})
+	)
+		end(agent, at);
+}
+
+function startCall(
+	facts: TranscriptFacts,
+	id: string | null,
+	name: string,
+	input: Json,
+	at: number,
+) {
+	if (!id) return;
+	if (name === "Agent" || name === "Task") {
+		if (facts.agentCalls.has(id)) return;
+		facts.agentCalls.set(id, {
+			toolUseId: id,
+			agentId: null,
+			type: asString(input.subagent_type) ?? "agent",
+			description: truncate(asString(input.description) ?? "", summaryLength),
+			startedAt: at,
+			updatedAt: at,
+			endedAt: null,
+		});
+	} else if (name === "Workflow") {
+		if (facts.workflowCalls.has(id)) return;
+		facts.workflowCalls.set(id, {
+			toolUseId: id,
+			name:
+				asString(input.name) ??
+				asString(input.workflow) ??
+				asString(asObject(input.meta)?.name) ??
+				workflowNameOf(asString(input.script)) ??
+				"workflow",
+			runId: null,
+			taskId: null,
+			startedAt: at,
+			updatedAt: at,
+			endedAt: null,
+		});
+	}
+}
+
+function closeCall(
+	facts: TranscriptFacts,
+	toolUseId: string,
+	result: Json | null,
+	isError: boolean,
+	at: number,
+) {
+	const agent = facts.agentCalls.get(toolUseId);
+	if (agent) {
+		agent.agentId = asString(result?.agentId) ?? agent.agentId;
+		if (isError || result?.status !== "async_launched") end(agent, at);
+		else if (agent.agentId && facts.finishedTasks.has(agent.agentId))
+			end(agent, at);
+		return;
+	}
+	const workflow = facts.workflowCalls.get(toolUseId);
+	if (!workflow) return;
+	workflow.runId = asString(result?.runId) ?? workflow.runId;
+	workflow.taskId = asString(result?.taskId) ?? workflow.taskId;
+	const named = asString(result?.workflowName);
+	if (named) workflow.name = named;
+	if (isError || (result && result.status !== "async_launched"))
+		end(workflow, at);
+}
+
+/**
+ * A background launch whose result carries only text, as a cloud session's
+ * may: "Workflow launched in background. Task ID: …", which keeps the call
+ * running until its task's notification ends it.
+ */
+export function launchedFromText(block: Json): Json | null {
+	const text = (
+		typeof block.content === "string"
+			? [block.content]
+			: Array.isArray(block.content)
+				? block.content.map((c) => asString(asObject(c)?.text) ?? "")
+				: []
+	).join("\n");
+	const task =
+		/launched in (?:the )?background[\s\S]*?Task ID:\s*([A-Za-z0-9_-]+)/i.exec(
+			text,
+		)?.[1];
+	if (!task) return null;
+	const run = /Run ID:\s*([A-Za-z0-9_-]+)/i.exec(text)?.[1];
+	return {
+		status: "async_launched",
+		taskId: task,
+		...(run ? { runId: run } : {}),
+	};
+}
+
+/** A Workflow script's own name, from its `export const meta = { name: '…' }`. */
+export function workflowNameOf(script: string | null): string | null {
+	if (!script) return null;
+	const meta = /export\s+const\s+meta\s*=\s*\{([\s\S]{0,2000})/.exec(
+		script,
+	)?.[1];
+	const name = meta
+		? /\bname\s*:\s*(['"`])([^'"`\n]{1,80})\1/.exec(meta)?.[2]
+		: undefined;
+	return name?.trim() || null;
+}
+
+function end(call: { endedAt: number | null; updatedAt: number }, at: number) {
+	if (call.endedAt !== null) return;
+	call.endedAt = at;
+	if (at > call.updatedAt) call.updatedAt = at;
+}
+
+function endCalls(facts: TranscriptFacts, taskId: string, at: number) {
+	for (const call of facts.agentCalls.values()) {
+		if (call.agentId === taskId || call.toolUseId === taskId) end(call, at);
+	}
+	for (const call of facts.workflowCalls.values()) {
+		if (call.taskId === taskId || call.runId === taskId) end(call, at);
+	}
+}
+
 function applyAssistant(facts: TranscriptFacts, record: Json, at: number) {
 	const message = asObject(record.message);
 	countTokens(facts, message);
@@ -204,6 +385,7 @@ function applyAssistant(facts: TranscriptFacts, record: Json, at: number) {
 			const input = asObject(block.input) ?? {};
 			const id = asString(block.id);
 			if (id) facts.tools.set(id, { name, input });
+			startCall(facts, id, name, input, at);
 			if (name === "TodoWrite") replaceTodos(facts, input.todos, at);
 			const summary = summariseTool(name, input);
 			setDoing(facts, summary, at);
@@ -270,8 +452,10 @@ function applyToolResults(
 	at: number,
 	resolve: ResolvePeer,
 ) {
-	const result = asObject(record.toolUseResult);
-	collectFinishedAgent(facts, result);
+	// Local transcripts carry toolUseResult; claude.ai's events may carry it snake_cased.
+	const result =
+		asObject(record.toolUseResult) ?? asObject(record.tool_use_result);
+	collectFinishedAgent(facts, result, at);
 	for (const item of content) {
 		const block = asObject(item);
 		if (block?.type !== "tool_result") continue;
@@ -279,6 +463,14 @@ function applyToolResults(
 		const tool = id ? facts.tools.get(id) : undefined;
 		if (id) facts.tools.delete(id);
 		if (tool && id) applyCloudTool(facts, id, tool, block, at);
+		if (id)
+			closeCall(
+				facts,
+				id,
+				result ?? launchedFromText(block),
+				block.is_error === true,
+				at,
+			);
 		if (!tool || !result) continue;
 		if (tool.name === "SendMessage") {
 			const msgId = asString(result.msg_id);
@@ -315,7 +507,10 @@ function applyToolResults(
 			const taskId = asString(result.taskId);
 			const runId = asString(result.runId);
 			if (taskId && runId) facts.workflowRuns.set(taskId, runId);
-			if (runId) facts.finishedTasks.delete(runId);
+			if (runId) {
+				facts.finishedTasks.delete(runId);
+				facts.workflowEnded.delete(runId);
+			}
 			const name = asString(result.workflowName);
 			if (runId && name) facts.workflowNames.set(runId, name);
 		} else if (tool.name === "Artifact") {
@@ -432,10 +627,15 @@ function messageSummary(input: Json): string {
 	return truncate(firstLine(message), summaryLength);
 }
 
-function collectFinishedAgent(facts: TranscriptFacts, result: Json | null) {
+function collectFinishedAgent(
+	facts: TranscriptFacts,
+	result: Json | null,
+	at: number,
+) {
 	const agentId = asString(result?.agentId);
 	if (agentId && result?.status === "completed") {
 		facts.finishedTasks.add(agentId);
+		endCalls(facts, agentId, at);
 	}
 }
 
@@ -479,7 +679,11 @@ function endTask(facts: TranscriptFacts, taskId: string, at: number) {
 	const shell = facts.shells.get(taskId);
 	if (shell && shell.endedAt === null) shell.endedAt = at;
 	const runId = facts.workflowRuns.get(taskId);
-	if (runId) facts.finishedTasks.add(runId);
+	if (runId) {
+		facts.finishedTasks.add(runId);
+		if (!facts.workflowEnded.has(runId)) facts.workflowEnded.set(runId, at);
+	}
+	endCalls(facts, taskId, at);
 }
 
 function setDoing(facts: TranscriptFacts, text: string, at: number) {

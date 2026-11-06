@@ -39,7 +39,13 @@ import type { PlacedNode } from "./layout.ts";
 import { plainText } from "./markdown.ts";
 import { RelationHandles } from "./RelationHandles.tsx";
 import { unreachableText } from "./reach.ts";
-import { board } from "./state.ts";
+import { board, openSession, openSubagent } from "./state.ts";
+import {
+	chipName,
+	orderWorkflows,
+	subagentChips,
+	workflowDetail,
+} from "./subagentChips.ts";
 import { Timeline } from "./Timeline.tsx";
 import { ago, relativeTime } from "./time.ts";
 import { averageTaskMs, type Lane, sessionLane } from "./timeline.ts";
@@ -112,7 +118,11 @@ function SessionParentLine(props: { session: Session }) {
 	);
 }
 
-function CardBody(props: { session: Session; workflows: readonly Workflow[] }) {
+function CardBody(props: {
+	session: Session;
+	workflows: readonly Workflow[];
+	now: number;
+}) {
 	const { session } = props;
 	const needs = session.activity === "needs-you" && session.needs;
 	return (
@@ -129,6 +139,7 @@ function CardBody(props: { session: Session; workflows: readonly Workflow[] }) {
 					{session.doing ? plainText(session.doing) : activityHint(session)}
 				</div>
 			)}
+			<SubagentChips session={session} now={props.now} />
 		</div>
 	);
 }
@@ -160,27 +171,86 @@ function Ribbon(props: { session: Session; now: number }) {
 }
 
 function workflowProgress(workflow: Workflow): string {
-	return `${workflow.done}/${workflow.total} agents`;
+	return workflowDetail(workflow, board.value?.workflowRuns ?? {});
+}
+
+function workflowFill(workflow: Workflow): number {
+	if (workflow.endedAt !== undefined) return 100;
+	return (100 * workflow.done) / Math.max(workflow.total, 1);
 }
 
 function WorkflowBars(props: { workflows: readonly Workflow[] }) {
 	if (props.workflows.length === 0) return null;
 	return (
 		<div class="workflows" aria-hidden="true">
-			{props.workflows.map((workflow) => (
-				<div key={workflow.runId} class="workflow" title={workflow.name}>
+			{orderWorkflows(props.workflows).map((workflow) => (
+				<div
+					key={workflow.runId}
+					class={`workflow${workflow.endedAt === undefined ? "" : " is-done"}`}
+					title={`Workflow ${workflow.name}`}
+				>
 					<span class="workflow-name">{workflow.name}</span>
 					<span class="workflow-track">
 						<span
 							class="workflow-fill"
-							style={{
-								width: `${(100 * workflow.done) / Math.max(workflow.total, 1)}%`,
-							}}
+							style={{ width: `${workflowFill(workflow)}%` }}
 						/>
 					</span>
 					<span class="workflow-count num">{workflowProgress(workflow)}</span>
 				</div>
 			))}
+		</div>
+	);
+}
+
+/** The session's newest subagents as chips that open each one. */
+function SubagentChips(props: { session: Session; now: number }) {
+	const { session } = props;
+	const current = board.value;
+	if (!current) return null;
+	const { shown, more } = subagentChips(
+		current.subagents,
+		session.id,
+		current.subagentCounts[session.id],
+	);
+	if (shown.length === 0) return null;
+	return (
+		<div class="sub-chips">
+			{shown.map((subagent) => {
+				const state = subagentState(subagent);
+				const name = chipName(subagent);
+				return (
+					<button
+						key={subagent.id}
+						type="button"
+						class={`sub-chip act-${state}`}
+						data-no-pan
+						title={`${subagent.description || subagent.type} · ${subagent.type}`}
+						aria-label={`Open subagent ${name}, ${state}`}
+						onPointerDown={(event) => event.stopPropagation()}
+						onClick={(event) => {
+							event.stopPropagation();
+							const origin = event.currentTarget.getBoundingClientRect();
+							if (session.cloud) openSession(session.id, origin);
+							else openSubagent(subagent.id, origin);
+						}}
+					>
+						<span class="sub-chip-dot" aria-hidden="true" />
+						<span class="sub-chip-name">{name}</span>
+						<time class="sub-chip-time num">
+							{relativeTime(subagent.updatedAt, props.now)}
+						</time>
+					</button>
+				);
+			})}
+			{more > 0 && (
+				<span
+					class="sub-chip-more num"
+					title={`${more} more ${more === 1 ? "subagent" : "subagents"}`}
+				>
+					+{more}
+				</span>
+			)}
 		</div>
 	);
 }
@@ -321,6 +391,7 @@ function NearPanel(props: {
 					{session.doing ? plainText(session.doing) : activityHint(session)}
 				</p>
 				<WorkflowBars workflows={props.workflows} />
+				<SubagentChips session={session} now={props.now} />
 			</header>
 			<div class="near-content">
 				<div class="near-side">
@@ -397,9 +468,10 @@ function cardStatus(session: Session, workflows: readonly Workflow[]): string {
 		session.activity === "needs-you" ? session.needs : session.doing;
 	const label = activityLabel[session.activity];
 	const status = detail ? `${label}: ${detail}` : label;
+	const running = workflows.filter((w) => w.endedAt === undefined);
 	const waiting =
-		workflows.length > 0
-			? `; ${workflows.map((w) => `${w.name} ${workflowProgress(w)}`).join(", ")}`
+		running.length > 0
+			? `; ${running.map((w) => `${w.name} ${workflowProgress(w)}`).join(", ")}`
 			: "";
 	return `${status}${waiting}`;
 }
@@ -469,7 +541,11 @@ export function SessionCard(props: {
 					/>
 				) : (
 					<>
-						<CardBody session={session} workflows={props.workflows} />
+						<CardBody
+							session={session}
+							workflows={props.workflows}
+							now={props.now}
+						/>
 						<div class="foot">
 							<span class="foot-project" title={session.cwd}>
 								{session.project}

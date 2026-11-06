@@ -15,6 +15,7 @@ import type {
 	TranscriptEntry,
 } from "../../shared/types.ts";
 import type { CloudSession } from "../cloud.ts";
+import { cloudSubagents, cloudWorkflows } from "./cloudAgents.ts";
 import { firstLine, truncate } from "./json.ts";
 import { locateTranscript, projectSlug } from "./locate.ts";
 import {
@@ -37,8 +38,8 @@ import {
 	type FoundSubagent,
 	type MetaCache,
 	newestPerSession,
-	runningWorkflows,
 	scanSubagents,
+	sessionWorkflows,
 	settleSubagents,
 	workflowRunsOf,
 } from "./subagents.ts";
@@ -197,11 +198,37 @@ export function startBoard(opts: {
 		const settled = settleSubagents(found, agentFacts);
 		const shown = newestPerSession(settled);
 		const shells = collectShells(tracked, shown, agentFacts, now);
-		const subagents = [...shown.map(({ subagent }) => subagent), ...shells];
-		const workflows = runningWorkflows(settled, (id) => {
-			const item = tracked.get(id);
-			return item?.entry ? (item.tail?.facts ?? null) : null;
+		const ofClouds = clouds.flatMap((cs) => {
+			const facts = cloudTails.get(cs.id)?.facts;
+			return facts
+				? [
+						{
+							subagents: cloudSubagents(cs.id, facts, cs.activity, now),
+							workflows: cloudWorkflows(cs.id, facts, cs.activity, now),
+						},
+					]
+				: [];
 		});
+		const cloudAgents = ofClouds.flatMap(({ subagents }) => subagents);
+		const subagents = [
+			...shown.map(({ subagent }) => subagent),
+			...shells,
+			...cloudAgents,
+		];
+		const localWorkflows = sessionWorkflows(
+			settled,
+			(id) => {
+				const item = tracked.get(id);
+				return item?.tail
+					? { facts: item.tail.facts, live: item.entry !== null }
+					: null;
+			},
+			now,
+		);
+		const workflows = [
+			...localWorkflows,
+			...ofClouds.flatMap(({ workflows }) => workflows),
+		];
 		const subagentShells = shells.filter(
 			(shell) => shell.parentAgentId !== null,
 		);
@@ -209,7 +236,9 @@ export function startBoard(opts: {
 			...[...settled.map(({ subagent }) => subagent), ...subagentShells]
 				.filter((subagent) => subagent.live)
 				.map((subagent) => subagent.sessionId),
-			...workflows.map((workflow) => workflow.sessionId),
+			...localWorkflows
+				.filter((workflow) => workflow.endedAt === undefined)
+				.map((workflow) => workflow.sessionId),
 		]);
 		const agentTokens = subagentTokensBySession(found, agentFacts);
 		const sessions = [
@@ -263,12 +292,14 @@ export function startBoard(opts: {
 		return {
 			sessions,
 			subagents,
-			subagentCounts: subagentCountsBySession(
-				settled.map(({ subagent }) => subagent),
-			),
-			subagentStates: outstandingStates(
-				settled.map(({ subagent }) => subagent),
-			),
+			subagentCounts: subagentCountsBySession([
+				...settled.map(({ subagent }) => subagent),
+				...cloudAgents,
+			]),
+			subagentStates: outstandingStates([
+				...settled.map(({ subagent }) => subagent),
+				...cloudAgents,
+			]),
 			workflowRuns: workflowRunsOf(settled),
 			workflows,
 			links: collectLinks(

@@ -180,6 +180,12 @@ export const readStreamLine = (line: string): StreamEvent | null => {
 			},
 		};
 	}
+	if (
+		event.type === "assistant" &&
+		typeof event.parent_tool_use_id === "string"
+	)
+		// A subagent's step, not the session's own.
+		return sessionId ? { sessionId } : null;
 	if (event.type === "assistant") {
 		const content = (event.message as { content?: unknown } | undefined)
 			?.content;

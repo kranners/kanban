@@ -618,15 +618,30 @@ describe("startBoard", () => {
 			[lead]: { working: 3, idle: 1, done: 4 },
 			[fork]: { working: 0, idle: 0, done: 1 },
 		});
-		assert.deepEqual(board.workflows, [
-			{
-				runId: "wf_1",
-				sessionId: lead,
-				name: "review-changes",
-				done: 1,
-				total: 2,
-			},
-		]);
+		assert.deepEqual(
+			board.workflows.map(({ endedAt, ...workflow }) => ({
+				...workflow,
+				ended: endedAt !== undefined,
+			})),
+			[
+				{
+					runId: "wf_1",
+					sessionId: lead,
+					name: "review-changes",
+					done: 1,
+					total: 2,
+					ended: false,
+				},
+				{
+					runId: "wf_2",
+					sessionId: lead,
+					name: "audit",
+					done: 0,
+					total: 1,
+					ended: true,
+				},
+			],
+		);
 		const nested = board.subagents.find((item) => item.id === "agentnested");
 		assert.equal(nested?.parentAgentId, "agentlive");
 		assert.equal(nested?.sessionId, lead);
@@ -1130,6 +1145,134 @@ describe("startBoard with cloud sessions", () => {
 		assert.deepEqual(
 			(await handle.transcript(id, 10)).map((entry) => entry.text),
 			["Fix the flaky test", "Found it"],
+		);
+	});
+});
+
+describe("startBoard with a cloud session's subagents and workflows", () => {
+	const id = "session_01agents";
+	let handle: ReturnType<typeof startBoard>;
+	const assistant = (offsetMs: number, content: object[], extra = {}) => ({
+		type: "assistant",
+		message: { role: "assistant", content },
+		timestamp: iso(offsetMs),
+		...extra,
+	});
+	const result = (
+		offsetMs: number,
+		toolUseId: string,
+		toolUseResult: object,
+	) => ({
+		type: "user",
+		parent_tool_use_id: null,
+		message: {
+			role: "user",
+			content: [{ type: "tool_result", tool_use_id: toolUseId, content: "" }],
+		},
+		toolUseResult,
+		timestamp: iso(offsetMs),
+	});
+	const use = (id: string, name: string, input: object) => ({
+		type: "tool_use",
+		id,
+		name,
+		input,
+	});
+
+	before(() => {
+		home = mkdtempSync(join(tmpdir(), "kanban-cloud-agents-"));
+		jsonl(`cloud/${id}.jsonl`, [
+			assistant(-60_000, [
+				use("t-sync", "Agent", {
+					description: "Survey the tests",
+					subagent_type: "Explore",
+				}),
+			]),
+			assistant(-50_000, [{ type: "text", text: "Inside the survey" }], {
+				parent_tool_use_id: "t-sync",
+			}),
+			result(-40_000, "t-sync", { status: "completed", agentId: "agentsync" }),
+			assistant(-30_000, [
+				use("t-bg", "Agent", { description: "Read the docs" }),
+				use("t-flow", "Workflow", { script: "review.js" }),
+			]),
+			result(-29_000, "t-bg", { status: "async_launched", agentId: "agentbg" }),
+			result(-29_000, "t-flow", {
+				status: "async_launched",
+				taskId: "w1",
+				runId: "wf_cloud",
+				workflowName: "review-changes",
+			}),
+			assistant(-20_000, [{ type: "text", text: "Waiting on both" }]),
+			assistant(-5_000, [{ type: "text", text: "Reading inside" }], {
+				parent_tool_use_id: "t-bg",
+			}),
+		]);
+		handle = startBoard({
+			claudeHome: join(home, "default"),
+			cloud: () => [
+				{
+					id,
+					cwd: "/Users/me/dev/acme-api",
+					name: "acme-api",
+					url: `https://claude.ai/code/${id}`,
+					createdAt: now - 90_000,
+					updatedAt: now - 5_000,
+					activity: "working" as const,
+					detail: null,
+					transcript: join(home, "cloud", `${id}.jsonl`),
+				},
+			],
+			onChange: () => {},
+		});
+	});
+
+	after(() => {
+		handle.stop();
+		rmSync(home, { recursive: true, force: true });
+	});
+
+	test("lists its Agent calls as subagents, newest first", () => {
+		const board = handle.board();
+		assert.deepEqual(
+			board.subagents.map((subagent) => [
+				subagent.id,
+				subagent.sessionId,
+				subagent.type,
+				subagent.description,
+				subagent.live,
+				subagent.done,
+			]),
+			[
+				["agentbg", id, "agent", "Read the docs", true, false],
+				["agentsync", id, "Explore", "Survey the tests", false, true],
+			],
+		);
+		assert.deepEqual(board.subagentCounts[id], {
+			working: 1,
+			idle: 0,
+			done: 1,
+		});
+		assert.deepEqual(board.subagentStates, { agentbg: "working" });
+	});
+
+	test("shows its running workflow without agent counts", () => {
+		assert.deepEqual(handle.board().workflows, [
+			{
+				runId: "wf_cloud",
+				sessionId: id,
+				name: "review-changes",
+				done: 0,
+				total: 0,
+			},
+		]);
+	});
+
+	test("keeps subagents' own records out of the session's doing", () => {
+		const [session] = handle.board().sessions;
+		assert.equal(session?.doing, "Waiting on both");
+		assert.ok(
+			!session?.steps.some((step) => step.text.startsWith("Reading inside")),
 		);
 	});
 });

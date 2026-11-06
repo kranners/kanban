@@ -203,9 +203,19 @@ function readJournal(dir: string): JournalProgress {
 	return progress;
 }
 
-export function runningWorkflows(
+/** How long a finished workflow run stays on its session's card. */
+export const workflowShownMs = 30 * 60_000;
+
+/**
+ * Each session's workflow runs: those running while the session is live, and
+ * those that ended in the last 30 minutes, with when they ended.
+ */
+export function sessionWorkflows(
 	found: readonly FoundSubagent[],
-	liveParentFacts: (sessionId: string) => TranscriptFacts | null,
+	parentOf: (
+		sessionId: string,
+	) => { facts: TranscriptFacts; live: boolean } | null,
+	now: number,
 ): Workflow[] {
 	const runs = new Map<string, { sessionId: string; dir: string }>();
 	for (const { subagent, transcriptPath, workflowRun } of found) {
@@ -217,8 +227,15 @@ export function runningWorkflows(
 		}
 	}
 	return [...runs].flatMap(([runId, { sessionId, dir }]) => {
-		const facts = liveParentFacts(sessionId);
-		if (!facts || facts.finishedTasks.has(runId)) return [];
+		const parent = parentOf(sessionId);
+		if (!parent) return [];
+		const { facts, live } = parent;
+		const endedAt = facts.finishedTasks.has(runId)
+			? (facts.workflowEnded.get(runId) ?? null)
+			: null;
+		const running = live && !facts.finishedTasks.has(runId);
+		const recent = endedAt !== null && now - endedAt <= workflowShownMs;
+		if (!running && !recent) return [];
 		const { startedSteps, finishedSteps } = readJournal(dir);
 		return [
 			{
@@ -227,6 +244,7 @@ export function runningWorkflows(
 				name: facts.workflowNames.get(runId) ?? runId,
 				done: finishedSteps.size,
 				total: new Set([...startedSteps, ...finishedSteps]).size,
+				...(running ? {} : { endedAt: endedAt ?? now }),
 			},
 		];
 	});

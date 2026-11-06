@@ -105,6 +105,20 @@ describe("readStreamLine", () => {
 		);
 		assert.equal(readStreamLine("not json"), null);
 	});
+
+	it("leaves a subagent's steps out of the session's detail", () => {
+		assert.deepEqual(
+			readStreamLine(
+				JSON.stringify({
+					type: "assistant",
+					session_id: "abc",
+					parent_tool_use_id: "toolu_1",
+					message: { content: [{ type: "text", text: "Inside the agent" }] },
+				}),
+			),
+			{ sessionId: "abc" },
+		);
+	});
 });
 
 describe("createSessionManager", { skip: process.platform === "win32" }, () => {

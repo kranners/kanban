@@ -258,6 +258,90 @@
 	white-space: nowrap;
 }
 
+.workflow.is-done .workflow-name {
+	color: var(--done-ink);
+}
+
+.workflow.is-done .workflow-fill {
+	background: var(--done-edge);
+}
+
+.workflow.is-done .workflow-track {
+	background: color-mix(in srgb, var(--done-edge) 16%, var(--surface));
+}
+
+.sub-chips {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 0 14px 8px;
+	overflow: hidden;
+}
+
+.sub-chip {
+	--chip-dot: var(--busy-edge);
+	flex: 0 1 auto;
+	min-width: 0;
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	height: 20px;
+	padding: 0 7px;
+	border: 1px solid var(--hairline);
+	border-radius: 999px;
+	background: var(--surface);
+	color: var(--ink);
+	font: inherit;
+	font-size: 11px;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.sub-chip:hover {
+	border-color: var(--hairline-strong);
+}
+
+.sub-chip.act-idle {
+	--chip-dot: var(--idle-edge);
+}
+
+.sub-chip.act-done {
+	--chip-dot: var(--done-edge);
+	opacity: 0.6;
+}
+
+.sub-chip-dot {
+	flex: none;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--chip-dot);
+}
+
+.sub-chip.act-working .sub-chip-dot {
+	animation: sub-chip-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes sub-chip-pulse {
+	50% {
+		opacity: 0.35;
+	}
+}
+
+.sub-chip-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.sub-chip-time,
+.sub-chip-more {
+	flex: none;
+	color: var(--muted);
+}
+
 .node.session .body:has(> .workflows) > .goal {
 	display: block;
 	padding-top: 8px;
@@ -449,6 +533,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+	.sub-chip.act-working .sub-chip-dot {
+		animation: none;
+	}
 	.busy-edge::after {
 		width: 100%;
 		translate: 0 0;
