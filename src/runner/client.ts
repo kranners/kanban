@@ -24,6 +24,8 @@ export type RunnerClientOptions = {
 	fetch?: typeof fetch;
 	log?: (line: string) => void;
 	retryMs?: number;
+	/** Told the hub's runner.js version at each registration, to update itself when it differs. */
+	onVersion?: (version: string) => void;
 	/** Lists a folder for the board's folder browser; this disk by default. */
 	browse?: (
 		path: string | null,
@@ -63,6 +65,7 @@ export const startRunnerClient = ({
 	fetch: fetchImpl = fetch,
 	log = console.error,
 	retryMs = 5_000,
+	onVersion = () => {},
 	browse = (path, hubHome) =>
 		browseFolder(path, {
 			machine: config.name,
@@ -142,6 +145,7 @@ export const startRunnerClient = ({
 		id = body.id;
 		heartbeatEvery = body.heartbeatMs;
 		pollWait = body.pollWaitMs;
+		if (typeof body.runnerVersion === "string") onVersion(body.runnerVersion);
 		log(`kanban-runner: registered with ${config.hub} as ${id}`);
 		lastError = "";
 		onRegistered(id);

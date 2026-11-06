@@ -20,6 +20,12 @@ export type DocsReply = { status: number; body?: unknown };
 
 export type DocsHttp = {
 	tool(req: IncomingMessage, res: ServerResponse, tool: string): Promise<void>;
+	/** The same tools for a session on a runner, whose call the caller has already checked carries the runner token. */
+	runnerTool(
+		req: IncomingMessage,
+		res: ServerResponse,
+		tool: string,
+	): Promise<void>;
 	file(
 		req: IncomingMessage,
 		res: ServerResponse,
@@ -388,33 +394,49 @@ export const createDocsHttp = ({ files, stores }: DocsHttpDeps): DocsHttp => {
 			? (body as Record<string, unknown>).title
 			: undefined;
 
+	const handle = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+		tool: string,
+	) => {
+		const session = req.headers["x-kanban-session"];
+		if (typeof session !== "string" || !sessionPattern.test(session)) {
+			return sendError(res, 401);
+		}
+		if (!req.headers["content-type"]?.startsWith("application/json")) {
+			return sendError(res, 415);
+		}
+		let body: unknown;
+		try {
+			body = await readJson(req, maxDocToolBytes);
+		} catch {
+			return sendJson(res, 400, { ok: false, error: "Invalid JSON body" });
+		}
+		const call = parseDocToolCall(tool, body);
+		if ("error" in call) {
+			return sendJson(res, 400, { ok: false, error: call.error });
+		}
+		const outcome = await run(call);
+		if ("error" in outcome) {
+			return sendJson(res, 422, { ok: false, error: outcome.error });
+		}
+		sendJson(res, 200, { ok: true, text: outcome.text });
+	};
+
 	return {
-		async tool(req, res, tool) {
+		tool(req, res, tool) {
 			if (!fromLoopback(req) || req.headers.origin !== undefined) {
-				return sendError(res, 403);
+				sendError(res, 403);
+				return Promise.resolve();
 			}
-			const session = req.headers["x-kanban-session"];
-			if (typeof session !== "string" || !sessionPattern.test(session)) {
-				return sendError(res, 401);
+			return handle(req, res, tool);
+		},
+		runnerTool(req, res, tool) {
+			if (req.headers.origin !== undefined) {
+				sendError(res, 403);
+				return Promise.resolve();
 			}
-			if (!req.headers["content-type"]?.startsWith("application/json")) {
-				return sendError(res, 415);
-			}
-			let body: unknown;
-			try {
-				body = await readJson(req, maxDocToolBytes);
-			} catch {
-				return sendJson(res, 400, { ok: false, error: "Invalid JSON body" });
-			}
-			const call = parseDocToolCall(tool, body);
-			if ("error" in call) {
-				return sendJson(res, 400, { ok: false, error: call.error });
-			}
-			const outcome = await run(call);
-			if ("error" in outcome) {
-				return sendJson(res, 422, { ok: false, error: outcome.error });
-			}
-			sendJson(res, 200, { ok: true, text: outcome.text });
+			return handle(req, res, tool);
 		},
 		async file(req, res, store, encoded) {
 			const path = decoded(encoded);

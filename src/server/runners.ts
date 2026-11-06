@@ -53,6 +53,8 @@ export type RunnerHubOptions = {
 	newId?: () => string;
 	/** The hub's platform: "This Mac" only names a Mac. */
 	platform?: string;
+	/** The sha256 of the runner.js the hub serves, told to each runner as it registers. */
+	runnerVersion?: () => string | null;
 };
 
 export type RunnerHub = {
@@ -269,6 +271,7 @@ export const createRunnerHub = ({
 	browseTimeoutMs = 10_000,
 	newId = randomUUID,
 	platform = process.platform,
+	runnerVersion = () => null,
 }: RunnerHubOptions): RunnerHub => {
 	const runners = new Map<string, Runner>();
 	const pending = new Map<string, Pending>();
@@ -448,7 +451,14 @@ export const createRunnerHub = ({
 			const runner = runners.get(id) ?? blank(id);
 			runners.set(id, runner);
 			accept(runner, report);
-			return { ok: true, id, heartbeatMs, pollWaitMs };
+			const version = runnerVersion();
+			return {
+				ok: true,
+				id,
+				heartbeatMs,
+				pollWaitMs,
+				...(version ? { runnerVersion: version } : {}),
+			};
 		},
 		heartbeat(id, body) {
 			const runner = runners.get(id);

@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { join, resolve } from "node:path";
 import { browseFolder } from "../runner/browse.ts";
+import { fileVersion } from "../runner/update.ts";
 import {
 	createUsageSampler,
 	type ProcessStat,
@@ -350,7 +351,10 @@ const runnersChanged = () => {
 	}, 250);
 };
 const hubMachine = hostname().replace(/\.local$/, "");
+// Runners update themselves to the runner.js this release serves.
+const servedRunner = await fileVersion(join(config.dist, "runner.js"));
 const runnerHub = createRunnerHub({
+	runnerVersion: () => servedRunner,
 	expected: config.expectedRunners,
 	hubHome: homedir(),
 	local: () => ({

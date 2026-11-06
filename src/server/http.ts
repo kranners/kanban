@@ -216,6 +216,7 @@ export type Route =
 	| { kind: "create-relation" }
 	| { kind: "delete-relation"; relationId: string }
 	| { kind: "docs-tool"; tool: string }
+	| { kind: "runner-docs-tool"; tool: string }
 	| { kind: "doc-file"; store: string; path: string }
 	| { kind: "put-doc-file"; store: string; path: string }
 	| { kind: "delete-doc-file"; store: string; path: string }
@@ -605,6 +606,12 @@ export const matchRoute = (method: string, url: URL): Route => {
 	if (path === "/api/runners/register") {
 		return method === "POST"
 			? { kind: "runner-register" }
+			: { kind: "method-not-allowed" };
+	}
+	const runnerDocs = path.match(/^\/api\/runners\/docs\/([a-z_]{1,64})$/);
+	if (runnerDocs?.[1]) {
+		return method === "POST"
+			? { kind: "runner-docs-tool", tool: runnerDocs[1] }
 			: { kind: "method-not-allowed" };
 	}
 	const runner = path.match(
@@ -1741,6 +1748,13 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if (route.kind === "butler-tool") return butlerTool(req, res, route.tool);
 		if (route.kind === "peer-hook") return peerHook(req, res);
 		if (route.kind === "docs-tool") return deps.docs.tool(req, res, route.tool);
+		if (route.kind === "runner-docs-tool") {
+			// A session the board placed on a runner reaches the docs through
+			// that machine's runner token, since it is not on the board's loopback.
+			const token = deps.runnerToken?.(req) ?? "none";
+			if (token !== "ok") return sendError(res, token === "none" ? 401 : 403);
+			return deps.docs.runnerTool(req, res, route.tool);
+		}
 		const auth = await authenticate(req);
 		if (!auth.ok) return sendError(res, auth.status);
 		switch (route.kind) {

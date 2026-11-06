@@ -254,6 +254,13 @@ describe("matchRoute", () => {
 		assert.deepEqual(route("GET", "/api/docs/tools/write_doc"), {
 			kind: "method-not-allowed",
 		});
+		assert.deepEqual(route("POST", "/api/runners/docs/write_doc"), {
+			kind: "runner-docs-tool",
+			tool: "write_doc",
+		});
+		assert.deepEqual(route("GET", "/api/runners/docs/write_doc"), {
+			kind: "method-not-allowed",
+		});
 		assert.deepEqual(route("GET", "/api/docs/d-1/files/guides/setup.md"), {
 			kind: "doc-file",
 			store: "d-1",
@@ -855,6 +862,54 @@ describe("createKanbanServer", () => {
 			).status,
 			404,
 		);
+	});
+
+	it("gives a runner's sessions the doc tools with the runner token alone", async () => {
+		const call = (tool: string, headers: Record<string, string>, body = {}) =>
+			fetch(`${base}/api/runners/docs/${tool}`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"x-kanban-session": "runner-session-1",
+					...headers,
+				},
+				body: JSON.stringify(body),
+			});
+		const bearer = { authorization: `Bearer ${runnerSecret}` };
+		assert.equal((await call("list_doc_stores", {})).status, 401);
+		assert.equal((await call("list_doc_stores", authed)).status, 401);
+		assert.equal(
+			(
+				await call("list_doc_stores", {
+					authorization: `Bearer ${"x".repeat(40)}`,
+				})
+			).status,
+			403,
+		);
+		assert.equal(
+			(
+				await call("list_doc_stores", {
+					...bearer,
+					origin: "https://elsewhere.example",
+				})
+			).status,
+			403,
+			"never from a browser",
+		);
+		const made = await call("create_doc_store", bearer, {
+			title: "From a runner",
+		});
+		assert.equal(made.status, 200);
+		const listed = (await (await call("list_doc_stores", bearer)).json()) as {
+			ok: boolean;
+			text: string;
+		};
+		assert.equal(listed.ok, true);
+		assert.match(listed.text, /From a runner/);
+		const removed = await call("delete_doc_store", bearer, {
+			store: "From a runner",
+		});
+		assert.equal(removed.status, 200);
 	});
 
 	it("registers a runner, places a session on it and lists it", async (t) => {

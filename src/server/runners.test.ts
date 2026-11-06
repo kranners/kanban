@@ -109,6 +109,12 @@ describe("createRunnerHub", () => {
 		assert.equal(views[1]?.runsOn, "runner_jimbo");
 	});
 
+	it("tells each runner the version of the runner.js it serves", () => {
+		const { hub } = setup([], { runnerVersion: () => "abc123" });
+		const registered = hub.register(report());
+		assert.equal(registered.ok && registered.runnerVersion, "abc123");
+	});
+
 	it("registers a runner and keeps its usage and allocation", () => {
 		const { hub } = setup();
 		const registered = hub.register(

@@ -107,6 +107,8 @@ export type RunnerRegistration = {
 	id: string;
 	heartbeatMs: number;
 	pollWaitMs: number;
+	/** The sha256 of the runner.js the hub serves, so a runner on older code can update itself. */
+	runnerVersion?: string;
 };
 
 export type RunnerState = "online" | "offline" | "asleep";
