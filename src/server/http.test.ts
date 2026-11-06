@@ -2479,6 +2479,27 @@ describe("createKanbanServer", () => {
 		});
 		assert.equal(synced.ok, true);
 		assert.match(synced.text, /^2 thread cards: 1 updated, 0 removed\n/);
+		// A full day of threads, with every event and request card, is far past an ordinary body.
+		const long = "x".repeat(1100);
+		const busy = await tool("butler_threads", {
+			threads: [
+				{
+					...entry("11111111", "conversation"),
+					events: Array.from({ length: 30 }, (_, i) => ({
+						at: i,
+						kind: "reply",
+						text: long,
+					})),
+				},
+				entry("22222222", "dm"),
+			],
+			padding: "y".repeat(300 * 1024),
+		});
+		assert.notEqual(
+			busy.error,
+			"Invalid JSON body",
+			"a large sync is read whole",
+		);
 
 		assert.equal(
 			(await fetch(`${base}/api/butler/threads/11111111`)).status,

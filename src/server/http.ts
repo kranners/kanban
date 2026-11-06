@@ -259,6 +259,12 @@ export type UpgradeRoute =
 	| { kind: "conversation"; node: NodeRef; since: Since };
 
 const maxBodyBytes = 128 * 1024;
+/**
+ * Butler's own tools, from spike's loopback alone: `butler_threads` carries
+ * every thread card with its events, waiting requests' cards and message
+ * edges, well past an ordinary body, and the daemon's file is capped at 8 MiB.
+ */
+export const maxButlerToolBytes = 8 * 1024 * 1024;
 const maxHookBytes = 64 * 1024 * 1024;
 const maxRunnerBytes = 256 * 1024;
 
@@ -1662,7 +1668,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		}
 		let body: unknown;
 		try {
-			body = await readJson(req);
+			body = await readJson(req, maxButlerToolBytes);
 		} catch {
 			return sendJson(res, 400, { ok: false, error: "Invalid JSON body" });
 		}
