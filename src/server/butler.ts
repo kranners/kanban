@@ -2185,15 +2185,29 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				a.kind === "butler-card" && a.thread !== undefined,
 		);
 
+	// The DM has no card, being Butler's face, but its requests wait on Aaron all the same.
+	const approvalSources = (): {
+		id: string;
+		thread: string;
+		title: string;
+	}[] => [
+		...threadCards().map((card) => ({
+			id: card.id,
+			thread: card.thread?.id ?? "",
+			title: card.title,
+		})),
+		...(dm ? [{ id: threadCardId(dm.id), thread: dm.id, title: "DM" }] : []),
+	];
+
 	const approvalsWaiting = (): ButlerWaitingApproval[] =>
-		threadCards()
-			.flatMap((card) =>
+		approvalSources()
+			.flatMap((source) =>
 				threadLogs
-					.shown(card.id)
+					.shown(source.id)
 					.approvals.filter((a) => a.code)
 					.map((a) => ({
-						thread: card.thread?.id ?? "",
-						title: card.title,
+						thread: source.thread,
+						title: source.title,
 						approval: pageCopy(a),
 					})),
 			)
@@ -2207,7 +2221,8 @@ export const createButler = (deps: ButlerDeps): Butler => {
 	) => {
 		const id = threadCardId(thread);
 		const card = discordIdPattern.test(thread) ? annotation(id) : undefined;
-		if (card?.kind !== "butler-card" || !card.thread) {
+		const isDm = dm !== null && dm.id === thread;
+		if (!isDm && (card?.kind !== "butler-card" || !card.thread)) {
 			return { error: "No such thread card", status: 404 };
 		}
 		const approval = threadLogs

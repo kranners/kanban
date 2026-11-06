@@ -956,6 +956,24 @@ describe("Approving Butler's requests from the board", () => {
 		assert.equal(queued[0]?.approval?.bulk, true);
 	});
 
+	it("lists and answers the DM's requests, though the DM has no card", async () => {
+		const { butler, sync } = await setup();
+		await sync([
+			entry("22222222", {
+				kind: "dm",
+				state: "needs-you",
+				approvals: [waiting("dmreq")],
+			}),
+		]);
+		const [listed] = butler.approvalsWaiting();
+		assert.equal(listed?.thread, "22222222");
+		assert.equal(listed?.title, "DM");
+		const answer = butler.answerApproval("22222222", "dmreq", "approve", {});
+		assert.ok("ok" in answer);
+		const [press] = await presses(butler);
+		assert.equal(press?.target, "22222222");
+	});
+
 	it("takes nothing typed into a card's reply box as an approval", async () => {
 		const { butler, sync } = await setup();
 		await sync([
