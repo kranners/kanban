@@ -12,6 +12,7 @@ import {
 	type Board,
 	type BoardContext,
 	type BoardRect,
+	type ButlerApprovalPress,
 	type ButlerCard,
 	type ButlerCardEvent,
 	type ButlerCardMission,
@@ -22,6 +23,7 @@ import {
 	type ButlerThreadEvent,
 	type ButlerThreadKind,
 	type ButlerThreadView,
+	type ButlerWaitingApproval,
 	butlerCardStates,
 	butlerThreadKinds,
 	type CommentThread,
@@ -116,6 +118,25 @@ export const dismissedKeptMs = 2 * 24 * 60 * 60_000;
 export const threadCardId = (thread: string) => `${threadCardPrefix}${thread}`;
 /** A reply from a thread card goes to spike as a message of this board thread. */
 export const cardReplyThread = (thread: string) => `card-${thread}`;
+
+/** At most this many approvals from the board in any window, as the daemon also holds them to. */
+export const maxPresses = 30;
+export const pressWindowMs = 10 * 60_000;
+
+/** A press of Approve or Decline, as spike's relay hands it to the daemon. */
+/** A press refused, with the status the page gets. */
+export type ApprovalRefused = { error: string; status: 400 | 404 | 409 | 429 };
+
+type ApprovalPressMessage = InboxMessage & {
+	approval: {
+		code: string;
+		nonce: string;
+		decision: "approve" | "decline";
+		held?: true;
+		device?: string;
+		bulk?: true;
+	};
+};
 export const selfFixPattern = /^[0-9]{8}-[0-9]{6}-[0-9]+$/;
 
 const cardSize = { w: 312, h: 216 };
@@ -166,6 +187,24 @@ export type Butler = {
 	threadView(thread: string): ButlerThreadView | null;
 	/** Queues Aaron's reply from a thread card for spike to post in that Discord thread. */
 	sendToThread(thread: string, text: string): { ok: true } | Refused;
+	/** Every request waiting on Aaron on Butler's thread cards, oldest first, without their nonces. */
+	approvalsWaiting(): ButlerWaitingApproval[];
+	/**
+	 * Aaron's press of Approve or Decline on a thread card's request, queued
+	 * for spike with the nonce the daemon issued for it, which only the board
+	 * holds. The caller has checked the press came from his signed-in page.
+	 */
+	answerApproval(
+		thread: string,
+		code: string,
+		decision: "approve" | "decline",
+		options: { held?: boolean; device?: string; bulk?: boolean },
+	): { ok: true; text: string } | ApprovalRefused;
+	/** Approves every request that lists nothing critical, and says what it left. */
+	approveAllSafe(device?: string): {
+		approved: ButlerWaitingApproval[];
+		left: (ButlerWaitingApproval & { why: string })[];
+	};
 	/** Starts a Butler job: a / thread whose first message is flagged as a job. */
 	startJob(draft: {
 		x: number;
@@ -1806,7 +1845,9 @@ export const createButler = (deps: ButlerDeps): Butler => {
 					target: thread,
 				};
 			});
-		const messages = [...inbox.take(), ...replies].sort((a, b) => a.at - b.at);
+		const messages = [...inbox.take(), ...replies, ...pressQueue].sort(
+			(a, b) => a.at - b.at,
+		);
 		return done(JSON.stringify({ messages, aaron: describeAaron() }));
 	};
 
@@ -1844,8 +1885,13 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		const cardReply = threadLogs
 			.queued()
 			.find(({ message }) => message.id === last)?.card;
+		const acked = new Set(ids as string[]);
+		const before = pressQueue.length;
+		pressQueue = pressQueue.filter((m) => !acked.has(m.id));
 		const took =
-			inbox.ack(ids as string[]) + threadLogs.ack(new Set(ids as string[]));
+			inbox.ack(ids as string[]) +
+			threadLogs.ack(acked) +
+			(before - pressQueue.length);
 		const spot = thread ? threadSpot(thread) : (cardReply ?? null);
 		if (took > 0 && spot) workOn(spot);
 		return done(`Took ${took}`);
@@ -2015,7 +2061,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				updatedAt: card.updatedAt,
 			},
 			events: shown.events,
-			approvals: shown.approvals,
+			approvals: shown.approvals.map(pageCopy),
 			children,
 		};
 	};
@@ -2047,6 +2093,171 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		return { ok: true };
 	};
 
+	/** Presses of Approve and Decline the board took, by request code, so a second one says so. */
+	const pressed = new Map<string, ButlerApprovalPress>();
+	/** Presses waiting for spike, carried by board_inbox like Aaron's messages. */
+	let pressQueue: ApprovalPressMessage[] = [];
+	const presses: number[] = [];
+
+	/** A request as the page sees it: never its nonce. */
+	const pageCopy = (a: ButlerThreadApproval): ButlerThreadApproval => {
+		const { nonce, ...rest } = a;
+		const press = a.code ? pressed.get(a.code) : undefined;
+		return {
+			...rest,
+			...(nonce ? { answerable: true } : {}),
+			...(press ? { pressed: press } : {}),
+		};
+	};
+
+	const threadCards = () =>
+		Object.values(deps.annotations.current()).filter(
+			(a): a is ButlerCard =>
+				a.kind === "butler-card" && a.thread !== undefined,
+		);
+
+	const approvalsWaiting = (): ButlerWaitingApproval[] =>
+		threadCards()
+			.flatMap((card) =>
+				threadLogs
+					.shown(card.id)
+					.approvals.filter((a) => a.code)
+					.map((a) => ({
+						thread: card.thread?.id ?? "",
+						title: card.title,
+						approval: pageCopy(a),
+					})),
+			)
+			.sort((a, b) => a.approval.at - b.approval.at);
+
+	const answerApproval: Butler["answerApproval"] = (
+		thread,
+		code,
+		decision,
+		options,
+	) => {
+		const id = threadCardId(thread);
+		const card = discordIdPattern.test(thread) ? annotation(id) : undefined;
+		if (card?.kind !== "butler-card" || !card.thread) {
+			return { error: "No such thread card", status: 404 };
+		}
+		const approval = threadLogs
+			.shown(id)
+			.approvals.find((a) => a.code === code);
+		const done = pressed.get(code);
+		if (done) {
+			const time = new Date(done.at).toLocaleTimeString("en-GB", {
+				hour: "2-digit",
+				minute: "2-digit",
+				hour12: false,
+			});
+			return {
+				error: `Already ${done.decision === "approve" ? "approved" : "declined"} from the board${done.device ? ` on ${done.device}` : ""} at ${time}`,
+				status: 409,
+			};
+		}
+		if (!approval) {
+			return {
+				error: "That request is no longer waiting on you",
+				status: 404,
+			};
+		}
+		if (!approval.nonce) {
+			return {
+				error:
+					"Butler has not issued a board button for this request; answer it in Discord",
+				status: 409,
+			};
+		}
+		if (decision === "approve" && approval.critical && !options.held) {
+			return {
+				error:
+					"This request has critical items: press and hold Approve until the ring fills",
+				status: 400,
+			};
+		}
+		const at = now();
+		while (presses.length > 0 && (presses[0] ?? 0) <= at - pressWindowMs) {
+			presses.shift();
+		}
+		if (presses.length >= maxPresses) {
+			return {
+				error: `At most ${maxPresses} approvals in ${pressWindowMs / 60_000} minutes; try again shortly`,
+				status: 429,
+			};
+		}
+		presses.push(at);
+		const press: ButlerApprovalPress = {
+			decision,
+			at,
+			...(options.device ? { device: options.device } : {}),
+		};
+		pressed.set(code, press);
+		if (pressed.size > 500) pressed.delete(pressed.keys().next().value ?? "");
+		pressQueue = [
+			...pressQueue,
+			{
+				id: newId(),
+				thread: cardReplyThread(thread),
+				at,
+				text: `${decision} ${code}`,
+				context: {},
+				target: thread,
+				approval: {
+					code,
+					nonce: approval.nonce,
+					decision,
+					...(options.held ? { held: true as const } : {}),
+					...(options.device ? { device: options.device } : {}),
+					...(options.bulk ? { bulk: true as const } : {}),
+				},
+			},
+		].slice(-maxButlerQueue);
+		threadLogs.append(id, {
+			at,
+			kind: "approval",
+			text: `${decision === "approve" ? "Approved" : "Declined"} from the board: ${approval.headline}; sent to Butler`,
+		});
+		deps.audit({
+			action: "butler",
+			tool: `approval-${decision}`,
+			result: `${code} on ${thread}${options.device ? ` from ${options.device}` : ""}${options.bulk ? " (Approve all safe)" : ""}`,
+		});
+		return {
+			ok: true,
+			text: `${decision === "approve" ? "Approved" : "Declined"}; Butler carries on as soon as spike takes it`,
+		};
+	};
+
+	const approveAllSafe: Butler["approveAllSafe"] = (device) => {
+		const approved: ButlerWaitingApproval[] = [];
+		const left: (ButlerWaitingApproval & { why: string })[] = [];
+		for (const item of approvalsWaiting()) {
+			const a = item.approval;
+			if (a.pressed) continue;
+			if (!a.answerable) {
+				left.push({ ...item, why: "answer it in Discord" });
+				continue;
+			}
+			if (a.critical || !a.safe) {
+				left.push({
+					...item,
+					why: a.critical
+						? "it has critical items, so it needs its own press"
+						: "its card does not say it has no critical items",
+				});
+				continue;
+			}
+			const done = answerApproval(item.thread, a.code ?? "", "approve", {
+				bulk: true,
+				...(device ? { device } : {}),
+			});
+			if ("error" in done) left.push({ ...item, why: done.error });
+			else approved.push(item);
+		}
+		return { approved, left };
+	};
+
 	const startJob = (draft: {
 		x: number;
 		y: number;
@@ -2074,6 +2285,9 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		aaron: describeAaron,
 		threadView,
 		sendToThread,
+		approvalsWaiting,
+		answerApproval,
+		approveAllSafe,
 		startJob,
 		closeThreadCard,
 		tidy: (options = {}) => tidy(options),

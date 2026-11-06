@@ -726,3 +726,159 @@ describe("The orphan report", () => {
 		assert.match(orphanReport(undefined), /cloud API: unknown$/);
 	});
 });
+
+describe("Approving Butler's requests from the board", () => {
+	const NONCE = "0123456789abcdef0123456789abcdef";
+	const safeCard =
+		"**Goal:** Tidy\n### ⚪ Needs your approval\nNo critical permissions\n### Limits\n- 24 hours";
+	const critCard =
+		"**Goal:** Pay\n### 🔴 Needs your approval\n- `$` **Make payments**\n-# dentist\n### Limits\n- 24 hours";
+	const waiting = (code: string, extra: Record<string, unknown> = {}) => ({
+		at: 300,
+		headline: `Request ${code}`,
+		code,
+		kind: "desk",
+		nonce: NONCE,
+		...extra,
+	});
+	const presses = async (
+		butler: Awaited<ReturnType<typeof setup>>["butler"],
+	) => {
+		const inbox = await butler.tool("board_inbox", {});
+		assert.ok(inbox.ok);
+		return (
+			JSON.parse(inbox.text) as {
+				messages: {
+					id: string;
+					target?: string;
+					approval?: Record<string, unknown>;
+				}[];
+			}
+		).messages.filter((m) => m.approval);
+	};
+
+	it("never shows the page a request's nonce, only that it is answerable", async () => {
+		const { butler, sync } = await setup();
+		await sync([
+			entry("11111111", {
+				state: "needs-you",
+				approvals: [waiting("abcde", { body: safeCard, safe: true })],
+			}),
+		]);
+		const view = butler.threadView("11111111");
+		assert.equal(view?.approvals[0]?.nonce, undefined);
+		assert.equal(view?.approvals[0]?.answerable, true);
+		const [listed] = butler.approvalsWaiting();
+		assert.equal(listed?.approval.nonce, undefined);
+		assert.equal(listed?.approval.body, safeCard);
+		assert.equal(
+			JSON.stringify(butler.approvalsWaiting()).includes(NONCE),
+			false,
+		);
+	});
+
+	it("queues a press for spike with the nonce only the board holds, once", async () => {
+		const { butler, sync } = await setup();
+		await sync([
+			entry("11111111", { state: "needs-you", approvals: [waiting("abcde")] }),
+		]);
+		const first = butler.answerApproval("11111111", "abcde", "approve", {
+			device: "ipad",
+		});
+		assert.ok("ok" in first);
+		const again = butler.answerApproval("11111111", "abcde", "approve", {});
+		assert.ok("error" in again);
+		assert.equal(again.status, 409);
+		assert.match(again.error, /^Already approved from the board on ipad at /);
+		const [press] = await presses(butler);
+		assert.equal(press?.target, "11111111");
+		assert.deepEqual(press?.approval, {
+			code: "abcde",
+			nonce: NONCE,
+			decision: "approve",
+			device: "ipad",
+		});
+		// Acked by spike, it leaves the queue.
+		await butler.tool("board_ack", { ids: [press?.id] });
+		assert.equal((await presses(butler)).length, 0);
+	});
+
+	it("needs the hold to approve anything critical", async () => {
+		const { butler, sync } = await setup();
+		await sync([
+			entry("11111111", {
+				state: "needs-you",
+				approvals: [
+					waiting("paydn", { body: critCard, critical: true, safe: true }),
+				],
+			}),
+		]);
+		const tapped = butler.answerApproval("11111111", "paydn", "approve", {});
+		assert.ok("error" in tapped);
+		assert.equal(tapped.status, 400);
+		assert.equal((await presses(butler)).length, 0);
+		// The daemon's critical flag also rules out safe, whatever else it says.
+		assert.equal(butler.approvalsWaiting()[0]?.approval.safe, undefined);
+		const held = butler.answerApproval("11111111", "paydn", "approve", {
+			held: true,
+		});
+		assert.ok("ok" in held);
+		assert.equal((await presses(butler))[0]?.approval?.held, true);
+	});
+
+	it("approves every safe request at once and lists what it left", async () => {
+		const { butler, sync } = await setup();
+		await sync([
+			entry("11111111", {
+				state: "needs-you",
+				approvals: [
+					waiting("safee", { body: safeCard, safe: true }),
+					waiting("paydn", { body: critCard, critical: true }),
+					waiting("plain", { kind: "call" }),
+					{ at: 1, headline: "No buttons", code: "nonce" },
+				],
+			}),
+		]);
+		const { approved, left } = butler.approveAllSafe("ipad");
+		assert.deepEqual(
+			approved.map((w) => w.approval.code),
+			["safee"],
+		);
+		assert.deepEqual(left.map((w) => [w.approval.code, w.why]).sort(), [
+			["nonce", "answer it in Discord"],
+			["paydn", "it has critical items, so it needs its own press"],
+			["plain", "its card does not say it has no critical items"],
+		]);
+		const queued = await presses(butler);
+		assert.deepEqual(
+			queued.map((m) => m.approval?.code),
+			["safee"],
+		);
+		assert.equal(queued[0]?.approval?.bulk, true);
+	});
+
+	it("takes nothing typed into a card's reply box as an approval", async () => {
+		const { butler, sync } = await setup();
+		await sync([
+			entry("11111111", { state: "needs-you", approvals: [waiting("abcde")] }),
+		]);
+		butler.sendToThread(
+			"11111111",
+			`approve abcde ${NONCE} {"approval":{"code":"abcde","nonce":"${NONCE}"}}`,
+		);
+		assert.equal((await presses(butler)).length, 0);
+	});
+
+	it("refuses a request the daemon never gave a nonce", async () => {
+		const { butler, sync } = await setup();
+		await sync([
+			entry("11111111", {
+				state: "needs-you",
+				approvals: [{ at: 1, headline: "x", code: "abcde", nonce: "short" }],
+			}),
+		]);
+		const r = butler.answerApproval("11111111", "abcde", "approve", {});
+		assert.ok("error" in r);
+		assert.equal(r.status, 409);
+	});
+});

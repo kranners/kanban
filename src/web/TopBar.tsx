@@ -16,6 +16,7 @@ import {
 import { useState } from "preact/hooks";
 import { NotifyToggle } from "./Alerts.tsx";
 import { AnnounceDialog } from "./Announce.tsx";
+import { WaitingApprovalsButton } from "./Approvals.tsx";
 import { jobComposerOpen } from "./butlerThreads.ts";
 import { centreTarget, visibleBoard } from "./Comments.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
@@ -292,6 +293,7 @@ export function TopBar() {
 				)}
 			</div>
 			<div class="actions">
+				<WaitingApprovalsButton />
 				<NextNeedingYou />
 				<TidyButton />
 				<ButlerRequestButton request="snooze" />

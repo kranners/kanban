@@ -4,6 +4,7 @@ import "./regions.css";
 import { CircleAlert, Folder, LoaderCircle, X } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
+import { WaitingApprovalsButton } from "./Approvals.tsx";
 import { groups } from "./arrangement.ts";
 import { boardPointAt } from "./Canvas.tsx";
 import { colourOf } from "./colours.ts";
@@ -51,6 +52,9 @@ function gestures(group: Group, handle: RegionHandle) {
 	};
 }
 
+/** Butler's Waiting on you region, whose bar carries the requests waiting to be approved. */
+const waitingRegionCwd = "/kanban/butler/waiting";
+
 function ProjectFrame(props: { group: Group }): JSX.Element {
 	const { group } = props;
 	const { region } = group;
@@ -81,6 +85,7 @@ function ProjectFrame(props: { group: Group }): JSX.Element {
 					<span class="group-label-text">{group.project}</span>
 					<NeedsYouCount members={group.members} />
 				</button>
+				{group.cwd === waitingRegionCwd && <WaitingApprovalsButton />}
 				<RegionControls group={group} />
 			</div>
 			{region &&

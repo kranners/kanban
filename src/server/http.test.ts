@@ -2523,6 +2523,105 @@ describe("createKanbanServer", () => {
 		await tool("butler_threads", { threads: [] });
 	});
 
+	it("takes a Butler card's Approve only from the page signed in through the device gate", async () => {
+		const tool = async (name: string, body: unknown) =>
+			(await (
+				await fetch(`${base}/api/butler/tools/${name}`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify(body),
+				})
+			).json()) as { ok: boolean; text: string };
+		const nonce = "0123456789abcdef0123456789abcdef";
+		await tool("butler_threads", {
+			threads: [
+				{
+					id: "33333333",
+					title: "Desk session: tidy",
+					kind: "desk",
+					state: "needs-you",
+					status: "Waiting on Aaron: Mission request: tidy",
+					link: "https://discord.com/channels/1/33333333",
+					createdAt: 1,
+					lastActiveAt: 2,
+					private: false,
+					events: [],
+					approvals: [
+						{
+							at: 2,
+							headline: "Mission request: tidy",
+							code: "qwert",
+							kind: "desk",
+							nonce,
+							safe: true,
+						},
+					],
+				},
+			],
+		});
+		const press = (extra: Record<string, string>) =>
+			fetch(`${base}/api/butler/threads/33333333/approvals`, {
+				method: "POST",
+				headers: {
+					...authed,
+					"content-type": "application/json",
+					origin,
+					...extra,
+				},
+				body: JSON.stringify({ code: "qwert", decision: "approve" }),
+			});
+		const listed = await (
+			await fetch(`${base}/api/butler/approvals`, { headers: authed })
+		).json();
+		assert.equal(listed.approvals[0].approval.answerable, true);
+		assert.equal(
+			JSON.stringify(listed).includes(nonce),
+			false,
+			"the page never sees a nonce",
+		);
+		assert.equal(
+			(
+				await press({
+					"x-device-gate-device": "ipad",
+					"cf-connecting-ip": "10.100.0.13",
+				})
+			).status,
+			403,
+			"no CSRF token",
+		);
+		assert.equal(
+			(await press({ "x-kanban-csrf": "test-csrf" })).status,
+			403,
+			"no device the gate signed in",
+		);
+		const ok = await press({
+			"x-kanban-csrf": "test-csrf",
+			"x-device-gate-device": "ipad",
+			"cf-connecting-ip": "10.100.0.13",
+		});
+		assert.equal(ok.status, 202);
+		const again = await press({
+			"x-kanban-csrf": "test-csrf",
+			"x-device-gate-device": "ipad",
+			"cf-connecting-ip": "10.100.0.13",
+		});
+		assert.equal(again.status, 409);
+		assert.match(
+			(await again.json()).error,
+			/Already approved from the board on ipad/,
+		);
+		const { messages } = JSON.parse((await tool("board_inbox", {})).text);
+		const pressed = messages.find((m: { approval?: unknown }) => m.approval);
+		assert.deepEqual(pressed.approval, {
+			code: "qwert",
+			nonce,
+			decision: "approve",
+			device: "ipad",
+		});
+		await tool("board_ack", { ids: [pressed.id] });
+		await tool("butler_threads", { threads: [] });
+	});
+
 	it("takes what Aaron is working on only from the board's own page, for Butler to read", async () => {
 		const report = (body: unknown, extra = {}) =>
 			fetch(`${base}/api/butler/focus`, {

@@ -466,7 +466,40 @@ export type ButlerThreadApproval = {
 	at: number;
 	headline: string;
 	code?: string;
+	/** A call's approval prompt, or a desk session's mission request. */
+	kind?: "call" | "desk";
+	/** The card it shows, as Discord shows it: goal, Needs your approval, Also included, Limits. */
+	body?: string;
+	/** It lists something critical, so Approve needs the hold. */
+	critical?: boolean;
+	/** Approve all safe may approve it. */
+	safe?: boolean;
+	/**
+	 * What its Approve and Decline send back to the daemon, kept on the board's
+	 * server alone: the page is told only `answerable`.
+	 */
+	nonce?: string;
+	/** The page's copy: the board holds a nonce for it, so its buttons work. */
+	answerable?: boolean;
+	/** Answered from the board and on its way to Butler, or already answered there. */
+	pressed?: ButlerApprovalPress;
 };
+
+/** A press of a Butler card's Approve or Decline, as the board recorded it. */
+export type ButlerApprovalPress = {
+	decision: "approve" | "decline";
+	at: number;
+	device?: string;
+};
+
+/** One request waiting on Aaron, for the Waiting on you panel. */
+export type ButlerWaitingApproval = {
+	thread: string;
+	title: string;
+	approval: ButlerThreadApproval;
+};
+
+export const maxThreadApprovalBody = 4000;
 
 export const maxThreadEvents = 30;
 export const maxThreadEventText = 1200;

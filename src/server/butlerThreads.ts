@@ -5,6 +5,7 @@ import {
 	type ButlerThreadEventKind,
 	butlerThreadEventKinds,
 	maxButlerQueue,
+	maxThreadApprovalBody,
 	maxThreadApprovals,
 	maxThreadEvents,
 	maxThreadEventText,
@@ -78,15 +79,25 @@ export const parseThreadApproval = (
 	value: unknown,
 ): ButlerThreadApproval | null => {
 	if (typeof value !== "object" || value === null) return null;
-	const { at, headline, code } = value as Record<string, unknown>;
+	const { at, headline, code, kind, body, critical, safe, nonce } =
+		value as Record<string, unknown>;
 	if (!isTime(at) || typeof headline !== "string") return null;
 	const line = headline.replace(/\s+/g, " ").trim().slice(0, 300);
 	if (line === "") return null;
+	const coded = typeof code === "string" && /^[A-Za-z0-9-]{1,32}$/.test(code);
 	return {
 		at,
 		headline: line,
-		...(typeof code === "string" && /^[A-Za-z0-9-]{1,32}$/.test(code)
-			? { code }
+		...(coded ? { code } : {}),
+		...(kind === "call" || kind === "desk" ? { kind } : {}),
+		...(typeof body === "string" && body.trim()
+			? { body: body.slice(0, maxThreadApprovalBody) }
+			: {}),
+		...(critical === true ? { critical: true } : {}),
+		// Never safe when it is critical, whatever the file says.
+		...(safe === true && critical !== true ? { safe: true } : {}),
+		...(coded && typeof nonce === "string" && /^[0-9a-f]{32}$/.test(nonce)
+			? { nonce }
 			: {}),
 	};
 };

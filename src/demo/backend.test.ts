@@ -189,6 +189,21 @@ const probes: Record<string, Probe> = {
 			text: "Thanks",
 		});
 	},
+	"/api/butler/approvals": async (backend) => {
+		await answers(backend, "GET", "/api/butler/approvals");
+	},
+	"/api/butler/approvals/safe": async (backend) => {
+		await answers(backend, "POST", "/api/butler/approvals/safe", {});
+	},
+	"/api/butler/threads/:param/approvals": async (backend) => {
+		const response = backend.fetch(
+			"POST",
+			"/api/butler/threads/11111111/approvals",
+			new URLSearchParams(),
+			{ code: "abcde", decision: "approve" },
+		);
+		assert.equal(response.status, 404, "the demo has nothing waiting");
+	},
 	"/api/butler/focus": async (backend) => {
 		await answers(backend, "POST", "/api/butler/focus", {
 			client: "page-1",

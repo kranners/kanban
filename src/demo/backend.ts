@@ -1357,6 +1357,22 @@ export function createBackend(scenario: Scenario): Backend {
 				return json(201, { thread: thread ? { ...thread, job: true } : null });
 			},
 		],
+		// The demo has no Butler requests waiting: nothing to approve.
+		["GET", /^\/api\/butler\/approvals$/, () => json(200, { approvals: [] })],
+		[
+			"POST",
+			/^\/api\/butler\/approvals\/safe$/,
+			() => json(200, { ok: true, approved: [], left: [] }),
+		],
+		[
+			"POST",
+			/^\/api\/butler\/threads\/([0-9]{5,25})\/approvals$/,
+			() =>
+				json(404, {
+					ok: false,
+					error: "That request is no longer waiting on you",
+				}),
+		],
 		[
 			"GET",
 			/^\/api\/butler\/threads\/([0-9]{5,25})$/,

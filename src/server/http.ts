@@ -232,6 +232,9 @@ export type Route =
 	| { kind: "butler-focus" }
 	| { kind: "butler-thread"; threadId: string }
 	| { kind: "butler-thread-message"; threadId: string }
+	| { kind: "butler-thread-approval"; threadId: string }
+	| { kind: "butler-approvals" }
+	| { kind: "butler-approvals-safe" }
 	| { kind: "butler-job" }
 	| { kind: "self-fix-action"; id: string; action: SelfFixAction }
 	| { kind: "peer-hook" }
@@ -532,10 +535,25 @@ export const matchRoute = (method: string, url: URL): Route => {
 				}
 			: { kind: "method-not-allowed" };
 	}
+	if (path === "/api/butler/approvals") {
+		return method === "GET"
+			? { kind: "butler-approvals" }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/butler/approvals/safe") {
+		return method === "POST"
+			? { kind: "butler-approvals-safe" }
+			: { kind: "method-not-allowed" };
+	}
 	const butlerThread = path.match(
-		/^\/api\/butler\/threads\/([0-9]{5,25})(\/messages)?$/,
+		/^\/api\/butler\/threads\/([0-9]{5,25})(\/messages|\/approvals)?$/,
 	);
 	if (butlerThread?.[1]) {
+		if (butlerThread[2] === "/approvals") {
+			return method === "POST"
+				? { kind: "butler-thread-approval", threadId: butlerThread[1] }
+				: { kind: "method-not-allowed" };
+		}
 		if (butlerThread[2]) {
 			return method === "POST"
 				? { kind: "butler-thread-message", threadId: butlerThread[1] }
@@ -1409,6 +1427,81 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		sendJson(res, 202, { ok: true });
 	};
 
+	/**
+	 * The device the gate signed in, as Caddy forwards it, for a press of a
+	 * Butler card's Approve or Decline: only a request that came in through
+	 * Caddy and the device gate carries one, never a process on this machine,
+	 * which the board would take for a local agent.
+	 */
+	const approvingDevice = (req: IncomingMessage): string | null => {
+		if (fromLoopback(req) || byToken.has(req)) return null;
+		const device = req.headers["x-device-gate-device"];
+		return typeof device === "string" && /^[A-Za-z0-9._-]{1,40}$/.test(device)
+			? device
+			: null;
+	};
+
+	const refuseApproval = (res: ServerResponse) =>
+		sendJson(res, 403, {
+			ok: false,
+			error:
+				"Approvals come only from the board's own page, signed in through the device gate; reload it",
+		});
+
+	/** Aaron's press of Approve or Decline on one of a thread card's requests. */
+	const butlerThreadApproval = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+		threadId: string,
+	) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const device = approvingDevice(req);
+		if (!butlerRequestOk(req) || !device) return refuseApproval(res);
+		const body = (read.body ?? {}) as Record<string, unknown>;
+		const code = body.code;
+		const decision = body.decision;
+		if (
+			typeof code !== "string" ||
+			!/^[a-z]{5}$/.test(code) ||
+			(decision !== "approve" && decision !== "decline")
+		) {
+			return sendJson(res, 400, {
+				ok: false,
+				error: "Name a request's code and approve or decline",
+			});
+		}
+		const answered = deps.butler?.answerApproval(threadId, code, decision, {
+			held: body.held === true,
+			device,
+		}) ?? { error: "Butler is not set up on this board", status: 409 as const };
+		if ("error" in answered) {
+			return sendJson(res, answered.status, {
+				ok: false,
+				error: answered.error,
+			});
+		}
+		sendJson(res, 202, answered);
+	};
+
+	/** Approve all safe: every request that lists nothing critical, and what it left. */
+	const butlerApprovalsSafe = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+	) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const device = approvingDevice(req);
+		if (!butlerRequestOk(req) || !device) return refuseApproval(res);
+		if (!deps.butler) {
+			return sendJson(res, 409, {
+				ok: false,
+				error: "Butler is not set up on this board",
+			});
+		}
+		sendJson(res, 200, { ok: true, ...deps.butler.approveAllSafe(device) });
+	};
+
 	/** A Butler job from the top bar: a / thread at the middle of the screen, flagged as a job. */
 	const butlerJob = async (req: IncomingMessage, res: ServerResponse) => {
 		const read = await readBody(req, res);
@@ -1803,6 +1896,15 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return butlerThreadView(req, res, route.threadId);
 			case "butler-thread-message":
 				return butlerThreadMessage(req, res, route.threadId);
+			case "butler-thread-approval":
+				return butlerThreadApproval(req, res, route.threadId);
+			case "butler-approvals-safe":
+				return butlerApprovalsSafe(req, res);
+			case "butler-approvals":
+				if (byToken.has(req)) return sendError(res, 403);
+				return sendJson(res, 200, {
+					approvals: deps.butler?.approvalsWaiting() ?? [],
+				});
 			case "butler-job":
 				return butlerJob(req, res);
 			case "create-comment":

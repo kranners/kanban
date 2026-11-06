@@ -15,6 +15,7 @@ import {
 	StickerPicker,
 	useAnnotationGestures,
 } from "./Annotations.tsx";
+import { ApprovalsHost } from "./Approvals.tsx";
 import { withoutSessions } from "./actions.ts";
 import { current, ordered } from "./annotations.ts";
 import { arrangement, groups } from "./arrangement.ts";
@@ -396,6 +397,7 @@ export function App() {
 				<AnnotationMenu />
 				<ReportModalHost />
 				<ThreadCardPanelHost />
+				<ApprovalsHost />
 				<JobComposerHost />
 				<StickerPicker />
 				<RegionMenu />
