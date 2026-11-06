@@ -44,6 +44,7 @@ import { NewSession } from "./focus/NewSession.tsx";
 import { RegionMenu } from "./Groups.tsx";
 import { IgnoreMenu, SessionIgnoreButton } from "./IgnoreControls.tsx";
 import { ignoredSessions } from "./ignoreState.ts";
+import { JobComposerHost } from "./JobComposer.tsx";
 import type { NodeKey, PlacedNode } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import { useNeedsYouShortcut } from "./NeedsYou.tsx";
@@ -81,6 +82,7 @@ import {
 	sessionsWithWorkingSubagents,
 } from "./subagentCounts.ts";
 import { sessionsOnly, summariesOf } from "./summaries.ts";
+import { ThreadCardPanelHost } from "./ThreadCardPanel.tsx";
 import { TopBar } from "./TopBar.tsx";
 import { UndoToast, useUndoShortcut } from "./Undo.tsx";
 
@@ -388,6 +390,8 @@ export function App() {
 				<BoardMenu />
 				<AnnotationMenu />
 				<ReportModalHost />
+				<ThreadCardPanelHost />
+				<JobComposerHost />
 				<StickerPicker />
 				<RegionMenu />
 				<IgnoreMenu />

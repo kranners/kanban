@@ -29,7 +29,9 @@ import "./attention.css";
 import "./detail.css";
 import { subagentState } from "../shared/subagents.ts";
 import { ActivityBadge, ActivityIcon, activityLabel } from "./activity.tsx";
+import { current } from "./annotations.ts";
 import { unreachable } from "./arrangement.ts";
+import { openParent, parentTitle } from "./butlerThreads.ts";
 import { digests, stuckOf } from "./digests.ts";
 import type { PlacedNode } from "./layout.ts";
 import { plainText } from "./markdown.ts";
@@ -78,6 +80,30 @@ function GoalBody(props: { goal: string | null }) {
 	return <p class="goal goal-empty">No goal yet</p>;
 }
 
+/** "from <title>" on a session one of Butler's threads started. */
+function SessionParentLine(props: { session: Session }) {
+	const { parent } = props.session;
+	const title = parent
+		? parentTitle(parent.card, current.value, parent.title)
+		: null;
+	if (!parent || !title) return null;
+	return (
+		<button
+			type="button"
+			class="butler-card-from session-from"
+			data-no-pan
+			title={`Open ${title}`}
+			onPointerDown={(event) => event.stopPropagation()}
+			onClick={(event) => {
+				event.stopPropagation();
+				openParent(parent.card);
+			}}
+		>
+			from {title}
+		</button>
+	);
+}
+
 function CardBody(props: { session: Session; workflows: readonly Workflow[] }) {
 	const { session } = props;
 	const needs = session.activity === "needs-you" && session.needs;
@@ -85,6 +111,7 @@ function CardBody(props: { session: Session; workflows: readonly Workflow[] }) {
 		<div class="body">
 			<WorkflowBars workflows={props.workflows} />
 			<GoalBody goal={session.goal} />
+			<SessionParentLine session={session} />
 			{needs ? (
 				<div class="needs" title={needs}>
 					{needs}

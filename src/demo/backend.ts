@@ -29,6 +29,8 @@ import type {
 	AttachClientFrame,
 	Board,
 	BoardFeed,
+	ButlerThreadEvent,
+	ButlerThreadView,
 	CommentThread,
 	DocFile,
 	DocIndex,
@@ -916,6 +918,27 @@ export function createBackend(scenario: Scenario): Backend {
 		);
 	};
 
+	// The demo has no Butler threads of its own: a thread asked for is an
+	// empty conversation that keeps what the visitor sends it.
+	const threadReplies = new Map<string, ButlerThreadEvent[]>();
+	const threadView = (id: string): ButlerThreadView => ({
+		card: {
+			id: `thread-${id}`,
+			title: "A conversation with Butler",
+			state: "idle",
+			thread: {
+				id,
+				kind: "conversation",
+				link: `https://discord.com/channels/@me/${id}`,
+				private: false,
+			},
+			updatedAt: Date.now(),
+		},
+		events: threadReplies.get(id) ?? [],
+		approvals: [],
+		children: [],
+	});
+
 	const boardKeys = () =>
 		new Set([
 			...world.sessions.map((item) => `session:${item.id}`),
@@ -1297,6 +1320,43 @@ export function createBackend(scenario: Scenario): Backend {
 		// The demo has no Butler to read what the visitor is working on.
 		["POST", /^\/api\/butler\/focus$/, () => empty(204)],
 		["POST", /^\/api\/comments$/, (_, body) => createComment(body)],
+		[
+			"POST",
+			/^\/api\/butler\/jobs$/,
+			(_, body) => {
+				const { text, viewport } = (body ?? {}) as {
+					text?: unknown;
+					viewport?: { x: number; y: number; w: number; h: number };
+				};
+				const created = createComment({
+					x: viewport ? viewport.x + viewport.w / 2 : 0,
+					y: viewport ? viewport.y + viewport.h / 2 : 0,
+					text,
+				});
+				if (created.status !== 201) return created;
+				const thread = world.comments.at(-1);
+				return json(201, { thread: thread ? { ...thread, job: true } : null });
+			},
+		],
+		[
+			"GET",
+			/^\/api\/butler\/threads\/([0-9]{5,25})$/,
+			([id = ""]) => json(200, threadView(id)),
+		],
+		[
+			"POST",
+			/^\/api\/butler\/threads\/([0-9]{5,25})\/messages$/,
+			([id = ""], body) => {
+				const text = (body as { text?: unknown } | null)?.text;
+				if (typeof text !== "string" || text.trim() === "")
+					return json(400, { ok: false, error: "text is required" });
+				threadReplies.set(id, [
+					...(threadReplies.get(id) ?? []),
+					{ at: Date.now(), kind: "user", text },
+				]);
+				return json(202, { ok: true });
+			},
+		],
 		[
 			"POST",
 			/^\/api\/comments\/([^/]+)\/messages$/,

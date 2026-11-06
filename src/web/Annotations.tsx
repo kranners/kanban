@@ -41,6 +41,7 @@ import {
 } from "./annotations.ts";
 import { groups } from "./arrangement.ts";
 import { ButlerByline, ButlerCardBody } from "./ButlerLayer.tsx";
+import { openThreadCard } from "./butlerThreads.ts";
 import { boardPointAt, detail, view } from "./Canvas.tsx";
 import { colourOf } from "./colours.ts";
 import { commandKey } from "./focus/platform.ts";
@@ -388,7 +389,28 @@ function AnnotationView(props: {
 			aria-label={annotationLabel(annotation)}
 			onPointerDown={(event) => grab(event, annotation)}
 			onWheel={annotation.kind !== "sticker" ? scrollNoteText : undefined}
+			onClick={(event) => {
+				// A click, not a drag, on one of Butler's thread cards opens its thread.
+				if (annotation.kind !== "butler-card" || !annotation.thread) return;
+				if (justDragged || event.shiftKey) return;
+				if ((event.target as Element).closest("a, button, [data-resize]")) {
+					return;
+				}
+				openThreadCard.value = annotation.thread.id;
+			}}
+			onKeyDown={(event) => {
+				if (event.key !== "Enter" || event.target !== event.currentTarget) {
+					return;
+				}
+				if (annotation.kind === "butler-card" && annotation.thread) {
+					openThreadCard.value = annotation.thread.id;
+				}
+			}}
 			onDblClick={(event) => {
+				if (annotation.kind === "butler-card" && annotation.thread) {
+					openThreadCard.value = annotation.thread.id;
+					return;
+				}
 				if (annotation.kind !== "note" || onNoteControl(event)) return;
 				if (annotation.kind === "note" && annotation.report) {
 					openReport.value = annotation.id;

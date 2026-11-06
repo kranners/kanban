@@ -227,3 +227,232 @@
 .note:has(.butler-note) {
 	border-left: 3px solid var(--butler);
 }
+
+/* "from <title>": a card or session that one of Butler's threads started. */
+.butler-card-from {
+	flex: none;
+	align-self: flex-start;
+	max-width: 100%;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--butler);
+	font: inherit;
+	font-size: 11.5px;
+	line-height: 16px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	cursor: pointer;
+}
+
+.butler-card-from:hover {
+	text-decoration: underline;
+}
+
+.butler-card-linked {
+	padding: 0 6px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--butler) 14%, transparent);
+	color: var(--butler);
+	font-size: 11px;
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.annotation.butler-card:has(.butler-card-body) {
+	cursor: pointer;
+}
+
+/* The view of one of Butler's Discord threads, opened from its card. */
+.thread-card-dialog {
+	width: min(560px, calc(100vw - 32px));
+	max-height: min(720px, calc(100vh - 48px));
+	display: none;
+	flex-direction: column;
+}
+
+.thread-card-dialog[open] {
+	display: flex;
+}
+
+.thread-card-head {
+	gap: 8px;
+}
+
+.thread-card-kind {
+	color: var(--butler);
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+	white-space: nowrap;
+}
+
+.thread-card-title {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.thread-card-head .butler-card-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	font-size: 12px;
+	white-space: nowrap;
+}
+
+.thread-card-meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px 10px;
+	padding: 8px 12px;
+	border-bottom: 1px solid var(--hairline);
+	color: var(--muted);
+	font-size: 12px;
+}
+
+.thread-card-ago {
+	margin-left: auto;
+}
+
+.thread-card-desk,
+.thread-card-code {
+	padding: 0 6px;
+	border-radius: 4px;
+	background: var(--hairline);
+	font-family: var(--mono);
+	font-size: 11px;
+}
+
+.thread-card-parent {
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--butler);
+	font: inherit;
+	cursor: pointer;
+}
+
+.thread-card-parent:hover {
+	text-decoration: underline;
+}
+
+.thread-card-waiting,
+.thread-card-children {
+	padding: 8px 12px;
+	border-bottom: 1px solid var(--hairline);
+	font-size: 12.5px;
+}
+
+.thread-card-waiting {
+	background: var(--amber-soft);
+	color: var(--amber-ink);
+}
+
+.thread-card-waiting h3,
+.thread-card-children h3 {
+	margin: 0 0 4px;
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+}
+
+.thread-card-waiting ul,
+.thread-card-children ul {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+
+.thread-card-waiting li {
+	display: flex;
+	gap: 6px;
+	align-items: baseline;
+}
+
+.thread-card-children {
+	border-top: 1px solid var(--hairline);
+	border-bottom: 0;
+}
+
+.thread-card-children li {
+	display: flex;
+	gap: 8px;
+	align-items: baseline;
+	min-width: 0;
+}
+
+.thread-card-children a {
+	color: var(--ink);
+}
+
+.thread-card-child-kind,
+.thread-card-child-state {
+	flex: none;
+	color: var(--muted);
+	font-size: 11px;
+}
+
+.thread-card-child-state {
+	margin-left: auto;
+}
+
+.thread-card-log {
+	flex: 1;
+	min-height: 160px;
+}
+
+.thread-event-tool {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	color: var(--muted);
+	font-size: 11.5px;
+	line-height: 1.35;
+}
+
+.thread-event-approval {
+	display: flex;
+	align-items: flex-start;
+	gap: 6px;
+	padding: 4px 8px;
+	border-radius: 6px;
+	background: var(--amber-soft);
+	color: var(--amber-ink);
+	font-size: 12.5px;
+}
+
+.thread-event-approval svg {
+	flex: none;
+	margin-top: 2px;
+}
+
+.thread-event-status {
+	color: var(--muted);
+	font-size: 12px;
+	font-style: italic;
+}
+
+.thread-card-dm {
+	padding: 8px 12px;
+	border-top: 1px solid var(--hairline);
+}
+
+.butler-job-input {
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 96px;
+	padding: 8px 10px;
+	border: 1px solid var(--hairline);
+	border-radius: 8px;
+	resize: vertical;
+}

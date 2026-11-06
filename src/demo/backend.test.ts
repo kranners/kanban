@@ -175,6 +175,20 @@ const probes: Record<string, Probe> = {
 			"/api/butler/changes/20261101-021240-797168/dismiss",
 		);
 	},
+	"/api/butler/jobs": async (backend) => {
+		await answers(backend, "POST", "/api/butler/jobs", {
+			text: "Book the dentist",
+			viewport: { x: 0, y: 0, w: 800, h: 600 },
+		});
+	},
+	"/api/butler/threads/:param": async (backend) => {
+		await answers(backend, "GET", "/api/butler/threads/11111111");
+	},
+	"/api/butler/threads/:param/messages": async (backend) => {
+		await answers(backend, "POST", "/api/butler/threads/11111111/messages", {
+			text: "Thanks",
+		});
+	},
 	"/api/butler/focus": async (backend) => {
 		await answers(backend, "POST", "/api/butler/focus", {
 			client: "page-1",

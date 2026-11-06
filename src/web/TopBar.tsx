@@ -1,6 +1,7 @@
 import { signal } from "@preact/signals";
 import {
 	Bed,
+	Briefcase,
 	Broom,
 	CalendarClock,
 	LoaderCircle,
@@ -15,6 +16,7 @@ import {
 import { useState } from "preact/hooks";
 import { NotifyToggle } from "./Alerts.tsx";
 import { AnnounceDialog } from "./Announce.tsx";
+import { jobComposerOpen } from "./butlerThreads.ts";
 import { centreTarget, visibleBoard } from "./Comments.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import {
@@ -185,6 +187,23 @@ function PermissionSurveyButton() {
 	);
 }
 
+function NewJobButton() {
+	return (
+		<button
+			type="button"
+			class="icon-button"
+			aria-haspopup="dialog"
+			aria-label="New Butler job"
+			title="New Butler job: a task Butler does end to end in its own thread"
+			onClick={() => {
+				jobComposerOpen.value = true;
+			}}
+		>
+			<Briefcase size={16} />
+		</button>
+	);
+}
+
 function ReportButton() {
 	return (
 		<button
@@ -249,6 +268,7 @@ export function TopBar() {
 				<NextNeedingYou />
 				<ButlerRequestButton request="tidy" />
 				<ButlerRequestButton request="snooze" />
+				<NewJobButton />
 				<ReportButton />
 				<AnnounceButton />
 				<PermissionSurveyButton />

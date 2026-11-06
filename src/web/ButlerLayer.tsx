@@ -15,13 +15,51 @@ import {
 } from "./Butler.tsx";
 import { butlerPresence, presenceOf } from "./butler.ts";
 import { butlerLanes } from "./butlerCards.ts";
+import {
+	linkedCount,
+	openParent,
+	parentTitle,
+	threadKindLabels,
+} from "./butlerThreads.ts";
 import { detail, view } from "./Canvas.tsx";
 import { threads } from "./comments.ts";
 import { nodeKey } from "./layout.ts";
 import type { Rect } from "./placement.ts";
-import { now } from "./state.ts";
+import { board, now } from "./state.ts";
 import { Timeline } from "./Timeline.tsx";
 import { ago, relativeTime } from "./time.ts";
+
+/** What a Butler card is: a change, one of his Discord threads by its kind, or one he made. */
+function kindOf(card: ButlerCard): string {
+	if (card.selfFix) return "Change";
+	if (card.thread) return threadKindLabels[card.thread.kind];
+	return "Butler";
+}
+
+function linkLabel(card: ButlerCard): string {
+	return card.thread ? "Open in Discord ↗" : "Open session ↗";
+}
+
+/** "from <title>" on a card that came from one of Butler's threads. */
+function ParentLine(props: { card: ButlerCard }): JSX.Element | null {
+	const title = parentTitle(props.card.parent, current.value);
+	if (!title) return null;
+	return (
+		<button
+			type="button"
+			class="butler-card-from"
+			data-no-pan
+			title={`Open ${title}`}
+			onPointerDown={(event) => event.stopPropagation()}
+			onClick={(event) => {
+				event.stopPropagation();
+				openParent(props.card.parent);
+			}}
+		>
+			from {title}
+		</button>
+	);
+}
 
 /** A Butler card zoomed in, laid out as a session card's near view, with its timeline. */
 function ButlerNearPanel(props: {
@@ -29,7 +67,7 @@ function ButlerNearPanel(props: {
 	now: number;
 }): JSX.Element {
 	const { card } = props;
-	const kind = card.selfFix ? "Change" : "Butler";
+	const kind = kindOf(card);
 	return (
 		<div class={`near-panel butler-near butler-${card.state}`} data-scrollable>
 			<header class="near-head">
@@ -72,9 +110,10 @@ function ButlerNearPanel(props: {
 						target="_blank"
 						rel="noopener noreferrer"
 					>
-						Open session ↗
+						{linkLabel(card)}
 					</a>
 				)}
+				<ParentLine card={card} />
 			</header>
 			<div class="near-content">
 				<div class="near-side">
@@ -110,6 +149,9 @@ export function ButlerCardBody(props: { card: ButlerCard }): JSX.Element {
 	const { card } = props;
 	const t = now.value;
 	if (detail.value === "near") return <ButlerNearPanel card={card} now={t} />;
+	const linked = card.thread
+		? linkedCount(card, current.value, board.value?.sessions ?? [])
+		: 0;
 	return (
 		<div class={`butler-card-body butler-${card.state}`}>
 			<div class="butler-card-head">
@@ -118,9 +160,7 @@ export function ButlerCardBody(props: { card: ButlerCard }): JSX.Element {
 				) : (
 					<ButlerMark size={16} />
 				)}
-				<span class="butler-card-kind">
-					{card.selfFix ? "Change" : "Butler"}
-				</span>
+				<span class="butler-card-kind">{kindOf(card)}</span>
 				{card.watching && (
 					<ButlerWatchingIcon
 						size={16}
@@ -133,6 +173,7 @@ export function ButlerCardBody(props: { card: ButlerCard }): JSX.Element {
 				</span>
 			</div>
 			<p class="butler-card-title">{card.title}</p>
+			<ParentLine card={card} />
 			{card.status && (
 				<div
 					class={
@@ -148,6 +189,14 @@ export function ButlerCardBody(props: { card: ButlerCard }): JSX.Element {
 			<div class="butler-card-foot">
 				<ButlerAvatar size={16} />
 				<span>Butler · {ago(card.updatedAt, t)}</span>
+				{linked > 0 && (
+					<span
+						class="butler-card-linked"
+						title="Cards and sessions it started"
+					>
+						↳ {linked} linked
+					</span>
+				)}
 				{card.link && (
 					<a
 						class="butler-card-link"
@@ -155,7 +204,7 @@ export function ButlerCardBody(props: { card: ButlerCard }): JSX.Element {
 						target="_blank"
 						rel="noopener noreferrer"
 					>
-						Open session ↗
+						{linkLabel(card)}
 					</a>
 				)}
 			</div>

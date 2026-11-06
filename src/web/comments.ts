@@ -12,7 +12,7 @@ import type { KeyPress } from "./actions.ts";
 /** Where the `/` popup opens, and any request a top bar button filled in for Aaron to edit. */
 export type Composer = { board: Point; client: Point; text?: string };
 export type ThreadMenu = { id: string; client: Point };
-type Outcome<T> = { ok: true; value: T } | { ok: false; error: string };
+export type Outcome<T> = { ok: true; value: T } | { ok: false; error: string };
 
 const echoMs = 3000;
 
@@ -127,7 +127,7 @@ function csrf(): Promise<string | null> {
 	return csrfToken;
 }
 
-async function request<T>(
+export async function request<T>(
 	method: string,
 	path: string,
 	body?: unknown,
