@@ -1568,7 +1568,15 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		const handler = own[name];
 		if (handler) {
 			const outcome = handler(fields as Fields);
-			if (!["look", "work", "board_inbox", "board_focus"].includes(name)) {
+			// A thread sync runs every few seconds while Butler works, so only one that changed a card is audited.
+			const quietSync =
+				name === "butler_threads" &&
+				outcome.ok &&
+				/ 0 updated, 0 removed$/.test(outcome.text.split("\n")[0] ?? "");
+			if (
+				!quietSync &&
+				!["look", "work", "board_inbox", "board_focus"].includes(name)
+			) {
 				deps.audit({
 					action: "butler",
 					tool: name,
