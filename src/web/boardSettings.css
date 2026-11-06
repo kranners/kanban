@@ -1,0 +1,58 @@
+.board-settings {
+	position: relative;
+}
+
+.board-settings-panel {
+	position: absolute;
+	top: calc(100% + 6px);
+	right: 0;
+	z-index: 70;
+	width: min(320px, calc(100vw - 16px));
+	padding: 10px 12px 12px;
+	border: 1px solid var(--hairline);
+	border-radius: var(--radius);
+	background: var(--surface);
+	box-shadow: var(--shadow-pop);
+	color: var(--ink);
+	animation: menu-in calc(120ms * var(--motion)) ease-out;
+}
+
+.board-settings-group {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+.board-settings-group legend {
+	padding: 0;
+	margin-bottom: 2px;
+	font-size: 13px;
+	font-weight: 650;
+}
+
+.board-settings-note {
+	margin: 0;
+	color: var(--muted);
+	font-size: 12px;
+}
+
+.board-settings-choice {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	font-size: 13px;
+	cursor: pointer;
+}
+
+.board-settings-choice input {
+	margin: 2px 0 0;
+}
+
+.board-settings-hint {
+	display: block;
+	color: var(--muted);
+	font-size: 11px;
+}

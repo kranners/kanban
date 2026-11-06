@@ -300,6 +300,19 @@
 	display: flex;
 }
 
+/* The DM's panel pinned open: beside the board, under the top bar, non-modal. */
+.thread-card-dialog.thread-card-pinned {
+	position: fixed;
+	z-index: 40;
+	top: calc(var(--topbar) + 12px);
+	right: 60px;
+	left: auto;
+	margin: 0;
+	width: min(420px, calc(100vw - 32px));
+	max-height: calc(100vh - var(--topbar) - 24px);
+	box-shadow: var(--shadow-pop);
+}
+
 .thread-card-head {
 	gap: 8px;
 }

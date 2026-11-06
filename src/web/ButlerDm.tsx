@@ -9,36 +9,42 @@ import { butlerTargetRect } from "./ButlerLayer.tsx";
 import { moodFaces } from "./butler/moods.ts";
 import { butlerPresence, presenceOf } from "./butler.ts";
 import {
+	type Activity,
+	activityOf,
+	anchorSpot,
 	type Box,
 	cornerSpot,
 	type DmDock,
 	defaultDock,
 	dockAt,
+	dockButtonShown,
+	dockButtonSpot,
 	dockStorageKey,
-	driftSpot,
+	faceHoldMs,
+	faceShown,
+	isDmKey,
 	labelOnLeft,
+	newActivity,
 	parseDock,
 	pastThreshold,
 	placeFace,
 	ringOf,
 	type Spot,
 } from "./butlerDm.ts";
+import { faceSettings } from "./butlerFaceSettings.ts";
 import { openParent, openThreadCard } from "./butlerThreads.ts";
 import { clientPointOf, view } from "./Canvas.tsx";
 import { threads } from "./comments.ts";
+import { blocked, isTyping } from "./Spawning.tsx";
 import { now } from "./state.ts";
 
-// Butler's DM with Aaron, as his face floating over the board rather than a
-// card on it: the mood of his latest reply, a ring for the DM's state, its
-// one-line status and how many approvals wait. It drifts slowly, parks
-// beside what Butler is touching, and docks in a corner when dropped there.
-
-const reducedMotion = () =>
-	typeof matchMedia === "function" &&
-	matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-/** How often a drifting face picks its next spot; its transition takes as long. */
-const stepMs = 2000;
+// Butler's DM with Aaron, as his face over the board rather than a card on
+// it: the mood of his latest reply, a ring for the DM's state, its one-line
+// status and how many approvals wait. It shows only while Butler is doing
+// something (unless the board's settings say always or never), snaps
+// beside what he is touching, docks in a corner when dropped there, and
+// hides a few seconds after he stops, leaving a small button that opens
+// the DM.
 
 /** The page's fixed controls the face keeps off. */
 // Fixed controls, and the controls drawn on the board: region bars and their buttons, edge pills.
@@ -118,7 +124,7 @@ function wantedSpot(dock: DmDock, size: { w: number; h: number }): Spot {
 	const port = viewport();
 	return "corner" in dock
 		? cornerSpot(dock.corner, size, port)
-		: driftSpot(dock.anchor, Date.now(), size, port, reducedMotion());
+		: anchorSpot(dock.anchor, size, port);
 }
 
 type Drag = {
@@ -128,13 +134,18 @@ type Drag = {
 	moved: boolean;
 };
 
-function DmFace(props: { dm: ButlerDm }): JSX.Element {
-	const { dm } = props;
+function DmFace(props: {
+	dm: ButlerDm;
+	onHold: (held: boolean) => void;
+}): JSX.Element {
+	const { dm, onHold } = props;
 	const element = useRef<HTMLButtonElement>(null);
 	const [dock, setDock] = useState<DmDock>(readDock);
 	const [spot, setSpot] = useState<Spot | null>(null);
 	const [dragging, setDragging] = useState(false);
 	const [tick, setTick] = useState(0);
+	// Placed once without a transition, so it appears where it belongs rather than sliding in.
+	const [settled, setSettled] = useState(false);
 	const drag = useRef<Drag | null>(null);
 	const dragged = useRef(false);
 
@@ -150,11 +161,11 @@ function DmFace(props: { dm: ButlerDm }): JSX.Element {
 	const placed = arrangement.value;
 
 	useEffect(() => {
-		const timer = setInterval(() => setTick((n) => n + 1), stepMs);
 		const resized = () => setTick((n) => n + 1);
 		window.addEventListener("resize", resized);
+		const frame = requestAnimationFrame(() => setSettled(true));
 		return () => {
-			clearInterval(timer);
+			cancelAnimationFrame(frame);
 			window.removeEventListener("resize", resized);
 		};
 	}, []);
@@ -186,11 +197,17 @@ function DmFace(props: { dm: ButlerDm }): JSX.Element {
 		<button
 			type="button"
 			ref={element}
-			class={`dm-face dm-ring-${ring}${left ? " dm-face-left" : ""}${dragging ? " dm-face-dragging" : ""}`}
+			class={`dm-face dm-ring-${ring}${left ? " dm-face-left" : ""}${dragging ? " dm-face-dragging" : ""}${settled ? "" : " dm-face-placing"}`}
 			style={{ transform: `translate(${at.x}px, ${at.y}px)` }}
 			data-no-pan
 			aria-label={label}
-			title={`${label}. Drag to a corner to dock it.`}
+			title={`${label}. Drag to a corner to dock it. B opens the DM.`}
+			onPointerEnter={() => onHold(true)}
+			onPointerLeave={() => {
+				if (!drag.current) onHold(false);
+			}}
+			onFocus={() => onHold(true)}
+			onBlur={() => onHold(false)}
 			onPointerDown={(event) => {
 				if (event.button !== 0) return;
 				event.stopPropagation();
@@ -233,6 +250,7 @@ function DmFace(props: { dm: ButlerDm }): JSX.Element {
 			onPointerCancel={() => {
 				drag.current = null;
 				setDragging(false);
+				onHold(false);
 			}}
 			onClick={(event) => {
 				event.stopPropagation();
@@ -246,7 +264,13 @@ function DmFace(props: { dm: ButlerDm }): JSX.Element {
 			<span class="dm-face-ring" aria-hidden="true">
 				<span class="dm-face-picture">
 					{dm.mood ? (
-						<img src={moodFaces[dm.mood]} alt="" draggable={false} />
+						<img
+							key={dm.mood}
+							class="dm-face-mood"
+							src={moodFaces[dm.mood]}
+							alt=""
+							draggable={false}
+						/>
 					) : (
 						<ButlerAvatar size={40} />
 					)}
@@ -262,10 +286,114 @@ function DmFace(props: { dm: ButlerDm }): JSX.Element {
 	);
 }
 
-/** Butler's DM face, shown at every zoom while the daemon lists a DM. */
+/** The small face the DM leaves in the board's corner while hidden; it opens the DM. */
+function DockButton(props: { dm: ButlerDm }): JSX.Element {
+	const { dm } = props;
+	const [spot, setSpot] = useState<Spot | null>(null);
+	const [tick, setTick] = useState(0);
+	const k = view.value;
+
+	useEffect(() => {
+		const resized = () => setTick((n) => n + 1);
+		window.addEventListener("resize", resized);
+		return () => window.removeEventListener("resize", resized);
+	}, []);
+
+	useLayoutEffect(() => {
+		// The board's canvas, or the main area while it has none, short of the rail.
+		const area = (
+			document.querySelector(".viewport") ?? document.querySelector(".main")
+		)?.getBoundingClientRect();
+		if (!area) return;
+		const rail = document.querySelector(".rail")?.getBoundingClientRect();
+		const right =
+			rail && rail.width > 0 && rail.left > area.left
+				? Math.min(area.right, rail.left)
+				: area.right;
+		setSpot(
+			dockButtonSpot(
+				{ x: area.left, y: area.top, w: right - area.left, h: area.height },
+				controlBoxes(),
+			),
+		);
+	}, [tick, k]);
+
+	const label = `Open Butler's DM${dm.waiting > 0 ? `, ${dm.waiting} waiting on you` : ""} (B)`;
+	return (
+		<button
+			type="button"
+			class="dm-dock"
+			style={spot ? { left: `${spot.x}px`, top: `${spot.y}px` } : undefined}
+			hidden={!spot}
+			data-no-pan
+			aria-label={label}
+			title={label}
+			onPointerDown={(event) => event.stopPropagation()}
+			onClick={(event) => {
+				event.stopPropagation();
+				openThreadCard.value = dm.thread;
+			}}
+		>
+			{dm.mood ? (
+				<img src={moodFaces[dm.mood]} alt="" draggable={false} />
+			) : (
+				<ButlerAvatar size={22} />
+			)}
+			{dm.waiting > 0 && <span class="dm-dock-badge" aria-hidden="true" />}
+		</button>
+	);
+}
+
+/**
+ * Butler's DM face, shown at every zoom while the daemon lists a DM: up
+ * while he is active and for a few seconds after, otherwise the small
+ * dock button, unless the board's settings say otherwise.
+ */
 export function ButlerDmFace(): JSX.Element | null {
-	const dm = butlerPresence.value.dm;
-	return dm ? <DmFace dm={dm} /> : null;
+	const presence = butlerPresence.value;
+	const dm = presence.dm;
+	const settings = faceSettings.value;
+	const seen = useRef<Activity | null>(null);
+	const [lastActive, setLastActive] = useState<number | null>(null);
+	const [held, setHeld] = useState(false);
+	const [clock, setClock] = useState(Date.now());
+
+	useEffect(() => {
+		const next = activityOf(presence);
+		const at = newActivity(seen.current, next, Date.now());
+		seen.current = next;
+		if (at !== null) setLastActive((last) => Math.max(last ?? 0, at));
+	}, [presence]);
+
+	// Wake once the hold runs out, so the face hides on time.
+	useEffect(() => {
+		if (lastActive === null) return;
+		const left = lastActive + faceHoldMs - Date.now();
+		if (left <= 0) return;
+		const timer = setTimeout(() => setClock(Date.now()), left + 20);
+		return () => clearTimeout(timer);
+	}, [lastActive]);
+
+	useEffect(() => {
+		if (!dm) return;
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (!isDmKey(event, isTyping(event.target)) || blocked()) return;
+			event.preventDefault();
+			openThreadCard.value = dm.thread;
+		};
+		addEventListener("keydown", onKeyDown);
+		return () => removeEventListener("keydown", onKeyDown);
+	}, [dm?.thread]);
+
+	if (!dm) return null;
+	const up = faceShown({
+		mode: settings.mode,
+		lastActive,
+		now: Math.max(clock, Date.now()),
+		held,
+	});
+	if (up) return <DmFace dm={dm} onHold={setHeld} />;
+	return dockButtonShown(settings, up) ? <DockButton dm={dm} /> : null;
 }
 
 /** "from DM" on a card or session the DM started, which opens the DM. */

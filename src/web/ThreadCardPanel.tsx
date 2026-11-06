@@ -4,6 +4,8 @@ import {
 	ArrowUp,
 	CircleAlert,
 	ExternalLink,
+	Pin,
+	PinOff,
 	ShieldAlert,
 	Wrench,
 	X,
@@ -16,6 +18,7 @@ import { ActivityBadge } from "./activity.tsx";
 import { current } from "./annotations.ts";
 import { ButlerAvatar, ButlerMark } from "./Butler.tsx";
 import { butlerPresence } from "./butler.ts";
+import { dmPanelPinned } from "./butlerFaceSettings.ts";
 import {
 	fetchThreadView,
 	isFromDm,
@@ -275,11 +278,26 @@ function ThreadCardPanel(props: {
 	const [view, setView] = useState<ButlerThreadView | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [reload, setReload] = useState(0);
+	// Swapping between modal and pinned closes the dialog for a moment; that close is not Aaron's.
+	const swapping = useRef(false);
 	useRestoreFocus();
 
+	// The DM's panel may be pinned: then it stays open beside the board,
+	// non-modal, through clicks outside, until unpinned or closed. Every
+	// other panel, and the DM's unpinned, is modal and closes on Escape or
+	// a click outside.
+	const isDm = butlerPresence.value.dm?.thread === props.thread;
+	const pinned = isDm && dmPanelPinned.value;
 	useEffect(() => {
-		dialog.current?.showModal();
-	}, []);
+		const d = dialog.current;
+		if (!d) return;
+		if (d.open) {
+			swapping.current = true;
+			d.close();
+		}
+		if (pinned) d.show();
+		else d.showModal();
+	}, [pinned]);
 
 	useEffect(() => {
 		let live = true;
@@ -302,9 +320,15 @@ function ThreadCardPanel(props: {
 	const card = view?.card;
 	return (
 		<dialog
-			class="focus-dialog thread-card-dialog"
+			class={`focus-dialog thread-card-dialog${pinned ? " thread-card-pinned" : ""}`}
 			ref={dialog}
-			onClose={props.onClose}
+			onClose={() => {
+				if (swapping.current) {
+					swapping.current = false;
+					return;
+				}
+				props.onClose();
+			}}
 			onKeyDown={(event) => {
 				if (event.key === "Escape") {
 					event.preventDefault();
@@ -338,6 +362,24 @@ function ThreadCardPanel(props: {
 					>
 						Open in Discord <ExternalLink size={12} aria-hidden="true" />
 					</a>
+				)}
+				{isDm && (
+					<button
+						type="button"
+						class="icon-button"
+						aria-pressed={pinned}
+						aria-label={pinned ? "Unpin the DM" : "Pin the DM open"}
+						title={
+							pinned
+								? "Unpin: close on Escape or a click outside"
+								: "Pin open beside the board"
+						}
+						onClick={() => {
+							dmPanelPinned.value = !pinned;
+						}}
+					>
+						{pinned ? <PinOff size={14} /> : <Pin size={14} />}
+					</button>
 				)}
 				<button
 					type="button"
