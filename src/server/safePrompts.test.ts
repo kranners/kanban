@@ -746,6 +746,71 @@ describe("bashVerdict", () => {
 	});
 });
 
+describe("backlogic's runner commands", () => {
+	const clone = "/home/user/backlogic";
+	const entry = JSON.stringify({
+		url: "https://backlogic.example",
+		session: "s1",
+		token: "tok_abcdefghijklmnop",
+		project: "backlogic",
+		branch: "ticket-B-1",
+		ticket: "B-1",
+		ceilings: { spend: 10, context: 20 },
+	});
+
+	it("approves the cloud start-up entry, its toolchain and the session's CLI verbs", () => {
+		for (const command of [
+			`bin/backlogic-cloud-enter '${entry}'`,
+			`./bin/backlogic-cloud-enter '${entry}'`,
+			`${clone}/bin/backlogic-cloud-enter '${entry}'`,
+			"bin/backlogic-cloud-tools --rev origin/main",
+			"bin/backlogic-cloud-heartbeat",
+			". ~/.backlogic-cloud && backlogic heartbeat B-1",
+			"source ~/.backlogic-cloud && bin/backlogic release B-1 --needs-host deno",
+			"backlogic show B-1 --brief",
+			"backlogic friction B-1 'the proxy refused a host'",
+			"bin/check",
+			"bin/wait-check check.log",
+			"mise install",
+			"/usr/local/bin/deno --version",
+		]) {
+			assert.equal(reason(command, clone), "safe", command);
+		}
+	});
+
+	it("leaves tokens, shares, users, grants, the runner and removals to Aaron", () => {
+		for (const command of [
+			"backlogic token-mint",
+			"backlogic share-mint B-1",
+			"backlogic user-add rylee",
+			"backlogic grant B-1 rylee",
+			"backlogic runner-off",
+			"backlogic remove B-2",
+			"backlogic",
+			". ~/.bashrc",
+			"source ./env.sh",
+			"mise trust",
+			"bin/land-on-main --detach land.log",
+		]) {
+			assert.notEqual(reason(command, clone), "safe", command);
+		}
+	});
+
+	it("still holds force pushes and deleting another branch after the entry", () => {
+		assert.notEqual(
+			reason(
+				`bin/backlogic-cloud-enter '{}' && git push --force origin ticket-B-2`,
+				clone,
+			),
+			"safe",
+		);
+		assert.notEqual(
+			reason("git push origin --delete ticket-B-2", clone),
+			"safe",
+		);
+	});
+});
+
 describe("secretPath", () => {
 	it("names env files, keys, credentials and cloud, ssh and Claude settings", () => {
 		for (const path of [

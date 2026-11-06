@@ -729,6 +729,94 @@ const runnerCommands = new Set([
 	...testTools,
 ]);
 
+/**
+ * backlogic's runner scripts, which set up a cloud session's clone of a
+ * ticket and report on it: its start-up entry, toolchain installer, heartbeat
+ * and hook dispatcher, and the repository's checks.
+ */
+const backlogicScripts = new Set([
+	"backlogic-cloud-enter",
+	"backlogic-cloud-tools",
+	"backlogic-cloud-heartbeat",
+	"backlogic-cloud-hook",
+]);
+const backlogicChecks = new Set(["check", "wait-check"]);
+
+/**
+ * The verbs of backlogic's CLI a runner session uses on its own ticket: reads,
+ * notes, frictions, heartbeats, filing and releasing. Tokens, shares, users,
+ * grants, settings, the runner itself and removals stay with Aaron.
+ */
+const backlogicVerbs = new Set([
+	"answer",
+	"attach",
+	"batches",
+	"board",
+	"boards",
+	"ceilings",
+	"check",
+	"comment-point",
+	"correction",
+	"corrections",
+	"done",
+	"download",
+	"edge",
+	"edit",
+	"estimates",
+	"fact",
+	"facts",
+	"file",
+	"follow-file",
+	"followed-files",
+	"friction",
+	"frictions",
+	"gate-ran",
+	"hand-on",
+	"hand-on-request",
+	"handed-on",
+	"heartbeat",
+	"history",
+	"link",
+	"list",
+	"mark",
+	"marks",
+	"may-stop",
+	"missing-tools",
+	"note",
+	"nothing",
+	"peers",
+	"points",
+	"progress",
+	"pulse",
+	"queued",
+	"record-frictions",
+	"release",
+	"report",
+	"request",
+	"reword",
+	"rules",
+	"search",
+	"session-end",
+	"session-start",
+	"show",
+	"stand-down",
+	"started-from",
+	"step",
+	"tag",
+	"tags",
+	"thread",
+	"thread-title",
+	"took-none",
+	"track",
+	"tracking",
+	"unfollow-file",
+	"unmark",
+	"used",
+	"waiting",
+	"workarounds",
+	"worked",
+]);
+
 const deployWords = /\b(deploy\w*|production|prod|release|publish)\b/i;
 /** Script names that change infrastructure when a task runner runs them. */
 const infrastructureWords = /\b(apply|destroy|teardown|rollback|migrate)\b/i;
@@ -1430,6 +1518,23 @@ const segmentVerdict = (segment: Segment, context: Context): SafeVerdict => {
 	const args = words.slice(1);
 	const named = positionals(args);
 
+	if (
+		(command === "." || command === "source") &&
+		args.length === 1 &&
+		/^(~|\$\{?HOME\}?)\/\.backlogic-cloud$/.test(args[0]?.text ?? "")
+	) {
+		return safe;
+	}
+	if (backlogicScripts.has(command)) return safe;
+	if (backlogicChecks.has(command) && /(^|\/)bin\/[^/]+$/.test(head.text)) {
+		return safe;
+	}
+	if (command === "backlogic") {
+		const verb = named[0]?.text ?? "";
+		return backlogicVerbs.has(verb)
+			? safe
+			: unsafe(`runs backlogic ${verb || "with no verb"}, not in the safe set`);
+	}
 	if (["done", "fi", "esac"].includes(command) && args.length === 0)
 		return safe;
 	if (command === "for") return safe;
@@ -1724,7 +1829,8 @@ const segmentVerdict = (segment: Segment, context: Context): SafeVerdict => {
 			}
 			return safe;
 		case "deno":
-			return ["test", "check", "lint", "fmt"].includes(named[0]?.text ?? "")
+			return ["test", "check", "lint", "fmt"].includes(named[0]?.text ?? "") ||
+				(named.length === 0 && has(args, "--version", "-V"))
 				? safe
 				: unsafe(notInSafeSet);
 		case "python":
@@ -1783,6 +1889,18 @@ const segmentVerdict = (segment: Segment, context: Context): SafeVerdict => {
 				"bench",
 				"nextest",
 			].includes(named[0]?.text ?? "")
+				? safe
+				: unsafe(notInSafeSet);
+		case "mise":
+			return [
+				"install",
+				"ls",
+				"list",
+				"which",
+				"current",
+				"version",
+				"--version",
+			].includes(named[0]?.text ?? (has(args, "--version") ? "--version" : ""))
 				? safe
 				: unsafe(notInSafeSet);
 		case "make":
