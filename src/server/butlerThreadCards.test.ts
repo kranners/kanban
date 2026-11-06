@@ -24,6 +24,7 @@ import { createThreadLogStore, loadThreadLogs } from "./butlerThreads.ts";
 import { createColourStore } from "./colours.ts";
 import { createCommentStore } from "./comments.ts";
 import { createLayoutStore } from "./layout.ts";
+import { createMessageEdgeStore } from "./messageEdges.ts";
 import { createRegionStore } from "./regions.ts";
 
 const session = (id: string, parent?: string): Session => ({
@@ -90,6 +91,7 @@ const setup = async (regions: Region[] = [], cloud?: CloudOverview) => {
 	let clock = 10_000;
 	let ids = 0;
 	const archive = createArchiveStore({ now: () => clock });
+	const edges = createMessageEdgeStore({ now: () => clock });
 	const file = join(dir, "butler.json");
 	const butler = createButler({
 		source: {
@@ -107,6 +109,7 @@ const setup = async (regions: Region[] = [], cloud?: CloudOverview) => {
 		onChange: () => {},
 		comments,
 		threads,
+		edges,
 		...(cloud ? { cloud: () => cloud } : {}),
 		archive,
 		newId: () => `id${++ids}`,
@@ -129,6 +132,7 @@ const setup = async (regions: Region[] = [], cloud?: CloudOverview) => {
 		archive,
 		regionStore,
 		threads,
+		edges,
 		logsFile,
 		file,
 		dir,
@@ -975,5 +979,48 @@ describe("Approving Butler's requests from the board", () => {
 		const r = butler.answerApproval("11111111", "abcde", "approve", {});
 		assert.ok("error" in r);
 		assert.equal(r.status, 409);
+	});
+});
+
+describe("Message edges between threads", () => {
+	it("takes the daemon's edges beside its threads, keeping their words off the cards", async () => {
+		const { butler, edges, snapshotOf } = await setup();
+		const edge = {
+			from: "11111111",
+			to: "22222222",
+			via: "desk say",
+			count: 2,
+			lastAt: 9000,
+			messages: [{ at: 8000, kind: "user", text: "secret words" }],
+		};
+		const outcome = await butler.tool("butler_threads", {
+			threads: [entry("11111111"), entry("22222222")],
+			edges: [edge],
+		});
+		assert.ok(outcome.ok);
+		assert.deepEqual(edges.summaries(), [
+			{
+				from: { kind: "thread", id: "11111111" },
+				to: { kind: "thread", id: "22222222" },
+				via: "desk say",
+				count: 2,
+				lastAt: 9000,
+			},
+		]);
+		assert.ok(!JSON.stringify(snapshotOf()).includes("secret words"));
+		// A sync without edges, from an older sender, leaves them be.
+		await butler.tool("butler_threads", { threads: [entry("11111111")] });
+		assert.equal(edges.summaries().length, 1);
+		await butler.tool("butler_threads", { threads: [], edges: [] });
+		assert.deepEqual(edges.summaries(), []);
+	});
+
+	it("refuses edges that are not a list", async () => {
+		const { butler } = await setup();
+		const outcome = await butler.tool("butler_threads", {
+			threads: [],
+			edges: "all of them",
+		});
+		assert.equal(outcome.ok, false);
 	});
 });

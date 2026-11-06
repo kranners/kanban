@@ -82,6 +82,8 @@ export type AuditEvent =
 			tool: string;
 			target: string | null;
 			input: string | null;
+			/** The Butler thread a send_prompt or start_session came from, for the board's message edges. */
+			parent?: string;
 			result: string;
 	  }
 	| {

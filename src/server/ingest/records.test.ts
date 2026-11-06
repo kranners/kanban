@@ -104,6 +104,80 @@ describe("applyRecord", () => {
 		assert.equal(facts.tools.size, 0);
 	});
 
+	test("records messages to claude.ai sessions through the remote-session tools", () => {
+		const at = Date.parse("2026-10-24T10:00:00.000Z");
+		const facts = apply(
+			toolUse("c1", "mcp__claude-code-remote__send_message", {
+				session_id: "session_01target",
+				message: "Rebase onto main\nthen land",
+			}),
+			{
+				type: "user",
+				message: {
+					content: [
+						{ type: "tool_result", tool_use_id: "c1", content: "Sent" },
+					],
+				},
+			},
+			toolUse("c2", "mcp__claude-code-remote__create_session", {
+				prompt: "Build the thing",
+			}),
+			{
+				type: "user",
+				message: {
+					content: [
+						{
+							type: "tool_result",
+							tool_use_id: "c2",
+							content: [
+								{
+									type: "text",
+									text: '{"id":"session_01new","status":"running"}',
+								},
+							],
+						},
+					],
+				},
+			},
+			toolUse("c3", "mcp__claude-code-remote__send_message", {
+				session_id: "session_01failed",
+				message: "x",
+			}),
+			{
+				type: "user",
+				message: {
+					content: [
+						{
+							type: "tool_result",
+							tool_use_id: "c3",
+							is_error: true,
+							content: "No",
+						},
+					],
+				},
+			},
+			toolUse("c4", "mcp__claude-code-remote__send_message", {
+				session_id: "not a session",
+				message: "x",
+			}),
+			{
+				type: "user",
+				message: {
+					content: [
+						{ type: "tool_result", tool_use_id: "c4", content: "Sent" },
+					],
+				},
+			},
+		);
+		assert.deepEqual(
+			[...facts.cloudSends.entries()],
+			[
+				["c1", { at, summary: "Rebase onto main", to: "session_01target" }],
+				["c2", { at, summary: "Build the thing", to: "session_01new" }],
+			],
+		);
+	});
+
 	test("records peer messages by msg_id with the sender resolved by pid", () => {
 		const facts = apply({
 			type: "user",

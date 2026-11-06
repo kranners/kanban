@@ -19,6 +19,7 @@ import { createColourStore } from "./colours.ts";
 import { createCommentStore } from "./comments.ts";
 import { TranscriptUnreadable } from "./ingest/tail.ts";
 import { createLayoutStore } from "./layout.ts";
+import type { EdgeRecord } from "./messageEdges.ts";
 import {
 	blockedReason,
 	createPromptSender,
@@ -96,6 +97,7 @@ const setup = async (shown: Board = board) => {
 	const approvals: [string, string][] = [];
 	let ids = 0;
 	const launched: NewSessionRequest[] = [];
+	const recorded: EdgeRecord[] = [];
 	const tools = createBoardTools({
 		source: {
 			board: () => shown,
@@ -183,12 +185,14 @@ const setup = async (shown: Board = board) => {
 			},
 		},
 		audit: (event) => events.push(event),
+		edges: { record: (entry) => recorded.push(entry) },
 		history: async (since) => `history since ${new Date(since).toISOString()}`,
 		now: () => Date.UTC(2026, 10, 1),
 		newId: () => `n-${++ids}`,
 	});
 	return {
 		tools,
+		recorded,
 		layout,
 		annotations,
 		regions,
@@ -925,6 +929,54 @@ describe("board tools", () => {
 				["send_prompt", "Run the tests"],
 				["ask_session", "What changed?"],
 			],
+		);
+	});
+});
+
+describe("message edges", () => {
+	it("records a Butler thread's prompts and starts, and audits the thread they came from", async () => {
+		const { tools, recorded, events } = await setup();
+		await tools("t", {
+			tool: "send_prompt",
+			session: "aaaaaaa0",
+			text: "Run the tests",
+			parent: { thread: "11111111" },
+		});
+		await tools("t", {
+			tool: "send_prompt",
+			session: "aaaaaaa0",
+			text: "no thread",
+		});
+		await tools("t", {
+			tool: "start_session",
+			cwd: tmpdir(),
+			prompt: "go",
+			runsOn: "cloud",
+			parent: { thread: "11111111" },
+		});
+		const at = Date.UTC(2026, 10, 1);
+		const from = { kind: "thread", id: "11111111" };
+		assert.deepEqual(recorded, [
+			{
+				from,
+				to: { kind: "session", id: "aaaaaaaa-1" },
+				via: "prompt",
+				text: "Run the tests",
+				at,
+			},
+			{
+				from,
+				to: { kind: "session", id: "session_01cloud" },
+				via: "start",
+				text: "go",
+				at,
+			},
+		]);
+		assert.deepEqual(
+			events.flatMap((e) =>
+				e.action === "board-agent" ? [e.parent ?? null] : [],
+			),
+			["11111111", null, "11111111"],
 		);
 	});
 });

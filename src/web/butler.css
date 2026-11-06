@@ -481,3 +481,123 @@
 	flex: none;
 	color: var(--muted);
 }
+
+/* Butler's message edges: thinner and more finely dotted than his lineage arrows, with no arrowhead. */
+.butler-edge {
+	fill: none;
+	stroke: var(--butler);
+	stroke-width: 1;
+	stroke-dasharray: 1 3;
+	stroke-linecap: round;
+	opacity: 0.75;
+}
+
+/* A session message arc carried by a prompt or a claude.ai remote session, drawn like Butler's. */
+.arc.arc-relayed > path {
+	stroke: var(--butler);
+	stroke-width: 1;
+	stroke-dasharray: 1 3;
+}
+
+.butler-edge-pill,
+.arc-count-target,
+.butler-edge-view {
+	position: absolute;
+	left: 0;
+	top: 0;
+	transform-origin: 0 0;
+	pointer-events: auto;
+	z-index: 4;
+}
+
+.butler-edge-pill {
+	padding: 0 7px;
+	border: 1px solid color-mix(in srgb, var(--butler) 45%, transparent);
+	border-radius: 9px;
+	background: var(--surface);
+	color: var(--butler);
+	font: 600 10px / 16px var(--sans);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.butler-edge-pill:hover,
+.butler-edge-pill:focus-visible {
+	border-color: var(--butler);
+	background: var(--butler-soft);
+}
+
+/* Messages to or from the DM, which has no card to draw a link to. */
+.butler-edge-chip {
+	border-style: dotted;
+	border-width: 1.5px;
+}
+
+/* An invisible target over a session message arc's count. */
+.arc-count-target {
+	width: 26px;
+	height: 20px;
+	padding: 0;
+	border: 0;
+	border-radius: 10px;
+	background: transparent;
+	cursor: pointer;
+}
+
+.arc-count-target:focus-visible {
+	outline: 2px solid var(--accent);
+}
+
+.butler-edge-view {
+	z-index: 6;
+	width: 300px;
+	max-height: 320px;
+	overflow: auto;
+	padding: 8px 10px;
+	border: 1px solid var(--hairline-strong);
+	border-radius: 8px;
+	background: var(--surface);
+	box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+	font: 12px / 1.4 var(--sans);
+}
+
+.butler-edge-view header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding-bottom: 6px;
+	color: var(--butler);
+	font-weight: 600;
+}
+
+.butler-edge-view ol {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.butler-edge-view li + li {
+	margin-top: 8px;
+	padding-top: 8px;
+	border-top: 1px solid var(--hairline);
+}
+
+.butler-edge-view li p {
+	margin: 2px 0 0;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.butler-edge-meta {
+	display: flex;
+	justify-content: space-between;
+	color: var(--muted);
+	font-size: 11px;
+}
+
+.butler-edge-empty {
+	margin: 0;
+	color: var(--muted);
+}

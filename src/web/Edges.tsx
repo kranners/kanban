@@ -7,6 +7,7 @@ import type {
 	Message,
 	Point,
 } from "../shared/types.ts";
+import { isRelayedPair } from "./butlerEdges.ts";
 import { lineageEdges } from "./butlerThreads.ts";
 import {
 	drawnLinks,
@@ -238,7 +239,7 @@ export function Arcs(
 		return [
 			<g
 				key={pair.key}
-				class={`arc${lit ? " lit" : ""}${faded(props, pair.from, pair.to)}`}
+				class={`arc${lit ? " lit" : ""}${isRelayedPair(pair.messages) ? " arc-relayed" : ""}${faded(props, pair.from, pair.to)}`}
 			>
 				<path id={`arc-${index}`} d={arc.path} style={curveStyle(arc.path)} />
 				{fresh && !reducedMotion && (

@@ -21,6 +21,7 @@ import { current, ordered } from "./annotations.ts";
 import { arrangement, groups } from "./arrangement.ts";
 import { arrived, beckoned } from "./attentionState.ts";
 import { ButlerDmFace } from "./ButlerDm.tsx";
+import { ButlerEdges } from "./ButlerEdges.tsx";
 import { ButlerLayer } from "./ButlerLayer.tsx";
 import { Canvas, detail } from "./Canvas.tsx";
 import { SessionCard, SubagentCard } from "./Card.tsx";
@@ -264,6 +265,9 @@ function World(props: { board: Board; layout: Arrangement }) {
 				/>
 			)}
 			<RegionNotices groups={frames} />
+			{level !== "far" && (
+				<ButlerEdges layout={props.layout} board={props.board} now={t} />
+			)}
 			{level !== "far" && <ButlerLayer />}
 			<CommentLayer />
 		</>

@@ -96,6 +96,12 @@ import { startBoard } from "./ingest/index.ts";
 import { createLastRunStore, loadLastRuns } from "./lastRuns.ts";
 import { createLayoutStore, loadLayout } from "./layout.ts";
 import { listenAll } from "./listen.ts";
+import {
+	createMessageEdgeStore,
+	edgesFromAudit,
+	loadEdges,
+	readAuditTail,
+} from "./messageEdges.ts";
 import { createMirrorHub } from "./mirror.ts";
 import { createNotificationStore, loadNotifications } from "./notifications.ts";
 import { createPeerHook, peerHookSettings } from "./peers.ts";
@@ -207,6 +213,15 @@ const relations = createRelationStore({
 	initial: await loadRelations(relationsFile),
 	onChange: (next) => feed?.relations(next),
 });
+// Messages between Butler's threads and sessions, their words served to the page alone.
+const messageEdgesFile = join(config.stateDir, "butler-edges.json");
+const messageEdges = createMessageEdgeStore({
+	file: messageEdgesFile,
+	initial: await loadEdges(messageEdgesFile),
+	onChange: (next) => feed?.butlerEdges(next),
+});
+// Butler's prompts from before the board kept edges, or from a lost file, come back from the audit log.
+messageEdges.seed(edgesFromAudit(await readAuditTail(config.auditLog)));
 let docsFrame: NodeJS.Timeout | undefined;
 const docsChanged = () => {
 	if (docsFrame) return;
@@ -445,6 +460,7 @@ feed = createFeed({
 	docs: docs.index,
 	docStores: docStores.current,
 	butler: () => butler?.current() ?? noButler,
+	butlerEdges: () => messageEdges.summaries(),
 	runners: () => runnerHub.views(),
 });
 const digestTick = setInterval(digests.pump, digestTickMs);
@@ -624,6 +640,7 @@ const announce = createAnnouncer({
 });
 const boardTools = createBoardTools({
 	source,
+	edges: messageEdges,
 	...undoable,
 	comments,
 	launch,
@@ -677,6 +694,7 @@ butler = createButler({
 		initial: await loadThreadLogs(threadLogsFile),
 	}),
 	cloud: () => cloud.overview(),
+	edges: messageEdges,
 	onChange: (next) => feed?.butler(next),
 	comments,
 	archive,
@@ -713,6 +731,7 @@ const server = createKanbanServer({
 	comments,
 	tools,
 	butler,
+	edges: messageEdges,
 	archive,
 	csrf: newCsrfToken(),
 	peerHook: createPeerHook({

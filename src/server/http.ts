@@ -78,6 +78,7 @@ import { type IgnoreStore, maxIgnores, parseIgnoreUpdate } from "./ignores.ts";
 import type { LastRunStore } from "./lastRuns.ts";
 import { boardKeys, type LayoutStore, parseLayoutUpdate } from "./layout.ts";
 import { fromLoopback } from "./loopback.ts";
+import { type MessageEdgeStore, parseEndKey } from "./messageEdges.ts";
 import type { MirrorHub } from "./mirror.ts";
 import {
 	type NotificationStore,
@@ -138,6 +139,8 @@ export type ServerDeps = {
 	comments: CommentStore;
 	tools: BoardTools;
 	butler?: Butler;
+	/** The words of Butler's message edges, served to the page alone. */
+	edges?: Pick<MessageEdgeStore, "messages">;
 	/** Cards and sessions whose work is over, served to the page alone. */
 	archive?: ArchiveStore;
 	/** The token the board's page sends with every message to Butler. */
@@ -232,6 +235,7 @@ export type Route =
 	| { kind: "butler-tool"; tool: string }
 	| { kind: "butler-focus" }
 	| { kind: "butler-thread"; threadId: string }
+	| { kind: "butler-edges"; from: string | null; to: string | null }
 	| { kind: "butler-thread-message"; threadId: string }
 	| { kind: "butler-thread-approval"; threadId: string }
 	| { kind: "butler-approvals" }
@@ -563,6 +567,15 @@ export const matchRoute = (method: string, url: URL): Route => {
 		}
 		return method === "GET"
 			? { kind: "butler-thread", threadId: butlerThread[1] }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/butler/edges") {
+		return method === "GET"
+			? {
+					kind: "butler-edges",
+					from: url.searchParams.get("from"),
+					to: url.searchParams.get("to"),
+				}
 			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api/archive") {
@@ -1412,6 +1425,22 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		sendJson(res, 200, view);
 	};
 
+	/** The words that went one way between two ends, for the page's edge view. */
+	const butlerEdgeView = (
+		req: IncomingMessage,
+		res: ServerResponse,
+		fromKey: string | null,
+		toKey: string | null,
+	) => {
+		// Like a thread's log, never for a machine holding the runner token.
+		if (byToken.has(req)) return sendError(res, 403);
+		const from = parseEndKey(fromKey);
+		const to = parseEndKey(toKey);
+		if (!from || !to) return sendError(res, 400);
+		if (!deps.edges) return sendError(res, 404);
+		sendJson(res, 200, { messages: deps.edges.messages(from, to) });
+	};
+
 	/** Aaron's reply to a Butler thread from its card, queued for spike like a / message. */
 	const butlerThreadMessage = async (
 		req: IncomingMessage,
@@ -1907,6 +1936,8 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return sendJson(res, 200, { token: deps.csrf });
 			case "butler-focus":
 				return butlerFocus(req, res);
+			case "butler-edges":
+				return butlerEdgeView(req, res, route.from, route.to);
 			case "butler-thread":
 				return butlerThreadView(req, res, route.threadId);
 			case "butler-thread-message":

@@ -1,5 +1,6 @@
 import { type BoardFeed, hasLanded } from "../shared/types.ts";
 import { butlerPresence } from "./butler.ts";
+import { butlerEdges } from "./butlerEdges.ts";
 import { receiveColours } from "./colours.ts";
 import { receiveComment, receiveComments } from "./comments.ts";
 import { digests } from "./digests.ts";
@@ -109,6 +110,10 @@ function receive(frame: BoardFeed): void {
 	}
 	if (frame.type === "butler") {
 		butlerPresence.value = frame.butler;
+		return;
+	}
+	if (frame.type === "butler-edges") {
+		butlerEdges.value = frame.edges;
 		return;
 	}
 	if (frame.type === "runners") {

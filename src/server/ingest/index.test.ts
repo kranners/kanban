@@ -1189,3 +1189,76 @@ describe("startBoard with a remote-control session on this Mac", () => {
 		);
 	});
 });
+
+describe("startBoard with messages between cloud sessions", () => {
+	const caller = "session_01caller";
+	const target = "session_01target";
+	let handle: ReturnType<typeof startBoard>;
+
+	before(() => {
+		home = mkdtempSync(join(tmpdir(), "kanban-cloud-msg-"));
+		jsonl(`cloud/${caller}.jsonl`, [
+			{
+				type: "assistant",
+				uuid: "a1",
+				message: {
+					role: "assistant",
+					content: [
+						{
+							type: "tool_use",
+							id: "c1",
+							name: "mcp__claude-code-remote__send_message",
+							input: { session_id: target, message: "Rebase onto main" },
+						},
+					],
+				},
+				timestamp: iso(-10_000),
+			},
+			{
+				type: "user",
+				uuid: "u1",
+				message: {
+					role: "user",
+					content: [
+						{ type: "tool_result", tool_use_id: "c1", content: "Sent" },
+					],
+				},
+				timestamp: iso(-9_000),
+			},
+		]);
+		jsonl(`cloud/${target}.jsonl`, []);
+		const base = {
+			cwd: "/Users/me/dev/acme-api",
+			name: "acme-api",
+			createdAt: now - 30_000,
+			updatedAt: now - 25_000,
+			activity: "working" as const,
+			detail: null,
+		};
+		handle = startBoard({
+			claudeHome: join(home, "default"),
+			cloud: () =>
+				[caller, target].map((id) => ({
+					...base,
+					id,
+					url: `https://claude.ai/code/${id}`,
+					transcript: join(home, "cloud", `${id}.jsonl`),
+				})),
+			onChange: () => {},
+		});
+	});
+
+	after(() => {
+		handle.stop();
+		rmSync(home, { recursive: true, force: true });
+	});
+
+	test("draws a remote-session message from the caller to the session it named", () => {
+		assert.deepEqual(
+			handle
+				.board()
+				.messages.map((m) => [m.id, m.from.id, m.to.id, m.summary, m.kind]),
+			[["cloud:c1", caller, target, "Rebase onto main", "cloud"]],
+		);
+	});
+});

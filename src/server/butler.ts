@@ -95,6 +95,7 @@ import type { CloudRecord } from "./cloud.ts";
 import { type CommentStore, parseRect } from "./comments.ts";
 import type { BoardSource } from "./http.ts";
 import { fromLoopback } from "./loopback.ts";
+import { type MessageEdgeStore, parseDaemonEdges } from "./messageEdges.ts";
 import { createStateFile, readState } from "./stateFile.ts";
 import { isTidyRegion, planTidy, tidyTopics, topicOf } from "./tidy.ts";
 
@@ -257,6 +258,8 @@ export type ButlerDeps = Pick<
 	threads?: ThreadLogStore;
 	/** The board's cloud sessions, for the orphan report butler_threads returns. */
 	cloud?: () => CloudOverview;
+	/** Where the daemon's thread-to-thread message edges go, apart from the cards. */
+	edges?: Pick<MessageEdgeStore, "syncDaemon">;
 	onChange: (presence: ButlerPresence) => void;
 	/** Where Aaron's messages to Butler are kept, in their comment threads. */
 	comments?: CommentStore;
@@ -1317,12 +1320,14 @@ export const createButler = (deps: ButlerDeps): Butler => {
 	 * card no longer listed taken off.
 	 */
 	const butlerThreads = (fields: Fields): ToolOutcome => {
-		const unknown = only(fields, ["threads"]);
+		const unknown = only(fields, ["threads", "edges"]);
 		if (unknown) return unknown;
 		const listed = fields.threads;
 		if (!Array.isArray(listed) || listed.length > maxThreadCards) {
 			return refused(`threads must be a list of at most ${maxThreadCards}`);
 		}
+		const edges = parseDaemonEdges(fields.edges);
+		if ("error" in edges) return refused(edges.error);
 		const entries = listed
 			.flatMap((raw) => parseThreadEntry(raw) ?? [])
 			// Parents first, so a thread's card can go beside its parent's.
@@ -1423,6 +1428,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			removeCard(card);
 		}
 		if (changedCards > 0 || gone.length > 0) tidySoon();
+		if (fields.edges !== undefined) deps.edges?.syncDaemon(edges);
 		// Forget a closed card once the daemon has not listed its thread for two days,
 		// so one sync that lists nothing never brings every closed card back.
 		const keptDismissed = Object.fromEntries(

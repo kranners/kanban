@@ -30,7 +30,12 @@ export type ToolCall =
 	| { tool: "read_transcript"; session: string; limit: number }
 	| { tool: "board_history"; since: number | null }
 	| { tool: "ask_session"; session: string; question: string }
-	| { tool: "send_prompt"; session: string; text: string }
+	| {
+			tool: "send_prompt";
+			session: string;
+			text: string;
+			parent?: SessionParent;
+	  }
 	| { tool: "announce"; text: string }
 	| {
 			tool: "answer_prompt";
@@ -216,6 +221,18 @@ export const toolDefinitions: ToolDefinition[] = [
 			{
 				session: sessionRef,
 				text: { type: "string", maxLength: maxPromptText },
+				parent: {
+					...object(
+						{
+							thread: { type: "string", pattern: "^[0-9]{5,25}$" },
+							title: { type: "string", maxLength: maxParentTitle },
+							desk: { type: "string", maxLength: maxParentDesk },
+						},
+						["thread"],
+					),
+					description:
+						"The Butler thread sending it, by its Discord id, so the board draws the message from that thread's card; set by Butler's kanban command",
+				},
 			},
 			["session", "text"],
 		),
@@ -622,11 +639,13 @@ const readers: { [K in ToolName]: (fields: Fields) => ToolCall } = {
 		session: string(fields, "session", 128),
 		question: string(fields, "question", maxQuestion),
 	}),
-	send_prompt: (fields) => ({
-		tool: "send_prompt",
-		session: string(fields, "session", 128),
-		text: string(fields, "text", maxPromptText),
-	}),
+	send_prompt: (fields) =>
+		defined({
+			tool: "send_prompt" as const,
+			session: string(fields, "session", 128),
+			text: string(fields, "text", maxPromptText),
+			parent: optional(fields, "parent", sessionParent),
+		}),
 	announce: (fields) => ({
 		tool: "announce",
 		text: string(fields, "text", maxPromptText),

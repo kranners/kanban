@@ -181,6 +181,15 @@ const probes: Record<string, Probe> = {
 			viewport: { x: 0, y: 0, w: 800, h: 600 },
 		});
 	},
+	"/api/butler/edges": async (backend) => {
+		await answers(
+			backend,
+			"GET",
+			"/api/butler/edges",
+			null,
+			"from=thread:11111111&to=session:session_abc",
+		);
+	},
 	"/api/butler/threads/:param": async (backend) => {
 		await answers(backend, "GET", "/api/butler/threads/11111111");
 	},

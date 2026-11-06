@@ -714,6 +714,17 @@ function collectMessages(owners: Owner[]): Message[] {
 			edge.recipient = node;
 			edge.resolvedFrom = received.from;
 		}
+		for (const [id, send] of facts.cloudSends) {
+			if (node.kind === "session" && node.id === send.to) continue;
+			messages.push({
+				id: `cloud:${id}`,
+				from: node,
+				to: { kind: "session", id: send.to },
+				at: send.at,
+				summary: send.summary,
+				kind: "cloud",
+			});
+		}
 		for (const handback of facts.handbacks) {
 			messages.push({
 				id: `handback:${handback.agentId}:${handback.at}`,

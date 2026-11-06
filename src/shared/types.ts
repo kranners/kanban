@@ -182,7 +182,27 @@ export type Message = {
 	to: NodeRef;
 	at: number;
 	summary: string;
+	/** How it was sent: a session's SendMessage (unkinded or "send"), a prompt, a say, or a claude.ai remote-session tool. */
+	kind?: "send" | "prompt" | "say" | "cloud";
 };
+
+/** One end of a message edge Butler's side of the board knows: a Discord thread or a session. */
+export type ButlerEdgeEnd =
+	| { kind: "thread"; id: string }
+	| { kind: "session"; id: string };
+
+/** Messages that went one way between two ends, without their words, which only the page's edge view serves. */
+export type ButlerEdgeSummary = {
+	from: ButlerEdgeEnd;
+	to: ButlerEdgeEnd;
+	/** How they went, such as "desk say", "prompt" or "start". */
+	via: string;
+	count: number;
+	lastAt: number;
+};
+
+/** One message of an edge, as the page's edge view serves it. */
+export type ButlerEdgeMessage = { at: number; via: string; text: string };
 
 export type Board = {
 	sessions: Session[];
@@ -799,6 +819,7 @@ export type BoardFeed =
 	| { type: "relations"; relations: Relation[] }
 	| { type: "docs"; docs: DocIndex; stores: DocStore[] }
 	| { type: "butler"; butler: ButlerPresence }
+	| { type: "butler-edges"; edges: ButlerEdgeSummary[] }
 	| { type: "runners"; runners: RunnerView[] };
 
 export type NewSessionRequest = {

@@ -1373,6 +1373,8 @@ export function createBackend(scenario: Scenario): Backend {
 					error: "That request is no longer waiting on you",
 				}),
 		],
+		// The demo's Butler sends no messages between his threads and sessions.
+		["GET", /^\/api\/butler\/edges$/, () => json(200, { messages: [] })],
 		[
 			"GET",
 			/^\/api\/butler\/threads\/([0-9]{5,25})$/,

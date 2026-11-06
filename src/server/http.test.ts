@@ -52,6 +52,7 @@ import {
 import { createIgnoreStore } from "./ignores.ts";
 import { createLastRunStore, type LastRunStore } from "./lastRuns.ts";
 import { createLayoutStore } from "./layout.ts";
+import { createMessageEdgeStore } from "./messageEdges.ts";
 import { createRegionStore } from "./regions.ts";
 import { createRelationStore } from "./relations.ts";
 import { createRegionReportRunner, createReportRunner } from "./reports.ts";
@@ -553,6 +554,7 @@ describe("createKanbanServer", () => {
 			docs: docFiles.index,
 			docStores: docStores.current,
 		});
+		const messageEdges = createMessageEdgeStore({});
 		const server = createKanbanServer({
 			origins,
 			dist,
@@ -662,8 +664,10 @@ describe("createKanbanServer", () => {
 				initial: [],
 				onChange: () => {},
 				comments,
+				edges: messageEdges,
 				newId: () => `msg-${++butlerIds}`,
 			}),
+			edges: messageEdges,
 			peerHook: ({ event, sessionId }) =>
 				sessionId === "with-peers"
 					? {
@@ -2581,7 +2585,47 @@ describe("createKanbanServer", () => {
 			["user find the invoice", "user and pay it", "reply Paid."],
 		);
 		comments.remove(thread.id);
-		await tool("butler_threads", { threads: [] });
+
+		await tool("butler_threads", {
+			threads: [entry("11111111", "conversation"), entry("22222222", "dm")],
+			edges: [
+				{
+					from: "11111111",
+					to: "22222222",
+					via: "desk say",
+					count: 1,
+					lastAt: Date.now(),
+					messages: [{ at: Date.now(), kind: "user", text: "the words" }],
+				},
+			],
+		});
+		const edgeUrl = `${base}/api/butler/edges?from=thread:11111111&to=thread:22222222`;
+		assert.equal((await fetch(edgeUrl)).status, 401);
+		assert.equal(
+			(
+				await fetch(edgeUrl, {
+					headers: { authorization: `Bearer ${runnerSecret}` },
+				})
+			).status,
+			403,
+			"a machine with the runner token never reads an edge's words",
+		);
+		assert.equal(
+			(
+				await fetch(`${base}/api/butler/edges?from=note:1&to=x`, {
+					headers: authed,
+				})
+			).status,
+			400,
+		);
+		const edgeView = await (await fetch(edgeUrl, { headers: authed })).json();
+		assert.deepEqual(
+			edgeView.messages.map(
+				(m: { via: string; text: string }) => `${m.via} ${m.text}`,
+			),
+			["desk say the words"],
+		);
+		await tool("butler_threads", { threads: [], edges: [] });
 	});
 
 	it("takes a Butler card's Approve only from the page signed in through the device gate", async () => {

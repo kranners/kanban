@@ -44,6 +44,7 @@ import type { BoardSource } from "./http.ts";
 import { truncate } from "./ingest/json.ts";
 import { TranscriptUnreadable } from "./ingest/tail.ts";
 import { boardKeys, type LayoutStore } from "./layout.ts";
+import type { EdgeRecord } from "./messageEdges.ts";
 import type { PromptSender } from "./prompts.ts";
 import {
 	parseRegionDraft,
@@ -81,6 +82,8 @@ export type BoardToolDeps = {
 	approver: PromptApprover;
 	history: (since: number) => Promise<string>;
 	audit: Audit;
+	/** Counts the prompts a Butler thread sends sessions, for the board's message edges. */
+	edges?: { record(entry: EdgeRecord): void };
 	newId?: () => string;
 	now?: () => number;
 };
@@ -520,10 +523,19 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				? done(`Asked ${session.name}\n${answer.answer}`)
 				: refused(answer.error);
 		},
-		send_prompt: async ({ session: ref, text }) => {
+		send_prompt: async ({ session: ref, text, parent }) => {
 			const session = sessionFor(ref);
 			if ("ok" in session) return session;
 			const sent = await deps.prompt(session, text);
+			if (sent.ok && parent) {
+				deps.edges?.record({
+					from: { kind: "thread", id: parent.thread },
+					to: { kind: "session", id: session.id },
+					via: "prompt",
+					text,
+					at: now(),
+				});
+			}
 			return sent.ok
 				? done(`Sent a prompt to ${session.name} through ${sent.via}`)
 				: refused(sent.error);
@@ -672,6 +684,15 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				deps.layout.observe(deps.source.board());
 			}
 			if (!result.ok) return refused(result.error);
+			if (parent) {
+				deps.edges?.record({
+					from: { kind: "thread", id: parent.thread },
+					to: { kind: "session", id: landingId(result) },
+					via: "start",
+					text: request.prompt,
+					at: now(),
+				});
+			}
 			return done(
 				"short" in result
 					? `Started a session in ${request.cwd} (short id ${result.short})`
@@ -846,6 +867,7 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				tool: call.tool,
 				target: targetOf(call),
 				input: inputOf(call),
+				...parentOf(call),
 				result: outcome.ok
 					? (outcome.text.split("\n")[0] ?? "")
 					: `error: ${outcome.error}`,
@@ -863,6 +885,11 @@ const targetOf = (call: ToolCall): string | null => {
 	if ("id" in call) return call.id ?? null;
 	return null;
 };
+
+const parentOf = (call: ToolCall): { parent?: string } =>
+	(call.tool === "send_prompt" || call.tool === "start_session") && call.parent
+		? { parent: call.parent.thread }
+		: {};
 
 const inputOf = (call: ToolCall): string | null => {
 	if (call.tool === "send_prompt" || call.tool === "announce") {

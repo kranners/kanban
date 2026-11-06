@@ -6,6 +6,7 @@ import type {
 	Annotations,
 	Board,
 	BoardFeed,
+	ButlerEdgeSummary,
 	ButlerPresence,
 	CommentThread,
 	Digests,
@@ -46,6 +47,7 @@ export type Feed = {
 	relations(relations: Relation[]): void;
 	docs(): void;
 	butler(butler: ButlerPresence): void;
+	butlerEdges(edges: ButlerEdgeSummary[]): void;
 	runners(runners: RunnerView[]): void;
 	size(): number;
 };
@@ -64,6 +66,8 @@ export type FeedOptions = {
 	docs: () => DocIndex;
 	docStores: () => DocStore[];
 	butler?: () => ButlerPresence;
+	/** Butler's message edges, without their words. */
+	butlerEdges?: () => ButlerEdgeSummary[];
 	runners?: () => RunnerView[];
 	lastRuns?: () => LastRuns;
 	notifications?: () => BoardNotification[];
@@ -85,6 +89,7 @@ export const createFeed = ({
 	docs,
 	docStores,
 	butler,
+	butlerEdges,
 	runners,
 	lastRuns,
 	notifications,
@@ -128,6 +133,9 @@ export const createFeed = ({
 			send(socket, { type: "relations", relations: relations() });
 			send(socket, docsFrame());
 			if (butler) send(socket, { type: "butler", butler: butler() });
+			if (butlerEdges) {
+				send(socket, { type: "butler-edges", edges: butlerEdges() });
+			}
 			if (runners) send(socket, { type: "runners", runners: runners() });
 			send(socket, { type: "board", board: board() });
 		},
@@ -153,6 +161,7 @@ export const createFeed = ({
 		relations: (next) => broadcast({ type: "relations", relations: next }),
 		docs: () => broadcast(docsFrame()),
 		butler: (next) => broadcast({ type: "butler", butler: next }),
+		butlerEdges: (next) => broadcast({ type: "butler-edges", edges: next }),
 		runners: (next) => broadcast({ type: "runners", runners: next }),
 		size: () => clients.size,
 	};

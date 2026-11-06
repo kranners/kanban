@@ -34,6 +34,9 @@ export type ReceivedMessage = {
 	from: string | null;
 };
 
+/** A message to a claude.ai session through the remote-session tools, by the tool call's id. */
+export type CloudSend = { at: number; summary: string; to: string };
+
 export type Handback = { agentId: string; at: number; summary: string };
 
 export type BackgroundShell = {
@@ -50,6 +53,7 @@ export type TranscriptFacts = {
 	lastAt: number;
 	tools: Map<string, { name: string; input: Json }>;
 	sent: Map<string, SentMessage>;
+	cloudSends: Map<string, CloudSend>;
 	received: Map<string, ReceivedMessage>;
 	handbacks: Handback[];
 	spawnedShorts: Set<string>;
@@ -82,6 +86,7 @@ export function createFacts(): TranscriptFacts {
 		lastAt: 0,
 		tools: new Map(),
 		sent: new Map(),
+		cloudSends: new Map(),
 		received: new Map(),
 		handbacks: [],
 		spawnedShorts: new Set(),
@@ -273,6 +278,7 @@ function applyToolResults(
 		const id = asString(block.tool_use_id);
 		const tool = id ? facts.tools.get(id) : undefined;
 		if (id) facts.tools.delete(id);
+		if (tool && id) applyCloudTool(facts, id, tool, block, at);
 		if (!tool || !result) continue;
 		if (tool.name === "SendMessage") {
 			const msgId = asString(result.msg_id);
@@ -325,6 +331,55 @@ function applyToolResults(
 				if (match[1]) facts.spawnedShorts.add(match[1]);
 			}
 		}
+	}
+}
+
+const remoteTools = "mcp__claude-code-remote__";
+const cloudSessionPattern = /^session_[A-Za-z0-9]{1,128}$/;
+const cloudSessionInText = /session_[A-Za-z0-9]{1,128}/;
+const cloudSendLimit = 200;
+
+/** The text a tool result carries, as a string or as text blocks. */
+function resultText(block: Json): string {
+	const content = block.content;
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content.map((item) => asString(asObject(item)?.text) ?? "").join("\n");
+}
+
+/**
+ * A message to another claude.ai session, through the remote-session
+ * tools: send_message names its session, and create_session's result names
+ * the session it made, whose first message is its prompt.
+ */
+function applyCloudTool(
+	facts: TranscriptFacts,
+	id: string,
+	tool: { name: string; input: Json },
+	block: Json,
+	at: number,
+) {
+	if (!tool.name.startsWith(remoteTools) || block.is_error === true) return;
+	const name = tool.name.slice(remoteTools.length);
+	let to: string | null = null;
+	let text: string | null = null;
+	if (name === "send_message") {
+		const target = asString(tool.input.session_id);
+		to = target && cloudSessionPattern.test(target) ? target : null;
+		text = asString(tool.input.message);
+	} else if (name === "create_session") {
+		to = cloudSessionInText.exec(resultText(block))?.[0] ?? null;
+		text = asString(tool.input.prompt) ?? "";
+	}
+	if (!to || text === null) return;
+	facts.cloudSends.set(id, {
+		at,
+		summary: truncate(firstLine(text) || "message", summaryLength),
+		to,
+	});
+	if (facts.cloudSends.size > cloudSendLimit) {
+		const oldest = facts.cloudSends.keys().next().value;
+		if (oldest !== undefined) facts.cloudSends.delete(oldest);
 	}
 }
 
