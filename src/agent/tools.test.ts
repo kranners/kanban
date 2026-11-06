@@ -130,6 +130,43 @@ describe("parseToolCall", () => {
 			/together/,
 		);
 		assert.match(
+			error("start_session", {
+				cwd: "/tmp",
+				prompt: "p",
+				parent: { thread: "nope" },
+			}) ?? "",
+			/parent.thread/,
+		);
+		assert.match(
+			error("start_session", {
+				cwd: "/tmp",
+				prompt: "p",
+				parent: { thread: "11111111", title: "x".repeat(101) },
+			}) ?? "",
+			/parent.title/,
+		);
+		assert.match(
+			error("start_session", {
+				cwd: "/tmp",
+				prompt: "p",
+				parent: { thread: "11111111", other: 1 },
+			}) ?? "",
+			/parent.other/,
+		);
+		assert.deepEqual(
+			parseToolCall("start_session", {
+				cwd: "/tmp",
+				prompt: "p",
+				parent: { thread: "11111111", title: " Book\nit ", desk: "1106-2" },
+			}),
+			{
+				tool: "start_session",
+				cwd: "/tmp",
+				prompt: "p",
+				parent: { thread: "11111111", title: "Book it", desk: "1106-2" },
+			},
+		);
+		assert.match(
 			error("put_note", { text: "no place" }) ?? "",
 			/needs text, x and y/,
 		);

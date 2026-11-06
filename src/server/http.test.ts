@@ -2355,6 +2355,143 @@ describe("createKanbanServer", () => {
 		comments.remove(thread.id);
 	});
 
+	it("shows a Butler thread card's log to the page and queues Aaron's replies and jobs", async () => {
+		const page = (path: string, body: unknown, extra = {}) =>
+			fetch(`${base}${path}`, {
+				method: "POST",
+				headers: {
+					...authed,
+					"content-type": "application/json",
+					origin,
+					...extra,
+				},
+				body: JSON.stringify(body),
+			});
+		const tool = async (name: string, body: unknown) => {
+			const response = await fetch(`${base}/api/butler/tools/${name}`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(body),
+			});
+			return (await response.json()) as {
+				ok: boolean;
+				text: string;
+				error?: string;
+			};
+		};
+		const entry = (id: string, kind: string) => ({
+			id,
+			title: `Thread ${id}`,
+			kind,
+			state: "working",
+			status: "Reading mail",
+			link: `https://discord.com/channels/1/${id}`,
+			createdAt: 1,
+			lastActiveAt: 2,
+			private: false,
+			events: [{ at: 1, kind: "user", text: "find the invoice" }],
+			approvals: [{ at: 2, headline: "Send the reply?", code: "ab12" }],
+		});
+		const synced = await tool("butler_threads", {
+			threads: [entry("11111111", "conversation"), entry("22222222", "dm")],
+		});
+		assert.equal(synced.ok, true);
+		assert.match(synced.text, /^2 thread cards: 2 updated, 0 removed\n/);
+
+		assert.equal(
+			(await fetch(`${base}/api/butler/threads/11111111`)).status,
+			401,
+			"the view needs the board's sign-in",
+		);
+		const viewed = await fetch(`${base}/api/butler/threads/11111111`, {
+			headers: authed,
+		});
+		assert.equal(viewed.status, 200);
+		const view = await viewed.json();
+		assert.equal(view.card.id, "thread-11111111");
+		assert.equal(view.card.thread.kind, "conversation");
+		assert.deepEqual(
+			view.events.map((e: { text: string }) => e.text),
+			["find the invoice"],
+		);
+		assert.equal(view.approvals[0].headline, "Send the reply?");
+		assert.equal(
+			(await fetch(`${base}/api/butler/threads/99999999`, { headers: authed }))
+				.status,
+			404,
+		);
+
+		const reply = "/api/butler/threads/11111111/messages";
+		assert.equal((await page(reply, { text: "and pay it" })).status, 403);
+		assert.equal(
+			(
+				await page(
+					"/api/butler/threads/22222222/messages",
+					{ text: "hi" },
+					{ "x-kanban-csrf": "test-csrf" },
+				)
+			).status,
+			409,
+			"the DM is answered in Discord",
+		);
+		assert.equal(
+			(
+				await page(
+					reply,
+					{ text: "and pay it" },
+					{ "x-kanban-csrf": "test-csrf" },
+				)
+			).status,
+			202,
+		);
+		const job = await page(
+			"/api/butler/jobs",
+			{ text: "book the dentist", viewport: { x: 0, y: 0, w: 800, h: 600 } },
+			{ "x-kanban-csrf": "test-csrf" },
+		);
+		assert.equal(job.status, 201);
+		const { thread } = await job.json();
+		assert.equal(thread.job, true);
+		assert.equal(thread.x, 400);
+		assert.equal((await page("/api/butler/jobs", { text: "x" })).status, 403);
+
+		const { messages } = JSON.parse((await tool("board_inbox", {})).text);
+		const toCard = messages.find(
+			(m: { thread: string }) => m.thread === "card-11111111",
+		);
+		assert.equal(toCard.target, "11111111");
+		assert.equal(toCard.text, "and pay it");
+		const toJob = messages.find(
+			(m: { thread: string }) => m.thread === thread.id,
+		);
+		assert.equal(toJob.job, true);
+		assert.equal(
+			(await tool("board_ack", { ids: [toCard.id, toJob.id] })).text,
+			"Took 2",
+		);
+		assert.equal(
+			(
+				await tool("board_reply", {
+					thread: "card-11111111",
+					message: toCard.id,
+					text: "Paid.",
+				})
+			).ok,
+			true,
+		);
+		const after = await (
+			await fetch(`${base}/api/butler/threads/11111111`, { headers: authed })
+		).json();
+		assert.deepEqual(
+			after.events.map(
+				(e: { kind: string; text: string }) => `${e.kind} ${e.text}`,
+			),
+			["user find the invoice", "user and pay it", "reply Paid."],
+		);
+		comments.remove(thread.id);
+		await tool("butler_threads", { threads: [] });
+	});
+
 	it("takes what Aaron is working on only from the board's own page, for Butler to read", async () => {
 		const report = (body: unknown, extra = {}) =>
 			fetch(`${base}/api/butler/focus`, {

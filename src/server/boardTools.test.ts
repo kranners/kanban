@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import type { PromptReply } from "../shared/conversation.ts";
-import type { Board, Session } from "../shared/types.ts";
+import type { Board, NewSessionRequest, Session } from "../shared/types.ts";
 import { noteSizeFor } from "../web/notes.ts";
 import { arrange, near, seedsOf, sessionSize } from "../web/placement.ts";
 import { createAnnotationStore } from "./annotations.ts";
@@ -95,6 +95,7 @@ const setup = async (shown: Board = board) => {
 	const prompts = new Map<string, OpenPrompt[]>();
 	const approvals: [string, string][] = [];
 	let ids = 0;
+	const launched: NewSessionRequest[] = [];
 	const tools = createBoardTools({
 		source: {
 			board: () => shown,
@@ -113,10 +114,12 @@ const setup = async (shown: Board = board) => {
 		colours,
 		regions,
 		comments,
-		launch: async (request) =>
-			request.runsOn === "cloud"
+		launch: async (request) => {
+			launched.push(request);
+			return request.runsOn === "cloud"
 				? { ok: true, id: "session_01cloud" }
-				: { ok: true, short: "feedbeef" },
+				: { ok: true, short: "feedbeef" };
+		},
 		exit: (s, force, identity, ownerMessage) => {
 			exits.push(
 				ownerMessage
@@ -196,6 +199,7 @@ const setup = async (shown: Board = board) => {
 		answered,
 		prompts,
 		approvals,
+		launched,
 	};
 };
 
@@ -393,6 +397,52 @@ describe("board tools", () => {
 				["local", "feedbeef"],
 			],
 		);
+	});
+
+	it("starts a session a Butler thread asked for beside that thread's card, keeping its parent", async () => {
+		const { tools, annotations, launched } = await setup();
+		annotations.put({
+			id: "thread-11111111",
+			kind: "butler-card",
+			title: "Dentist",
+			state: "working",
+			x: 4800,
+			y: 2400,
+			w: 312,
+			h: 216,
+			z: 1,
+			updatedAt: 0,
+			thread: {
+				id: "11111111",
+				kind: "conversation",
+				link: "https://discord.com/channels/1/11111111",
+				private: false,
+			},
+		});
+		const cwd = tmpdir();
+		const started = await tools("t", {
+			tool: "start_session",
+			cwd,
+			prompt: "go",
+			parent: { thread: "11111111", title: "Dentist", desk: "1106-2" },
+		});
+		assert.ok(started.ok);
+		const request = launched.at(-1);
+		assert.deepEqual(request?.parent, {
+			thread: "11111111",
+			title: "Dentist",
+			desk: "1106-2",
+		});
+		assert.deepEqual(request?.at, { x: 5160, y: 2400 });
+		// A parent with no card yet leaves the session where the board puts it.
+		await tools("t", {
+			tool: "start_session",
+			cwd,
+			prompt: "go",
+			parent: { thread: "22222222" },
+		});
+		assert.equal(launched.at(-1)?.at, undefined);
+		assert.deepEqual(launched.at(-1)?.parent, { thread: "22222222" });
 	});
 
 	it("draws regions with a colour and finishes sessions without forcing", async () => {

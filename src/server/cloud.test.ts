@@ -633,6 +633,38 @@ describe("createCloudSessions", () => {
 		store.stop();
 	});
 
+	it("keeps the Butler thread a session came from, and says whether claude.ai answers", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		fake.info.set(id, info("running", "2026-10-30T12:00:00Z"));
+		const { store } = await storeIn(dir, fake);
+		assert.equal(store.overview().reachable, null);
+		store.add({ ...record, parent: { thread: "11111111", title: "Dentist" } });
+		await until(() => store.overview().reachable === true);
+		assert.deepEqual(store.sessions()[0]?.parent, {
+			thread: "11111111",
+			title: "Dentist",
+		});
+		assert.deepEqual(store.overview().records[0]?.parent, {
+			thread: "11111111",
+			title: "Dentist",
+		});
+		fake.down.add(id);
+		await until(() => store.overview().reachable === false);
+		store.stop();
+		await until(async () =>
+			(
+				await readFile(join(dir, "cloud.json"), "utf8").catch(() => "")
+			).includes("11111111"),
+		);
+		const again = await storeIn(dir, fake);
+		assert.deepEqual(again.store.overview().records[0]?.parent, {
+			thread: "11111111",
+			title: "Dentist",
+		});
+		again.store.stop();
+	});
+
 	it("forgets an archived session and saves that", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
 		const fake = fakeCloud();

@@ -469,6 +469,19 @@ describe("routedLauncher", () => {
 		]);
 	});
 
+	it("records the Butler thread that asked for a cloud session", async () => {
+		records.length = 0;
+		await launch({
+			...valid,
+			runsOn: "cloud",
+			parent: { thread: "11111111", title: "Dentist" },
+		});
+		assert.deepEqual(
+			(records as { parent?: unknown }[]).map(({ parent }) => parent),
+			[{ thread: "11111111", title: "Dentist" }],
+		);
+	});
+
 	it("records the account profile a cloud session runs on", async () => {
 		records.length = 0;
 		assert.deepEqual(await launch({ ...valid, runsOn: "cloud", account: 2 }), {
