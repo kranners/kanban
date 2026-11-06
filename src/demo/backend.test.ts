@@ -181,6 +181,20 @@ const probes: Record<string, Probe> = {
 			session: sessionId,
 		});
 	},
+	"/api/folders": async (backend) => {
+		const found = await answers(
+			backend,
+			"GET",
+			"/api/folders",
+			null,
+			"runsOn=local&path=%2FUsers%2Fme%2Fdev",
+		);
+		const { listing } = (await found.json()) as {
+			listing: { folders: string[]; parent: string };
+		};
+		assert.ok(listing.folders.includes("acme-api"));
+		assert.equal(listing.parent, "/Users/me");
+	},
 	"/api/folder-picker": async (backend) => {
 		await answers(backend, "POST", "/api/folder-picker");
 	},

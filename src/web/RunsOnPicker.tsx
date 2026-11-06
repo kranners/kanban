@@ -1,7 +1,11 @@
-import { Cloud, Laptop, Monitor, RadioTower } from "lucide-preact";
+import { Cloud, Laptop, Monitor, RadioTower, Server } from "lucide-preact";
 import type { JSX } from "preact";
 import { useCallback, useEffect, useState } from "preact/hooks";
-import type { RemoteHost, RunsOn } from "../shared/types.ts";
+import {
+	isRunnerTarget,
+	type RemoteHost,
+	type RunsOn,
+} from "../shared/types.ts";
 import { type Choice, ChoiceMenu } from "./ChoiceMenu.tsx";
 import {
 	directoryName,
@@ -9,7 +13,12 @@ import {
 	runsOnBlockerUrl,
 } from "./focus/paths.ts";
 import { lastRuns, runsOnDefault } from "./lastRuns.ts";
-import { platformName, runnerBlocker, runners } from "./runners.ts";
+import {
+	localMachineLabel,
+	platformName,
+	runnerBlocker,
+	runners,
+} from "./runners.ts";
 
 export type RunsOnChoices = {
 	runsOn: RunsOn;
@@ -31,7 +40,7 @@ export function useRunsOn(cwd: string, account?: number): RunsOnChoices {
 			icon: Cloud,
 			blocked: blocked.get("cloud"),
 		},
-		{ value: "local", label: "This Mac", icon: Laptop },
+		localChoice(localMachineLabel()),
 		...runners.value
 			.filter((runner) => !runner.local)
 			.map(
@@ -61,11 +70,24 @@ export function useRunsOn(cwd: string, account?: number): RunsOnChoices {
 			}),
 		),
 	];
+	// A blocked runner stays picked, so the menu shows it and the launch says
+	// why; a blocked cloud or remote host falls back to the board's machine.
 	const usable = choices.some(
-		({ value, blocked }) => value === picked && !blocked,
+		({ value, blocked }) =>
+			value === picked && (!blocked || isRunnerTarget(value)),
 	);
 	return { runsOn: usable ? picked : "local", choices, pick, refresh };
 }
+
+const localChoice = (label: string): Choice<RunsOn> =>
+	label === "This Mac"
+		? { value: "local", label, icon: Laptop }
+		: {
+				value: "local",
+				label,
+				detail: "the board's machine",
+				icon: Server,
+			};
 
 export function RunsOnPicker(props: {
 	runs: RunsOnChoices;

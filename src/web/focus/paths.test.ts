@@ -6,6 +6,7 @@ import {
 	conversationUrl,
 	directoryName,
 	filesUrl,
+	foldersUrl,
 	mirrorUrl,
 	needsTrust,
 	remoteHostsUrl,
@@ -87,4 +88,15 @@ test("runsOnBlockerUrl carries the folder, where it runs and the account", () =>
 test("remoteHostsUrl asks for the account's hosts", () => {
 	assert.equal(remoteHostsUrl(), "/api/remote-hosts?");
 	assert.equal(remoteHostsUrl(3), "/api/remote-hosts?account=3");
+});
+
+test("foldersUrl names the machine and the folder, if any", () => {
+	assert.equal(
+		foldersUrl("runner_pilot", null),
+		"/api/folders?runsOn=runner_pilot",
+	);
+	assert.equal(
+		foldersUrl("local", "~/dev/a b&c"),
+		"/api/folders?runsOn=local&path=%7E%2Fdev%2Fa+b%26c",
+	);
 });

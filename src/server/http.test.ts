@@ -108,6 +108,22 @@ describe("matchRoute", () => {
 		assert.deepEqual(route("GET", "/api/permissions/grant"), {
 			kind: "method-not-allowed",
 		});
+		assert.deepEqual(
+			route("GET", "/api/folders?runsOn=runner_jimbo&path=~/x"),
+			{
+				kind: "browse-folders",
+				runsOn: "runner_jimbo",
+				path: "~/x",
+			},
+		);
+		assert.deepEqual(route("GET", "/api/folders"), {
+			kind: "browse-folders",
+			runsOn: "local",
+			path: null,
+		});
+		assert.deepEqual(route("POST", "/api/folders"), {
+			kind: "method-not-allowed",
+		});
 		assert.deepEqual(route("POST", "/api/announce"), { kind: "announce" });
 		assert.deepEqual(route("GET", "/api/announce"), {
 			kind: "method-not-allowed",
@@ -382,6 +398,8 @@ describe("createKanbanServer", () => {
 	const madeDefault: number[] = [];
 	const granted: PermissionGrant[] = [];
 	const announced: [string, string | null][] = [];
+	const browsed: [string, string | null][] = [];
+	const refusedRunners: string[] = [];
 	const runnerHub = createRunnerHub({
 		hubHome: "/Users/me",
 		local: () => ({ name: "pilot", usage: null, cap: 4, sessions: [] }),
@@ -670,7 +688,29 @@ describe("createKanbanServer", () => {
 							],
 						},
 			pickFolder: async () => ({ ok: true, path: "/Users/me/dev/picked" }),
-			runners: runnerHub,
+			browseFolders: async (runsOn, path) => {
+				browsed.push([runsOn, path]);
+				return path === "/nope"
+					? { ok: false, error: "/nope isn't a folder on jimbo" }
+					: {
+							ok: true,
+							listing: {
+								machine: "jimbo",
+								path: path ?? "/home/me/workspace",
+								home: "/home/me",
+								parent: "/home/me",
+								folders: ["acme"],
+								truncated: false,
+							},
+						};
+			},
+			runners: {
+				...runnerHub,
+				refused: (name) => {
+					refusedRunners.push(name);
+					runnerHub.refused(name);
+				},
+			},
 			permissions: {
 				survey: async () => ({ entries: [] }),
 				grant: async (grants) => {
@@ -771,6 +811,16 @@ describe("createKanbanServer", () => {
 			(await register({ authorization: `Bearer ${"x".repeat(40)}` })).status,
 			403,
 		);
+		const wrongToken = await fetch(`${base}/api/runners/register`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				authorization: `Bearer ${"x".repeat(40)}`,
+			},
+			body: JSON.stringify({ name: "spike" }),
+		});
+		assert.equal(wrongToken.status, 403, "still refused");
+		assert.deepEqual(refusedRunners, ["spike"], "and named for the board");
 		const malformed = await register({
 			authorization: `Bearer ${runnerSecret}`,
 		});
@@ -867,6 +917,134 @@ describe("createKanbanServer", () => {
 		);
 		assert.equal(runners[1]?.usage?.cpus, 4);
 		assert.equal(runnerHub.sessions()[0]?.doing, "Reading the tests");
+	});
+
+	it("answers a browse command over the runner protocol without launching", async (t) => {
+		const touched: string[] = [];
+		const posted: string[] = [];
+		const asked: [string | null, string | null][] = [];
+		const client = startRunnerClient({
+			config: {
+				hub: base,
+				token: runnerSecret,
+				name: "Browse Runner",
+				cap: 2,
+				claudeBin: "claude",
+				claudeArgs: [],
+				paths: [],
+				cswapBin: "off",
+			},
+			sessions: {
+				launch: async () => {
+					touched.push("launch");
+					return { ok: true };
+				},
+				stop: async () => {
+					touched.push("stop");
+					return { ok: true };
+				},
+				list: () => [],
+				pids: () => new Map(),
+				stopAll: async () => {},
+			},
+			sample: async () => ({
+				cpus: 4,
+				cpuPercent: 10,
+				load1: 0.5,
+				memTotal: 8e9,
+				memUsed: 2e9,
+				diskTotal: 1e11,
+				diskFree: 5e10,
+			}),
+			fetch: (input, init) => {
+				if (init?.method === "POST") posted.push(String(input));
+				return fetch(input, init);
+			},
+			browse: async (path, hubHome) => {
+				asked.push([path, hubHome]);
+				return {
+					ok: true,
+					listing: {
+						machine: "Browse Runner",
+						path: "/home/me/dev",
+						home: "/home/me",
+						parent: "/home/me",
+						folders: ["acme-api"],
+						truncated: false,
+					},
+				};
+			},
+			log: () => {},
+		});
+		t.after(() => client.stop());
+		assert.equal(await client.registered, "browse-runner");
+		const found = await runnerHub.browse(
+			"runner_browse-runner",
+			"/Users/me/dev",
+		);
+		assert.deepEqual(found, {
+			ok: true,
+			listing: {
+				machine: "Browse Runner",
+				path: "/home/me/dev",
+				home: "/home/me",
+				parent: "/home/me",
+				folders: ["acme-api"],
+				truncated: false,
+			},
+		});
+		assert.deepEqual(asked, [["/Users/me/dev", "/Users/me"]]);
+		assert.equal(
+			posted.filter((url) =>
+				/\/api\/runners\/browse-runner\/commands\/[^/]+$/.test(
+					new URL(url).pathname,
+				),
+			).length,
+			1,
+		);
+		assert.deepEqual(touched, []);
+	});
+
+	it("lists folders on the machine a session would run on", async () => {
+		browsed.length = 0;
+		const found = await fetch(
+			`${base}/api/folders?runsOn=runner_jimbo&path=${encodeURIComponent("~/code")}`,
+			{ headers: authed },
+		);
+		assert.equal(found.status, 200);
+		assert.deepEqual(await found.json(), {
+			ok: true,
+			listing: {
+				machine: "jimbo",
+				path: "~/code",
+				home: "/home/me",
+				parent: "/home/me",
+				folders: ["acme"],
+				truncated: false,
+			},
+		});
+		const missing = await fetch(
+			`${base}/api/folders?runsOn=runner_jimbo&path=/nope`,
+			{ headers: authed },
+		);
+		assert.equal(missing.status, 422);
+		assert.deepEqual(await missing.json(), {
+			ok: false,
+			error: "/nope isn't a folder on jimbo",
+		});
+		const start = await fetch(`${base}/api/folders`, { headers: authed });
+		assert.equal(start.status, 200);
+		assert.deepEqual(browsed, [
+			["runner_jimbo", "~/code"],
+			["runner_jimbo", "/nope"],
+			["local", null],
+		]);
+		assert.equal(
+			(await fetch(`${base}/api/folders`, { method: "POST", headers: authed }))
+				.status,
+			405,
+		);
+		assert.equal((await fetch(`${base}/api/folders`)).status, 401);
 	});
 
 	it("serves static files with an index fallback", async () => {

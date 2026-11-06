@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { RunnerReport, RunnerSession } from "../shared/runners.ts";
-import type { Session } from "../shared/types.ts";
-import { createRunnerHub, parseRunnerReport } from "./runners.ts";
+import type { FolderListing, Session } from "../shared/types.ts";
+import { createRunnerHub, parseListing, parseRunnerReport } from "./runners.ts";
 
 const usage = {
 	cpus: 8,
@@ -43,7 +43,10 @@ const running = (id: string, state: RunnerSession["state"] = "working") => ({
 	rss: 300e6,
 });
 
-const setup = (expected: string[] = []) => {
+const setup = (
+	expected: string[] = [],
+	options: Partial<Parameters<typeof createRunnerHub>[0]> = {},
+) => {
 	let at = 5_000_000;
 	let changes = 0;
 	let ids = 0;
@@ -61,7 +64,9 @@ const setup = (expected: string[] = []) => {
 			changes += 1;
 		},
 		commandTimeoutMs: 50,
+		browseTimeoutMs: 50,
 		newId: () => `id-${++ids}`,
+		...options,
 	});
 	return {
 		hub,
@@ -90,7 +95,7 @@ describe("parseRunnerReport", () => {
 
 describe("createRunnerHub", () => {
 	it("lists this Mac first, then machines by state", () => {
-		const { hub } = setup(["spike", "jimbo"]);
+		const { hub } = setup(["spike", "jimbo"], { platform: "darwin" });
 		const views = hub.views();
 		assert.deepEqual(
 			views.map((view) => [view.id, view.label, view.state, view.lastSeen]),
@@ -237,7 +242,7 @@ describe("createRunnerHub", () => {
 		});
 		assert.deepEqual(await refused, {
 			ok: false,
-			error: "/x isn't a directory on this machine",
+			error: "/x isn't a directory on jimbo",
 		});
 		assert.equal(hub.sessions().length, 0);
 		assert.deepEqual(
@@ -264,9 +269,9 @@ describe("createRunnerHub", () => {
 
 	it("refuses placements on machines that are off, unknown or full", async () => {
 		const { hub } = setup(["spike"]);
-		assert.equal(
-			hub.blocker("runner_spike"),
-			"This machine hasn't checked in yet",
+		assert.match(
+			hub.blocker("runner_spike") ?? "",
+			/^spike's runner hasn't connected to the board/,
 		);
 		assert.equal(
 			hub.blocker("runner_nope"),
@@ -301,5 +306,208 @@ describe("createRunnerHub", () => {
 			ok: false,
 			error: "jimbo is offline",
 		});
+	});
+
+	it("calls a Linux hub by its machine name, not This Mac", () => {
+		const { hub } = setup([], { platform: "linux" });
+		assert.equal(hub.localLabel(), "pilot");
+		assert.equal(hub.views()[0]?.label, "pilot");
+		assert.equal(
+			setup([], { platform: "darwin" }).hub.localLabel(),
+			"This Mac",
+		);
+	});
+});
+
+const listing = (overrides: Partial<FolderListing> = {}): FolderListing => ({
+	machine: "jimbo",
+	path: "/home/aaron/code",
+	home: "/home/aaron",
+	parent: "/home/aaron",
+	folders: ["acme", "beta"],
+	truncated: false,
+	...overrides,
+});
+
+describe("parseListing", () => {
+	it("accepts a well-formed listing and refuses junk", () => {
+		assert.deepEqual(parseListing(listing()), listing());
+		assert.deepEqual(
+			parseListing(listing({ parent: null, path: "/" })),
+			listing({ parent: null, path: "/" }),
+		);
+		assert.equal(parseListing(listing({ folders: ["a/b"] })), null);
+		assert.equal(parseListing(listing({ folders: ["bad\nname"] })), null);
+		assert.equal(parseListing(listing({ folders: [""] })), null);
+		assert.equal(
+			parseListing(
+				listing({ folders: Array.from({ length: 1001 }, (_, i) => `f${i}`) }),
+			),
+			null,
+		);
+		assert.equal(parseListing(listing({ path: "" })), null);
+		assert.equal(parseListing({ ...listing(), folders: "acme" }), null);
+		assert.equal(parseListing(null), null);
+	});
+});
+
+describe("hub.browse", () => {
+	const v2 = (overrides: Partial<RunnerReport> = {}) =>
+		report({ protocol: 2, ...overrides });
+
+	it("refuses an unknown machine", async () => {
+		const { hub } = setup();
+		assert.deepEqual(await hub.browse("runner_nope", null), {
+			ok: false,
+			error: "No such machine",
+		});
+	});
+
+	it("says how to connect an expected runner that never checked in", async () => {
+		const { hub } = setup(["spike"]);
+		const found = await hub.browse("runner_spike", "/x");
+		assert.equal(found.ok, false);
+		assert.match(
+			found.ok ? "" : found.error,
+			/^spike's runner hasn't connected to the board\. On spike, put the board's KANBAN_RUNNER_TOKEN in ~\/\.config\/kanban\/env and start kanban-runner/,
+		);
+	});
+
+	it("says the token was refused once that runner offered a wrong one", async () => {
+		const { hub } = setup(["spike"]);
+		hub.refused("spike");
+		const found = await hub.browse("runner_spike", null);
+		assert.match(
+			found.ok ? "" : found.error,
+			/^spike's runner offered a token the board refused\. .*KANBAN_RUNNER_TOKEN in ~\/\.config\/kanban\/env on spike/,
+		);
+	});
+
+	it("adds no machine for a refused name it doesn't expect", () => {
+		const { hub } = setup(["spike"]);
+		const before = hub.views();
+		hub.refused("stranger");
+		hub.refused("local");
+		assert.deepEqual(hub.views(), before);
+	});
+
+	it("says a runner is offline or asleep", async () => {
+		const { hub, advance } = setup();
+		hub.register(v2());
+		advance(20_000);
+		hub.sweep();
+		assert.deepEqual(await hub.browse("runner_jimbo", null), {
+			ok: false,
+			error:
+				"jimbo's runner is offline, so its folders can't be read. Check that jimbo is on and kanban-runner is running there.",
+		});
+		// Back with the same boot time: it slept, so next silence reads asleep.
+		hub.heartbeat("jimbo", v2());
+		advance(20_000);
+		hub.sweep();
+		assert.deepEqual(await hub.browse("runner_jimbo", null), {
+			ok: false,
+			error:
+				"jimbo is asleep, so its folders can't be read. Wake it and try again.",
+		});
+	});
+
+	it("asks a runner too old to browse to be restarted", async () => {
+		const { hub } = setup();
+		hub.register(report({ protocol: 1 }));
+		const found = await hub.browse("runner_jimbo", null);
+		assert.match(
+			found.ok ? "" : found.error,
+			/^jimbo's runner is too old to browse folders\. Restart kanban-runner on jimbo/,
+		);
+		assert.equal((await hub.poll("jimbo", 0))?.length, 0, "nothing sent");
+	});
+
+	it("never hands a browse to an old runner that took over the name", async () => {
+		const { hub } = setup();
+		hub.register(v2());
+		const browsed = hub.browse("runner_jimbo", null);
+		hub.register(report({ protocol: 1 }));
+		assert.deepEqual(await hub.poll("jimbo", 0), [], "nothing sent");
+		const found = await browsed;
+		assert.match(
+			found.ok ? "" : found.error,
+			/^jimbo's runner is too old to browse folders/,
+		);
+	});
+
+	it("lists a folder through the runner's poll", async () => {
+		const { hub, changes } = setup();
+		hub.register(v2());
+		const before = changes();
+		const polled = hub.poll("jimbo", 1_000);
+		const browsed = hub.browse("runner_jimbo", "~/code");
+		const [command] = (await polled) ?? [];
+		assert.deepEqual(command, {
+			type: "browse",
+			commandId: "id-1",
+			path: "~/code",
+			hubHome: "/Users/aaron",
+		});
+		assert.equal(
+			hub.complete("jimbo", "id-1", { ok: true, listing: listing() }),
+			true,
+		);
+		assert.deepEqual(await browsed, { ok: true, listing: listing() });
+		assert.equal(hub.sessions().length, 0, "browsing places no session");
+		assert.equal(changes(), before, "nor changes the board");
+	});
+
+	it("passes on the runner's own refusal", async () => {
+		const { hub } = setup();
+		hub.register(v2());
+		const browsed = hub.browse("runner_jimbo", "/nope");
+		const [command] = (await hub.poll("jimbo", 10)) ?? [];
+		hub.complete("jimbo", command?.commandId ?? "", {
+			ok: false,
+			error: "/nope isn't a folder on jimbo",
+		});
+		assert.deepEqual(await browsed, {
+			ok: false,
+			error: "/nope isn't a folder on jimbo",
+		});
+	});
+
+	it("refuses a malformed or missing listing", async () => {
+		const { hub } = setup();
+		hub.register(v2());
+		const answers: unknown[] = [
+			{ ok: true, listing: listing({ folders: ["../etc"] }) },
+			{
+				ok: true,
+				listing: listing({
+					folders: Array.from({ length: 1001 }, (_, i) => `f${i}`),
+				}),
+			},
+			{ ok: true },
+		];
+		for (const body of answers) {
+			const browsed = hub.browse("runner_jimbo", null);
+			const [command] = (await hub.poll("jimbo", 10)) ?? [];
+			hub.complete("jimbo", command?.commandId ?? "", body);
+			assert.deepEqual(await browsed, {
+				ok: false,
+				error: "The runner sent a malformed folder listing",
+			});
+		}
+	});
+
+	it("gives up on a runner that doesn't answer", async () => {
+		const { hub } = setup([], { commandTimeoutMs: 60_000 });
+		hub.register(v2());
+		assert.deepEqual(await hub.browse("runner_jimbo", null), {
+			ok: false,
+			error: "jimbo didn't answer",
+		});
+		assert.equal(
+			(await hub.poll("jimbo", 0))?.length,
+			0,
+			"the timed-out command is dropped",
+		);
 	});
 });

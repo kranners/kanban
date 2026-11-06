@@ -608,6 +608,26 @@ export type MirrorServerFrame =
 	| { type: "error"; error: string }
 	| { type: "ended"; reason: string };
 
+/** One folder on one machine, as the folder browser shows it. */
+export type FolderListing = {
+	/** The machine's name, such as pilot or spike. */
+	machine: string;
+	/** The folder, absolute on that machine, ~ expanded. */
+	path: string;
+	/** That machine's home folder, so the browser can offer it. */
+	home: string;
+	/** The folder above, or null at the top. */
+	parent: string | null;
+	/** Its subfolders' names, hidden ones left out, sorted. */
+	folders: string[];
+	/** More subfolders than the listing carries. */
+	truncated: boolean;
+};
+
+export type FolderBrowse =
+	| { ok: true; listing: FolderListing }
+	| { ok: false; error: string };
+
 export type FolderPick =
 	| { ok: true; path: string }
 	| { ok: false; cancelled: true }

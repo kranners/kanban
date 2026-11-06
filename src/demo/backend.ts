@@ -980,6 +980,48 @@ export function createBackend(scenario: Scenario): Backend {
 		],
 		["GET", /^\/api\/remote-hosts$/, () => json(200, { hosts: [] })],
 		[
+			"GET",
+			/^\/api\/folders$/,
+			(_, __, query) => {
+				// Browses the folders the demo's sessions live in, on a pretend Mac.
+				const home = "/Users/me";
+				const typed = query.get("path")?.trim() || `${home}/dev`;
+				const path = (
+					typed === "~" ? home : typed.replace(/^~\//, `${home}/`)
+				).replace(/(.)\/+$/, "$1");
+				// Every session's folder and the folders above it exist on the pretend disk.
+				const prefix = path === "/" ? "/" : `${path}/`;
+				const below = new Set<string>();
+				let known = path === "/" || path === home;
+				for (const { cwd } of world.sessions) {
+					if (cwd === path) known = true;
+					if (!cwd.startsWith(prefix)) continue;
+					known = true;
+					const next = cwd.slice(prefix.length).split("/")[0];
+					if (next) below.add(next);
+				}
+				if (!known) {
+					return json(422, {
+						ok: false,
+						error: `${typed} isn't a folder on this Mac`,
+					});
+				}
+				const parent =
+					path === "/" ? null : path.replace(/\/[^/]*$/, "") || "/";
+				return json(200, {
+					ok: true,
+					listing: {
+						machine: "this Mac",
+						path,
+						home,
+						parent,
+						folders: [...below].sort(),
+						truncated: false,
+					},
+				});
+			},
+		],
+		[
 			"POST",
 			/^\/api\/folder-picker$/,
 			() =>

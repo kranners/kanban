@@ -16,6 +16,7 @@ import { linkRefusal } from "../shared/reach.ts";
 import {
 	type AccountResult,
 	type Board,
+	type FolderBrowse,
 	landingId,
 	type NodeRef,
 	type RelationEnd,
@@ -148,10 +149,21 @@ export type ServerDeps = {
 		account?: number,
 	): Promise<{ ok: true; value: RemoteHost[] } | { ok: false; error: string }>;
 	pickFolder: FolderPicker;
+	/** Lists a folder on the machine a session would run on. */
+	browseFolders?: (
+		runsOn: string,
+		path: string | null,
+	) => Promise<FolderBrowse>;
 	makeDefault(account: number): Promise<AccountResult>;
 	runners?: Pick<
 		RunnerHub,
-		"register" | "heartbeat" | "poll" | "requeue" | "complete" | "views"
+		| "register"
+		| "heartbeat"
+		| "poll"
+		| "requeue"
+		| "complete"
+		| "views"
+		| "refused"
 	>;
 	permissions: Permissions;
 	announce: Announcer;
@@ -172,6 +184,7 @@ export type Route =
 	| { kind: "cloud-blocker"; cwd: string; runsOn: string; account?: number }
 	| { kind: "remote-hosts"; account?: number }
 	| { kind: "pick-folder" }
+	| { kind: "browse-folders"; runsOn: string; path: string | null }
 	| { kind: "set-default-account" }
 	| { kind: "exit-session"; sessionId: string }
 	| { kind: "report-session"; sessionId: string }
@@ -329,6 +342,15 @@ export const matchRoute = (method: string, url: URL): Route => {
 	if (path === "/api/accounts/default") {
 		return method === "POST"
 			? { kind: "set-default-account" }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/folders") {
+		return method === "GET"
+			? {
+					kind: "browse-folders",
+					runsOn: url.searchParams.get("runsOn") ?? "local",
+					path: url.searchParams.get("path"),
+				}
 			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api/folder-picker") {
@@ -1418,6 +1440,15 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		>,
 	) => {
 		const token = deps.runnerToken?.(req) ?? "none";
+		if (token === "wrong" && route.kind === "runner-register") {
+			// Say which machine has the wrong token, so the board can tell Aaron.
+			try {
+				const body = await readJson(req, maxRunnerBytes);
+				const name = (body as { name?: unknown } | null)?.name;
+				if (typeof name === "string" && name.length <= 60)
+					deps.runners?.refused(name);
+			} catch {}
+		}
 		if (token !== "ok") return sendError(res, token === "none" ? 401 : 403);
 		const hub = deps.runners;
 		if (!hub) return sendError(res, 404);
@@ -1535,6 +1566,11 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return setDefaultAccount(req, res, auth.identity);
 			case "runners":
 				return sendJson(res, 200, { runners: deps.runners?.views() ?? [] });
+			case "browse-folders": {
+				if (!deps.browseFolders) return sendError(res, 404);
+				const found = await deps.browseFolders(route.runsOn, route.path);
+				return sendJson(res, found.ok ? 200 : 422, found);
+			}
 			case "pick-folder":
 				if (!originOk(req)) return sendError(res, 403);
 				return sendJson(res, 200, await deps.pickFolder());

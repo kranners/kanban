@@ -2,7 +2,7 @@
 // seconds, and hold a long poll open for launch and stop commands. Any
 // failure (hub restarting, network down, machine just woke) is retried; a
 // heartbeat the hub doesn't recognise means it restarted, so register again.
-import { arch, hostname, platform, release, uptime } from "node:os";
+import { arch, homedir, hostname, platform, release, uptime } from "node:os";
 import {
 	heartbeatMs as defaultHeartbeatMs,
 	type RunnerCommand,
@@ -11,6 +11,8 @@ import {
 	type RunnerReport,
 	runnerProtocol,
 } from "../shared/runners.ts";
+import type { FolderBrowse } from "../shared/types.ts";
+import { browseFolder } from "./browse.ts";
 import type { RunnerConfig } from "./config.ts";
 import type { SessionManager } from "./sessions.ts";
 import { processStats, type UsageSampler } from "./usage.ts";
@@ -22,6 +24,11 @@ export type RunnerClientOptions = {
 	fetch?: typeof fetch;
 	log?: (line: string) => void;
 	retryMs?: number;
+	/** Lists a folder for the board's folder browser; this disk by default. */
+	browse?: (
+		path: string | null,
+		hubHome: string | null,
+	) => Promise<FolderBrowse>;
 };
 
 export type RunnerClient = {
@@ -56,6 +63,13 @@ export const startRunnerClient = ({
 	fetch: fetchImpl = fetch,
 	log = console.error,
 	retryMs = 5_000,
+	browse = (path, hubHome) =>
+		browseFolder(path, {
+			machine: config.name,
+			home: homedir(),
+			hubHome,
+			paths: config.paths,
+		}),
 }: RunnerClientOptions): RunnerClient => {
 	const stopping = new AbortController();
 	const headers = {
@@ -161,6 +175,14 @@ export const startRunnerClient = ({
 	};
 
 	const run = async (command: RunnerCommand) => {
+		if (command.type === "browse") {
+			// Only looks: nothing changed, so no heartbeat is owed.
+			const found = await browse(command.path, command.hubHome).catch(
+				(error: Error): FolderBrowse => ({ ok: false, error: error.message }),
+			);
+			await answer(command.commandId, found);
+			return;
+		}
 		const result =
 			command.type === "launch"
 				? await sessions.launch(command)

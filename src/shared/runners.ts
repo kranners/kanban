@@ -1,9 +1,12 @@
 // The kanban-runner protocol: what a runner reports to the hub, what the hub
 // asks of it, and what the board shows for each machine. Kept free of
 // dependencies so the runner bundles to one small file.
-import type { Activity, RunsOn } from "./types.ts";
+import type { Activity, FolderListing, RunsOn } from "./types.ts";
 
-export const runnerProtocol = 1;
+export const runnerProtocol = 2;
+
+/** The first protocol whose runners answer browse commands. */
+export const browseProtocol = 2;
 
 /** How often a runner reports, and how long the hub waits before calling it gone. */
 export const heartbeatMs = 5_000;
@@ -83,9 +86,21 @@ export type RunnerStop = {
 	force: boolean;
 };
 
-export type RunnerCommand = RunnerLaunch | RunnerStop;
+/** List a folder on the runner's own disk, for the board's folder browser. */
+export type RunnerBrowse = {
+	type: "browse";
+	commandId: string;
+	/** Absolute or starting with ~; null for the machine's workspace folder. */
+	path: string | null;
+	/** The hub's home directory, so a hub path can be mapped like a launch's. */
+	hubHome: string | null;
+};
 
-export type RunnerCommandResult = { ok: true } | { ok: false; error: string };
+export type RunnerCommand = RunnerLaunch | RunnerStop | RunnerBrowse;
+
+export type RunnerCommandResult =
+	| { ok: true; listing?: FolderListing }
+	| { ok: false; error: string };
 
 export type RunnerRegistration = {
 	ok: true;
@@ -109,7 +124,7 @@ export type PlacedSession = {
 export type RunnerView = {
 	id: string;
 	name: string;
-	/** "This Mac" for the hub's own machine, else the runner's name. */
+	/** "This Mac" for a hub on a Mac, else its machine name; a runner's name. */
 	label: string;
 	local: boolean;
 	runsOn: RunsOn;

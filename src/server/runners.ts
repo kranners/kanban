@@ -5,6 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import {
+	browseProtocol,
 	heartbeatMs,
 	liveRunnerStates,
 	offlineAfterMs,
@@ -25,6 +26,8 @@ import {
 import type {
 	Activity,
 	ExitResult,
+	FolderBrowse,
+	FolderListing,
 	NewSessionRequest,
 	NewSessionResult,
 	Session,
@@ -45,7 +48,11 @@ export type RunnerHubOptions = {
 	onChange: () => void;
 	offlineMs?: number;
 	commandTimeoutMs?: number;
+	/** How long a folder listing may take before the runner counts as not answering. */
+	browseTimeoutMs?: number;
 	newId?: () => string;
+	/** The hub's platform: "This Mac" only names a Mac. */
+	platform?: string;
 };
 
 export type RunnerHub = {
@@ -57,6 +64,12 @@ export type RunnerHub = {
 	launch(request: NewSessionRequest): Promise<NewSessionResult>;
 	stop(session: Session, force: boolean): Promise<ExitResult>;
 	blocker(runsOn: string): string | null;
+	/** Lists a folder on a runner's own disk, or says why that machine can't. */
+	browse(runsOn: string, path: string | null): Promise<FolderBrowse>;
+	/** A runner calling itself this name was turned away for its token. */
+	refused(name: string): void;
+	/** How the board names its own machine in the pickers. */
+	localLabel(): string;
 	views(): RunnerView[];
 	sessions(): Session[];
 	sweep(): void;
@@ -67,6 +80,7 @@ type Pending = {
 	runnerId: string;
 	resolve: (result: RunnerCommandResult) => void;
 	timer: NodeJS.Timeout;
+	type: RunnerCommand["type"];
 };
 
 type Runner = {
@@ -81,6 +95,8 @@ type Runner = {
 	waiter: ((commands: RunnerCommand[]) => void) | null;
 	/** Sessions asked for but not yet in a heartbeat. */
 	launching: Map<string, RunnerSession>;
+	/** When a runner of this name last offered a token the hub refused. */
+	refusedAt: number | null;
 };
 
 const maxString = 4096;
@@ -191,6 +207,42 @@ export const parseRunnerReport = (body: unknown): RunnerReport | null => {
 	};
 };
 
+const maxFolderName = 255;
+
+export const parseListing = (value: unknown): FolderListing | null => {
+	if (!isRecord(value)) return null;
+	const machine = str(value.machine, 60);
+	const path = str(value.path, maxString);
+	const home = str(value.home, maxString);
+	const parent = value.parent === null ? null : str(value.parent, maxString);
+	const folders = value.folders;
+	if (
+		machine === null ||
+		!path ||
+		home === null ||
+		(value.parent !== null && parent === null) ||
+		!Array.isArray(folders) ||
+		folders.length > 1000 ||
+		!folders.every(
+			(name) =>
+				typeof name === "string" &&
+				name !== "" &&
+				name.length <= maxFolderName &&
+				!/[/\p{Cc}]/u.test(name),
+		)
+	) {
+		return null;
+	}
+	return {
+		machine,
+		path,
+		home,
+		parent,
+		folders: folders as string[],
+		truncated: value.truncated === true,
+	};
+};
+
 const activityOf = (state: RunnerSessionState, online: boolean): Activity => {
 	if (!online && liveRunnerStates.includes(state)) return "idle";
 	switch (state) {
@@ -214,7 +266,9 @@ export const createRunnerHub = ({
 	onChange,
 	offlineMs = offlineAfterMs,
 	commandTimeoutMs = 60_000,
+	browseTimeoutMs = 10_000,
 	newId = randomUUID,
+	platform = process.platform,
 }: RunnerHubOptions): RunnerHub => {
 	const runners = new Map<string, Runner>();
 	const pending = new Map<string, Pending>();
@@ -229,6 +283,7 @@ export const createRunnerHub = ({
 		queue: [],
 		waiter: null,
 		launching: new Map(),
+		refusedAt: null,
 	});
 
 	for (const name of expected) {
@@ -274,7 +329,8 @@ export const createRunnerHub = ({
 	const labelOf = (runner: Runner) => runner.report?.name ?? runner.id;
 
 	const blockerOf = (runner: Runner | null): string | null => {
-		if (!runner?.report) return "This machine hasn't checked in yet";
+		if (!runner) return "This machine hasn't checked in yet";
+		if (!runner.report) return unreachable(runner);
 		if (!runner.online) {
 			return `${labelOf(runner)} is ${runner.sleeps ? "asleep" : "offline"}`;
 		}
@@ -287,6 +343,7 @@ export const createRunnerHub = ({
 	const send = (
 		runner: Runner,
 		command: RunnerCommand,
+		timeoutMs = commandTimeoutMs,
 	): Promise<RunnerCommandResult> =>
 		new Promise((resolve) => {
 			const timer = setTimeout(() => {
@@ -295,16 +352,66 @@ export const createRunnerHub = ({
 					(queued) => queued.commandId !== command.commandId,
 				);
 				resolve({ ok: false, error: `${labelOf(runner)} didn't answer` });
-			}, commandTimeoutMs);
-			pending.set(command.commandId, { runnerId: runner.id, resolve, timer });
+			}, timeoutMs);
+			pending.set(command.commandId, {
+				runnerId: runner.id,
+				resolve,
+				timer,
+				type: command.type,
+			});
 			runner.queue.push(command);
 			if (runner.waiter) {
 				const waiter = runner.waiter;
 				runner.waiter = null;
-				const commands = runner.queue;
+				const commands = deliverable(runner, runner.queue);
 				runner.queue = [];
 				waiter(commands);
 			}
+		});
+
+	const localLabel = () => (platform === "darwin" ? "This Mac" : local().name);
+
+	// Why a machine can't look at its own disk right now, in words that say what to do.
+	const unreachable = (runner: Runner): string | null => {
+		const name = labelOf(runner);
+		if (!runner.report) {
+			if (runner.refusedAt !== null) {
+				return `${name}'s runner offered a token the board refused. Give it the board's KANBAN_RUNNER_TOKEN in ~/.config/kanban/env on ${name}, then restart kanban-runner there.`;
+			}
+			return `${name}'s runner hasn't connected to the board. On ${name}, put the board's KANBAN_RUNNER_TOKEN in ~/.config/kanban/env and start kanban-runner; its log says why it is waiting.`;
+		}
+		if (!runner.online) {
+			return runner.sleeps
+				? `${name} is asleep, so its folders can't be read. Wake it and try again.`
+				: `${name}'s runner is offline, so its folders can't be read. Check that ${name} is on and kanban-runner is running there.`;
+		}
+		if (runner.report.protocol < browseProtocol) {
+			return `${name}'s runner is too old to browse folders. Restart kanban-runner on ${name} so it fetches the board's current runner.`;
+		}
+		return null;
+	};
+
+	// An old runner would read a browse as a stop: answer it here instead.
+	const deliverable = (
+		runner: Runner,
+		commands: RunnerCommand[],
+	): RunnerCommand[] =>
+		commands.filter((command) => {
+			if (
+				command.type !== "browse" ||
+				(runner.report?.protocol ?? 0) >= browseProtocol
+			)
+				return true;
+			const entry = pending.get(command.commandId);
+			if (entry) {
+				pending.delete(command.commandId);
+				clearTimeout(entry.timer);
+				entry.resolve({
+					ok: false,
+					error: `${labelOf(runner)}'s runner is too old to browse folders. Restart kanban-runner on ${labelOf(runner)} so it fetches the board's current runner.`,
+				});
+			}
+			return false;
 		});
 
 	const viewOf = (runner: Runner): RunnerView => ({
@@ -356,9 +463,9 @@ export const createRunnerHub = ({
 			const runner = runners.get(id);
 			if (!runner?.report) return Promise.resolve(null);
 			if (runner.queue.length > 0) {
-				const commands = runner.queue;
+				const commands = deliverable(runner, runner.queue);
 				runner.queue = [];
-				return Promise.resolve(commands);
+				if (commands.length > 0) return Promise.resolve(commands);
 			}
 			runner.waiter?.([]);
 			return new Promise((resolve) => {
@@ -387,15 +494,23 @@ export const createRunnerHub = ({
 			if (!entry || entry.runnerId !== id) return false;
 			pending.delete(commandId);
 			clearTimeout(entry.timer);
+			const listing =
+				entry.type === "browse" && isRecord(body) && body.ok === true
+					? parseListing(body.listing)
+					: undefined;
 			const result: RunnerCommandResult =
-				isRecord(body) && body.ok === true
-					? { ok: true }
-					: {
-							ok: false,
-							error:
-								(isRecord(body) && str(body.error, 400)) ||
-								"The runner refused",
-						};
+				isRecord(body) && body.ok === true && listing !== null
+					? listing
+						? { ok: true, listing }
+						: { ok: true }
+					: listing === null
+						? { ok: false, error: "The runner sent a malformed folder listing" }
+						: {
+								ok: false,
+								error:
+									(isRecord(body) && str(body.error, 400)) ||
+									"The runner refused",
+							};
 			entry.resolve(result);
 			return true;
 		},
@@ -431,7 +546,10 @@ export const createRunnerHub = ({
 			if (!result.ok) {
 				runner.launching.delete(id);
 				onChange();
-				return result;
+				return {
+					ok: false,
+					error: result.error.replace("this machine", labelOf(runner)),
+				};
 			}
 			onChange();
 			return { ok: true, id };
@@ -456,16 +574,41 @@ export const createRunnerHub = ({
 		blocker(runsOn) {
 			return blockerOf(runnerFor(runsOn));
 		},
+		async browse(runsOn, path) {
+			const runner = runnerFor(runsOn);
+			if (!runner) return { ok: false, error: "No such machine" };
+			const blocked = unreachable(runner);
+			if (blocked) return { ok: false, error: blocked };
+			const result = await send(
+				runner,
+				{ type: "browse", commandId: newId(), path, hubHome },
+				browseTimeoutMs,
+			);
+			if (!result.ok) return result;
+			if (!result.listing) {
+				return { ok: false, error: "The runner sent no folder listing" };
+			}
+			return { ok: true, listing: result.listing };
+		},
+		refused(name) {
+			const id = runnerIdOf(name);
+			if (id === "local") return;
+			// Only for machines the board expects, so a stranger can't add rows.
+			const runner = runners.get(id);
+			if (!runner || runner.report) return;
+			runner.refusedAt = now();
+		},
+		localLabel,
 		views() {
 			const mine = local();
 			const own: RunnerView = {
 				id: "local",
 				name: mine.name,
-				label: "This Mac",
+				label: localLabel(),
 				local: true,
 				runsOn: "local",
 				hostname: mine.name,
-				platform: process.platform,
+				platform,
 				state: "online",
 				lastSeen: now(),
 				goneSince: null,

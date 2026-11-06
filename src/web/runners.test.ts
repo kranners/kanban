@@ -4,6 +4,9 @@ import type { RunnerView } from "../shared/runners.ts";
 import {
 	formatBytes,
 	formatShare,
+	localIsMac,
+	localMachineLabel,
+	localMachinePhrase,
 	meters,
 	platformName,
 	recentlyGone,
@@ -63,9 +66,23 @@ describe("runner helpers", () => {
 		assert.equal(runnerBlocker(view({ state: "asleep" })), "jimbo is asleep");
 		assert.equal(
 			runnerBlocker(view({ state: "offline", lastSeen: null })),
-			"This machine hasn't checked in yet",
+			"jimbo's runner hasn't connected to the board",
 		);
 		assert.equal(runnerBlocker(view({ local: true, cap: 0 })), null);
+	});
+
+	it("names the board's own machine", () => {
+		const mac = view({ local: true, label: "This Mac", platform: "darwin" });
+		const spike = view({ local: true, label: "spike", platform: "linux" });
+		assert.equal(localMachineLabel([]), "This Mac");
+		assert.equal(localMachinePhrase([]), "this Mac");
+		assert.equal(localIsMac([]), false);
+		assert.equal(localMachineLabel([view(), mac]), "This Mac");
+		assert.equal(localMachinePhrase([mac]), "this Mac");
+		assert.equal(localIsMac([mac]), true);
+		assert.equal(localMachineLabel([view(), spike]), "spike");
+		assert.equal(localMachinePhrase([spike]), "spike");
+		assert.equal(localIsMac([spike]), false);
 	});
 
 	it("labels the state with when it was last seen", () => {

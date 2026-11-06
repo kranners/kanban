@@ -4,7 +4,7 @@ import type { JSX } from "preact";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
 import type { Landing } from "../../shared/types.ts";
 import { AccountPicker } from "../AccountPicker.tsx";
-import { FolderPicker } from "../FolderPicker.tsx";
+import { FolderPicker, useFolderProblem } from "../FolderPicker.tsx";
 import { useAccount } from "../lastRuns.ts";
 import { RunsOnPicker, useRunsOn } from "../RunsOnPicker.tsx";
 import { createSession } from "../spawns.ts";
@@ -70,6 +70,7 @@ export function NewSession(props: {
 	const [error, setError] = useState<string | null>(null);
 	const [account, setAccount] = useAccount(cwd);
 	const runs = useRunsOn(cwd, account);
+	const folderProblem = useFolderProblem(cwd, runs.runsOn);
 
 	useEffect(() => {
 		dialog.current?.showModal();
@@ -149,6 +150,8 @@ export function NewSession(props: {
 							value={cwd}
 							recent={props.cwds}
 							onPick={setCwd}
+							runsOn={runs.runsOn}
+							problem={error ? null : folderProblem}
 							labelledBy={`${listId}-folder`}
 							disabled={busy}
 							trigger={folder}

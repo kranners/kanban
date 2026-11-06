@@ -43,6 +43,13 @@ export function runsOnBlockerUrl(
 	return `/api/cloud-blocker?${new URLSearchParams({ cwd, runsOn, ...accountQuery(account) })}`;
 }
 
+/** Lists a folder on the machine a session would run on; null for its workspace. */
+export function foldersUrl(runsOn: string, path: string | null): string {
+	const query = new URLSearchParams({ runsOn });
+	if (path !== null) query.set("path", path);
+	return `/api/folders?${query}`;
+}
+
 export function remoteHostsUrl(account?: number): string {
 	return `/api/remote-hosts?${new URLSearchParams(accountQuery(account))}`;
 }

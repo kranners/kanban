@@ -104,20 +104,15 @@ const under = (path: string, prefix: string): string | null => {
 	return path.startsWith(`${trimmed}/`) ? path.slice(trimmed.length + 1) : null;
 };
 
-// The hub sends its own path (a Mac's /Users/aaron/code/x). Use it as is when
-// it exists here; else map an explicit prefix; else swap the hub's home
-// directory for this machine's (/home/aaron/code/x, C:\Users\aaron\code\x).
-export const mapCwd = (
-	cwd: string,
-	opts: {
-		hubHome: string | null;
-		home: string;
-		paths: readonly (readonly [string, string])[];
-		isDirectory: (path: string) => boolean;
-		separator?: string;
-	},
-): string | null => {
-	if (opts.isDirectory(cwd)) return cwd;
+type MapOptions = {
+	hubHome: string | null;
+	home: string;
+	paths: readonly (readonly [string, string])[];
+	separator?: string;
+};
+
+/** Where a hub path may live here: --paths prefixes first, then the home swap. */
+export const cwdCandidates = (cwd: string, opts: MapOptions): string[] => {
 	const separator = opts.separator ?? sep;
 	const candidates: string[] = [];
 	for (const [from, to] of opts.paths) {
@@ -131,7 +126,18 @@ export const mapCwd = (
 			rest ? [opts.home, ...rest.split("/")].join(separator) : opts.home,
 		);
 	}
-	return candidates.find(opts.isDirectory) ?? null;
+	return candidates;
+};
+
+// The hub sends its own path (a Mac's /Users/aaron/code/x). Use it as is when
+// it exists here; else map an explicit prefix; else swap the hub's home
+// directory for this machine's (/home/aaron/code/x, C:\Users\aaron\code\x).
+export const mapCwd = (
+	cwd: string,
+	opts: MapOptions & { isDirectory: (path: string) => boolean },
+): string | null => {
+	if (opts.isDirectory(cwd)) return cwd;
+	return cwdCandidates(cwd, opts).find(opts.isDirectory) ?? null;
 };
 
 export type StreamEvent = {

@@ -19,10 +19,34 @@ export const platformName = (platform: string | null): string => {
 	}
 };
 
+/** The board's own machine, as the hub reports it. */
+export const localRunner = (
+	views: readonly RunnerView[] = runners.value,
+): RunnerView | undefined => views.find((runner) => runner.local);
+
+/** "This Mac" for a board on a Mac, else its machine's name, such as spike. */
+export const localMachineLabel = (
+	views: readonly RunnerView[] = runners.value,
+): string => localRunner(views)?.label ?? "This Mac";
+
+/** The same, for the middle of a sentence: "this Mac" or "spike". */
+export const localMachinePhrase = (
+	views: readonly RunnerView[] = runners.value,
+): string => {
+	const label = localMachineLabel(views);
+	return label === "This Mac" ? "this Mac" : label;
+};
+
+/** Whether the board runs on a Mac, so its native folder panel can open. */
+export const localIsMac = (
+	views: readonly RunnerView[] = runners.value,
+): boolean => localRunner(views)?.platform === "darwin";
+
 // The same reasons the hub gives, so the picker can say why up front.
 export const runnerBlocker = (runner: RunnerView): string | null => {
 	if (runner.local) return null;
-	if (runner.lastSeen === null) return "This machine hasn't checked in yet";
+	if (runner.lastSeen === null)
+		return `${runner.label}'s runner hasn't connected to the board`;
 	if (runner.state !== "online") return `${runner.label} is ${runner.state}`;
 	return runner.sessions.length >= runner.cap
 		? `${runner.label} is at its cap (${runner.sessions.length} of ${runner.cap})`

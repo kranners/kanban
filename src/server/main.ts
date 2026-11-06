@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { join, resolve } from "node:path";
+import { browseFolder } from "../runner/browse.ts";
 import {
 	createUsageSampler,
 	type ProcessStat,
@@ -346,11 +347,12 @@ const runnersChanged = () => {
 		feed?.runners(runnerHub.views());
 	}, 250);
 };
+const hubMachine = hostname().replace(/\.local$/, "");
 const runnerHub = createRunnerHub({
 	expected: config.expectedRunners,
 	hubHome: homedir(),
 	local: () => ({
-		name: hostname().replace(/\.local$/, ""),
+		name: hubMachine,
 		usage: localUsage,
 		cap: config.runnerCap,
 		sessions: localPlaced().map((session): PlacedSession => {
@@ -710,6 +712,10 @@ const server = createKanbanServer({
 	runners: runnerHub,
 	remoteHosts: (account) => accountApi(account).hosts(),
 	pickFolder: osascriptFolderPicker(),
+	browseFolders: (runsOn, path) =>
+		isRunnerTarget(runsOn)
+			? runnerHub.browse(runsOn, path)
+			: browseFolder(path, { machine: hubMachine, home: homedir() }),
 	makeDefault,
 	permissions: createPermissions({
 		sessions: () => source.board().sessions,

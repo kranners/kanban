@@ -54,6 +54,7 @@ import { ProjectFrames, RegionLayer } from "./Regions.tsx";
 import { RelationLayer, RelationPreview } from "./Relations.tsx";
 import { ReportButton, ReportNotice } from "./ReportControls.tsx";
 import { reports } from "./reports.ts";
+import { localMachinePhrase, localRunner } from "./runners.ts";
 import { BoardMenu, SpawnLayer, useBoardGestures } from "./Spawning.tsx";
 import { Summaries } from "./Summaries.tsx";
 import {
@@ -302,7 +303,11 @@ function Stage() {
 		return (
 			<Placeholder
 				title="Connecting…"
-				body="Waiting for the board from this Mac."
+				body={
+					localRunner()
+						? `Waiting for the board from ${localMachinePhrase()}.`
+						: "Waiting for the board."
+				}
 			/>
 		);
 	}
@@ -310,7 +315,7 @@ function Stage() {
 		return (
 			<Placeholder
 				title="No sessions yet"
-				body="Sessions running on this Mac appear here as they start. Start a background session to drive it from the board."
+				body={`Sessions running on ${localMachinePhrase()} appear here as they start. Start a background session to drive it from the board.`}
 				action
 			/>
 		);

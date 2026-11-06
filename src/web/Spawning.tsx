@@ -18,7 +18,7 @@ import { addNote, annotationMenu, stickerPicker } from "./annotations.ts";
 import { boardPointAt, clientPointOf, view } from "./Canvas.tsx";
 import { composer, threadMenu } from "./comments.ts";
 import { exitAsk } from "./exits.ts";
-import { FolderPicker } from "./FolderPicker.tsx";
+import { FolderPicker, useFolderProblem } from "./FolderPicker.tsx";
 import { groupUnder, openRegionMenuAtPointer } from "./Groups.tsx";
 import { useAccount } from "./lastRuns.ts";
 import { moveMenuFocus } from "./menuFocus.ts";
@@ -27,6 +27,7 @@ import { admit, dataUrl, imageFiles, readImages } from "./promptImages.ts";
 import { RunsOnPicker, useRunsOn } from "./RunsOnPicker.tsx";
 import { regionDialog, regionMenu } from "./regionState.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
+import { localMachinePhrase } from "./runners.ts";
 import type { QuickPrompt } from "./spawns.ts";
 import {
 	docked,
@@ -275,6 +276,8 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 	const [error, setError] = useState<string | null>(null);
 	const [account, setAccount] = useAccount(open.cwd);
 	const runs = useRunsOn(open.cwd, account);
+	const folderProblem = useFolderProblem(open.cwd, runs.runsOn);
+	const local = localMachinePhrase();
 	const { k } = view.value;
 	const legible = Math.max(1, 1 / k);
 	useRestoreFocus();
@@ -406,7 +409,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 					onKeyDown={onKeyDown}
 					onPaste={onPaste}
 					onBlur={closeIfEmpty}
-					placeholder="What should Claude work on? Shift+Enter for a new line; images run it on this Mac"
+					placeholder={`What should Claude work on? Shift+Enter for a new line; images run it on ${local}`}
 					aria-label="Prompt for a new session"
 					disabled={busy}
 					spellcheck={false}
@@ -444,6 +447,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 					variant="chip"
 					value={open.cwd}
 					recent={open.cwds}
+					runsOn={runs.runsOn}
 					disabled={busy}
 					onPick={(cwd) => {
 						const current = quickPrompt.peek();
@@ -462,7 +466,7 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 					disabled={busy}
 					lockedBecause={
 						images.length > 0
-							? "Sessions with images run on this Mac"
+							? `Sessions with images run on ${local}`
 							: undefined
 					}
 					onPicked={() => input.current?.focus({ preventScroll: true })}
@@ -477,6 +481,12 @@ function QuickPromptCard(props: { open: QuickPrompt }): JSX.Element {
 					}}
 				/>
 			</div>
+			{folderProblem && !error && (
+				<div class="quick-prompt-error" role="status">
+					<CircleAlert size={13} aria-hidden="true" />
+					<p>{folderProblem}</p>
+				</div>
+			)}
 			{error && (
 				<div class="quick-prompt-error" role="alert">
 					<CircleAlert size={13} aria-hidden="true" />

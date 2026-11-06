@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join } from "node:path";
 import {
 	imageExtensions,
@@ -30,6 +30,13 @@ const maxNameLength = 60;
 const controlCharacters = /\p{Cc}/u;
 const cloudTargetPattern =
 	/^(session_[A-Za-z0-9]+|\S*claude\.ai\/code\/\S*)(\s|$)/;
+
+/** How the pickers name the board's own machine: "this Mac" on a Mac. */
+export const hubMachineName = (
+	platform: string = process.platform,
+	host: string = hostname(),
+): string =>
+	platform === "darwin" ? "this Mac" : host.replace(/\.local$/, "");
 
 export const isDirectory = async (path: string): Promise<boolean> => {
 	try {
@@ -91,7 +98,9 @@ export const validateNewSession = async (
 	// A runner checks the folder on its own disk, after mapping home folders.
 	const onRunner = typeof runsOn === "string" && isRunnerTarget(runsOn);
 	if (!onRunner && !(await isDirectory(cwd))) {
-		return { error: `${cwd} is not an existing directory` };
+		return {
+			error: `${cwd} isn't a folder on ${hubMachineName()}, where the board runs. To start it on another machine, pick that machine under Where it runs.`,
+		};
 	}
 	if (name !== undefined && typeof name !== "string") {
 		return { error: "name must be a string" };

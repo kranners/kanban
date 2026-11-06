@@ -7,7 +7,7 @@ import { useEffect, useId, useRef, useState } from "preact/hooks";
 import { groups } from "./arrangement.ts";
 import { boardPointAt } from "./Canvas.tsx";
 import { colourOf } from "./colours.ts";
-import { FolderPicker } from "./FolderPicker.tsx";
+import { FolderPicker, useFolderProblem } from "./FolderPicker.tsx";
 import {
 	belowLabel,
 	groupUnder,
@@ -128,6 +128,8 @@ function RegionDialogView(props: {
 	const [name, setName] = useState(renaming?.name ?? "");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	// The board keeps a region's folder on its own disk, so check it there.
+	const folderProblem = useFolderProblem(cwd, "local");
 	useRestoreFocus();
 
 	useEffect(() => {
@@ -208,6 +210,8 @@ function RegionDialogView(props: {
 							value={cwd}
 							recent={knownCwds.value}
 							onPick={setCwd}
+							runsOn="local"
+							problem={error ? null : folderProblem}
 							labelledBy={`${id}-folder`}
 							disabled={busy}
 							trigger={folder}

@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 import { maxImageBytes, maxPromptImages } from "../shared/promptImages.ts";
 import {
 	claudeLauncher,
+	hubMachineName,
 	launchArgs,
 	launchCommand,
 	launchResult,
@@ -16,6 +17,14 @@ import {
 } from "./sessions.ts";
 
 const valid = { cwd: tmpdir(), name: "acme-api fix", prompt: "say hi" };
+
+describe("hubMachineName", () => {
+	it("says this Mac on a Mac and the machine's name elsewhere", () => {
+		assert.equal(hubMachineName("darwin", "pilot.local"), "this Mac");
+		assert.equal(hubMachineName("linux", "spike.local"), "spike");
+		assert.equal(hubMachineName("linux", "spike"), "spike");
+	});
+});
 
 describe("validateNewSession", () => {
 	it("accepts a request for an existing directory", async () => {
@@ -145,8 +154,14 @@ describe("validateNewSession", () => {
 		const cases: [unknown, RegExp][] = [
 			[null, /JSON object/],
 			[{ ...valid, cwd: "dev/acme-api" }, /absolute/],
-			[{ ...valid, cwd: "/Users/me/dev/acme-api-missing" }, /not an existing/],
-			[{ ...valid, cwd: import.meta.filename }, /not an existing directory/],
+			[
+				{ ...valid, cwd: "/Users/me/dev/acme-api-missing" },
+				/^\/Users\/me\/dev\/acme-api-missing isn't a folder on .+, where the board runs\. To start it on another machine, pick that machine under Where it runs\.$/,
+			],
+			[
+				{ ...valid, cwd: import.meta.filename },
+				/isn't a folder on .*, where the board runs/,
+			],
 			[{ ...valid, name: 7 }, /name must be a string/],
 			[{ ...valid, name: "x".repeat(61) }, /at most 60/],
 			[{ ...valid, name: "two\nlines" }, /one line/],
