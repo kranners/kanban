@@ -211,9 +211,13 @@ export const createThreadLogStore = (options: {
 			return took;
 		},
 		remove(card) {
-			if (!(card in logs)) return;
+			const log = logs[card];
+			if (!log) return;
 			const { [card]: _gone, ...rest } = logs;
-			logs = rest;
+			// Aaron's replies spike has not taken yet still go to the thread; only the log goes.
+			logs = log.queued.length
+				? { ...rest, [card]: { ...empty(), queued: log.queued } }
+				: rest;
 			save();
 		},
 		saved: () => stored?.saved() ?? Promise.resolve(),

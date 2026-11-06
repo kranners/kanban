@@ -428,6 +428,42 @@ describe("Butler's thread cards", () => {
 	});
 });
 
+describe("Closed and dropped thread cards", () => {
+	it("keeps a closed card closed through a sync that lists nothing, for two days", async () => {
+		const { sync, annotations, butler, tick } = await setup();
+		await sync([entry("11111111")]);
+		const closed = await butler.tool("close_card", { id: "thread-11111111" });
+		assert.ok(closed.ok);
+		await sync([]);
+		await sync([entry("11111111")]);
+		assert.equal(cardOf(annotations, "thread-11111111"), undefined);
+		tick(3 * 24 * 60 * 60_000);
+		await sync([]);
+		await sync([entry("11111111")]);
+		assert.ok(
+			cardOf(annotations, "thread-11111111"),
+			"forgotten once unlisted for two days",
+		);
+	});
+
+	it("still hands spike Aaron's reply when the card drops off the board", async () => {
+		const { sync, butler, threads } = await setup();
+		await sync([entry("11111111")]);
+		assert.deepEqual(butler.sendToThread("11111111", "go ahead"), { ok: true });
+		await sync([]);
+		assert.equal(threads.shown("thread-11111111").events.length, 0);
+		const inbox = await butler.tool("board_inbox", {});
+		assert.ok(inbox.ok);
+		const { messages } = JSON.parse(inbox.text) as {
+			messages: { thread: string; target?: string; text: string }[];
+		};
+		assert.deepEqual(
+			messages.map(({ thread, target, text }) => ({ thread, target, text })),
+			[{ thread: "card-11111111", target: "11111111", text: "go ahead" }],
+		);
+	});
+});
+
 describe("The orphan report", () => {
 	it("counts the board's cloud sessions by whether a Butler thread asked for them", async () => {
 		const cloud: CloudOverview = {

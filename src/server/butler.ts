@@ -92,6 +92,8 @@ export const maxSelfFixes = 50;
 /** The most thread cards one butler_threads sync takes; the daemon sends at most 60. */
 export const maxThreadCards = 80;
 export const threadCardPrefix = "thread-";
+/** How long a closed thread card stays closed after the daemon stops listing it. */
+export const dismissedKeptMs = 2 * 24 * 60 * 60_000;
 export const threadCardId = (thread: string) => `${threadCardPrefix}${thread}`;
 /** A reply from a thread card goes to spike as a message of this board thread. */
 export const cardReplyThread = (thread: string) => `card-${thread}`;
@@ -1225,9 +1227,12 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				a.kind === "butler-card" && a.thread !== undefined && !seen.has(a.id),
 		);
 		for (const card of gone) removeCard(card);
-		// Forget a closed card once the daemon no longer lists its thread.
+		// Forget a closed card once the daemon has not listed its thread for two days,
+		// so one sync that lists nothing never brings every closed card back.
 		const keptDismissed = Object.fromEntries(
-			Object.entries(dismissedThreads).filter(([id]) => listedThreads.has(id)),
+			Object.entries(dismissedThreads).filter(
+				([id, at]) => listedThreads.has(id) || now() - at < dismissedKeptMs,
+			),
 		);
 		if (
 			Object.keys(keptDismissed).length !== Object.keys(dismissedThreads).length

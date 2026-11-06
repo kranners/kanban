@@ -2420,6 +2420,15 @@ describe("createKanbanServer", () => {
 				.status,
 			404,
 		);
+		assert.equal(
+			(
+				await fetch(`${base}/api/butler/threads/11111111`, {
+					headers: { authorization: `Bearer ${runnerSecret}` },
+				})
+			).status,
+			403,
+			"a machine with the runner token never reads a thread's words",
+		);
 
 		const reply = "/api/butler/threads/11111111/messages";
 		assert.equal((await page(reply, { text: "and pay it" })).status, 403);

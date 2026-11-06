@@ -1338,7 +1338,13 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 	};
 
 	/** One of Butler's thread cards with its log, for the page's thread view. */
-	const butlerThreadView = (res: ServerResponse, threadId: string) => {
+	const butlerThreadView = (
+		req: IncomingMessage,
+		res: ServerResponse,
+		threadId: string,
+	) => {
+		// A thread's words are for Aaron's page, never a machine holding the runner token.
+		if (byToken.has(req)) return sendError(res, 403);
 		const view = deps.butler?.threadView(threadId);
 		if (!view) return sendError(res, 404);
 		sendJson(res, 200, view);
@@ -1741,7 +1747,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			case "butler-focus":
 				return butlerFocus(req, res);
 			case "butler-thread":
-				return butlerThreadView(res, route.threadId);
+				return butlerThreadView(req, res, route.threadId);
 			case "butler-thread-message":
 				return butlerThreadMessage(req, res, route.threadId);
 			case "butler-job":
