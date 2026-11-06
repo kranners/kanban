@@ -41,7 +41,9 @@ const reducedMotion = () =>
 const stepMs = 2000;
 
 /** The page's fixed controls the face keeps off. */
-const controlSelector = ".topbar, .rail, .zoom, .message-butler-fab";
+// Fixed controls, and the controls drawn on the board: region bars and their buttons, edge pills.
+const controlSelector =
+	".topbar, .rail, .zoom, .message-butler-fab, .project-bar, .region-corner, .butler-edge-pill";
 
 const ringLabels = {
 	idle: "idle",

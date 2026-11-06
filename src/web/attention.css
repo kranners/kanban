@@ -273,9 +273,12 @@
 .sub-chips {
 	flex: none;
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	gap: 4px;
 	padding: 0 14px 8px;
+	/* Two rows at most, two chips a row, so each name stays readable. */
+	max-height: 44px;
 	overflow: hidden;
 }
 
@@ -283,6 +286,7 @@
 	--chip-dot: var(--busy-edge);
 	flex: 0 1 auto;
 	min-width: 0;
+	max-width: calc(50% - 2px);
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
