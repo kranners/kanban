@@ -50,18 +50,6 @@ const awayMessage =
 // lands in a thread on the board and in Discord, and anything acting
 // through a session still waits for Aaron's approval there.
 const butlerRequests = {
-	tidy: {
-		icon: Broom,
-		label: "Tidy the board",
-		busy: "Butler is tidying the board",
-		prompt:
-			"Tidy up my board: group the sessions into project regions by directory, lay out each region's cards in a neat grid, and keep notes and stickers beside what they are about. Don't delete anything or move things unrelated to tidying. Tell me in a sentence what you changed.",
-		ask: "Ask Butler to tidy the board?",
-		confirmLabel: "Ask Butler",
-		detail:
-			"Butler groups sessions into project regions by directory and lays out their cards, notes and stickers.",
-		note: null,
-	},
 	snooze: {
 		icon: Bed,
 		label: "Leave for a while",
@@ -168,6 +156,45 @@ export function openReportRequest(at?: {
 	composer.value = { ...target, text: dailyReportRequest };
 }
 
+/**
+ * The board's own Tidy: finished cards go to the Archive and everything
+ * else is laid out in its region, at once and undoably, with nothing
+ * asked of Butler. Cards Aaron pinned stay where they are.
+ */
+function TidyButton() {
+	const [busy, setBusy] = useState(false);
+	const [said, setSaid] = useState<string | null>(null);
+	const run = async () => {
+		setBusy(true);
+		const response = await fetch("/api/tidy", { method: "POST" }).catch(
+			() => null,
+		);
+		const body = (await response?.json().catch(() => null)) as {
+			ok?: boolean;
+			text?: string;
+			error?: string;
+		} | null;
+		setBusy(false);
+		setSaid(
+			body?.ok
+				? (body.text ?? "Tidied the board")
+				: (body?.error ?? "Could not tidy the board"),
+		);
+	};
+	return (
+		<button
+			type="button"
+			class="icon-button"
+			data-agent-button="tidy"
+			aria-label="Tidy the board"
+			title={`Tidy the board: archive finished cards and lay out the rest; pinned cards stay put${said ? `\n${said}` : ""}`}
+			onClick={() => void run()}
+		>
+			{busy ? <LoaderCircle size={16} class="spin" /> : <Broom size={16} />}
+		</button>
+	);
+}
+
 function PermissionSurveyButton() {
 	const [open, setOpen] = useState(false);
 	return (
@@ -266,7 +293,7 @@ export function TopBar() {
 			</div>
 			<div class="actions">
 				<NextNeedingYou />
-				<ButlerRequestButton request="tidy" />
+				<TidyButton />
 				<ButlerRequestButton request="snooze" />
 				<NewJobButton />
 				<ReportButton />

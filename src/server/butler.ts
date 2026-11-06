@@ -5,7 +5,10 @@ import { handoverOpening } from "../shared/failover.ts";
 import {
 	type AaronFocus,
 	type Annotation,
+	type ArchiveEntry,
+	type ArchiveOutcome,
 	aaronFocusStaleMs,
+	archiveOutcomes,
 	type Board,
 	type BoardContext,
 	type BoardRect,
@@ -56,6 +59,12 @@ import {
 	parseCardMachines,
 	parseCardMission,
 } from "./annotations.ts";
+import {
+	type ArchiveStore,
+	type CardContext,
+	entryOfCard,
+	keepsOnBoard,
+} from "./archive.ts";
 import type { Audit } from "./audit.ts";
 import {
 	arranged,
@@ -82,6 +91,7 @@ import { type CommentStore, parseRect } from "./comments.ts";
 import type { BoardSource } from "./http.ts";
 import { fromLoopback } from "./loopback.ts";
 import { createStateFile, readState } from "./stateFile.ts";
+import { isTidyRegion, planTidy, tidyTopics, topicOf } from "./tidy.ts";
 
 // Butler, Aaron's assistant bot on spike, reaches the board over ssh and
 // curl on the Mac's loopback. He gets the board agent's own tools under
@@ -165,6 +175,10 @@ export type Butler = {
 	}): CommentThread | Refused;
 	/** Aaron deleting a thread card: it stays off the board until the thread is active again. */
 	closeThreadCard(cardId: string): ToolOutcome;
+	/** Archives finished cards and lays out the rest; `sessions` also re-lays out the sessions Aaron has not pinned. */
+	tidy(options?: { sessions?: boolean }): ToolOutcome;
+	/** Puts an archived card back on the board, pinned where it lands. */
+	restore(id: string): ToolOutcome;
 	/** Forgets what Aaron was working on once his pages have gone quiet. */
 	check(): void;
 	saved(): Promise<void>;
@@ -204,9 +218,16 @@ export type ButlerDeps = Pick<
 	onChange: (presence: ButlerPresence) => void;
 	/** Where Aaron's messages to Butler are kept, in their comment threads. */
 	comments?: CommentStore;
+	/** Where cards go once their work is over; absent keeps no archive. */
+	archive?: ArchiveStore;
+	/** Runs the tidy pass a little after a burst of syncs; absent tidies only when asked. */
+	schedule?: (run: () => void, ms: number) => void;
 	newId?: () => string;
 	now?: () => number;
 };
+
+/** How long after a sync the board waits for more before it tidies. */
+export const tidyDebounceMs = 5000;
 
 export const parseWatching = (value: unknown): string[] => {
 	const list =
@@ -427,7 +448,44 @@ const sameCard = (a: ButlerCard, b: ButlerCard): boolean =>
 	a.desk === b.desk &&
 	a.boardThread === b.boardThread &&
 	JSON.stringify(a.mission) === JSON.stringify(b.mission) &&
-	JSON.stringify(a.machines) === JSON.stringify(b.machines);
+	JSON.stringify(a.machines) === JSON.stringify(b.machines) &&
+	a.startedAt === b.startedAt &&
+	a.finishedAt === b.finishedAt &&
+	a.outcome === b.outcome;
+
+/** A change's times and outcome as spike sends them, the valid ones alone. */
+const changeTimes = (
+	fix: Record<string, unknown>,
+): Pick<ButlerCard, "startedAt" | "finishedAt" | "outcome"> => ({
+	...(isTime(fix.startedAt) ? { startedAt: fix.startedAt } : {}),
+	...(isTime(fix.finishedAt) ? { finishedAt: fix.finishedAt } : {}),
+	...outcomeField(fix.outcome),
+});
+
+/** When a thread's work finished and how, once it has. */
+const threadFinish = (
+	entry: Pick<
+		ThreadEntry,
+		"state" | "endedAt" | "finishedAt" | "outcome" | "lastActiveAt"
+	>,
+): Pick<ButlerCard, "finishedAt" | "outcome"> => {
+	if (entry.state !== "done" && entry.state !== "failed") return {};
+	return {
+		finishedAt: entry.finishedAt ?? entry.endedAt ?? entry.lastActiveAt,
+		outcome: entry.outcome ?? (entry.state === "failed" ? "failed" : "done"),
+	};
+};
+
+/** What a card keeps across syncs that spike knows nothing of: Aaron's pin and when he last moved it. */
+const kept = (card: ButlerCard | undefined) => ({
+	...(card?.pinned ? { pinned: true } : {}),
+	...(card?.movedAt !== undefined ? { movedAt: card.movedAt } : {}),
+});
+
+const outcomeField = (value: unknown): { outcome?: ArchiveOutcome } =>
+	archiveOutcomes.includes(value as ArchiveOutcome)
+		? { outcome: value as ArchiveOutcome }
+		: {};
 
 const regionNamed = (regions: readonly Region[], name: string) =>
 	regions.find(
@@ -473,6 +531,9 @@ export type ThreadEntry = {
 	createdAt: number;
 	lastActiveAt: number;
 	endedAt?: number;
+	/** When its work finished and how, as the daemon says. */
+	finishedAt?: number;
+	outcome?: ArchiveOutcome;
 	parent?: string;
 	desk?: { id: string; task: string; state: string };
 	boardThread?: string;
@@ -536,6 +597,8 @@ export const parseThreadEntry = (value: unknown): ThreadEntry | null => {
 		createdAt: f.createdAt,
 		lastActiveAt: f.lastActiveAt,
 		...(isTime(f.endedAt) ? { endedAt: f.endedAt } : {}),
+		...(isTime(f.finishedAt) ? { finishedAt: f.finishedAt } : {}),
+		...outcomeField(f.outcome),
 		...(typeof f.parent === "string" &&
 		discordIdPattern.test(f.parent) &&
 		f.parent !== f.id
@@ -887,6 +950,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				? refused(`${id} is a session: close it with finish_session`)
 				: refused(`No card ${id} of Butler's on the board`);
 		}
+		archiveCard(card, "closed");
 		const notes = removeCard(card);
 		if (card.thread) {
 			dismissedThreads = { ...dismissedThreads, [card.thread.id]: now() };
@@ -1077,9 +1141,20 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			}
 			const id = selfFixCardId(fixId);
 			fixIds.add(fixId);
+			const times = changeTimes(fix);
 			// A card Aaron closed stays closed while spike archives its fix.
-			if (actions[fixId] === "archive") continue;
+			if (actions[fixId] === "archive") {
+				backfillChange(fixId, fix, times, parent);
+				continue;
+			}
 			const dismissed = actions[fixId] === "dismiss";
+			const archived = deps.archive?.get(id);
+			if (archived) {
+				// Archived on its own once finished, it stays archived unless it starts again.
+				const state = dismissed ? "done" : selfFixState(status as string);
+				if (state === "done" || state === "failed") continue;
+				deps.archive?.remove(id);
+			}
 			seen.add(id);
 			const existing = annotation(id);
 			const base: ButlerCard =
@@ -1116,6 +1191,8 @@ export const createButler = (deps: ButlerDeps): Butler => {
 					? { watching: true }
 					: {}),
 				...(parent ? { parent } : {}),
+				...kept(existing?.kind === "butler-card" ? existing : undefined),
+				...times,
 			};
 			if (existing?.kind === "butler-card" && sameCard(existing, card)) {
 				continue;
@@ -1132,7 +1209,11 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			(a) =>
 				a.kind === "butler-card" && a.selfFix && !a.thread && !seen.has(a.id),
 		);
-		for (const card of gone) deps.annotations.remove(card.id);
+		for (const card of gone) {
+			if (card.kind === "butler-card") archiveCard(card, "auto");
+			deps.annotations.remove(card.id);
+		}
+		if (changedCards > 0 || gone.length > 0) tidySoon();
 		// Forget what was done to fixes spike no longer lists, a week on.
 		const keptActions = Object.fromEntries(
 			Object.entries(actions).filter(([id]) => fixIds.has(id)),
@@ -1168,18 +1249,6 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			: freshSpot();
 	};
 
-	/** A card that just finished goes into the Done region, when the board has one and it is not there yet. */
-	const intoDone = (card: ButlerCard): ButlerCard => {
-		const region = regionNamed(deps.regions.current(), "done");
-		if (!region || centreIn(card, region)) return card;
-		return clearOf(
-			{ ...card, x: snap(region.x + 24), y: snap(region.y + 48) },
-			taken().filter(
-				(r) => !("id" in r) || (r as { id?: unknown }).id !== card.id,
-			),
-		);
-	};
-
 	/**
 	 * Mirrors the daemon's thread cards file: one card for each of Butler's
 	 * Discord threads active in the last day, kept where it was put, with
@@ -1202,9 +1271,19 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		let changedCards = 0;
 		for (const entry of entries) {
 			const id = threadCardId(entry.id);
+			const archived = deps.archive?.get(id);
+			if (archived) {
+				// An archived thread stays archived until it is active again.
+				if (entry.lastActiveAt <= archived.archivedAt) continue;
+				deps.archive?.remove(id);
+			}
 			const closedAt = dismissedThreads[entry.id];
 			if (closedAt !== undefined) {
-				if (entry.lastActiveAt <= closedAt) continue;
+				if (entry.lastActiveAt <= closedAt) {
+					// A card Aaron closed before the board kept an archive goes into it now.
+					backfillThread(entry, closedAt);
+					continue;
+				}
 				const { [entry.id]: _reopened, ...rest } = dismissedThreads;
 				dismissedThreads = rest;
 				persist();
@@ -1248,14 +1327,14 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				...(entry.boardThread ? { boardThread: entry.boardThread } : {}),
 				...(entry.mission ? { mission: entry.mission } : {}),
 				...(entry.machines ? { machines: entry.machines } : {}),
+				...kept(before),
+				startedAt: entry.createdAt,
+				...threadFinish(entry),
 			};
 			threadLogs.sync(id, entry.events, entry.approvals);
 			if (before && sameCard(before, card)) continue;
 			const fresh = before === undefined;
-			let placed = fresh ? clearOf(card, taken()) : card;
-			if (card.state === "done" && before?.state !== "done") {
-				placed = intoDone(placed);
-			}
+			const placed = fresh ? clearOf(card, taken()) : card;
 			const failed = put({ ...placed, updatedAt: now() });
 			if (failed && !failed.ok) return refused(`${entry.id}: ${failed.error}`);
 			changedCards += 1;
@@ -1264,7 +1343,11 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			(a): a is ButlerCard =>
 				a.kind === "butler-card" && a.thread !== undefined && !seen.has(a.id),
 		);
-		for (const card of gone) removeCard(card);
+		for (const card of gone) {
+			archiveCard(card, "auto");
+			removeCard(card);
+		}
+		if (changedCards > 0 || gone.length > 0) tidySoon();
 		// Forget a closed card once the daemon has not listed its thread for two days,
 		// so one sync that lists nothing never brings every closed card back.
 		const keptDismissed = Object.fromEntries(
@@ -1281,6 +1364,246 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		return done(
 			`${entries.length} thread card${entries.length === 1 ? "" : "s"}: ${changedCards} updated, ${gone.length} removed\n${orphanReport(deps.cloud?.())}`,
 		);
+	};
+
+	/** The project an archived card belonged to: the Tidy region its topic names. */
+	const projectOfCard = (card: ButlerCard) =>
+		tidyTopics.find((t) => t.id === topicOf({ ...card, state: "done" }))
+			?.name ?? "Butler";
+
+	const contextOf = (card: ButlerCard): CardContext => {
+		const parent = card.parent ? annotation(card.parent) : undefined;
+		const log = card.thread ? threadLogs.shown(card.id).events : [];
+		return {
+			project: projectOfCard(card),
+			...(parent?.kind === "butler-card"
+				? { parent: { id: parent.id, title: parent.title } }
+				: card.parent
+					? { parent: { id: card.parent, title: "Butler thread" } }
+					: {}),
+			...(log.length ? { log } : {}),
+		};
+	};
+
+	/** Keeps a card in the archive, unless it is already there. */
+	const archiveCard = (
+		card: ButlerCard,
+		reason: ArchiveEntry["reason"],
+		at = now(),
+	) => {
+		if (!deps.archive || deps.archive.get(card.id)) return;
+		deps.archive.add(entryOfCard(card, contextOf(card), reason, at));
+	};
+
+	/** A thread card Aaron closed before the board kept an archive, rebuilt from the daemon's entry. */
+	const backfillThread = (entry: ThreadEntry, closedAt: number) => {
+		const id = threadCardId(entry.id);
+		if (!deps.archive || deps.archive.get(id)) return;
+		const card: ButlerCard = {
+			id,
+			kind: "butler-card",
+			x: 0,
+			y: 0,
+			...cardSize,
+			z: 0,
+			updatedAt: entry.lastActiveAt,
+			title: entry.title,
+			state: entry.state,
+			...(entry.status ? { status: entry.status } : {}),
+			link: entry.link,
+			thread: {
+				id: entry.id,
+				kind: entry.kind,
+				link: entry.link,
+				private: entry.private,
+			},
+			...(entry.parent ? { parent: threadCardId(entry.parent) } : {}),
+			...(entry.desk ? { desk: entry.desk.id } : {}),
+			...(entry.mission ? { mission: entry.mission } : {}),
+			...(entry.machines ? { machines: entry.machines } : {}),
+			startedAt: entry.createdAt,
+			...threadFinish(entry),
+		};
+		const context = contextOf(card);
+		deps.archive.add(
+			entryOfCard(
+				card,
+				entry.events.length ? { ...context, log: entry.events } : context,
+				"closed",
+				closedAt,
+			),
+		);
+	};
+
+	/** A change whose card Aaron closed, from spike's record of it, when the archive does not have it yet. */
+	const backfillChange = (
+		fixId: string,
+		fix: Fields,
+		times: Pick<ButlerCard, "startedAt" | "finishedAt" | "outcome">,
+		parent: string | undefined,
+	) => {
+		const id = selfFixCardId(fixId);
+		if (!deps.archive || deps.archive.get(id)) return;
+		const status = typeof fix.state === "string" ? fix.state : "";
+		const title = typeof fix.title === "string" ? fix.title.trim() : "";
+		const at = times.finishedAt ?? now();
+		const card: ButlerCard = {
+			id,
+			kind: "butler-card",
+			x: 0,
+			y: 0,
+			...cardSize,
+			z: 0,
+			updatedAt: at,
+			title: (title || `Change ${fixId}`).slice(0, maxButlerTitle),
+			state: "done",
+			...(status ? { status: status.slice(0, maxButlerTitle) } : {}),
+			selfFix: fixId,
+			...(typeof fix.summary === "string" && fix.summary
+				? { summary: fix.summary.slice(0, maxButlerSummary) }
+				: {}),
+			...(typeof fix.link === "string" && fix.link.startsWith("https://")
+				? { link: fix.link.slice(0, 500) }
+				: {}),
+			...(parent ? { parent } : {}),
+			...times,
+		};
+		deps.archive.add(entryOfCard(card, contextOf(card), "closed", at));
+	};
+
+	let tidyPending = false;
+	const tidySoon = () => {
+		if (!deps.schedule || tidyPending) return;
+		tidyPending = true;
+		deps.schedule(() => {
+			tidyPending = false;
+			tidy({});
+		}, tidyDebounceMs);
+	};
+
+	/**
+	 * The board's tidy pass: finished cards go to the archive, then every
+	 * other card of Butler's is laid out in its topic's region, and with
+	 * `sessions` the sessions Aaron has not pinned are laid out afresh.
+	 * Non-destructive: nothing is deleted that the archive does not keep.
+	 */
+	const tidy = (options: { sessions?: boolean }): ToolOutcome => {
+		const at = now();
+		const due = butlerCards().filter((card) => !keepsOnBoard(card, at));
+		let archived = 0;
+		if (deps.archive) {
+			for (const card of due) {
+				archiveCard(card, "auto", at);
+				removeCard(card);
+				if (card.thread) {
+					dismissedThreads = { ...dismissedThreads, [card.thread.id]: at };
+				}
+				archived += 1;
+			}
+			if (archived) persist();
+		}
+		let relaid = 0;
+		if (options.sessions) {
+			const layout = deps.layout.current();
+			for (const [key, placement] of Object.entries(layout)) {
+				if (placement.pinned) continue;
+				deps.layout.restore(key, null);
+				relaid += 1;
+			}
+		}
+		const cards = butlerCards();
+		const cardIds = new Set(cards.map((c) => c.id));
+		const all = Object.values(deps.annotations.current());
+		const onCards = all.filter(
+			(a): a is Note =>
+				a.kind === "note" &&
+				a.author === "butler" &&
+				a.session !== undefined &&
+				cardIds.has(a.session),
+		);
+		const onCardIds = new Set(onCards.map((n) => n.id));
+		const obstacles: Rect[] = [
+			...arranged(board(), deps).nodes.values(),
+			...deps.regions.current().filter((r) => !isTidyRegion(r)),
+			...all.filter((a) => a.kind !== "butler-card" && !onCardIds.has(a.id)),
+		];
+		const plan = planTidy({
+			cards,
+			notes: onCards,
+			obstacles,
+			regions: deps.regions.current(),
+			now: at,
+		});
+		const current = deps.annotations.current();
+		for (const move of plan.moves) {
+			const item = current[move.id];
+			if (!item) continue;
+			const stored = deps.annotations.put({ ...item, x: move.x, y: move.y });
+			if ("error" in stored) {
+				return refused(`Could not move ${move.id}: ${stored.error}`);
+			}
+		}
+		let regionsChanged = 0;
+		for (const region of plan.regions) {
+			const bounds = { x: region.x, y: region.y, w: region.w, h: region.h };
+			const existing = region.id
+				? deps.regions.current().find((r) => r.id === region.id)
+				: undefined;
+			if (existing) {
+				if (
+					existing.x === bounds.x &&
+					existing.y === bounds.y &&
+					existing.w === bounds.w &&
+					existing.h === bounds.h &&
+					existing.name === region.name
+				) {
+					continue;
+				}
+				deps.regions.update(existing.id, { ...bounds, name: region.name });
+			} else {
+				deps.regions.create({ cwd: region.cwd, name: region.name, ...bounds });
+			}
+			regionsChanged += 1;
+		}
+		const summary = `Tidied the board: ${archived} card${archived === 1 ? "" : "s"} archived, ${plan.moves.length} moved, ${regionsChanged} region${regionsChanged === 1 ? "" : "s"} resized${options.sessions ? `, ${relaid} session spot${relaid === 1 ? "" : "s"} laid out afresh` : ""}`;
+		if (archived || plan.moves.length || regionsChanged || relaid) {
+			deps.audit({ action: "butler", tool: "tidy", result: summary });
+		}
+		return done(summary);
+	};
+
+	const restore = (id: string): ToolOutcome => {
+		const entry = deps.archive?.get(id);
+		if (!entry) return refused(`Nothing archived as ${id}`);
+		if (!entry.card) {
+			return refused(
+				entry.kind === "session"
+					? "A session that left the board cannot come back to it"
+					: "This entry was compacted and keeps no card to restore",
+			);
+		}
+		const card: ButlerCard = {
+			...entry.card,
+			...freshSpot(),
+			pinned: true,
+			z: topZ(deps.annotations.current()) + 1,
+			updatedAt: now(),
+		};
+		const placed = clearOf(card, taken());
+		const failed = put(placed);
+		if (failed) return failed;
+		deps.archive?.remove(id);
+		if (card.thread && dismissedThreads[card.thread.id] !== undefined) {
+			const { [card.thread.id]: _back, ...rest } = dismissedThreads;
+			dismissedThreads = rest;
+			persist();
+		}
+		if (card.selfFix && actions[card.selfFix] === "archive") {
+			const { [card.selfFix]: _back, ...rest } = actions;
+			actions = rest;
+			persist();
+		}
+		return done(`Restored '${card.title}' to the board, pinned`);
 	};
 
 	const sessionCard = (session: Board["sessions"][number]) => ({
@@ -1596,6 +1919,9 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		changes: selfFixes,
 		self_fixes: selfFixes,
 		butler_threads: butlerThreads,
+		tidy: (fields) =>
+			only(fields, ["sessions"]) ??
+			tidy({ sessions: fields.sessions === true }),
 	};
 
 	const tool = async (name: string, body: unknown): Promise<ToolOutcome> => {
@@ -1744,6 +2070,8 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		sendToThread,
 		startJob,
 		closeThreadCard,
+		tidy: (options = {}) => tidy(options),
+		restore,
 		check,
 		saved: async () => {
 			await file.saved();

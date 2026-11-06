@@ -480,3 +480,9 @@
 	border-radius: 8px;
 	resize: vertical;
 }
+
+/* A card Aaron pinned, which Tidy and the archive leave alone. */
+.butler-pinned-icon {
+	flex: none;
+	color: var(--muted);
+}

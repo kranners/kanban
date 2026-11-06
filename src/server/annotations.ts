@@ -1,6 +1,8 @@
 import {
 	type Annotation,
 	type Annotations,
+	type ArchiveOutcome,
+	archiveOutcomes,
 	type ButlerCardEvent,
 	type ButlerCardMission,
 	type ButlerCardState,
@@ -220,7 +222,33 @@ export const parseAnnotation = (
 			boardThread,
 			mission,
 			machines,
+			pinned,
+			movedAt,
+			startedAt,
+			finishedAt,
+			outcome,
 		} = fields;
+		if (pinned !== undefined && typeof pinned !== "boolean") {
+			return { error: "pinned must be true or false" };
+		}
+		for (const [name, value] of [
+			["movedAt", movedAt],
+			["startedAt", startedAt],
+			["finishedAt", finishedAt],
+		] as const) {
+			if (
+				value !== undefined &&
+				(typeof value !== "number" || !Number.isFinite(value) || value < 0)
+			) {
+				return { error: `${name} must be a time in milliseconds` };
+			}
+		}
+		if (
+			outcome !== undefined &&
+			!archiveOutcomes.includes(outcome as ArchiveOutcome)
+		) {
+			return { error: `outcome must be one of ${archiveOutcomes.join(", ")}` };
+		}
 		if (
 			typeof title !== "string" ||
 			title.trim() === "" ||
@@ -318,6 +346,11 @@ export const parseAnnotation = (
 				: { boardThread: boardThread as string }),
 			...(cardMission === undefined ? {} : { mission: cardMission }),
 			...(cardMachines === undefined ? {} : { machines: cardMachines }),
+			...(pinned === true ? { pinned: true } : {}),
+			...(movedAt === undefined ? {} : { movedAt: movedAt as number }),
+			...(startedAt === undefined ? {} : { startedAt: startedAt as number }),
+			...(finishedAt === undefined ? {} : { finishedAt: finishedAt as number }),
+			...(outcome === undefined ? {} : { outcome: outcome as ArchiveOutcome }),
 			...(history === undefined
 				? {}
 				: {

@@ -1,5 +1,5 @@
 import "./butler.css";
-import { TriangleAlert } from "lucide-preact";
+import { Pin, TriangleAlert } from "lucide-preact";
 import type { JSX } from "preact";
 import type { ButlerCard, Note } from "../shared/types.ts";
 import { ActivityBadge } from "./activity.tsx";
@@ -185,6 +185,13 @@ export function ButlerCardBody(props: { card: ButlerCard }): JSX.Element {
 					<ButlerMark size={16} />
 				)}
 				<span class="butler-card-kind">{kindOf(card)}</span>
+				{card.pinned && (
+					<Pin
+						size={14}
+						class="butler-pinned-icon"
+						aria-label="Pinned: Tidy leaves it here"
+					/>
+				)}
 				{card.watching && (
 					<ButlerWatchingIcon
 						size={16}

@@ -993,6 +993,25 @@ export function createBackend(scenario: Scenario): Backend {
 		],
 		["GET", /^\/api\/cloud-blocker$/, () => json(200, { reason: null })],
 		[
+			"GET",
+			/^\/api\/archive$/,
+			() => json(200, { entries: [], total: 0, days: [], projects: [] }),
+		],
+		[
+			"POST",
+			/^\/api\/archive\/[^/]+\/restore$/,
+			() =>
+				json(200, {
+					ok: false,
+					error: "The demo keeps no archive",
+				}),
+		],
+		[
+			"POST",
+			/^\/api\/tidy$/,
+			() => json(200, { ok: true, text: "The demo board is already tidy" }),
+		],
+		[
 			"POST",
 			/^\/api\/butler\/(?:changes|self-fixes)\/[^/]+\/(?:archive|dismiss)$/,
 			() =>

@@ -29,6 +29,7 @@ import {
 } from "./accounts.ts";
 import { createAnnotationStore, loadAnnotations } from "./annotations.ts";
 import { createAnnouncer } from "./announce.ts";
+import { createArchiveStore, loadArchive } from "./archive.ts";
 import { claudeAttachPty, createAttachHub } from "./attach.ts";
 import { fileAudit } from "./audit.ts";
 import { authenticatorFor, runnerTokenCheck } from "./auth.ts";
@@ -652,6 +653,12 @@ const tools: typeof boardTools = (threadId, call) =>
 const butlerFile = join(config.stateDir, "butler.json");
 // Thread cards' events and approvals, which only the page's thread view reads.
 const threadLogsFile = join(config.stateDir, "butler-threads.json");
+// Cards and sessions whose work is over, for the sidebar's Archive view.
+const archiveFile = join(config.stateDir, "archive.json");
+const archive = createArchiveStore({
+	file: archiveFile,
+	initial: await loadArchive(archiveFile),
+});
 butler = createButler({
 	source,
 	layout,
@@ -668,10 +675,15 @@ butler = createButler({
 	cloud: () => cloud.overview(),
 	onChange: (next) => feed?.butler(next),
 	comments,
+	archive,
+	schedule: (run, ms) => {
+		setTimeout(run, ms).unref();
+	},
 });
 const relayCheck = setInterval(() => {
 	butler?.inbox?.check();
 	butler?.check();
+	archive.observe(source.board().sessions);
 }, 5000);
 // Scheduled reports were the retired board agent's. Their file is kept
 // aside, not deleted, so Aaron can ask Butler to schedule them as jobs.
@@ -697,6 +709,7 @@ const server = createKanbanServer({
 	comments,
 	tools,
 	butler,
+	archive,
 	csrf: newCsrfToken(),
 	peerHook: createPeerHook({
 		units: () =>

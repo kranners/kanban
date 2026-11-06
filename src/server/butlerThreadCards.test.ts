@@ -12,6 +12,7 @@ import type {
 	Session,
 } from "../shared/types.ts";
 import { createAnnotationStore } from "./annotations.ts";
+import { createArchiveStore } from "./archive.ts";
 import { snapshot } from "./boardTools.ts";
 import {
 	type CloudOverview,
@@ -88,6 +89,7 @@ const setup = async (regions: Region[] = [], cloud?: CloudOverview) => {
 	const threads = createThreadLogStore({ file: logsFile });
 	let clock = 10_000;
 	let ids = 0;
+	const archive = createArchiveStore({ now: () => clock });
 	const file = join(dir, "butler.json");
 	const butler = createButler({
 		source: {
@@ -106,6 +108,7 @@ const setup = async (regions: Region[] = [], cloud?: CloudOverview) => {
 		comments,
 		threads,
 		...(cloud ? { cloud: () => cloud } : {}),
+		archive,
 		newId: () => `id${++ids}`,
 		now: () => clock,
 	});
@@ -123,6 +126,8 @@ const setup = async (regions: Region[] = [], cloud?: CloudOverview) => {
 		butler,
 		board,
 		annotations,
+		archive,
+		regionStore,
 		threads,
 		logsFile,
 		file,
@@ -237,30 +242,207 @@ describe("Butler's thread cards", () => {
 		assert.equal(moved?.status, "Replied");
 	});
 
-	it("moves a card into the Done region once its thread ends, only then", async () => {
-		const doneRegion: Region = {
-			id: "r2",
-			cwd: "/srv/done",
-			name: "done",
-			x: -4800,
-			y: 0,
-			w: 1200,
-			h: 1200,
-		};
-		const { sync, annotations } = await setup([doneRegion]);
+	it("archives a finished thread's card 30 minutes after it ended, and keeps it off until the thread is active again", async () => {
+		const { sync, annotations, archive, butler, tick } = await setup();
 		await sync([entry("11111111")]);
-		const working = cardOf(annotations, "thread-11111111");
-		assert.ok(working && working.x > doneRegion.x + doneRegion.w);
-		await sync([entry("11111111", { state: "done", endedAt: 6000 })]);
+		await sync([entry("11111111", { state: "done", endedAt: 9000 })]);
 		const finished = cardOf(annotations, "thread-11111111");
-		assert.equal(finished?.x, -4776);
-		assert.equal(finished?.y, 48);
-		assert.ok(finished);
-		annotations.put({ ...finished, x: 960, y: 960 });
+		assert.equal(finished?.finishedAt, 9000);
+		assert.equal(finished?.outcome, "done");
+		// Inside its grace it stays on the board.
+		assert.match((butler.tidy() as { text: string }).text, /0 cards archived/);
+		assert.ok(cardOf(annotations, "thread-11111111"));
+		tick(31 * 60_000);
+		assert.match((butler.tidy() as { text: string }).text, /1 card archived/);
+		assert.equal(cardOf(annotations, "thread-11111111"), undefined);
+		const kept = archive.get("thread-11111111");
+		assert.equal(kept?.kind, "conversation");
+		assert.equal(kept?.outcome, "done");
+		assert.equal(kept?.finishedAt, 9000);
+		assert.equal(kept?.discord, "https://discord.com/channels/1/11111111");
+		assert.equal(kept?.reason, "auto");
+		// The daemon still lists it: it stays archived.
+		await sync([entry("11111111", { state: "done", endedAt: 9000 })]);
+		assert.equal(cardOf(annotations, "thread-11111111"), undefined);
+		// Active again, it comes back and leaves the archive.
+		await sync([entry("11111111", { lastActiveAt: 10_000_000 })]);
+		assert.ok(cardOf(annotations, "thread-11111111"));
+		assert.equal(archive.get("thread-11111111"), undefined);
+	});
+
+	it("never archives a card needing Aaron, working, idle, failed or pinned", async () => {
+		const { sync, annotations, archive, butler, tick } = await setup();
 		await sync([
-			entry("11111111", { state: "done", status: "Archived", endedAt: 6000 }),
+			entry("11111101", { state: "needs-you" }),
+			entry("11111102", { state: "working" }),
+			entry("11111103", { state: "idle" }),
+			entry("11111104", { state: "failed" }),
+			entry("11111105", { state: "done", endedAt: 100 }),
 		]);
-		assert.equal(cardOf(annotations, "thread-11111111")?.x, 960);
+		const pinned = cardOf(annotations, "thread-11111105");
+		assert.ok(pinned);
+		annotations.put({ ...pinned, pinned: true });
+		tick(24 * 60 * 60_000);
+		butler.tidy();
+		for (const id of ["01", "02", "03", "04", "05"]) {
+			assert.ok(cardOf(annotations, `thread-111111${id}`), id);
+		}
+		assert.equal(archive.current().length, 0);
+		// Pinned survives a sync.
+		await sync([entry("11111105", { state: "done", endedAt: 100 })]);
+		assert.equal(cardOf(annotations, "thread-11111105")?.pinned, true);
+	});
+
+	it("archives a card at once when it is closed, a failed one as acknowledged", async () => {
+		const { sync, annotations, archive, butler } = await setup();
+		await sync([
+			entry("11111111", { state: "failed" }),
+			entry("11111112", { state: "working" }),
+		]);
+		assert.ok((await butler.tool("close_card", { id: "thread-11111111" })).ok);
+		assert.ok(butler.closeThreadCard("thread-11111112").ok);
+		assert.equal(archive.get("thread-11111111")?.outcome, "failed");
+		assert.equal(archive.get("thread-11111111")?.reason, "closed");
+		assert.equal(archive.get("thread-11111112")?.outcome, "superseded");
+		assert.equal(cardOf(annotations, "thread-11111111"), undefined);
+	});
+
+	it("backfills cards Aaron closed before the archive from the daemon's entries", async () => {
+		const { sync, archive, butler } = await setup();
+		await sync([entry("11111111", { state: "done", endedAt: 4000 })]);
+		// Closed the old way, before this board kept an archive.
+		assert.ok(butler.closeThreadCard("thread-11111111").ok);
+		archive.remove("thread-11111111");
+		await sync([entry("11111111", { state: "done", endedAt: 4000 })]);
+		const back = archive.get("thread-11111111");
+		assert.equal(back?.reason, "closed");
+		assert.equal(back?.title, "Thread 11111111");
+		assert.equal(back?.log?.length, 2);
+	});
+
+	it("restores an archived card to the board, pinned", async () => {
+		const { sync, annotations, archive, butler, tick } = await setup();
+		await sync([entry("11111111", { state: "done", endedAt: 9000 })]);
+		tick(31 * 60_000);
+		butler.tidy();
+		assert.equal(cardOf(annotations, "thread-11111111"), undefined);
+		assert.ok(butler.restore("thread-11111111").ok);
+		assert.equal(cardOf(annotations, "thread-11111111")?.pinned, true);
+		assert.equal(archive.get("thread-11111111"), undefined);
+		assert.equal(butler.restore("thread-11111111").ok, false);
+	});
+
+	it("lays out every card in its topic's region, children after their parent, without overlaps", async () => {
+		const { sync, annotations, regionStore, butler } = await setup();
+		await sync([
+			entry("11111111", { kind: "dm" }),
+			entry("11111112", { kind: "desk", parent: "11111111" }),
+			entry("11111113", { kind: "scheduled" }),
+			entry("11111114", { state: "needs-you" }),
+		]);
+		assert.ok(
+			(
+				await butler.tool("changes", {
+					fixes: [
+						{ id: "20261106-141450-402386", state: "running", title: "Tidy" },
+					],
+				})
+			).ok,
+		);
+		const outcome = butler.tidy();
+		assert.ok(outcome.ok);
+		const regions = regionStore.current();
+		const named = (name: string) => regions.find((r) => r.name === name);
+		const inside = (id: string, name: string) => {
+			const card = cardOf(annotations, id);
+			const region = named(name);
+			assert.ok(card && region, `${id} in ${name}`);
+			assert.ok(
+				card.x >= region.x &&
+					card.y >= region.y &&
+					card.x + card.w <= region.x + region.w &&
+					card.y + card.h <= region.y + region.h,
+				`${id} inside ${name}`,
+			);
+		};
+		inside("thread-11111111", "Butler");
+		inside("thread-11111112", "Butler");
+		inside("thread-11111113", "Jobs");
+		inside("thread-11111114", "Waiting on you");
+		inside("self-fix-20261106-141450-402386", "Changes");
+		// Waiting on you is the leftmost region, at the top.
+		const xs = ["Waiting on you", "Butler", "Jobs", "Changes"].map(
+			(n) => named(n)?.x ?? Number.NaN,
+		);
+		assert.deepEqual(
+			[...xs].sort((a, b) => a - b),
+			xs,
+		);
+		// The child sits right after its parent in the grid.
+		const parent = cardOf(annotations, "thread-11111111");
+		const child = cardOf(annotations, "thread-11111112");
+		assert.ok(parent && child);
+		assert.equal(child.y, parent.y);
+		assert.ok(child.x > parent.x);
+		// A second tidy of a tidy board moves nothing.
+		assert.match(
+			(butler.tidy() as { text: string }).text,
+			/0 moved, 0 regions resized/,
+		);
+	});
+
+	it("tidies on its own a little after a burst of syncs", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-tidy-"));
+		const runs: (() => void)[] = [];
+		const annotations = createAnnotationStore({
+			file: join(dir, "a.json"),
+			initial: {},
+			onChange: () => {},
+		});
+		const butler = createButler({
+			source: {
+				board: () => ({
+					sessions: [],
+					subagents: [],
+					subagentCounts: {},
+					subagentStates: {},
+					workflowRuns: {},
+					workflows: [],
+					links: [],
+					messages: [],
+					generatedAt: 0,
+				}),
+				transcript: async () => [],
+				transcriptPath: () => null,
+			},
+			layout: createLayoutStore({
+				file: join(dir, "l.json"),
+				initial: {},
+				onChange: () => {},
+			}),
+			annotations,
+			regions: createRegionStore({
+				file: join(dir, "r.json"),
+				initial: [],
+				onChange: () => {},
+			}),
+			tools: async () => ({ ok: true, text: "" }),
+			audit: () => {},
+			file: join(dir, "b.json"),
+			initial: [],
+			onChange: () => {},
+			schedule: (run) => {
+				runs.push(run);
+			},
+		});
+		await butler.tool("butler_threads", { threads: [entry("11111111")] });
+		await butler.tool("butler_threads", {
+			threads: [entry("11111111"), entry("11111112")],
+		});
+		assert.equal(runs.length, 1);
+		runs[0]?.();
+		const card = annotations.current()["thread-11111111"];
+		assert.ok(card && card.x < 0, "laid out left of the sessions");
 	});
 
 	it("takes a card off, with its notes and log, once the daemon stops listing its thread", async () => {
@@ -459,8 +641,8 @@ describe("Butler's thread cards", () => {
 });
 
 describe("Closed and dropped thread cards", () => {
-	it("keeps a closed card closed through a sync that lists nothing, for two days", async () => {
-		const { sync, annotations, butler, tick } = await setup();
+	it("keeps a closed card closed through a sync that lists nothing, and in the archive after", async () => {
+		const { sync, annotations, archive, butler, tick } = await setup();
 		await sync([entry("11111111")]);
 		const closed = await butler.tool("close_card", { id: "thread-11111111" });
 		assert.ok(closed.ok);
@@ -470,10 +652,12 @@ describe("Closed and dropped thread cards", () => {
 		tick(3 * 24 * 60 * 60_000);
 		await sync([]);
 		await sync([entry("11111111")]);
-		assert.ok(
+		assert.equal(
 			cardOf(annotations, "thread-11111111"),
-			"forgotten once unlisted for two days",
+			undefined,
+			"the archive keeps it off once its closing is forgotten",
 		);
+		assert.equal(archive.get("thread-11111111")?.reason, "closed");
 	});
 
 	it("still hands spike Aaron's reply when the card drops off the board", async () => {

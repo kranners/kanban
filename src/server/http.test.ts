@@ -62,6 +62,28 @@ const route = (method: string, path: string) =>
 	matchRoute(method, new URL(path, "http://x"));
 
 describe("matchRoute", () => {
+	it("parses the archive's routes and Tidy", () => {
+		assert.deepEqual(route("GET", "/api/archive?kind=change&q=fix"), {
+			kind: "archive",
+			query: { kind: "change", q: "fix" },
+		});
+		assert.deepEqual(route("POST", "/api/archive/thread-123456/restore"), {
+			kind: "archive-restore",
+			id: "thread-123456",
+		});
+		assert.deepEqual(route("POST", "/api/archive/session:abc/restore"), {
+			kind: "archive-restore",
+			id: "session:abc",
+		});
+		assert.deepEqual(route("POST", "/api/archive"), {
+			kind: "method-not-allowed",
+		});
+		assert.deepEqual(route("POST", "/api/tidy"), { kind: "tidy" });
+		assert.deepEqual(route("GET", "/api/tidy"), {
+			kind: "method-not-allowed",
+		});
+	});
+
 	it("parses the API", () => {
 		assert.deepEqual(route("GET", "/healthz"), { kind: "healthz" });
 		assert.deepEqual(route("GET", "/api/sessions/abc-1/transcript?limit=20"), {

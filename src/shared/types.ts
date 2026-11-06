@@ -351,6 +351,71 @@ export type ButlerCard = Annotated & {
 	mission?: ButlerCardMission;
 	/** The machines the thread has driven, by host, such as `piggys-MBP`, and `browser` for Butler's own. */
 	machines?: string[];
+	/** Aaron pinned it: Tidy never moves it and it is never archived on its own. */
+	pinned?: boolean;
+	/** When Aaron last dragged it on the board; Tidy leaves it alone for 10 minutes after. */
+	movedAt?: number;
+	/** When its work started and finished, and how it ended, as the daemon or spike says. */
+	startedAt?: number;
+	finishedAt?: number;
+	outcome?: ArchiveOutcome;
+};
+
+/** What an archived card or session was. */
+export const archiveKinds = [
+	"change",
+	"desk",
+	"session",
+	"job",
+	"conversation",
+] as const;
+export type ArchiveKind = (typeof archiveKinds)[number];
+
+/** How an archived card's work ended. */
+export const archiveOutcomes = ["done", "failed", "superseded"] as const;
+export type ArchiveOutcome = (typeof archiveOutcomes)[number];
+
+/**
+ * A card or session the board archived once its work was over, served
+ * only to the page's Archive view: what it was, when it ran, who asked,
+ * how it ended, its final report and links. After 90 days it is
+ * compacted to the summary fields alone.
+ */
+export type ArchiveEntry = {
+	/** The card's id, or `session:<id>` for a board session. */
+	id: string;
+	kind: ArchiveKind;
+	title: string;
+	/** One line of what it was: its task or last status. */
+	task?: string;
+	/** The project, repo folder or Butler region it belonged to. */
+	project: string;
+	startedAt?: number;
+	finishedAt: number;
+	archivedAt: number;
+	outcome: ArchiveOutcome;
+	/** Why it was archived: on its own after its grace, or closed. */
+	reason: "auto" | "closed" | "left";
+	/** The card that asked for it. */
+	parent?: { id: string; title: string };
+	report?: string;
+	discord?: string;
+	session?: string;
+	machines?: string[];
+	mission?: ButlerCardMission;
+	/** The thread's log, read-only, for a thread card. */
+	log?: ButlerThreadEvent[];
+	/** The card as it was, to put it back on the board. */
+	card?: ButlerCard;
+	compacted?: true;
+};
+
+/** What `GET /api/archive` answers: the matching entries, newest first, and how many finished each day. */
+export type ArchiveListing = {
+	entries: ArchiveEntry[];
+	total: number;
+	days: { day: string; count: number }[];
+	projects: string[];
 };
 
 export type ButlerCardMission = { id: string; covers: string };

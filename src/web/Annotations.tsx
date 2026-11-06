@@ -5,6 +5,8 @@ import {
 	CircleCheck,
 	Copy,
 	Pencil,
+	Pin,
+	PinOff,
 	SendToBack,
 	SquareDashed,
 	Sticker as StickerIcon,
@@ -547,12 +549,14 @@ export function AnnotationMenu(): JSX.Element | null {
 	const chosen = selected.value;
 	const notes = chosen.filter((a): a is Note => a.kind === "note");
 	const single = chosen.length === 1 ? notes[0] : undefined;
-	const fix =
+	const butlerCard =
 		chosen.length === 1 && chosen[0]?.kind === "butler-card"
-			? chosen[0].selfFix
+			? chosen[0]
 			: undefined;
+	const fix = butlerCard?.selfFix;
 	const left = Math.min(menu.client.x, innerWidth - 232);
-	const height = (notes.length ? 252 : 156) + (fix ? 72 : 0);
+	const height =
+		(notes.length ? 252 : 156) + (fix ? 72 : 0) + (butlerCard ? 36 : 0);
 	const top = Math.min(menu.client.y, innerHeight - height);
 	return (
 		<div
@@ -616,6 +620,22 @@ export function AnnotationMenu(): JSX.Element | null {
 				shortcut={`${commandKey}[`}
 				onSelect={sendSelectionToBack}
 			/>
+			{butlerCard && (
+				<MenuItem
+					icon={
+						butlerCard.pinned ? (
+							<PinOff size={14} aria-hidden="true" />
+						) : (
+							<Pin size={14} aria-hidden="true" />
+						)
+					}
+					label={butlerCard.pinned ? "Unpin" : "Pin in place"}
+					onSelect={() => {
+						const { pinned: _was, ...rest } = butlerCard;
+						save([butlerCard.pinned ? rest : { ...rest, pinned: true }]);
+					}}
+				/>
+			)}
 			{fix && (
 				<>
 					<span class="board-menu-sep" />

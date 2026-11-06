@@ -1,5 +1,6 @@
 import { computed } from "@preact/signals";
 import {
+	Archive,
 	Gauge,
 	LibraryBig,
 	ListFilter,
@@ -9,6 +10,7 @@ import {
 } from "lucide-preact";
 import type { JSX } from "preact";
 import type { NodeRef } from "../shared/types.ts";
+import { ArchiveView } from "./ArchiveView.tsx";
 import { butlerPresence } from "./butler.ts";
 import {
 	butlerStatus,
@@ -57,6 +59,7 @@ const views: {
 	{ id: "docs", title: "Docs", icon: LibraryBig },
 	{ id: "usage", title: "Usage", icon: Gauge },
 	{ id: "messages", title: "Messages", icon: MessagesSquare },
+	{ id: "archive", title: "Archive", icon: Archive },
 ];
 
 /** True while a message to Butler is queued or being worked on. */
@@ -79,6 +82,7 @@ function Badge(props: { view: RailView }): JSX.Element | null {
 				<span class="rail-dot" />
 			) : null;
 		case "docs":
+		case "archive":
 			return null;
 		case "usage": {
 			if (recentlyGone(runners.value, now.value).length > 0) {
@@ -125,6 +129,8 @@ function hint(view: RailView, title: string): string {
 			const count = board.value?.messages.length ?? 0;
 			return count > 0 ? `${title}, ${count}` : title;
 		}
+		case "archive":
+			return "Archive: finished cards and sessions";
 	}
 }
 
@@ -140,6 +146,8 @@ function Body(props: { view: RailView }): JSX.Element | null {
 			return <UsageView />;
 		case "messages":
 			return <Messages />;
+		case "archive":
+			return <ArchiveView />;
 	}
 }
 

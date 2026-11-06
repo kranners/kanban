@@ -220,6 +220,15 @@ const probes: Record<string, Probe> = {
 			{ sessionId, rules: ["Bash(npm test)"] },
 		]);
 	},
+	"/api/archive:param": async (backend) => {
+		await answers(backend, "GET", "/api/archive");
+	},
+	"/api/archive/:param/restore": async (backend) => {
+		await answers(backend, "POST", "/api/archive/thread-123456/restore");
+	},
+	"/api/tidy": async (backend) => {
+		await answers(backend, "POST", "/api/tidy");
+	},
 	"/api/announce": async (backend) => {
 		await answers(backend, "POST", "/api/announce", { text: "Pull main" });
 	},

@@ -27,6 +27,11 @@ import {
 import { type AnnotationStore, parseAnnotation } from "./annotations.ts";
 import type { Announcer } from "./announce.ts";
 import {
+	type ArchiveQuery,
+	type ArchiveStore,
+	parseArchiveQuery,
+} from "./archive.ts";
+import {
 	type AttachHub,
 	type AttachTarget,
 	isValidShort,
@@ -133,6 +138,8 @@ export type ServerDeps = {
 	comments: CommentStore;
 	tools: BoardTools;
 	butler?: Butler;
+	/** Cards and sessions whose work is over, served to the page alone. */
+	archive?: ArchiveStore;
 	/** The token the board's page sends with every message to Butler. */
 	csrf: string;
 	peerHook: PeerHook;
@@ -195,6 +202,9 @@ export type Route =
 	| { kind: "update-layout" }
 	| { kind: "undo"; direction: "undo" | "redo" }
 	| { kind: "put-annotation"; id: string }
+	| { kind: "archive"; query: ArchiveQuery }
+	| { kind: "archive-restore"; id: string }
+	| { kind: "tidy" }
 	| { kind: "delete-annotation"; id: string }
 	| { kind: "update-colour" }
 	| { kind: "update-ignore" }
@@ -533,6 +543,24 @@ export const matchRoute = (method: string, url: URL): Route => {
 		}
 		return method === "GET"
 			? { kind: "butler-thread", threadId: butlerThread[1] }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/archive") {
+		return method === "GET"
+			? { kind: "archive", query: parseArchiveQuery(url) }
+			: { kind: "method-not-allowed" };
+	}
+	const restore = path.match(
+		/^\/api\/archive\/([A-Za-z0-9:_-]{1,160})\/restore$/,
+	);
+	if (restore?.[1]) {
+		return method === "POST"
+			? { kind: "archive-restore", id: restore[1] }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/tidy") {
+		return method === "POST"
+			? { kind: "tidy" }
 			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api/butler/jobs") {
@@ -1046,10 +1074,18 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 	) => {
 		const read = await readBody(req, res);
 		if (!read) return;
-		const annotation = parseAnnotation(id, read.body);
-		if ("error" in annotation) {
-			return sendJson(res, 400, { ok: false, error: annotation.error });
+		const parsed = parseAnnotation(id, read.body);
+		if ("error" in parsed) {
+			return sendJson(res, 400, { ok: false, error: parsed.error });
 		}
+		// A Butler card Aaron dragged stays where he put it for a while; Tidy reads when.
+		const before = deps.annotations.current()[id];
+		const annotation =
+			parsed.kind === "butler-card" &&
+			before?.kind === "butler-card" &&
+			(before.x !== parsed.x || before.y !== parsed.y)
+				? { ...parsed, movedAt: Date.now() }
+				: parsed;
 		const stored = deps.annotations.put(annotation);
 		if ("error" in stored) {
 			return sendJson(res, 409, { ok: false, error: stored.error });
@@ -1697,6 +1733,23 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return yours(() => updateLayout(req, res));
 			case "put-annotation":
 				return yours(() => putAnnotation(req, res, route.id));
+			case "archive":
+				if (!deps.archive) return sendError(res, 404);
+				return sendJson(res, 200, deps.archive.list(route.query));
+			case "archive-restore": {
+				if (!originOk(req)) return sendError(res, 403);
+				if (!deps.butler) return sendError(res, 404);
+				const butler = deps.butler;
+				const outcome = yours(() => butler.restore(route.id));
+				return sendJson(res, outcome.ok ? 200 : 409, outcome);
+			}
+			case "tidy": {
+				if (!originOk(req)) return sendError(res, 403);
+				if (!deps.butler) return sendError(res, 404);
+				const butler = deps.butler;
+				const outcome = yours(() => butler.tidy({ sessions: true }));
+				return sendJson(res, outcome.ok ? 200 : 409, outcome);
+			}
 			case "delete-annotation":
 				return yours(() => deleteAnnotation(req, res, route.id));
 			case "self-fix-action":
