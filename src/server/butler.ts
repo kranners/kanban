@@ -1522,10 +1522,16 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				cardIds.has(a.session),
 		);
 		const onCardIds = new Set(onCards.map((n) => n.id));
+		const tidyRegions = deps.regions.current().filter(isTidyRegion);
+		// A note or sticker inside Tidy's own regions moves with them, so it never pushes them further left.
+		const insideTidy = (r: Rect) => tidyRegions.some((t) => centreIn(r, t));
 		const obstacles: Rect[] = [
 			...arranged(board(), deps).nodes.values(),
 			...deps.regions.current().filter((r) => !isTidyRegion(r)),
-			...all.filter((a) => a.kind !== "butler-card" && !onCardIds.has(a.id)),
+			...all.filter(
+				(a) =>
+					a.kind !== "butler-card" && !onCardIds.has(a.id) && !insideTidy(a),
+			),
 		];
 		const plan = planTidy({
 			cards,

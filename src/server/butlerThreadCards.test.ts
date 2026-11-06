@@ -384,6 +384,22 @@ describe("Butler's thread cards", () => {
 		assert.ok(parent && child);
 		assert.equal(child.y, parent.y);
 		assert.ok(child.x > parent.x);
+		// A note of Aaron's left inside one of Tidy's regions never pushes them further left.
+		const butlerRegion = named("Butler");
+		assert.ok(butlerRegion);
+		annotations.put({
+			id: "aarons",
+			kind: "note",
+			text: "mine",
+			color: "yellow",
+			x: butlerRegion.x + 24,
+			y: butlerRegion.y + butlerRegion.h - 120,
+			w: 96,
+			h: 96,
+			z: 1,
+		} as Note);
+		butler.tidy();
+		assert.equal(named("Butler")?.x, butlerRegion.x);
 		// A second tidy of a tidy board moves nothing.
 		assert.match(
 			(butler.tidy() as { text: string }).text,
