@@ -50,7 +50,7 @@ import {
 	parseRegionPatch,
 	type RegionStore,
 } from "./regions.ts";
-import { safeVerdict } from "./safePrompts.ts";
+import { promptVerdict } from "./safePrompts.ts";
 import { type SessionLauncher, validateNewSession } from "./sessions.ts";
 
 export type ToolOutcome =
@@ -397,8 +397,9 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 		const report: SafeReport = { lines: [], approved: 0, left: 0 };
 		for (const prompt of open.value) {
 			const named = `${prompt.title} (${prompt.toolName}, request ${prompt.requestId})`;
-			const verdict = safeVerdict(
+			const verdict = promptVerdict(
 				prompt.toolName,
+				prompt.title,
 				prompt.input,
 				session.cloud ? undefined : session.cwd,
 			);

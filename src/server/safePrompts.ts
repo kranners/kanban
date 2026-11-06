@@ -17,7 +17,7 @@ const notInSafeSet = "not in the safe set";
 
 const remotePrefix = "mcp__claude-code-remote__";
 
-/** claude.ai's session tools that change environments, credentials, schedules, computers, trust or other sessions' lives. */
+/** claude.ai's session tools that change environments, credentials, computers, trust or other sessions' lives. */
 const refusedRemote = new Set([
 	"create_environment",
 	"update_environment",
@@ -25,19 +25,25 @@ const refusedRemote = new Set([
 	"request_credential",
 	"request_computer_folder",
 	"confirm_repository_trust",
+	"archive_session",
+	"unarchive_session",
+	"interrupt_session",
+]);
+
+const refusedRemoteWords =
+	/environment|credential|computer|trust|archive|interrupt/;
+
+/**
+ * The scheduled tasks a session keeps for its own check-ins. Which session a
+ * task wakes depends on its input or on the task itself, so each prompt is
+ * judged and approved alone, never granted for the rest of the session.
+ */
+const triggerTools = new Set([
 	"create_trigger",
 	"update_trigger",
 	"delete_trigger",
 	"fire_trigger",
-	"archive_session",
-	"unarchive_session",
-	"interrupt_session",
-	"watch_url",
-	"unwatch_url",
 ]);
-
-const refusedRemoteWords =
-	/environment|credential|trigger|computer|trust|archive|interrupt|watch_url/;
 
 /** The claude.ai session tools granted for the rest of a session once a safe prompt of it is approved. */
 const safeRemote = [
@@ -52,6 +58,10 @@ const safeRemote = [
 	"list_repos",
 	"list_sessions",
 	"list_triggers",
+	"create_trigger",
+	"update_trigger",
+	"delete_trigger",
+	"fire_trigger",
 	"create_session",
 	"read_documentation",
 	"register_repo_root",
@@ -62,6 +72,8 @@ const safeRemote = [
 	"set_session_title",
 	"subscribe_pr_activity",
 	"unsubscribe_pr_activity",
+	"watch_url",
+	"unwatch_url",
 ];
 
 const safeRemoteSet = new Set(safeRemote);
@@ -95,7 +107,10 @@ const inputFree = [
  */
 export const SAFE_SESSION_RULES: readonly string[] = [
 	...inputFree,
-	...safeRemote.map((tool) => `${remotePrefix}${tool}`),
+	// A scheduled task may wake another session, so each is judged again every time.
+	...safeRemote
+		.filter((tool) => !triggerTools.has(tool))
+		.map((tool) => `${remotePrefix}${tool}`),
 ];
 
 const inputFreeSet = new Set(inputFree);
@@ -275,6 +290,64 @@ const mcpVerdict = (
 	return unsafe(notInSafeSet);
 };
 
+const remoteServer = "claude-code-remote";
+
+/** A display label's words, "Send Message", as the tool name it shows, send_message. */
+const snake = (label: string) =>
+	label
+		.trim()
+		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "_")
+		.replace(/^_+|_+$/g, "");
+
+/** A label, "Approve or deny claude-code-remote — Send Message", as its server and the tool's words. */
+const labelParts = (text: string) => {
+	const parts = text
+		.trim()
+		.replace(/^Approve or deny\s+/, "")
+		.split(/\s+[—–-]\s+/);
+	return parts.length === 2
+		? { server: parts[0]?.trim(), shown: parts[1]?.trim() ?? "" }
+		: undefined;
+};
+
+/**
+ * The tool a prompt is for, from its tool name and the label claude.ai shows
+ * for it, such as "Approve or deny claude-code-remote — Send Message" for
+ * mcp__claude-code-remote__send_message. Only claude.ai's own server, by its
+ * exact name, is ever read from a label, and only where the prompt gives the
+ * label as its name or the label agrees with a bare tool name, so a label
+ * never makes another tool look like one of the safe set's. A label naming no
+ * server names no tool.
+ */
+export const promptTool = (toolName: string, title?: string): string => {
+	const name = toolName.trim();
+	const named = /^claude-code-remote(?:__|:)([a-z][a-z0-9_]*)$/.exec(name);
+	if (named?.[1]) return `${remotePrefix}${named[1]}`;
+	if (/\s/.test(name)) {
+		const label = labelParts(name);
+		return label?.server === remoteServer && label.shown
+			? `${remotePrefix}${snake(label.shown)}`
+			: name;
+	}
+	if (title && /^[a-z][a-z0-9_]*$/.test(name)) {
+		const label = labelParts(title);
+		if (label?.server === remoteServer && snake(label.shown) === name) {
+			return `${remotePrefix}${name}`;
+		}
+	}
+	return name;
+};
+
+/** safeVerdict for a prompt as the board lists it, by its tool name and its label. */
+export const promptVerdict = (
+	toolName: string,
+	title: string | undefined,
+	input: Record<string, unknown>,
+	cwd?: string,
+): SafeVerdict => safeVerdict(promptTool(toolName, title), input, cwd);
+
 /**
  * Whether the board may approve a permission prompt for this tool and input
  * without Aaron. cwd is the session's own folder when the board knows it.
@@ -289,8 +362,18 @@ export const safeVerdict = (
 		const reads = /^(get|list|read)_/.test(tool);
 		if (refusedRemote.has(tool) || (!reads && refusedRemoteWords.test(tool))) {
 			return unsafe(
-				"changes environments, credentials, schedules, computers, trust or another session",
+				"changes environments, credentials, computers, trust or another session",
 			);
+		}
+		if (triggerTools.has(tool)) {
+			const bound = input.persistent_session_id;
+			if (bound !== undefined && bound !== null && bound !== "") {
+				return unsafe("schedules a wake of another session");
+			}
+			const spawns = input.create_new_session_on_fire;
+			if (spawns !== undefined && spawns !== null && spawns !== false) {
+				return unsafe("starts a new session on every firing");
+			}
 		}
 		return safeRemoteSet.has(tool) || reads ? safe : unsafe(notInSafeSet);
 	}

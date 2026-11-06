@@ -21,7 +21,7 @@ import { claudeEnv } from "./accounts.ts";
 import { lastLine, stripAnsi } from "./ansi.ts";
 import type { CmuxResult } from "./cmux.ts";
 import { asObject, asString } from "./ingest/json.ts";
-import { SAFE_SESSION_RULES, safeVerdict } from "./safePrompts.ts";
+import { promptVerdict, SAFE_SESSION_RULES } from "./safePrompts.ts";
 import { accountCommand, untrustedHint } from "./sessions.ts";
 import { createStateFile, readState } from "./stateFile.ts";
 import type { RemotePrompt, SessionTty } from "./terminals.ts";
@@ -952,7 +952,11 @@ export const createCloudSessions = async ({
 				? openPrompts(item).find((open) => open.requestId === requestId)
 				: undefined;
 			if (!prompt) return Promise.resolve(closed);
-			const verdict = safeVerdict(prompt.toolName, prompt.input);
+			const verdict = promptVerdict(
+				prompt.toolName,
+				prompt.title,
+				prompt.input,
+			);
 			if (!verdict.safe) {
 				return Promise.resolve({
 					ok: false,

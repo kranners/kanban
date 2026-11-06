@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
 	bashVerdict,
+	promptTool,
+	promptVerdict,
 	SAFE_SESSION_RULES,
 	safeVerdict,
 	secretPath,
@@ -45,6 +47,14 @@ describe("safeVerdict", () => {
 			"unsubscribe_pr_activity",
 			"report_preview_port",
 			"send_later",
+			"list_triggers",
+			"get_trigger",
+			"create_trigger",
+			"update_trigger",
+			"delete_trigger",
+			"fire_trigger",
+			"watch_url",
+			"unwatch_url",
 		]) {
 			assert.equal(
 				toolReason(`mcp__claude-code-remote__${tool}`, { access: "push" }),
@@ -59,15 +69,9 @@ describe("safeVerdict", () => {
 			"request_credential",
 			"request_computer_folder",
 			"confirm_repository_trust",
-			"create_trigger",
-			"update_trigger",
-			"delete_trigger",
-			"fire_trigger",
 			"archive_session",
 			"unarchive_session",
 			"interrupt_session",
-			"watch_url",
-			"unwatch_url",
 			"rotate_credential",
 		]) {
 			assert.match(
@@ -80,6 +84,44 @@ describe("safeVerdict", () => {
 			toolReason("mcp__claude-code-remote__delete_session"),
 			"not in the safe set",
 		);
+	});
+
+	it("allows a session's own check-ins but not a wake of another session", () => {
+		assert.equal(
+			toolReason("mcp__claude-code-remote__create_trigger", {
+				name: "Check CI",
+				prompt: "Check CI",
+				run_once_at: "2026-11-06T12:00:00Z",
+			}),
+			"safe",
+		);
+		assert.equal(
+			toolReason("mcp__claude-code-remote__delete_trigger", {
+				trigger_id: "trig_01",
+			}),
+			"safe",
+		);
+		for (const tool of [
+			"create_trigger",
+			"update_trigger",
+			"delete_trigger",
+			"fire_trigger",
+		]) {
+			for (const bound of ["session_other", ["session_x"], { id: "x" }]) {
+				assert.match(
+					toolReason(`mcp__claude-code-remote__${tool}`, {
+						persistent_session_id: bound,
+					}),
+					/another session/,
+				);
+			}
+			assert.match(
+				toolReason(`mcp__claude-code-remote__${tool}`, {
+					create_new_session_on_fire: true,
+				}),
+				/new session/,
+			);
+		}
 	});
 
 	it("allows tools that only read or organise the session's own work", () => {
@@ -251,9 +293,12 @@ describe("safeVerdict", () => {
 			assert.equal(toolReason(tool), "safe", tool);
 			assert.doesNotMatch(
 				tool,
-				/(create|update|switch|delete|fire)_(environment|trigger)|credential|archive|interrupt|trust|watch_url|request_computer/,
+				/(create|update|switch|delete)_environment|(create|update|delete|fire)_trigger|credential|archive|interrupt|trust|request_computer/,
 			);
 		}
+		assert.ok(
+			SAFE_SESSION_RULES.includes("mcp__claude-code-remote__unwatch_url"),
+		);
 	});
 });
 
@@ -725,6 +770,92 @@ describe("secretPath", () => {
 			"keys.ts",
 		]) {
 			assert.ok(!secretPath(path), path);
+		}
+	});
+});
+
+describe("promptVerdict", () => {
+	const remote = "mcp__claude-code-remote__";
+	// The prompts the board's cloud sessions showed on 5 and 6 Nov 2026, by
+	// tool name and the label claude.ai shows for each.
+	const seen: [string, string][] = [
+		[`${remote}add_repo`, "Add Repo"],
+		[`${remote}register_repo_root`, "Register Repo Root"],
+		[`${remote}send_message`, "Send Message"],
+		[`${remote}delete_trigger`, "Delete Trigger"],
+		[`${remote}set_session_title`, "Set Session Title"],
+		[`${remote}create_session`, "Create Session"],
+		["Workflow", "Workflow"],
+	];
+
+	it("approves every prompt seen on 5 and 6 Nov by its tool name and label", () => {
+		for (const [tool, shown] of seen) {
+			for (const title of [
+				shown,
+				`claude-code-remote — ${shown}`,
+				`Approve or deny claude-code-remote — ${shown}`,
+			]) {
+				assert.equal(
+					promptVerdict(tool, title, { access: "push" }).safe,
+					true,
+					`${tool} / ${title}`,
+				);
+			}
+		}
+	});
+
+	it("reads the tool from its label when the prompt lists the label as its name", () => {
+		for (const [tool, shown] of seen) {
+			if (!tool.startsWith(remote)) continue;
+			for (const name of [
+				`claude-code-remote — ${shown}`,
+				`Approve or deny claude-code-remote — ${shown}`,
+			]) {
+				assert.equal(promptTool(name, name), tool, name);
+				assert.equal(promptVerdict(name, name, {}).safe, true, name);
+			}
+		}
+		assert.equal(promptTool("Workflow", "Workflow"), "Workflow");
+		assert.equal(
+			promptTool("send_message", "claude-code-remote — Send Message"),
+			`${remote}send_message`,
+		);
+		assert.equal(
+			promptTool("claude-code-remote:delete_trigger"),
+			`${remote}delete_trigger`,
+		);
+	});
+
+	it("never lets a label make another server's tool or a guarded tool safe", () => {
+		const unsafe: [string, string | undefined, Record<string, unknown>][] = [
+			[
+				"mcp__other__send_message",
+				"Approve or deny claude-code-remote — Send Message",
+				{},
+			],
+			["Bash", "claude-code-remote — Send Message", { command: "rm -rf /" }],
+			["evil_tool", "claude-code-remote — Send Message", {}],
+			[
+				"Approve or deny claude-code-remote — Request Credential",
+				undefined,
+				{},
+			],
+			["Approve or deny other-server — Send Message", undefined, {}],
+			// Only claude.ai's own server, by its exact name.
+			["mcp__claude_code_remote__send_message", undefined, {}],
+			["mcp__Claude-Code-Remote__list_repos", undefined, {}],
+			["claude_code_remote__get_secret_dump", undefined, {}],
+			["Approve or deny Claude Code Remote — Send Message", undefined, {}],
+			["Approve or deny claude_code_remote - Get Everything", undefined, {}],
+			["get_secret", "Approve or deny CLAUDE-CODE-REMOTE — Get Secret", {}],
+			// A label naming no server names no tool.
+			["Approve or deny Send Message", undefined, {}],
+			["Send Message", "Send Message", {}],
+			["Create Session", "Create Session", {}],
+			["Approve or deny Web Fetch", undefined, {}],
+		];
+		for (const [name, title, input] of unsafe) {
+			assert.equal(promptVerdict(name, title, input).safe, false, name);
 		}
 	});
 });
