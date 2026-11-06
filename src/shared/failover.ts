@@ -117,13 +117,17 @@ export const continuePrompt = (from: string, to: string): string =>
 	`The kanban board moved this session from Claude account ${from} to ${to} because ${from} hit its usage limit. Carry on with the task where you left off.`;
 
 /** A fresh session's first prompt, for a session that can't be resumed. */
+/** How every failover handover prompt begins, so the board can tell one from a prompt Aaron or Butler wrote. */
+export const handoverOpening =
+	"You are taking over a Claude Code session named";
+
 export const handoverPrompt = (
 	from: { name: string; goal: string | null; doing: string | null },
 	link: string | null,
 	steps: readonly string[],
 ): string =>
 	[
-		`You are taking over a Claude Code session named "${from.name}" that stopped because its Claude account hit its usage limit.`,
+		`${handoverOpening} "${from.name}" that stopped because its Claude account hit its usage limit.`,
 		link ? `The earlier session: ${link}` : null,
 		from.goal ? `Its goal: ${from.goal}` : null,
 		steps.length

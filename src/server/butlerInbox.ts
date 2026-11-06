@@ -27,6 +27,10 @@ export type InboxMessage = {
 	at: number;
 	text: string;
 	context: BoardContext;
+	/** The Discord thread a reply from a thread card goes into. */
+	target?: string;
+	/** The first message of a Butler job from the top bar. */
+	job?: true;
 };
 
 export type Refused = { error: string; status: 404 | 409 | 429 };
@@ -37,7 +41,10 @@ export type ButlerInbox = {
 		y: number;
 		text: string;
 		viewport?: BoardRect;
+		job?: boolean;
 	}): CommentThread | Refused;
+	/** Counts one more message to Butler against the limits, or says why not now. */
+	admit(): Refused | null;
 	send(threadId: string, text: string): { ok: true } | Refused;
 	cancel(threadId: string): boolean;
 	take(): InboxMessage[];
@@ -58,6 +65,8 @@ export type ButlerInboxDeps = {
 	store: CommentStore;
 	contextAt: (point: Point, viewport?: BoardRect) => BoardContext;
 	onRelay: () => void;
+	/** Messages waiting elsewhere, such as replies from thread cards, counted against the queue's limit. */
+	alsoQueued?: () => number;
 	newId?: () => string;
 	now?: () => number;
 };
@@ -84,9 +93,11 @@ export const createButlerInbox = (deps: ButlerInboxDeps): ButlerInbox => {
 				status: 429,
 			};
 		}
-		const queued = deps.store
-			.current()
-			.reduce((sum, thread) => sum + (thread.queued?.length ?? 0), 0);
+		const queued =
+			deps.store
+				.current()
+				.reduce((sum, thread) => sum + (thread.queued?.length ?? 0), 0) +
+			(deps.alsoQueued?.() ?? 0);
 		if (queued >= maxButlerQueue) {
 			return {
 				error: `${queued} messages are already waiting for spike`,
@@ -96,12 +107,19 @@ export const createButlerInbox = (deps: ButlerInboxDeps): ButlerInbox => {
 		return null;
 	};
 
-	const enqueue = (thread: CommentThread, text: string): CommentThread => {
+	const enqueue = (
+		thread: CommentThread,
+		text: string,
+		job = false,
+	): CommentThread => {
 		const at = now();
 		sends.push(at);
 		return {
 			...thread,
-			queued: [...(thread.queued ?? []), { id: newId(), at, text }],
+			queued: [
+				...(thread.queued ?? []),
+				{ id: newId(), at, text, ...(job ? { job: true as const } : {}) },
+			],
 			events: [...thread.events, { kind: "user", at, text }],
 		};
 	};
@@ -130,10 +148,17 @@ export const createButlerInbox = (deps: ButlerInboxDeps): ButlerInbox => {
 			}
 			return (
 				deps.store.update(created.id, (thread) => ({
-					...enqueue(thread, draft.text),
+					...enqueue(thread, draft.text, draft.job === true),
 					context,
+					...(draft.job ? { job: true as const } : {}),
 				})) ?? created
 			);
+		},
+		admit() {
+			const refused = limited();
+			if (refused) return refused;
+			sends.push(now());
+			return null;
 		},
 		send(threadId, text) {
 			const thread = deps.store.get(threadId);
@@ -190,6 +215,7 @@ export const createButlerInbox = (deps: ButlerInboxDeps): ButlerInbox => {
 						at: message.at,
 						text: message.text,
 						context: thread.context ?? {},
+						...(message.job ? { job: true as const } : {}),
 					})),
 				)
 				.sort((a, b) => a.at - b.at);

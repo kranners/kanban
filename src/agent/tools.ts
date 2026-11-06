@@ -3,12 +3,16 @@ import type { AskAnswer, PromptReply } from "../shared/conversation.ts";
 import { maxHistoryDays } from "../shared/history.ts";
 import {
 	defaultRunsOn,
+	discordIdPattern,
 	type FixedRunsOn,
 	maxNoteText,
+	maxParentDesk,
+	maxParentTitle,
 	type NoteColor,
 	noteColors,
 	type RunsOn,
 	runsOnChoices,
+	type SessionParent,
 } from "../shared/types.ts";
 
 export type Placed = {
@@ -51,6 +55,7 @@ export type ToolCall =
 			x?: number;
 			y?: number;
 			runsOn?: RunsOn;
+			parent?: SessionParent;
 	  }
 	| {
 			tool: "put_note";
@@ -316,6 +321,18 @@ export const toolDefinitions: ToolDefinition[] = [
 					enum: [...runsOnChoices],
 					description: `Where the session runs; ${defaultRunsOn} when omitted`,
 				},
+				parent: {
+					...object(
+						{
+							thread: { type: "string", pattern: "^[0-9]{5,25}$" },
+							title: { type: "string", maxLength: maxParentTitle },
+							desk: { type: "string", maxLength: maxParentDesk },
+						},
+						["thread"],
+					),
+					description:
+						"The Butler thread asking for it, by its Discord id, so its card links to that thread's card; set by Butler's kanban command, and with no x and y the card goes beside the thread's",
+				},
 			},
 			["cwd", "prompt"],
 		),
@@ -537,6 +554,37 @@ const runsOn = (fields: Fields, key: string): RunsOn =>
 		? (fields[key] as FixedRunsOn)
 		: fail(`${key} must be one of ${runsOnChoices.join(", ")}`);
 
+const sessionParent = (fields: Fields, key: string): SessionParent => {
+	const value = fields[key];
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return fail(`${key} must be an object with thread`);
+	}
+	const parent = value as Fields;
+	const extra = Object.keys(parent).find(
+		(k) => !["thread", "title", "desk"].includes(k),
+	);
+	if (extra) return fail(`${key}.${extra} is not allowed`);
+	if (
+		typeof parent.thread !== "string" ||
+		!discordIdPattern.test(parent.thread)
+	) {
+		return fail(`${key}.thread must be a Discord thread id`);
+	}
+	const line = (k: string, max: number): string | undefined => {
+		const text = parent[k];
+		if (text === undefined) return undefined;
+		if (typeof text !== "string" || text.length > max) {
+			return fail(`${key}.${k} must be a string of at most ${max} characters`);
+		}
+		return text.replace(/\s+/g, " ").trim() || undefined;
+	};
+	return defined({
+		thread: parent.thread,
+		title: line("title", maxParentTitle),
+		desk: line("desk", maxParentDesk),
+	});
+};
+
 const regionSize = (fields: Fields, key: string) =>
 	number(fields, key, 96, 20_000);
 
@@ -671,6 +719,7 @@ const readers: { [K in ToolName]: (fields: Fields) => ToolCall } = {
 			x,
 			y,
 			runsOn: optional(fields, "runsOn", runsOn),
+			parent: optional(fields, "parent", sessionParent),
 		});
 	},
 	put_note: (fields) => {

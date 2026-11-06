@@ -39,6 +39,7 @@ import {
 	summariesOfBoard,
 } from "./boardTools.ts";
 import { type Butler, createButler, loadButlerState } from "./butler.ts";
+import { createThreadLogStore, loadThreadLogs } from "./butlerThreads.ts";
 import { agentMarker, isAgentDir } from "./claudeRuns.ts";
 import {
 	type CloudApi,
@@ -649,6 +650,8 @@ const boardTools = createBoardTools({
 const tools: typeof boardTools = (threadId, call) =>
 	undo.as(`butler:${threadId}`, () => boardTools(threadId, call));
 const butlerFile = join(config.stateDir, "butler.json");
+// Thread cards' events and approvals, which only the page's thread view reads.
+const threadLogsFile = join(config.stateDir, "butler-threads.json");
 butler = createButler({
 	source,
 	layout,
@@ -658,6 +661,11 @@ butler = createButler({
 	audit,
 	file: butlerFile,
 	...(await loadButlerState(butlerFile)),
+	threads: createThreadLogStore({
+		file: threadLogsFile,
+		initial: await loadThreadLogs(threadLogsFile),
+	}),
+	cloud: () => cloud.overview(),
 	onChange: (next) => feed?.butler(next),
 	comments,
 });

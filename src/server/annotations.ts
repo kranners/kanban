@@ -3,7 +3,11 @@ import {
 	type Annotations,
 	type ButlerCardEvent,
 	type ButlerCardState,
+	type ButlerCardThread,
+	type ButlerThreadKind,
 	butlerCardStates,
+	butlerThreadKinds,
+	discordIdPattern,
 	maxButlerHistory,
 	maxButlerLink,
 	maxButlerSummary,
@@ -65,6 +69,21 @@ const isWebLink = (value: unknown): value is string => {
 	} catch {
 		return false;
 	}
+};
+
+const deskPattern = /^[A-Za-z0-9-]{1,40}$/;
+const boardThreadPattern = /^[A-Za-z0-9-]{1,64}$/;
+
+/** A Butler thread card's Discord thread: its id, kind, link and whether it read private data. */
+export const parseCardThread = (value: unknown): ButlerCardThread | null => {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return null;
+	}
+	const { id, kind, link, private: hidden } = value as Record<string, unknown>;
+	if (typeof id !== "string" || !discordIdPattern.test(id)) return null;
+	if (!butlerThreadKinds.includes(kind as ButlerThreadKind)) return null;
+	if (!isWebLink(link) || typeof hidden !== "boolean") return null;
+	return { id, kind: kind as ButlerThreadKind, link, private: hidden };
 };
 
 const isCardHistory = (value: unknown): value is ButlerCardEvent[] =>
@@ -168,6 +187,10 @@ export const parseAnnotation = (
 			watching,
 			updatedAt,
 			history,
+			thread,
+			parent,
+			desk,
+			boardThread,
 		} = fields;
 		if (
 			typeof title !== "string" ||
@@ -212,6 +235,27 @@ export const parseAnnotation = (
 				error: `history must be at most ${maxButlerHistory} states with a time, a card state and a status of at most ${maxButlerTitle}`,
 			};
 		}
+		const cardThread =
+			thread === undefined ? undefined : parseCardThread(thread);
+		if (cardThread === null) {
+			return {
+				error:
+					"thread must be a Discord thread's id, kind, https link and private flag",
+			};
+		}
+		if (!isLink(parent)) return { error: "parent must be a card id" };
+		if (
+			desk !== undefined &&
+			(typeof desk !== "string" || !deskPattern.test(desk))
+		) {
+			return { error: "desk must be a desk session's id" };
+		}
+		if (
+			boardThread !== undefined &&
+			(typeof boardThread !== "string" || !boardThreadPattern.test(boardThread))
+		) {
+			return { error: "boardThread must be a board comment thread's id" };
+		}
 		return {
 			...placed,
 			kind: "butler-card",
@@ -223,6 +267,12 @@ export const parseAnnotation = (
 			...(link === undefined ? {} : { link }),
 			...(selfFix === undefined ? {} : { selfFix }),
 			...(watching === undefined ? {} : { watching }),
+			...(cardThread === undefined ? {} : { thread: cardThread }),
+			...(parent === undefined ? {} : { parent }),
+			...(desk === undefined ? {} : { desk: desk as string }),
+			...(boardThread === undefined
+				? {}
+				: { boardThread: boardThread as string }),
 			...(history === undefined
 				? {}
 				: {

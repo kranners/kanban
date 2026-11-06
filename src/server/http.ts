@@ -56,6 +56,7 @@ import {
 	parseCommentDraft,
 	parseCommentPatch,
 	parseMessage,
+	parseRect,
 } from "./comments.ts";
 import {
 	type ConversationHub,
@@ -219,6 +220,9 @@ export type Route =
 	| { kind: "delete-comment"; threadId: string }
 	| { kind: "butler-tool"; tool: string }
 	| { kind: "butler-focus" }
+	| { kind: "butler-thread"; threadId: string }
+	| { kind: "butler-thread-message"; threadId: string }
+	| { kind: "butler-job" }
 	| { kind: "self-fix-action"; id: string; action: SelfFixAction }
 	| { kind: "peer-hook" }
 	| { kind: "runners" }
@@ -516,6 +520,24 @@ export const matchRoute = (method: string, url: URL): Route => {
 					id: fixAction[1],
 					action: fixAction[2] as SelfFixAction,
 				}
+			: { kind: "method-not-allowed" };
+	}
+	const butlerThread = path.match(
+		/^\/api\/butler\/threads\/([0-9]{5,25})(\/messages)?$/,
+	);
+	if (butlerThread?.[1]) {
+		if (butlerThread[2]) {
+			return method === "POST"
+				? { kind: "butler-thread-message", threadId: butlerThread[1] }
+				: { kind: "method-not-allowed" };
+		}
+		return method === "GET"
+			? { kind: "butler-thread", threadId: butlerThread[1] }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/butler/jobs") {
+		return method === "POST"
+			? { kind: "butler-job" }
 			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api/butler/focus") {
@@ -1044,6 +1066,15 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if (!originOk(req)) return sendError(res, 403);
 		// Aaron deleting a change's card closes it, which archives the change.
 		const card = deps.annotations.current()[id];
+		if (card?.kind === "butler-card" && card.thread && deps.butler) {
+			// Deleting a thread card keeps it off the board until the thread is active again.
+			const outcome = deps.butler.closeThreadCard(id);
+			if (!outcome.ok) {
+				return sendJson(res, 409, { ok: false, error: outcome.error });
+			}
+			res.writeHead(204, { "cache-control": "no-store" });
+			return res.end();
+		}
 		if (card?.kind === "butler-card" && card.selfFix && deps.butler) {
 			const outcome = deps.butler.selfFixAction(card.selfFix, "archive");
 			if (!outcome.ok) {
@@ -1304,6 +1335,74 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			});
 		}
 		sendJson(res, 201, started);
+	};
+
+	/** One of Butler's thread cards with its log, for the page's thread view. */
+	const butlerThreadView = (res: ServerResponse, threadId: string) => {
+		const view = deps.butler?.threadView(threadId);
+		if (!view) return sendError(res, 404);
+		sendJson(res, 200, view);
+	};
+
+	/** Aaron's reply to a Butler thread from its card, queued for spike like a / message. */
+	const butlerThreadMessage = async (
+		req: IncomingMessage,
+		res: ServerResponse,
+		threadId: string,
+	) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const text = parseMessage(read.body);
+		if (typeof text !== "string") {
+			return sendJson(res, 400, { ok: false, error: text.error });
+		}
+		if (!butlerRequestOk(req)) return refuseButler(res);
+		const sent = deps.butler?.sendToThread(threadId, text) ?? {
+			error: "Butler is not set up on this board",
+			status: 409 as const,
+		};
+		if ("error" in sent) {
+			return sendJson(res, sent.status, { ok: false, error: sent.error });
+		}
+		sendJson(res, 202, { ok: true });
+	};
+
+	/** A Butler job from the top bar: a / thread at the middle of the screen, flagged as a job. */
+	const butlerJob = async (req: IncomingMessage, res: ServerResponse) => {
+		const read = await readBody(req, res);
+		if (!read) return;
+		const text = parseMessage(read.body);
+		if (typeof text !== "string") {
+			return sendJson(res, 400, { ok: false, error: text.error });
+		}
+		const given = (read.body as { viewport?: unknown } | null)?.viewport;
+		const viewport = given === undefined ? undefined : parseRect(given);
+		if (viewport === null) {
+			return sendJson(res, 400, {
+				ok: false,
+				error: "viewport must be x, y, w and h board coordinates",
+			});
+		}
+		if (!butlerRequestOk(req)) return refuseButler(res);
+		if (!deps.butler) {
+			return sendJson(res, 409, {
+				ok: false,
+				error: "Butler is not set up on this board",
+			});
+		}
+		const started = deps.butler.startJob({
+			x: viewport ? Math.round(viewport.x + viewport.w / 2) : 0,
+			y: viewport ? Math.round(viewport.y + viewport.h / 2) : 0,
+			text,
+			...(viewport ? { viewport } : {}),
+		});
+		if ("error" in started) {
+			return sendJson(res, started.status, {
+				ok: false,
+				error: started.error,
+			});
+		}
+		sendJson(res, 201, { thread: started });
 	};
 
 	const replyComment = async (
@@ -1641,6 +1740,12 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return sendJson(res, 200, { token: deps.csrf });
 			case "butler-focus":
 				return butlerFocus(req, res);
+			case "butler-thread":
+				return butlerThreadView(res, route.threadId);
+			case "butler-thread-message":
+				return butlerThreadMessage(req, res, route.threadId);
+			case "butler-job":
+				return butlerJob(req, res);
 			case "create-comment":
 				return createComment(req, res);
 			case "reply-comment":

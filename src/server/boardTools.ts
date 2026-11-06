@@ -266,6 +266,7 @@ export const snapshot = (
 				pinned: saved[key]?.pinned === true,
 				region: regionOf.get(key) ?? null,
 				subagents: board.subagentCounts[session.id] ?? null,
+				...(session.parent ? { parent: session.parent } : {}),
 			};
 		}),
 		subagents: board.subagents.slice(0, subagentsShown).map((agent) => {
@@ -325,6 +326,18 @@ export const snapshot = (
 							watching: a.watching === true,
 							updatedAt: new Date(a.updatedAt).toISOString(),
 							region: regionOf.get(a.id) ?? null,
+							// A thread card's words stay off the board's snapshot: only its ids and link.
+							...(a.thread
+								? {
+										thread: {
+											id: a.thread.id,
+											kind: a.thread.kind,
+											link: a.thread.link,
+										},
+									}
+								: {}),
+							...(a.parent ? { parent: a.parent } : {}),
+							...(a.desk ? { desk: a.desk } : {}),
 						},
 					]
 				: [],
@@ -612,15 +625,27 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				? done(`Finished ${session.name}`)
 				: done(`${session.name} is not ready to finish: ${result.reason}`);
 		},
-		start_session: async ({ cwd, prompt, name, x, y, runsOn }) => {
+		start_session: async ({ cwd, prompt, name, x, y, runsOn, parent }) => {
+			// With no spot asked for, a session a Butler thread started goes beside that thread's card.
+			const parentCard = parent
+				? deps.annotations.current()[`thread-${parent.thread}`]
+				: undefined;
+			const at =
+				x !== undefined && y !== undefined
+					? { x: snap(x), y: snap(y) }
+					: parentCard
+						? {
+								x: snap(parentCard.x + parentCard.w + 48),
+								y: snap(parentCard.y),
+							}
+						: undefined;
 			const request = await validateNewSession({
 				cwd,
 				prompt,
 				name,
 				runsOn,
-				...(x !== undefined && y !== undefined
-					? { at: { x: snap(x), y: snap(y) } }
-					: {}),
+				...(parent ? { parent } : {}),
+				...(at ? { at } : {}),
 			});
 			if ("error" in request) return refused(request.error);
 			const settle =

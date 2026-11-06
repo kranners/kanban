@@ -15,6 +15,7 @@ import {
 	type NewSessionRequest,
 	type NewSessionResult,
 	type PromptImage,
+	parseSessionParent,
 	type RunsOn,
 } from "../shared/types.ts";
 import { stripAnsi } from "./ansi.ts";
@@ -88,10 +89,8 @@ export const validateNewSession = async (
 	if (typeof body !== "object" || body === null) {
 		return { error: "Expected a JSON object with cwd and prompt" };
 	}
-	const { cwd, name, prompt, images, at, account, runsOn } = body as Record<
-		string,
-		unknown
-	>;
+	const { cwd, name, prompt, images, at, account, runsOn, parent } =
+		body as Record<string, unknown>;
 	if (typeof cwd !== "string" || !isAbsolute(cwd)) {
 		return { error: "cwd must be an absolute path" };
 	}
@@ -134,6 +133,10 @@ export const validateNewSession = async (
 	if (where !== "local" && attached.length) {
 		return { error: "Images can only be sent to sessions on this Mac" };
 	}
+	const asked = parent === undefined ? undefined : parseSessionParent(parent);
+	if (asked === null) {
+		return { error: "parent must name a Butler thread by its Discord id" };
+	}
 	if (where === "cloud" && cloudTargetPattern.test(prompt.trim())) {
 		return {
 			error:
@@ -147,6 +150,7 @@ export const validateNewSession = async (
 		...(attached.length ? { images: attached } : {}),
 		...(point ? { at: point } : {}),
 		...(account !== undefined ? { account } : {}),
+		...(asked ? { parent: asked } : {}),
 		runsOn: where,
 	};
 };
@@ -352,6 +356,9 @@ export const routedLauncher =
 			createdAt: Date.now(),
 			...(configDir ? { configDir } : {}),
 			...(isRemoteHost(where) ? {} : { prompt: request.prompt }),
+			// Only a cloud session keeps its parent: a local one has no record
+			// to keep it in, so its card shows no Butler thread.
+			...(request.parent ? { parent: request.parent } : {}),
 		});
 		return { ok: true, id: created.id };
 	};

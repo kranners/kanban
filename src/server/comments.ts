@@ -144,12 +144,19 @@ const parseQueued = (value: unknown): ButlerMessage[] =>
 	Array.isArray(value)
 		? value
 				.flatMap((raw) => {
-					const { id, at, text } = (raw ?? {}) as Record<string, unknown>;
+					const { id, at, text, job } = (raw ?? {}) as Record<string, unknown>;
 					return typeof id === "string" &&
 						threadIdPattern.test(id) &&
 						isTime(at) &&
 						typeof text === "string"
-						? [{ id, at, text: text.slice(0, maxMessage) }]
+						? [
+								{
+									id,
+									at,
+									text: text.slice(0, maxMessage),
+									...(job === true ? { job: true as const } : {}),
+								},
+							]
 						: [];
 				})
 				.slice(-maxButlerQueue)
@@ -234,6 +241,7 @@ const parseThread = (value: unknown): CommentThread | null => {
 			queued: parseQueued(fields.queued),
 			waiting,
 			...(replyNote ? { replyNote } : {}),
+			...(fields.job === true ? { job: true as const } : {}),
 			createdAt,
 			updatedAt,
 			resolved: resolved === true,

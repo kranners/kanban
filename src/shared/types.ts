@@ -110,6 +110,37 @@ export type Session = {
 	/** Set when the session runs on another machine through kanban-runner. */
 	runner?: { id: string; name: string };
 	tokens?: TokenUsage;
+	/** The Butler thread that started it, through start_session, and that thread's card. */
+	parent?: SessionParent & { card: string };
+};
+
+/** The Discord thread of Butler's that asked for a session, as start_session takes it. */
+export type SessionParent = { thread: string; title?: string; desk?: string };
+
+export const discordIdPattern = /^[0-9]{5,25}$/;
+export const maxParentTitle = 100;
+export const maxParentDesk = 40;
+
+/** A session's parent as stored or sent, clipped to its limits, or null when it is not one. */
+export const parseSessionParent = (value: unknown): SessionParent | null => {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return null;
+	}
+	const { thread, title, desk } = value as Record<string, unknown>;
+	if (typeof thread !== "string" || !discordIdPattern.test(thread)) {
+		return null;
+	}
+	if (title !== undefined && typeof title !== "string") return null;
+	if (desk !== undefined && typeof desk !== "string") return null;
+	const line = (text: string, max: number) =>
+		text.replace(/\s+/g, " ").trim().slice(0, max);
+	const named = title === undefined ? "" : line(title, maxParentTitle);
+	const at = desk === undefined ? "" : line(desk, maxParentDesk);
+	return {
+		thread,
+		...(named ? { title: named } : {}),
+		...(at ? { desk: at } : {}),
+	};
 };
 
 export type Subagent = {
@@ -308,6 +339,86 @@ export type ButlerCard = Annotated & {
 	updatedAt: number;
 	/** Each change of state or status, oldest first: the card's timeline. */
 	history?: ButlerCardEvent[];
+	/** Set on a card that mirrors one of Butler's Discord threads. */
+	thread?: ButlerCardThread;
+	/** The card this one came from: `thread-<id>` of the Butler thread that started it. */
+	parent?: string;
+	/** The desk session's id, for a desk session's thread. */
+	desk?: string;
+	/** The board comment thread it began from, for a board message or job. */
+	boardThread?: string;
+};
+
+export const butlerThreadKinds = [
+	"dm",
+	"conversation",
+	"board",
+	"job",
+	"desk",
+	"scheduled",
+	"voice",
+] as const;
+
+export type ButlerThreadKind = (typeof butlerThreadKinds)[number];
+
+export type ButlerCardThread = {
+	id: string;
+	kind: ButlerThreadKind;
+	link: string;
+	private: boolean;
+};
+
+export const butlerThreadEventKinds = [
+	"user",
+	"reply",
+	"tool",
+	"approval",
+	"error",
+	"status",
+] as const;
+
+export type ButlerThreadEventKind = (typeof butlerThreadEventKinds)[number];
+
+/** One line of a Butler thread's log, as the daemon reports it; never in board_snapshot. */
+export type ButlerThreadEvent = {
+	at: number;
+	kind: ButlerThreadEventKind;
+	text: string;
+};
+
+/** Something in a Butler thread waiting on Aaron, answered in Discord. */
+export type ButlerThreadApproval = {
+	at: number;
+	headline: string;
+	code?: string;
+};
+
+export const maxThreadEvents = 30;
+export const maxThreadEventText = 1200;
+export const maxThreadApprovals = 10;
+
+/** What the page's thread view of a Butler thread card shows. */
+export type ButlerThreadView = {
+	card: {
+		id: string;
+		title: string;
+		state: ButlerCardState;
+		status?: string;
+		link?: string;
+		thread: ButlerCardThread;
+		parent?: string;
+		desk?: string;
+		updatedAt: number;
+	};
+	events: ButlerThreadEvent[];
+	approvals: ButlerThreadApproval[];
+	children: {
+		kind: "change" | "session" | "thread";
+		id: string;
+		title: string;
+		state: string;
+		link?: string;
+	}[];
 };
 
 export type Annotation = Note | Sticker | ButlerCard;
@@ -418,7 +529,13 @@ export type AaronFocus = BoardContext & {
 };
 
 /** A message to Butler still waiting for spike to take it. */
-export type ButlerMessage = { id: string; at: number; text: string };
+export type ButlerMessage = {
+	id: string;
+	at: number;
+	text: string;
+	/** Set on the first message of a Butler job started from the top bar. */
+	job?: true;
+};
 
 export const maxButlerQueue = 50;
 
@@ -435,6 +552,8 @@ export type CommentThread = {
 	waiting?: string[];
 	/** The note Butler's answers are pinned in beside the card it was about. */
 	replyNote?: string;
+	/** A Butler job, started from the top bar rather than with /. */
+	job?: true;
 	createdAt: number;
 	updatedAt: number;
 	resolved: boolean;
@@ -550,6 +669,8 @@ export type NewSessionRequest = {
 	runsOn?: RunsOn;
 	/** Set only by the board's failover: the Claude session id to resume. */
 	resume?: string;
+	/** The Butler thread that asked for it, through start_session. */
+	parent?: SessionParent;
 };
 
 export type PromptImage = { type: string; data: string };

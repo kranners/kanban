@@ -572,6 +572,9 @@ function toCloudSession(cs: CloudSession, tail: Tail | null): Session {
 		steps: [...(facts?.steps ?? [])],
 		cloud: { url: cs.url },
 		...(cs.configDir ? { configDir: cs.configDir } : {}),
+		...(cs.parent
+			? { parent: { ...cs.parent, card: `thread-${cs.parent.thread}` } }
+			: {}),
 	};
 }
 

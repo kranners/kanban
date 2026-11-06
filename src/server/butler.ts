@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { parseToolCall, type ToolCall } from "../agent/tools.ts";
+import { handoverOpening } from "../shared/failover.ts";
 import {
 	type AaronFocus,
 	type Annotation,
@@ -13,17 +14,28 @@ import {
 	type ButlerCardState,
 	type ButlerPresence,
 	type ButlerSpot,
+	type ButlerThreadApproval,
+	type ButlerThreadEvent,
+	type ButlerThreadKind,
+	type ButlerThreadView,
 	butlerCardStates,
+	butlerThreadKinds,
+	type CommentThread,
+	discordIdPattern,
 	type FocusReport,
 	maxButlerHistory,
 	maxButlerQueue,
 	maxButlerSummary,
 	maxButlerTitle,
 	maxNoteText,
+	maxThreadApprovals,
+	maxThreadEvents,
+	maxThreadEventText,
 	type Note,
 	type NoteColor,
 	noteColors,
 	type Point,
+	type Region,
 } from "../shared/types.ts";
 import { snap } from "../web/grid.ts";
 import { nodeKey } from "../web/layout.ts";
@@ -44,7 +56,19 @@ import {
 	occupied,
 	type ToolOutcome,
 } from "./boardTools.ts";
-import { type ButlerInbox, createButlerInbox } from "./butlerInbox.ts";
+import {
+	type ButlerInbox,
+	createButlerInbox,
+	type InboxMessage,
+	type Refused,
+} from "./butlerInbox.ts";
+import {
+	createThreadLogStore,
+	parseThreadApproval,
+	parseThreadEvent,
+	type ThreadLogStore,
+} from "./butlerThreads.ts";
+import type { CloudRecord } from "./cloud.ts";
 import { type CommentStore, parseRect } from "./comments.ts";
 import type { BoardSource } from "./http.ts";
 import { fromLoopback } from "./loopback.ts";
@@ -65,6 +89,12 @@ import { createStateFile, readState } from "./stateFile.ts";
 export const butlerIdentity = "butler";
 export const maxWatching = 100;
 export const maxSelfFixes = 50;
+/** The most thread cards one butler_threads sync takes; the daemon sends at most 60. */
+export const maxThreadCards = 80;
+export const threadCardPrefix = "thread-";
+export const threadCardId = (thread: string) => `${threadCardPrefix}${thread}`;
+/** A reply from a thread card goes to spike as a message of this board thread. */
+export const cardReplyThread = (thread: string) => `card-${thread}`;
 export const selfFixPattern = /^[0-9]{8}-[0-9]{6}-[0-9]+$/;
 
 const cardSize = { w: 312, h: 216 };
@@ -111,6 +141,19 @@ export type Butler = {
 	focus(report: FocusReport): void;
 	/** What Aaron is working on, or null while no page has told the board lately. */
 	aaron(): AaronFocus | null;
+	/** A thread card's whole view for the page, or null when there is no such card. */
+	threadView(thread: string): ButlerThreadView | null;
+	/** Queues Aaron's reply from a thread card for spike to post in that Discord thread. */
+	sendToThread(thread: string, text: string): { ok: true } | Refused;
+	/** Starts a Butler job: a / thread whose first message is flagged as a job. */
+	startJob(draft: {
+		x: number;
+		y: number;
+		text: string;
+		viewport?: BoardRect;
+	}): CommentThread | Refused;
+	/** Aaron deleting a thread card: it stays off the board until the thread is active again. */
+	closeThreadCard(cardId: string): ToolOutcome;
 	/** Forgets what Aaron was working on once his pages have gone quiet. */
 	check(): void;
 	saved(): Promise<void>;
@@ -120,6 +163,14 @@ type ButlerState = {
 	watching: string[];
 	selfFixActions: Record<string, SelfFixAction>;
 	watchedFixes: string[];
+	/** Thread cards Aaron closed, by Discord thread id, and when. */
+	dismissedThreads: Record<string, number>;
+};
+
+/** What the board knows of its cloud sessions, for the orphan report. */
+export type CloudOverview = {
+	records: Pick<CloudRecord, "prompt" | "parent">[];
+	reachable: boolean | null;
 };
 
 export type ButlerDeps = Pick<
@@ -134,6 +185,11 @@ export type ButlerDeps = Pick<
 	initial: string[];
 	initialActions?: Record<string, SelfFixAction>;
 	initialWatchedFixes?: string[];
+	initialDismissedThreads?: Record<string, number>;
+	/** Where thread cards' events and approvals are kept, never in the annotations. */
+	threads?: ThreadLogStore;
+	/** The board's cloud sessions, for the orphan report butler_threads returns. */
+	cloud?: () => CloudOverview;
 	onChange: (presence: ButlerPresence) => void;
 	/** Where Aaron's messages to Butler are kept, in their comment threads. */
 	comments?: CommentStore;
@@ -185,11 +241,32 @@ export const parseSelfFixActions = (
 	return actions;
 };
 
+export const parseDismissedThreads = (
+	value: unknown,
+): Record<string, number> => {
+	const raw =
+		typeof value === "object" && value !== null && !Array.isArray(value)
+			? (value as { dismissedThreads?: unknown }).dismissedThreads
+			: null;
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
+	return Object.fromEntries(
+		Object.entries(raw)
+			.filter(
+				([id, at]) =>
+					discordIdPattern.test(id) &&
+					typeof at === "number" &&
+					Number.isFinite(at),
+			)
+			.slice(0, 200),
+	) as Record<string, number>;
+};
+
 /** Everything butler.json keeps, for createButler's initial state. */
 export const loadButlerState = (file: string) =>
 	readState(file, (value) => ({
 		initial: parseWatching(value),
 		initialActions: parseSelfFixActions(value),
+		initialDismissedThreads: parseDismissedThreads(value),
 		initialWatchedFixes: parseFixIds(
 			typeof value === "object" && value !== null
 				? (value as { watchedFixes?: unknown }).watchedFixes
@@ -333,7 +410,154 @@ const sameCard = (a: ButlerCard, b: ButlerCard): boolean =>
 	a.status === b.status &&
 	a.summary === b.summary &&
 	a.link === b.link &&
-	a.watching === b.watching;
+	a.watching === b.watching &&
+	JSON.stringify(a.thread) === JSON.stringify(b.thread) &&
+	a.parent === b.parent &&
+	a.desk === b.desk &&
+	a.boardThread === b.boardThread;
+
+const regionNamed = (regions: readonly Region[], name: string) =>
+	regions.find(
+		(r) =>
+			(r.name ?? r.cwd.split("/").pop() ?? "").trim().toLowerCase() === name,
+	);
+
+const centreIn = (card: Rect, box: Rect) => {
+	const x = card.x + card.w / 2;
+	const y = card.y + card.h / 2;
+	return x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h;
+};
+
+const oneLine = (value: string, max: number) =>
+	value.replace(/\s+/g, " ").trim().slice(0, max);
+
+const isDiscordLink = (value: unknown): value is string => {
+	if (typeof value !== "string" || value.length > 500) return false;
+	try {
+		const url = new URL(value);
+		return (
+			url.protocol === "https:" &&
+			(url.hostname === "discord.com" || url.hostname.endsWith(".discord.com"))
+		);
+	} catch {
+		return false;
+	}
+};
+
+const deskIdPattern = /^[A-Za-z0-9-]{1,40}$/;
+const boardThreadPattern = /^[A-Za-z0-9-]{1,64}$/;
+const isTime = (value: unknown): value is number =>
+	typeof value === "number" && Number.isFinite(value) && value >= 0;
+
+/** One entry of the daemon's thread cards file, checked and clipped, or null to drop it. */
+export type ThreadEntry = {
+	id: string;
+	title: string;
+	kind: ButlerThreadKind;
+	state: ButlerCardState;
+	status: string;
+	link: string;
+	createdAt: number;
+	lastActiveAt: number;
+	endedAt?: number;
+	parent?: string;
+	desk?: { id: string; task: string; state: string };
+	boardThread?: string;
+	private: boolean;
+	events: ButlerThreadEvent[];
+	approvals: ButlerThreadApproval[];
+};
+
+export const parseThreadEntry = (value: unknown): ThreadEntry | null => {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return null;
+	}
+	const f = value as Fields;
+	if (typeof f.id !== "string" || !discordIdPattern.test(f.id)) return null;
+	if (typeof f.title !== "string") return null;
+	const title = oneLine(f.title, maxButlerTitle);
+	if (title === "") return null;
+	if (!butlerThreadKinds.includes(f.kind as ButlerThreadKind)) return null;
+	if (!butlerCardStates.includes(f.state as ButlerCardState)) return null;
+	if (typeof f.status !== "string") return null;
+	if (!isDiscordLink(f.link)) return null;
+	if (!isTime(f.createdAt) || !isTime(f.lastActiveAt)) return null;
+	if (typeof f.private !== "boolean") return null;
+	const desk = f.desk as Fields | undefined;
+	const listed = <T>(
+		raw: unknown,
+		parse: (v: unknown) => T | null,
+		max: number,
+	) =>
+		Array.isArray(raw) ? raw.flatMap((v) => parse(v) ?? []).slice(-max) : [];
+	return {
+		id: f.id,
+		title,
+		kind: f.kind as ButlerThreadKind,
+		state: f.state as ButlerCardState,
+		status: oneLine(f.status, maxButlerTitle),
+		link: f.link,
+		createdAt: f.createdAt,
+		lastActiveAt: f.lastActiveAt,
+		...(isTime(f.endedAt) ? { endedAt: f.endedAt } : {}),
+		...(typeof f.parent === "string" &&
+		discordIdPattern.test(f.parent) &&
+		f.parent !== f.id
+			? { parent: f.parent }
+			: {}),
+		...(typeof desk === "object" &&
+		desk !== null &&
+		typeof desk.id === "string" &&
+		deskIdPattern.test(desk.id)
+			? {
+					desk: {
+						id: desk.id,
+						task: typeof desk.task === "string" ? oneLine(desk.task, 200) : "",
+						state:
+							typeof desk.state === "string" ? oneLine(desk.state, 40) : "",
+					},
+				}
+			: {}),
+		...(typeof f.boardThread === "string" &&
+		boardThreadPattern.test(f.boardThread)
+			? { boardThread: f.boardThread }
+			: {}),
+		private: f.private,
+		events: listed(f.events, parseThreadEvent, maxThreadEvents),
+		approvals: listed(f.approvals, parseThreadApproval, maxThreadApprovals),
+	};
+};
+
+/**
+ * Why a cloud session on the board has no Butler thread: Butler started
+ * it without a parent (its prompt carries his context), the failover
+ * handed it over, or it was started on the board.
+ */
+export const orphanReport = (cloud: CloudOverview | undefined): string => {
+	const records = cloud?.records ?? [];
+	let linked = 0;
+	let butler = 0;
+	let failover = 0;
+	let board = 0;
+	for (const record of records) {
+		const prompt = record.prompt ?? "";
+		if (record.parent) linked += 1;
+		else if (
+			prompt.includes("Context pack") ||
+			prompt.includes("Context from Butler")
+		)
+			butler += 1;
+		else if (prompt.startsWith(handoverOpening)) failover += 1;
+		else board += 1;
+	}
+	const reachable =
+		cloud?.reachable === true
+			? "reachable"
+			: cloud?.reachable === false
+				? "unreachable"
+				: "unknown";
+	return `Cloud sessions on the board: ${records.length}; linked to a Butler thread: ${linked}; unlinked: ${butler + failover + board} (Butler start_session without a parent: ${butler}, failover handover: ${failover}, started on the board: ${board}); cloud API: ${reachable}`;
+};
 
 export const createButler = (deps: ButlerDeps): Butler => {
 	const newId = deps.newId ?? randomUUID;
@@ -344,11 +568,16 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		...(deps.initialActions ?? {}),
 	};
 	let watchedFixes = new Set(deps.initialWatchedFixes ?? []);
+	let dismissedThreads: Record<string, number> = {
+		...(deps.initialDismissedThreads ?? {}),
+	};
+	const threadLogs = deps.threads ?? createThreadLogStore({});
 	const persist = () =>
 		file.write({
 			watching,
 			selfFixActions: actions,
 			watchedFixes: [...watchedFixes],
+			dismissedThreads,
 		});
 	let looking: ButlerSpot | null = null;
 	let working: ButlerSpot | null = null;
@@ -522,6 +751,25 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				`No card for change ${id.slice("self-fix-".length)} yet; spike adds every change's card within a few minutes, so never make one`,
 			);
 		}
+		if (existing?.kind === "butler-card" && existing.thread) {
+			const kept = [
+				"title",
+				"state",
+				"status",
+				"summary",
+				"link",
+				"watching",
+			].find((key) => fields[key] !== undefined);
+			if (kept) {
+				return refused(
+					"Spike keeps a thread card in step with its Discord thread; move it here, note it with note, or close it with close_card",
+				);
+			}
+		} else if (id?.startsWith(threadCardPrefix)) {
+			return refused(
+				"Spike adds a card for each of Butler's Discord threads itself, so never make one",
+			);
+		}
 		if (!existing && !title) return refused("A new card needs a title");
 		const spot = freshSpot();
 		const base: ButlerCard = (existing as ButlerCard | undefined) ?? {
@@ -563,6 +811,31 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		);
 	};
 
+	/** Takes a card off the board with Butler's notes on it and a thread card's log; the notes it took. */
+	const removeCard = (card: ButlerCard): Note[] => {
+		deps.annotations.remove(card.id);
+		const notes = Object.values(deps.annotations.current()).filter(
+			(a): a is Note =>
+				a.kind === "note" && a.author === "butler" && a.session === card.id,
+		);
+		for (const note of notes) deps.annotations.remove(note.id);
+		if (card.thread) threadLogs.remove(card.id);
+		if (looking?.target === card.id || working?.target === card.id) {
+			if (looking?.target === card.id) looking = null;
+			if (working?.target === card.id) working = null;
+			changed();
+		}
+		return notes;
+	};
+
+	/** Beside a card, to its right, for a card that came from it. */
+	const besideCard = (id: string | undefined) => {
+		const parent = id ? deps.annotations.current()[id] : undefined;
+		return parent
+			? { x: snap(parent.x + parent.w + gap), y: snap(parent.y) }
+			: null;
+	};
+
 	const closeCard = (fields: Fields): ToolOutcome => {
 		const unknown = only(fields, ["id", "change", "selfFix"]);
 		if (unknown) return unknown;
@@ -576,16 +849,10 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				? refused(`${id} is a session: close it with finish_session`)
 				: refused(`No card ${id} of Butler's on the board`);
 		}
-		deps.annotations.remove(card.id);
-		const notes = Object.values(deps.annotations.current()).filter(
-			(a) =>
-				a.kind === "note" && a.author === "butler" && a.session === card.id,
-		);
-		for (const note of notes) deps.annotations.remove(note.id);
-		if (looking?.target === card.id || working?.target === card.id) {
-			if (looking?.target === card.id) looking = null;
-			if (working?.target === card.id) working = null;
-			changed();
+		const notes = removeCard(card);
+		if (card.thread) {
+			dismissedThreads = { ...dismissedThreads, [card.thread.id]: now() };
+			persist();
 		}
 		const archiving = card.selfFix ? record(card.selfFix, "archive") : "";
 		return done(
@@ -758,6 +1025,11 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			if (typeof fixId !== "string" || !selfFixPattern.test(fixId)) {
 				return refused("each change needs its change id");
 			}
+			const thread =
+				typeof fix.thread === "string" && discordIdPattern.test(fix.thread)
+					? fix.thread
+					: undefined;
+			const parent = thread ? threadCardId(thread) : undefined;
 			const status = text(fix, "state", maxButlerTitle, true);
 			const title = text(fix, "title", maxButlerTitle);
 			const summary = text(fix, "summary", maxButlerSummary);
@@ -780,7 +1052,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 							kind: "butler-card",
 							title: "",
 							state: "idle",
-							...freshSpot(),
+							...(besideCard(parent) ?? freshSpot()),
 							...cardSize,
 							z: topZ(deps.annotations.current()) + 1,
 							updatedAt: now(),
@@ -805,6 +1077,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				...(!dismissed && (fix.watching === true || watchedFixes.has(fixId))
 					? { watching: true }
 					: {}),
+				...(parent ? { parent } : {}),
 			};
 			if (existing?.kind === "butler-card" && sameCard(existing, card)) {
 				continue;
@@ -818,7 +1091,8 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			changedCards += 1;
 		}
 		const gone = Object.values(deps.annotations.current()).filter(
-			(a) => a.kind === "butler-card" && a.selfFix && !seen.has(a.id),
+			(a) =>
+				a.kind === "butler-card" && a.selfFix && !a.thread && !seen.has(a.id),
 		);
 		for (const card of gone) deps.annotations.remove(card.id);
 		// Forget what was done to fixes spike no longer lists, a week on.
@@ -843,6 +1117,126 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				.sort();
 		return done(
 			`${fixes.length} change card${fixes.length === 1 ? "" : "s"}: ${changedCards} updated, ${gone.length} removed\nBoard actions: ${JSON.stringify({ archive: requested("archive"), dismiss: requested("dismiss") })}`,
+		);
+	};
+
+	/** Where a new thread card goes: beside the card of the thread that started it, in Butler's region, or somewhere clear. */
+	const newThreadSpot = (parent: string | undefined) => {
+		const beside = besideCard(parent);
+		if (beside) return beside;
+		const region = regionNamed(deps.regions.current(), "butler");
+		return region
+			? { x: snap(region.x + 24), y: snap(region.y + 48) }
+			: freshSpot();
+	};
+
+	/** A card that just finished goes into the Done region, when the board has one and it is not there yet. */
+	const intoDone = (card: ButlerCard): ButlerCard => {
+		const region = regionNamed(deps.regions.current(), "done");
+		if (!region || centreIn(card, region)) return card;
+		return clearOf(
+			{ ...card, x: snap(region.x + 24), y: snap(region.y + 48) },
+			taken().filter(
+				(r) => !("id" in r) || (r as { id?: unknown }).id !== card.id,
+			),
+		);
+	};
+
+	/**
+	 * Mirrors the daemon's thread cards file: one card for each of Butler's
+	 * Discord threads active in the last day, kept where it was put, with
+	 * its events and approvals kept apart from the board, and every thread
+	 * card no longer listed taken off.
+	 */
+	const butlerThreads = (fields: Fields): ToolOutcome => {
+		const unknown = only(fields, ["threads"]);
+		if (unknown) return unknown;
+		const listed = fields.threads;
+		if (!Array.isArray(listed) || listed.length > maxThreadCards) {
+			return refused(`threads must be a list of at most ${maxThreadCards}`);
+		}
+		const entries = listed
+			.flatMap((raw) => parseThreadEntry(raw) ?? [])
+			// Parents first, so a thread's card can go beside its parent's.
+			.sort((a, b) => a.createdAt - b.createdAt);
+		const seen = new Set<string>();
+		const listedThreads = new Set(entries.map((entry) => entry.id));
+		let changedCards = 0;
+		for (const entry of entries) {
+			const id = threadCardId(entry.id);
+			const closedAt = dismissedThreads[entry.id];
+			if (closedAt !== undefined) {
+				if (entry.lastActiveAt <= closedAt) continue;
+				const { [entry.id]: _reopened, ...rest } = dismissedThreads;
+				dismissedThreads = rest;
+				persist();
+			}
+			if (seen.has(id)) continue;
+			seen.add(id);
+			const existing = annotation(id);
+			const before = existing?.kind === "butler-card" ? existing : undefined;
+			const parent = entry.parent ? threadCardId(entry.parent) : undefined;
+			const base: ButlerCard = before ?? {
+				id,
+				kind: "butler-card",
+				title: "",
+				state: "idle",
+				...newThreadSpot(parent),
+				...cardSize,
+				z: topZ(deps.annotations.current()) + 1,
+				updatedAt: now(),
+			};
+			const card: ButlerCard = {
+				id,
+				kind: "butler-card",
+				x: base.x,
+				y: base.y,
+				w: base.w,
+				h: base.h,
+				z: base.z,
+				updatedAt: base.updatedAt,
+				title: entry.title,
+				state: entry.state,
+				...(entry.status ? { status: entry.status } : {}),
+				link: entry.link,
+				thread: {
+					id: entry.id,
+					kind: entry.kind,
+					link: entry.link,
+					private: entry.private,
+				},
+				...(parent ? { parent } : {}),
+				...(entry.desk ? { desk: entry.desk.id } : {}),
+				...(entry.boardThread ? { boardThread: entry.boardThread } : {}),
+			};
+			threadLogs.sync(id, entry.events, entry.approvals);
+			if (before && sameCard(before, card)) continue;
+			const fresh = before === undefined;
+			let placed = fresh ? clearOf(card, taken()) : card;
+			if (card.state === "done" && before?.state !== "done") {
+				placed = intoDone(placed);
+			}
+			const failed = put({ ...placed, updatedAt: now() });
+			if (failed && !failed.ok) return refused(`${entry.id}: ${failed.error}`);
+			changedCards += 1;
+		}
+		const gone = Object.values(deps.annotations.current()).filter(
+			(a): a is ButlerCard =>
+				a.kind === "butler-card" && a.thread !== undefined && !seen.has(a.id),
+		);
+		for (const card of gone) removeCard(card);
+		// Forget a closed card once the daemon no longer lists its thread.
+		const keptDismissed = Object.fromEntries(
+			Object.entries(dismissedThreads).filter(([id]) => listedThreads.has(id)),
+		);
+		if (
+			Object.keys(keptDismissed).length !== Object.keys(dismissedThreads).length
+		) {
+			dismissedThreads = keptDismissed;
+			persist();
+		}
+		return done(
+			`${entries.length} thread card${entries.length === 1 ? "" : "s"}: ${changedCards} updated, ${gone.length} removed\n${orphanReport(deps.cloud?.())}`,
 		);
 	};
 
@@ -1017,6 +1411,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			store: deps.comments,
 			contextAt,
 			onRelay: changed,
+			alsoQueued: () => threadLogs.queued().length,
 			newId: deps.newId,
 			now,
 		});
@@ -1026,9 +1421,21 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		const unknown = only(fields, []);
 		if (unknown) return unknown;
 		if (!inbox) return refused("This board keeps no messages");
-		return done(
-			JSON.stringify({ messages: inbox.take(), aaron: describeAaron() }),
-		);
+		const replies: InboxMessage[] = threadLogs
+			.queued()
+			.map(({ card, message }) => {
+				const thread = card.slice(threadCardPrefix.length);
+				return {
+					id: message.id,
+					thread: cardReplyThread(thread),
+					at: message.at,
+					text: message.text,
+					context: {},
+					target: thread,
+				};
+			});
+		const messages = [...inbox.take(), ...replies].sort((a, b) => a.at - b.at);
+		return done(JSON.stringify({ messages, aaron: describeAaron() }));
 	};
 
 	const boardFocus = (fields: Fields): ToolOutcome => {
@@ -1062,8 +1469,12 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		const thread = deps.comments
 			?.current()
 			.find((t) => t.queued?.some((m) => m.id === last))?.id;
-		const took = inbox.ack(ids as string[]);
-		const spot = thread ? threadSpot(thread) : null;
+		const cardReply = threadLogs
+			.queued()
+			.find(({ message }) => message.id === last)?.card;
+		const took =
+			inbox.ack(ids as string[]) + threadLogs.ack(new Set(ids as string[]));
+		const spot = thread ? threadSpot(thread) : (cardReply ?? null);
 		if (took > 0 && spot) workOn(spot);
 		return done(`Took ${took}`);
 	};
@@ -1081,6 +1492,21 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			if (isOutcome(value)) return value;
 		}
 		const ok = fields.ok !== false;
+		// An answer to a reply from a thread card goes into that card's log, never a comment thread.
+		const cardReply = (threadId as string).match(/^card-([0-9]{5,25})$/);
+		if (cardReply?.[1]) {
+			const card = threadCardId(cardReply[1]);
+			if (annotation(card)?.kind === "butler-card") {
+				threadLogs.append(card, {
+					at: now(),
+					kind: ok ? "reply" : "error",
+					text: (body as string).slice(0, maxThreadEventText),
+				});
+				workOn(card);
+				return done("Shown on the thread's card");
+			}
+			return done("No such thread card on the board any more");
+		}
 		const thread = inbox.reply(
 			threadId as string,
 			messageId as string,
@@ -1126,6 +1552,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		// The changes' sync, by its new name and its old one, which spike still sends.
 		changes: selfFixes,
 		self_fixes: selfFixes,
+		butler_threads: butlerThreads,
 	};
 
 	const tool = async (name: string, body: unknown): Promise<ToolOutcome> => {
@@ -1165,6 +1592,96 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		);
 	};
 
+	const threadView = (thread: string): ButlerThreadView | null => {
+		if (!discordIdPattern.test(thread)) return null;
+		const id = threadCardId(thread);
+		const card = annotation(id);
+		if (card?.kind !== "butler-card" || !card.thread) return null;
+		const shown = threadLogs.shown(id);
+		const children: ButlerThreadView["children"] = [
+			...butlerCards()
+				.filter((c) => c.parent === id)
+				.sort((a, b) => a.updatedAt - b.updatedAt)
+				.map((c) => ({
+					kind: c.thread ? ("thread" as const) : ("change" as const),
+					id: c.thread ? c.thread.id : (c.selfFix ?? c.id),
+					title: c.title,
+					state: c.state,
+					...(c.link ? { link: c.link } : {}),
+				})),
+			...board()
+				.sessions.filter((s) => s.parent?.thread === thread)
+				.map((s) => ({
+					kind: "session" as const,
+					id: s.id,
+					title: s.name,
+					state: s.activity,
+					...(s.cloud ? { link: s.cloud.url } : {}),
+				})),
+		];
+		return {
+			card: {
+				id: card.id,
+				title: card.title,
+				state: card.state,
+				...(card.status ? { status: card.status } : {}),
+				...(card.link ? { link: card.link } : {}),
+				thread: card.thread,
+				...(card.parent ? { parent: card.parent } : {}),
+				...(card.desk ? { desk: card.desk } : {}),
+				updatedAt: card.updatedAt,
+			},
+			events: shown.events,
+			approvals: shown.approvals,
+			children,
+		};
+	};
+
+	const sendToThread = (
+		thread: string,
+		body: string,
+	): { ok: true } | Refused => {
+		const id = threadCardId(thread);
+		const card = discordIdPattern.test(thread) ? annotation(id) : undefined;
+		if (card?.kind !== "butler-card" || !card.thread) {
+			return { error: "No such thread card", status: 404 };
+		}
+		if (card.thread.kind === "dm") {
+			return { error: "Reply to the DM in Discord", status: 409 };
+		}
+		if (!inbox) {
+			return { error: "Butler is not set up on this board", status: 409 };
+		}
+		const limit = inbox.admit();
+		if (limit) return limit;
+		const at = now();
+		threadLogs.queue(id, { id: newId(), at, text: body });
+		threadLogs.append(id, {
+			at,
+			kind: "user",
+			text: body.slice(0, maxThreadEventText),
+		});
+		return { ok: true };
+	};
+
+	const startJob = (draft: {
+		x: number;
+		y: number;
+		text: string;
+		viewport?: BoardRect;
+	}): CommentThread | Refused =>
+		inbox
+			? inbox.start({ ...draft, job: true })
+			: { error: "Butler is not set up on this board", status: 409 };
+
+	const closeThreadCard = (cardId: string): ToolOutcome => {
+		const card = annotation(cardId);
+		if (card?.kind !== "butler-card" || !card.thread) {
+			return refused(`No thread card ${cardId}`);
+		}
+		return closeCard({ id: card.id });
+	};
+
 	return {
 		current,
 		tool,
@@ -1172,7 +1689,14 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		inbox,
 		focus,
 		aaron: describeAaron,
+		threadView,
+		sendToThread,
+		startJob,
+		closeThreadCard,
 		check,
-		saved: () => file.saved(),
+		saved: async () => {
+			await file.saved();
+			await threadLogs.saved();
+		},
 	};
 };
