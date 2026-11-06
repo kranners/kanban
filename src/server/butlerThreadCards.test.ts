@@ -426,6 +426,36 @@ describe("Butler's thread cards", () => {
 		const written = await readFile(logsFile, "utf8");
 		assert.match(written, /pay it/);
 	});
+
+	it("shows a thread's mission and machines, dropping what is not one, and keeps them off the snapshot", async () => {
+		const { sync, annotations, snapshotOf } = await setup();
+		await sync([
+			entry("11111111", {
+				mission: { id: "m87245d", covers: "mac on\npiggys-MBP  for 24 hours" },
+				machines: ["piggys-MBP", "browser", "bad host!", "piggys-MBP"],
+			}),
+			entry("22222222", { mission: { id: "has space", covers: "x" } }),
+		]);
+		const card = cardOf(annotations, "thread-11111111");
+		assert.deepEqual(card?.mission, {
+			id: "m87245d",
+			covers: "mac on piggys-MBP for 24 hours",
+		});
+		assert.deepEqual(card?.machines, ["piggys-MBP", "browser"]);
+		const other = cardOf(annotations, "thread-22222222");
+		assert.ok(other);
+		assert.equal(other.mission, undefined);
+		assert.equal(other.machines, undefined);
+		assert.doesNotMatch(JSON.stringify(snapshotOf()), /24 hours/);
+
+		// The mission ending changes the card.
+		const text = await sync([
+			entry("11111111", { machines: ["piggys-MBP", "browser"] }),
+			entry("22222222"),
+		]);
+		assert.match(text, /^2 thread cards: 1 updated, 0 removed\n/);
+		assert.equal(cardOf(annotations, "thread-11111111")?.mission, undefined);
+	});
 });
 
 describe("Closed and dropped thread cards", () => {

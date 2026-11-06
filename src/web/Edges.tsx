@@ -1,8 +1,16 @@
 import { GitBranch } from "lucide-preact";
 import type { ComponentChildren } from "preact";
-import type { Annotation, Board, Message, Point } from "../shared/types.ts";
+import type {
+	Annotation,
+	Annotations,
+	Board,
+	Message,
+	Point,
+} from "../shared/types.ts";
+import { lineageEdges } from "./butlerThreads.ts";
 import {
 	drawnLinks,
+	lineageLine,
 	messageArc,
 	regionTetherLine,
 	tetherLine,
@@ -163,6 +171,55 @@ export function Tethers(
 	return (
 		<EdgeLayer layout={props.layout} class="edges tethers">
 			{tethers}
+		</EdgeLayer>
+	);
+}
+
+/**
+ * Butler's family tree: an arrow from each of his thread cards to the cards
+ * and sessions it started, so a desk session, the changes and board sessions
+ * it began, and theirs, read as one tree.
+ */
+export function Lineage(
+	props: Omit<EdgeProps, "board" | "visible"> & {
+		annotations: Annotations;
+		board: Board;
+	},
+) {
+	const box = (id: string) =>
+		props.layout.nodes.get(nodeKey({ kind: "session", id }));
+	const lines = lineageEdges(
+		props.annotations,
+		props.board.sessions,
+		box,
+	).flatMap((edge) => {
+		const line = lineageLine(edge.from, edge.to);
+		if (!line) return [];
+		return [
+			<path
+				key={edge.key}
+				class="lineage"
+				d={line}
+				marker-end="url(#lineage-arrow)"
+			/>,
+		];
+	});
+	return (
+		<EdgeLayer layout={props.layout} class="edges lineage-layer">
+			<defs>
+				<marker
+					id="lineage-arrow"
+					viewBox="0 0 10 10"
+					refX="8"
+					refY="5"
+					markerWidth="7"
+					markerHeight="7"
+					orient="auto-start-reverse"
+				>
+					<path d="M1 1 L9 5 L1 9 Z" class="lineage-head" />
+				</marker>
+			</defs>
+			{lines}
 		</EdgeLayer>
 	);
 }

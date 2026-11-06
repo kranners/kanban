@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Annotations, ButlerCard, Session } from "../shared/types.ts";
 import {
+	lineageEdges,
 	linkedCount,
 	openParent,
 	openThreadCard,
@@ -69,4 +70,51 @@ test("opening a parent opens its thread view, and nothing else", () => {
 	assert.equal(openThreadCard.value, "11111111");
 	openThreadCard.value = null;
 	assert.equal(threadKindLabels.desk, "Desk session");
+});
+
+test("draws an arrow from each thread card to the cards and sessions it started", () => {
+	const desk = card("thread-22222222", {
+		parent: "thread-11111111",
+		x: 400,
+		thread: {
+			id: "22222222",
+			kind: "desk",
+			link: "https://discord.com/channels/1/22222222",
+			private: false,
+		},
+	});
+	const change = card("self-fix-20261106-134847-1", {
+		parent: "thread-22222222",
+		x: 800,
+	});
+	const orphan = card("self-fix-20261106-134847-2", { parent: "thread-404" });
+	const self = card("thread-33333333", { parent: "thread-33333333" });
+	const annotations: Annotations = {
+		[thread.id]: thread,
+		[desk.id]: desk,
+		[change.id]: change,
+		[orphan.id]: orphan,
+		[self.id]: self,
+	};
+	const started = {
+		id: "session_1",
+		parent: { thread: "22222222", card: "thread-22222222" },
+	} as Session;
+	const unplaced = {
+		id: "session_2",
+		parent: { thread: "22222222", card: "thread-22222222" },
+	} as Session;
+	const box = { x: 400, y: 600, w: 300, h: 200 };
+	const edges = lineageEdges(annotations, [started, unplaced], (id) =>
+		id === "session_1" ? box : undefined,
+	);
+	assert.deepEqual(
+		edges.map((e) => e.key),
+		[
+			"thread-11111111>thread-22222222",
+			"thread-22222222>self-fix-20261106-134847-1",
+			"thread-22222222>session-session_1",
+		],
+	);
+	assert.equal(edges[2]?.to, box);
 });

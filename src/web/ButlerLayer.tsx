@@ -61,6 +61,29 @@ function ParentLine(props: { card: ButlerCard }): JSX.Element | null {
 	);
 }
 
+/** The thread's mission and the machines it drove, as chips; nothing when it has neither. */
+function ButlerChips(props: { card: ButlerCard }): JSX.Element | null {
+	const { mission, machines } = props.card;
+	if (!mission && !machines?.length) return null;
+	return (
+		<div class="butler-card-chips">
+			{mission && (
+				<span
+					class="butler-chip butler-chip-mission"
+					title={mission.covers || `Mission ${mission.id}`}
+				>
+					Mission {mission.id}
+				</span>
+			)}
+			{machines?.map((machine) => (
+				<span key={machine} class="butler-chip">
+					{machine}
+				</span>
+			))}
+		</div>
+	);
+}
+
 /** A Butler card zoomed in, laid out as a session card's near view, with its timeline. */
 function ButlerNearPanel(props: {
 	card: ButlerCard;
@@ -114,6 +137,7 @@ function ButlerNearPanel(props: {
 					</a>
 				)}
 				<ParentLine card={card} />
+				<ButlerChips card={card} />
 			</header>
 			<div class="near-content">
 				<div class="near-side">
@@ -186,6 +210,7 @@ export function ButlerCardBody(props: { card: ButlerCard }): JSX.Element {
 					{card.status}
 				</div>
 			)}
+			<ButlerChips card={card} />
 			<div class="butler-card-foot">
 				<ButlerAvatar size={16} />
 				<span>Butler · {ago(card.updatedAt, t)}</span>

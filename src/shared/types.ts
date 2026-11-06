@@ -347,7 +347,17 @@ export type ButlerCard = Annotated & {
 	desk?: string;
 	/** The board comment thread it began from, for a board message or job. */
 	boardThread?: string;
+	/** The mission Aaron approved for the thread, while it lasts. */
+	mission?: ButlerCardMission;
+	/** The machines the thread has driven, by host, such as `piggys-MBP`, and `browser` for Butler's own. */
+	machines?: string[];
 };
+
+export type ButlerCardMission = { id: string; covers: string };
+export const maxCardMachines = 8;
+export const maxMissionCovers = 200;
+export const machinePattern = /^[A-Za-z0-9._-]{1,40}$/;
+export const missionIdPattern = /^[A-Za-z0-9_-]{1,40}$/;
 
 export const butlerThreadKinds = [
 	"dm",

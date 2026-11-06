@@ -2,18 +2,23 @@ import {
 	type Annotation,
 	type Annotations,
 	type ButlerCardEvent,
+	type ButlerCardMission,
 	type ButlerCardState,
 	type ButlerCardThread,
 	type ButlerThreadKind,
 	butlerCardStates,
 	butlerThreadKinds,
 	discordIdPattern,
+	machinePattern,
 	maxButlerHistory,
 	maxButlerLink,
 	maxButlerSummary,
 	maxButlerTitle,
+	maxCardMachines,
+	maxMissionCovers,
 	maxNoteText,
 	maxReportBytes,
+	missionIdPattern,
 	type NoteColor,
 	noteColors,
 	type StatusReport,
@@ -84,6 +89,28 @@ export const parseCardThread = (value: unknown): ButlerCardThread | null => {
 	if (!butlerThreadKinds.includes(kind as ButlerThreadKind)) return null;
 	if (!isWebLink(link) || typeof hidden !== "boolean") return null;
 	return { id, kind: kind as ButlerThreadKind, link, private: hidden };
+};
+
+/** A thread card's mission: its id and one line of what it covers, or null when it is not one. */
+export const parseCardMission = (value: unknown): ButlerCardMission | null => {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return null;
+	}
+	const { id, covers } = value as Record<string, unknown>;
+	if (typeof id !== "string" || !missionIdPattern.test(id)) return null;
+	if (typeof covers !== "string" || covers.length > maxMissionCovers) {
+		return null;
+	}
+	return { id, covers };
+};
+
+/** A thread card's machines: distinct host names, at most maxCardMachines, or null when they are not. */
+export const parseCardMachines = (value: unknown): string[] | null => {
+	if (!Array.isArray(value) || value.length > maxCardMachines) return null;
+	if (!value.every((m) => typeof m === "string" && machinePattern.test(m))) {
+		return null;
+	}
+	return [...new Set(value as string[])];
 };
 
 const isCardHistory = (value: unknown): value is ButlerCardEvent[] =>
@@ -191,6 +218,8 @@ export const parseAnnotation = (
 			parent,
 			desk,
 			boardThread,
+			mission,
+			machines,
 		} = fields;
 		if (
 			typeof title !== "string" ||
@@ -256,6 +285,20 @@ export const parseAnnotation = (
 		) {
 			return { error: "boardThread must be a board comment thread's id" };
 		}
+		const cardMission =
+			mission === undefined ? undefined : parseCardMission(mission);
+		if (cardMission === null) {
+			return {
+				error: `mission must be a mission's id and what it covers, at most ${maxMissionCovers} characters`,
+			};
+		}
+		const cardMachines =
+			machines === undefined ? undefined : parseCardMachines(machines);
+		if (cardMachines === null) {
+			return {
+				error: `machines must be at most ${maxCardMachines} host names`,
+			};
+		}
 		return {
 			...placed,
 			kind: "butler-card",
@@ -273,6 +316,8 @@ export const parseAnnotation = (
 			...(boardThread === undefined
 				? {}
 				: { boardThread: boardThread as string }),
+			...(cardMission === undefined ? {} : { mission: cardMission }),
+			...(cardMachines === undefined ? {} : { machines: cardMachines }),
 			...(history === undefined
 				? {}
 				: {

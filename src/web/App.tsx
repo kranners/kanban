@@ -16,7 +16,7 @@ import {
 	useAnnotationGestures,
 } from "./Annotations.tsx";
 import { withoutSessions } from "./actions.ts";
-import { ordered } from "./annotations.ts";
+import { current, ordered } from "./annotations.ts";
 import { arrangement, groups } from "./arrangement.ts";
 import { arrived, beckoned } from "./attentionState.ts";
 import { ButlerLayer } from "./ButlerLayer.tsx";
@@ -30,7 +30,7 @@ import {
 import { arrangeCard } from "./carrying.ts";
 import { colourOf } from "./colours.ts";
 import { DocOverlays } from "./DocOverlays.tsx";
-import { Arcs, Links, messagePairs, Tethers } from "./Edges.tsx";
+import { Arcs, Lineage, Links, messagePairs, Tethers } from "./Edges.tsx";
 import {
 	CloseButton,
 	ExitDialog,
@@ -210,6 +210,11 @@ function World(props: { board: Board; layout: Arrangement }) {
 				visible={visible}
 				notes={ordered.value}
 				regions={regionFrames}
+			/>
+			<Lineage
+				layout={props.layout}
+				annotations={current.value}
+				board={props.board}
 			/>
 			<Links board={edges} layout={props.layout} visible={visible} />
 			<RelationLayer layout={props.layout} visible={visible} />

@@ -5,6 +5,7 @@ import {
 	drawnLinks,
 	facingSide,
 	facingSides,
+	lineageLine,
 	previewPath,
 	relationPath,
 	sidePoint,
@@ -156,4 +157,17 @@ test("previewPath leaves the handle along its side", () => {
 		previewPath({ x: 250, y: 300 }, "bottom", { x: 250, y: 600 }),
 		"M250 300 C250 400 250 600 250 600",
 	);
+});
+
+test("a lineage arrow runs edge to edge, and is not drawn across overlapping cards", () => {
+	const parent = { x: 0, y: 0, w: 100, h: 100 };
+	assert.equal(
+		lineageLine(parent, { x: 200, y: 0, w: 100, h: 100 }),
+		"M100 50 C150 50 150 50 200 50",
+	);
+	assert.equal(
+		lineageLine(parent, { x: 0, y: 300, w: 100, h: 100 }),
+		"M50 100 C50 200 50 200 50 300",
+	);
+	assert.equal(lineageLine(parent, { x: 50, y: 50, w: 100, h: 100 }), null);
 });

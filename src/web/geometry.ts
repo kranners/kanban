@@ -86,6 +86,22 @@ export function regionTetherLine(note: Rect, region: Rect): Tether | null {
 	return tether(rectFrame(note), rectFrame(region));
 }
 
+/**
+ * A gently curved arrow from a parent card to a card or session it started,
+ * edge to edge; null when the two overlap, so nothing is drawn across a card.
+ */
+export function lineageLine(parent: Rect, child: Rect): string | null {
+	const ends = tether(rectFrame(parent), rectFrame(child));
+	if (!ends) return null;
+	const { from, to } = ends;
+	const mx = (from.x + to.x) / 2;
+	const my = (from.y + to.y) / 2;
+	const horizontal = Math.abs(to.x - from.x) >= Math.abs(to.y - from.y);
+	return horizontal
+		? `M${from.x} ${from.y} C${mx} ${from.y} ${mx} ${to.y} ${to.x} ${to.y}`
+		: `M${from.x} ${from.y} C${from.x} ${my} ${to.x} ${my} ${to.x} ${to.y}`;
+}
+
 export type Arc = { path: string; mid: Point };
 
 export function messageArc(from: PlacedNode, to: PlacedNode): Arc {
