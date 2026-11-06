@@ -105,7 +105,12 @@ async function bundle(
 		target: "es2022",
 		jsx: "automatic",
 		jsxImportSource: "preact",
-		loader: { ".woff2": "file", ".woff": "file", ".svg": "file" },
+		loader: {
+			".woff2": "file",
+			".woff": "file",
+			".svg": "file",
+			".webp": "file",
+		},
 		assetNames: "assets/[name]-[hash]",
 		legalComments: "linked",
 		logLevel: "warning",

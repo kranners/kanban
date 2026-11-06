@@ -335,10 +335,12 @@ describe("Butler's thread cards", () => {
 	it("lays out every card in its topic's region, children after their parent, without overlaps", async () => {
 		const { sync, annotations, regionStore, butler } = await setup();
 		await sync([
-			entry("11111111", { kind: "dm" }),
+			entry("11111111", { kind: "conversation" }),
 			entry("11111112", { kind: "desk", parent: "11111111" }),
 			entry("11111113", { kind: "scheduled" }),
 			entry("11111114", { state: "needs-you" }),
+			entry("11111115", { kind: "dm", createdAt: 40 }),
+			entry("11111116", { kind: "desk", parent: "11111115", createdAt: 50 }),
 		]);
 		assert.ok(
 			(
@@ -369,6 +371,9 @@ describe("Butler's thread cards", () => {
 		inside("thread-11111112", "Butler");
 		inside("thread-11111113", "Jobs");
 		inside("thread-11111114", "Waiting on you");
+		// The DM has no card; a card it started falls back to Butler's region.
+		assert.equal(cardOf(annotations, "thread-11111115"), undefined);
+		inside("thread-11111116", "Butler");
 		inside("self-fix-20261106-141450-402386", "Changes");
 		// Waiting on you is the leftmost region, at the top.
 		const xs = ["Waiting on you", "Butler", "Jobs", "Changes"].map(
@@ -569,6 +574,96 @@ describe("Butler's thread cards", () => {
 			view?.children.map((c) => `${c.kind} ${c.id}`),
 			["session session_abc"],
 		);
+	});
+
+	it("draws the DM as Butler's face, not a card, and serves its log and replies", async () => {
+		const { sync, annotations, butler, threads } = await setup();
+		// A DM card from before the face goes, unarchived.
+		annotations.put({
+			id: "thread-11111111",
+			kind: "butler-card",
+			title: "Direct messages",
+			state: "idle",
+			x: 0,
+			y: 0,
+			w: 240,
+			h: 120,
+			z: 1,
+			updatedAt: 1,
+			thread: {
+				id: "11111111",
+				kind: "dm",
+				link: "https://discord.com/channels/@me/11111111",
+				private: true,
+			},
+		} as ButlerCard);
+		const text = await sync([
+			entry("11111111", {
+				kind: "dm",
+				title: "Direct messages",
+				state: "needs-you",
+				status: "Waiting on your yes",
+				mood: "pondering",
+				approvals: [{ at: 300, headline: "Send it?", code: "ab12" }],
+			}),
+			entry("22222222", { parent: "11111111" }),
+			entry("33333333", { kind: "dm", mood: "sulky" }),
+		]);
+		assert.match(text, /^3 thread cards: /);
+		assert.equal(cardOf(annotations, "thread-11111111"), undefined);
+		assert.ok(cardOf(annotations, "thread-22222222"));
+		const { dm } = butler.current();
+		assert.deepEqual(dm, {
+			thread: "11111111",
+			state: "needs-you",
+			status: "Waiting on your yes",
+			link: "https://discord.com/channels/1/11111111",
+			waiting: 1,
+			updatedAt: 5000,
+			mood: "pondering",
+		});
+		assert.doesNotMatch(JSON.stringify(butler.current()), /secret words/);
+		const view = butler.threadView("11111111");
+		assert.equal(view?.card.id, "thread-11111111");
+		assert.equal(view?.card.thread.kind, "dm");
+		assert.equal(view?.events.length, 2);
+		assert.equal(view?.approvals[0]?.headline, "Send it?");
+		assert.deepEqual(
+			view?.children.map((c) => `${c.kind} ${c.id}`),
+			["thread 22222222", "session session_abc"],
+		);
+		assert.deepEqual(butler.sendToThread("11111111", "yes, send"), {
+			ok: true,
+		});
+		assert.deepEqual(
+			threads.queued().map((q) => `${q.card} ${q.message.text}`),
+			["thread-11111111 yes, send"],
+		);
+		const { messages } = JSON.parse(
+			(
+				(await butler.tool("board_inbox", {})) as {
+					text: string;
+				}
+			).text,
+		);
+		assert.equal(messages[0].thread, "card-11111111");
+		assert.equal(messages[0].target, "11111111");
+		assert.ok(
+			(
+				await butler.tool("board_reply", {
+					thread: "card-11111111",
+					message: messages[0].id,
+					text: "Sent.",
+				})
+			).ok,
+		);
+		assert.equal(threads.shown("thread-11111111").events.at(-1)?.text, "Sent.");
+		// A mood not on the list is dropped.
+		await sync([entry("33333333", { kind: "dm", mood: "sulky" })]);
+		assert.equal(butler.current().dm?.mood, undefined);
+		// Once the daemon lists no DM, the face goes.
+		await sync([entry("22222222")]);
+		assert.equal(butler.current().dm, undefined);
 	});
 
 	it("lists a thread's children: changes, threads and sessions it started", async () => {

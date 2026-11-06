@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Annotations, ButlerCard, Session } from "../shared/types.ts";
 import {
+	isFromDm,
 	lineageEdges,
 	linkedCount,
 	openParent,
@@ -117,4 +118,54 @@ test("draws an arrow from each thread card to the cards and sessions it started"
 		],
 	);
 	assert.equal(edges[2]?.to, box);
+});
+
+test("knows a card or session that came from the DM, which has no card", () => {
+	const dm = "99999999";
+	assert.equal(isFromDm({ card: "thread-99999999" }, dm, annotations), true);
+	assert.equal(isFromDm({ thread: dm, title: "x" }, dm, annotations), true);
+	assert.equal(isFromDm({ card: thread.id }, dm, annotations), false);
+	assert.equal(isFromDm({ thread: "11111111" }, dm, annotations), false);
+	assert.equal(isFromDm(undefined, dm, annotations), false);
+	// While the board has no DM, its title still says so, unless it is a card.
+	assert.equal(
+		isFromDm(
+			{ card: "thread-99999999", title: "Direct messages" },
+			undefined,
+			annotations,
+		),
+		true,
+	);
+	assert.equal(
+		isFromDm(
+			{ card: thread.id, title: "Direct messages" },
+			undefined,
+			annotations,
+		),
+		false,
+	);
+});
+
+test("draws no arrow to or from the DM, which is no card, while the rest stay", () => {
+	const fromDm = card("thread-33333333", { parent: "thread-99999999" });
+	const all: Annotations = { ...annotations, [fromDm.id]: fromDm };
+	const sessions = [
+		{
+			id: "s-dm",
+			parent: { thread: "99999999", card: "thread-99999999" },
+		} as Session,
+		session("11111111"),
+	];
+	const edges = lineageEdges(all, sessions, () => ({
+		x: 0,
+		y: 0,
+		w: 10,
+		h: 10,
+	}));
+	assert.equal(
+		edges.some((e) => e.key.includes("99999999") || e.key.includes("33333333")),
+		false,
+	);
+	assert.ok(edges.some((e) => e.key === "thread-11111111>thread-22222222"));
+	assert.ok(edges.some((e) => e.key === "thread-11111111>session-s-11111111"));
 });

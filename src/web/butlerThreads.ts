@@ -99,6 +99,30 @@ export function parentTitle(
 	return fallback ?? null;
 }
 
+/** The title the daemon gives Butler's DM with Aaron. */
+export const dmTitle = "Direct messages";
+
+/**
+ * Whether a card or session came from Butler's DM, which is his face on the
+ * page rather than a card: its parent names the DM's thread, or, while the
+ * board has no DM, a parent titled as the DM that is no card on the board.
+ */
+export function isFromDm(
+	parent: { card?: string; thread?: string; title?: string } | undefined,
+	dmThread: string | undefined,
+	annotations: Annotations,
+): boolean {
+	if (!parent) return false;
+	if (dmThread) {
+		if (parent.card === `thread-${dmThread}`) return true;
+		if (parent.thread === dmThread) return true;
+	}
+	return (
+		parent.title === dmTitle &&
+		(parent.card === undefined || annotations[parent.card] === undefined)
+	);
+}
+
 /** Opens the thread card a card or session came from, when it has one. */
 export function openParent(parent: string | undefined): void {
 	const thread = parent?.match(/^thread-([0-9]{5,25})$/)?.[1];

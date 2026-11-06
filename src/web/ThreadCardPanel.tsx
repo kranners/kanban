@@ -15,8 +15,10 @@ import { ApprovalCardView } from "./Approvals.tsx";
 import { ActivityBadge } from "./activity.tsx";
 import { current } from "./annotations.ts";
 import { ButlerAvatar, ButlerMark } from "./Butler.tsx";
+import { butlerPresence } from "./butler.ts";
 import {
 	fetchThreadView,
+	isFromDm,
 	openParent,
 	openThreadCard,
 	parentTitle,
@@ -69,8 +71,12 @@ function ThreadEventLine(props: { event: ButlerThreadEvent }): JSX.Element {
 
 function ThreadReply(props: {
 	thread: string;
+	dm: boolean;
 	onSent: () => void;
 }): JSX.Element {
+	const prompt = props.dm
+		? "Reply to Butler: it goes into your Discord DM"
+		: "Reply to Butler in this thread";
 	const [text, setText] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const [sending, setSending] = useState(false);
@@ -101,8 +107,8 @@ function ThreadReply(props: {
 					rows={2}
 					value={text}
 					maxLength={4000}
-					placeholder="Reply to Butler in this thread"
-					aria-label="Reply to Butler in this thread"
+					placeholder={prompt}
+					aria-label={prompt}
 					onInput={(event) => {
 						setText(event.currentTarget.value);
 						setError(null);
@@ -142,7 +148,13 @@ function ThreadView(props: {
 	const { card } = view;
 	const log = useRef<HTMLDivElement>(null);
 	const kind = card.thread.kind;
-	const from = parentTitle(card.parent, current.value, "its parent thread");
+	const from = isFromDm(
+		{ card: card.parent },
+		butlerPresence.value.dm?.thread,
+		current.value,
+	)
+		? "DM"
+		: parentTitle(card.parent, current.value, "its parent thread");
 	useEffect(() => {
 		const element = log.current;
 		if (element) element.scrollTop = element.scrollHeight;
@@ -245,13 +257,11 @@ function ThreadView(props: {
 					</ul>
 				</section>
 			)}
-			{kind === "dm" ? (
-				<p class="comment-footnote thread-card-dm">
-					Reply to the DM in Discord.
-				</p>
-			) : (
-				<ThreadReply thread={card.thread.id} onSent={props.onSent} />
-			)}
+			<ThreadReply
+				thread={card.thread.id}
+				dm={kind === "dm"}
+				onSent={props.onSent}
+			/>
 		</>
 	);
 }

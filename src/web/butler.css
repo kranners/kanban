@@ -466,11 +466,6 @@
 	font-style: italic;
 }
 
-.thread-card-dm {
-	padding: 8px 12px;
-	border-top: 1px solid var(--hairline);
-}
-
 .butler-job-input {
 	box-sizing: border-box;
 	width: 100%;

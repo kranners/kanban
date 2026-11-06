@@ -20,6 +20,7 @@ import { withoutSessions } from "./actions.ts";
 import { current, ordered } from "./annotations.ts";
 import { arrangement, groups } from "./arrangement.ts";
 import { arrived, beckoned } from "./attentionState.ts";
+import { ButlerDmFace } from "./ButlerDm.tsx";
 import { ButlerLayer } from "./ButlerLayer.tsx";
 import { Canvas, detail } from "./Canvas.tsx";
 import { SessionCard, SubagentCard } from "./Card.tsx";
@@ -405,6 +406,7 @@ export function App() {
 				<RegionLayer />
 				<CommentOverlays />
 				<DocOverlays />
+				<ButlerDmFace />
 			</div>
 			<AlertToasts />
 			<UndoToast />

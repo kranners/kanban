@@ -31,7 +31,9 @@ import { subagentState } from "../shared/subagents.ts";
 import { ActivityBadge, ActivityIcon, activityLabel } from "./activity.tsx";
 import { current } from "./annotations.ts";
 import { unreachable } from "./arrangement.ts";
-import { openParent, parentTitle } from "./butlerThreads.ts";
+import { FromDmChip } from "./ButlerDm.tsx";
+import { butlerPresence } from "./butler.ts";
+import { isFromDm, openParent, parentTitle } from "./butlerThreads.ts";
 import { digests, stuckOf } from "./digests.ts";
 import type { PlacedNode } from "./layout.ts";
 import { plainText } from "./markdown.ts";
@@ -83,6 +85,12 @@ function GoalBody(props: { goal: string | null }) {
 /** "from <title>" on a session one of Butler's threads started. */
 function SessionParentLine(props: { session: Session }) {
 	const { parent } = props.session;
+	if (
+		parent &&
+		isFromDm(parent, butlerPresence.value.dm?.thread, current.value)
+	) {
+		return <FromDmChip parent={parent.card} class="session-from" />;
+	}
 	const title = parent
 		? parentTitle(parent.card, current.value, parent.title)
 		: null;

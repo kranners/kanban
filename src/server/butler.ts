@@ -17,6 +17,8 @@ import {
 	type ButlerCardEvent,
 	type ButlerCardMission,
 	type ButlerCardState,
+	type ButlerDm,
+	type ButlerMood,
 	type ButlerPresence,
 	type ButlerSpot,
 	type ButlerThreadApproval,
@@ -25,6 +27,7 @@ import {
 	type ButlerThreadView,
 	type ButlerWaitingApproval,
 	butlerCardStates,
+	butlerMoods,
 	butlerThreadKinds,
 	type CommentThread,
 	discordIdPattern,
@@ -579,6 +582,8 @@ export type ThreadEntry = {
 	mission?: ButlerCardMission;
 	machines?: string[];
 	private: boolean;
+	/** The mood the daemon reads in Butler's latest reply there. */
+	mood?: ButlerMood;
 	events: ButlerThreadEvent[];
 	approvals: ButlerThreadApproval[];
 };
@@ -663,6 +668,9 @@ export const parseThreadEntry = (value: unknown): ThreadEntry | null => {
 		...threadMission(f.mission),
 		...threadMachines(f.machines),
 		private: f.private,
+		...(butlerMoods.includes(f.mood as ButlerMood)
+			? { mood: f.mood as ButlerMood }
+			: {}),
 		events: listed(f.events, parseThreadEvent, maxThreadEvents),
 		approvals: listed(f.approvals, parseThreadApproval, maxThreadApprovals),
 	};
@@ -730,6 +738,19 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		| null = null;
 
 	let inbox: ButlerInbox | null = null;
+	/** The DM thread, the latest the daemon listed: drawn as Butler's face, never a card. */
+	let dm: ThreadEntry | null = null;
+	const dmPresence = (entry: ThreadEntry): ButlerDm => ({
+		thread: entry.id,
+		state: entry.state,
+		status: entry.status,
+		link: entry.link,
+		waiting: entry.approvals.length,
+		updatedAt: entry.lastActiveAt,
+		...(entry.mood ? { mood: entry.mood } : {}),
+	});
+	const isDm = (cardId: string | undefined) =>
+		dm !== null && cardId === threadCardId(dm.id);
 	const current = (): ButlerPresence => {
 		const relay = inbox?.relay();
 		return {
@@ -737,6 +758,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			working,
 			watching,
 			...(relay ? { relay } : {}),
+			...(dm ? { dm: dmPresence(dm) } : {}),
 		};
 	};
 	const changed = () => deps.onChange(current());
@@ -1308,7 +1330,21 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		const seen = new Set<string>();
 		const listedThreads = new Set(entries.map((entry) => entry.id));
 		let changedCards = 0;
+		// The DM is Butler's face on the page, not a card: its log is kept, any old card goes.
+		const dmEntry = entries.find((entry) => entry.kind === "dm") ?? null;
+		const dmBefore = dm ? JSON.stringify(dmPresence(dm)) : "";
+		dm = dmEntry;
+		if (dmEntry) {
+			const id = threadCardId(dmEntry.id);
+			threadLogs.sync(id, dmEntry.events, dmEntry.approvals);
+			if (annotation(id)?.kind === "butler-card") {
+				deps.annotations.remove(id);
+				changedCards += 1;
+			}
+		}
+		if ((dm ? JSON.stringify(dmPresence(dm)) : "") !== dmBefore) changed();
 		for (const entry of entries) {
+			if (entry.kind === "dm") continue;
 			const id = threadCardId(entry.id);
 			const archived = deps.archive?.get(id);
 			if (archived) {
@@ -1415,11 +1451,13 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		const log = card.thread ? threadLogs.shown(card.id).events : [];
 		return {
 			project: projectOfCard(card),
-			...(parent?.kind === "butler-card"
-				? { parent: { id: parent.id, title: parent.title } }
-				: card.parent
-					? { parent: { id: card.parent, title: "Butler thread" } }
-					: {}),
+			...(card.parent && isDm(card.parent)
+				? { parent: { id: card.parent, title: "DM" } }
+				: parent?.kind === "butler-card"
+					? { parent: { id: parent.id, title: parent.title } }
+					: card.parent
+						? { parent: { id: card.parent, title: "Butler thread" } }
+						: {}),
 			...(log.length ? { log } : {}),
 		};
 	};
@@ -1914,6 +1952,14 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		const cardReply = (threadId as string).match(/^card-([0-9]{5,25})$/);
 		if (cardReply?.[1]) {
 			const card = threadCardId(cardReply[1]);
+			if (isDm(card)) {
+				threadLogs.append(card, {
+					at: now(),
+					kind: ok ? "reply" : "error",
+					text: (body as string).slice(0, maxThreadEventText),
+				});
+				return done("Shown on the DM's log");
+			}
 			if (annotation(card)?.kind === "butler-card") {
 				threadLogs.append(card, {
 					at: now(),
@@ -2024,8 +2070,37 @@ export const createButler = (deps: ButlerDeps): Butler => {
 	const threadView = (thread: string): ButlerThreadView | null => {
 		if (!discordIdPattern.test(thread)) return null;
 		const id = threadCardId(thread);
-		const card = annotation(id);
-		if (card?.kind !== "butler-card" || !card.thread) return null;
+		const found = annotation(id);
+		const card: ButlerThreadView["card"] | null =
+			dm?.id === thread
+				? {
+						id,
+						title: dm.title,
+						state: dm.state,
+						...(dm.status ? { status: dm.status } : {}),
+						link: dm.link,
+						thread: {
+							id: dm.id,
+							kind: dm.kind,
+							link: dm.link,
+							private: dm.private,
+						},
+						updatedAt: dm.lastActiveAt,
+					}
+				: found?.kind === "butler-card" && found.thread
+					? {
+							id: found.id,
+							title: found.title,
+							state: found.state,
+							...(found.status ? { status: found.status } : {}),
+							...(found.link ? { link: found.link } : {}),
+							thread: found.thread,
+							...(found.parent ? { parent: found.parent } : {}),
+							...(found.desk ? { desk: found.desk } : {}),
+							updatedAt: found.updatedAt,
+						}
+					: null;
+		if (!card) return null;
 		const shown = threadLogs.shown(id);
 		const children: ButlerThreadView["children"] = [
 			...butlerCards()
@@ -2049,17 +2124,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				})),
 		];
 		return {
-			card: {
-				id: card.id,
-				title: card.title,
-				state: card.state,
-				...(card.status ? { status: card.status } : {}),
-				...(card.link ? { link: card.link } : {}),
-				thread: card.thread,
-				...(card.parent ? { parent: card.parent } : {}),
-				...(card.desk ? { desk: card.desk } : {}),
-				updatedAt: card.updatedAt,
-			},
+			card,
 			events: shown.events,
 			approvals: shown.approvals.map(pageCopy),
 			children,
@@ -2072,11 +2137,9 @@ export const createButler = (deps: ButlerDeps): Butler => {
 	): { ok: true } | Refused => {
 		const id = threadCardId(thread);
 		const card = discordIdPattern.test(thread) ? annotation(id) : undefined;
-		if (card?.kind !== "butler-card" || !card.thread) {
+		// The DM's replies queue like a card's; the daemon posts them into the Discord DM.
+		if (dm?.id !== thread && (card?.kind !== "butler-card" || !card.thread)) {
 			return { error: "No such thread card", status: 404 };
-		}
-		if (card.thread.kind === "dm") {
-			return { error: "Reply to the DM in Discord", status: 409 };
 		}
 		if (!inbox) {
 			return { error: "Butler is not set up on this board", status: 409 };

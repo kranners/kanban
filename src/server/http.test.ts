@@ -311,6 +311,7 @@ describe("matchRoute", () => {
 		assert.equal(staticFile("/srv/dist", "/%E0%A4%A"), null);
 		assert.equal(contentTypeFor("/a/b.JS"), "text/javascript; charset=utf-8");
 		assert.equal(contentTypeFor("/a/b.woff2"), "font/woff2");
+		assert.equal(contentTypeFor("/assets/content-AB12.webp"), "image/webp");
 		assert.equal(contentTypeFor("/a/b"), "application/octet-stream");
 	});
 });
@@ -2473,7 +2474,7 @@ describe("createKanbanServer", () => {
 			threads: [entry("11111111", "conversation"), entry("22222222", "dm")],
 		});
 		assert.equal(synced.ok, true);
-		assert.match(synced.text, /^2 thread cards: 2 updated, 0 removed\n/);
+		assert.match(synced.text, /^2 thread cards: 1 updated, 0 removed\n/);
 
 		assert.equal(
 			(await fetch(`${base}/api/butler/threads/11111111`)).status,
@@ -2517,9 +2518,14 @@ describe("createKanbanServer", () => {
 					{ "x-kanban-csrf": "test-csrf" },
 				)
 			).status,
-			409,
-			"the DM is answered in Discord",
+			202,
+			"a reply to the DM queues for the Discord DM",
 		);
+		const dmView = await (
+			await fetch(`${base}/api/butler/threads/22222222`, { headers: authed })
+		).json();
+		assert.equal(dmView.card.thread.kind, "dm");
+		assert.equal(dmView.events.at(-1).text, "hi");
 		assert.equal(
 			(
 				await page(

@@ -552,6 +552,40 @@ export type ButlerPresence = {
 	watching: string[];
 	/** Whether spike has collected the board's messages lately; absent until it first does. */
 	relay?: "up" | "down";
+	/** Butler's DM with Aaron, drawn as his floating face rather than a card; absent while the daemon lists none. */
+	dm?: ButlerDm;
+};
+
+/** The moods Butler's face can wear, one picture each. */
+export const butlerMoods = [
+	"alarmed",
+	"amused",
+	"apologetic",
+	"concerned",
+	"content",
+	"curious",
+	"delighted",
+	"diligent",
+	"fixed",
+	"pondering",
+	"proud",
+	"puzzled",
+	"weary",
+] as const;
+
+export type ButlerMood = (typeof butlerMoods)[number];
+
+/** The DM thread as the page sees it: its state and one-line status, never its words. */
+export type ButlerDm = {
+	/** The DM's Discord id; its log is the thread card log `thread-<id>`. */
+	thread: string;
+	state: ButlerCardState;
+	status: string;
+	link: string;
+	/** How many approvals wait on Aaron there. */
+	waiting: number;
+	updatedAt: number;
+	mood?: ButlerMood;
 };
 
 /** Butler nowhere on the board. */

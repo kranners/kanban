@@ -13,9 +13,11 @@ import {
 	ButlerWatchingIcon,
 	SelfFixIcon,
 } from "./Butler.tsx";
+import { FromDmChip } from "./ButlerDm.tsx";
 import { butlerPresence, presenceOf } from "./butler.ts";
 import { butlerLanes } from "./butlerCards.ts";
 import {
+	isFromDm,
 	linkedCount,
 	openParent,
 	parentTitle,
@@ -42,6 +44,12 @@ function linkLabel(card: ButlerCard): string {
 
 /** "from <title>" on a card that came from one of Butler's threads. */
 function ParentLine(props: { card: ButlerCard }): JSX.Element | null {
+	const { parent } = props.card;
+	if (
+		isFromDm({ card: parent }, butlerPresence.value.dm?.thread, current.value)
+	) {
+		return <FromDmChip parent={parent} />;
+	}
 	const title = parentTitle(props.card.parent, current.value);
 	if (!title) return null;
 	return (
@@ -255,7 +263,8 @@ export function ButlerByline(props: { note: Note }): JSX.Element | null {
 	);
 }
 
-function rectOf(target: string): Rect | null {
+/** Where on the board Butler's target is: a session, an annotation or a message's pin. */
+export function butlerTargetRect(target: string): Rect | null {
 	const node = arrangement.value?.nodes.get(
 		nodeKey({ kind: "session", id: target }),
 	);
@@ -284,13 +293,13 @@ export function ButlerLayer(): JSX.Element {
 		threads.value.values(),
 		now.value,
 	);
-	const faceAt = face ? rectOf(face.target) : null;
-	const cursorAt = cursor ? rectOf(cursor.target) : null;
+	const faceAt = face && !state.dm ? butlerTargetRect(face.target) : null;
+	const cursorAt = cursor ? butlerTargetRect(cursor.target) : null;
 	const scale = chipScale();
 	return (
 		<>
 			{state.watching.flatMap((id) => {
-				const watched = rectOf(id);
+				const watched = butlerTargetRect(id);
 				if (!watched) return [];
 				return [
 					<div
@@ -305,6 +314,7 @@ export function ButlerLayer(): JSX.Element {
 					</div>,
 				];
 			})}
+			{/* With the DM face on screen it is Butler's face; only his cursor goes on the board. */}
 			{face && faceAt && (
 				<div
 					class="butler-presence-avatar"
