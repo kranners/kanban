@@ -300,6 +300,56 @@
 	color: var(--red);
 }
 
+.event-session {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	width: 100%;
+	padding: 8px 10px;
+	border: 1px solid var(--hairline);
+	border-radius: 8px;
+	background: var(--surface-2);
+	color: var(--ink);
+	font: inherit;
+	font-size: 13px;
+	text-align: left;
+	animation: menu-in calc(140ms * var(--motion)) ease-out;
+}
+
+button.event-session {
+	cursor: pointer;
+}
+
+button.event-session:hover {
+	border-color: var(--accent);
+}
+
+p.event-session {
+	color: var(--muted);
+}
+
+.event-session-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.event-session-name {
+	overflow: hidden;
+	font-weight: 550;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.event-session-foot {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	color: var(--muted);
+	font-size: 12px;
+}
+
 .comment-reply {
 	display: flex;
 	align-items: flex-end;

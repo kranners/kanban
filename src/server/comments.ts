@@ -7,6 +7,7 @@ import {
 	type CommentEvent,
 	type CommentPatch,
 	type CommentThread,
+	type Landing,
 	maxButlerQueue,
 } from "../shared/types.ts";
 import { isCoordinate } from "./layout.ts";
@@ -40,7 +41,7 @@ export const maxMessage = 4000;
 export const maxEventText = 8000;
 const threadIdPattern = /^[A-Za-z0-9-]{1,64}$/;
 const sessionIdPattern = /^[0-9a-f-]{36}$/;
-const eventKinds = new Set(["user", "action", "reply", "error"]);
+const eventKinds = new Set(["user", "action", "reply", "error", "session"]);
 const actionStates = new Set(["running", "done", "failed"]);
 
 export const isThreadId = (value: string): boolean =>
@@ -185,6 +186,12 @@ export const parseCommentPatch = (
 	return Object.keys(patch).length > 0 ? patch : { error: "Nothing to change" };
 };
 
+const parseLanding = (value: unknown): Landing | null => {
+	const { short: shortId, id } = (value ?? {}) as Record<string, unknown>;
+	if (typeof shortId === "string") return { short: shortId.slice(0, 64) };
+	return typeof id === "string" ? { id: id.slice(0, 128) } : null;
+};
+
 const parseEvent = (value: unknown): CommentEvent | null => {
 	if (typeof value !== "object" || value === null) return null;
 	const event = value as Record<string, unknown>;
@@ -192,6 +199,10 @@ const parseEvent = (value: unknown): CommentEvent | null => {
 	if (typeof kind !== "string" || !eventKinds.has(kind)) return null;
 	if (!isTime(at) || typeof text !== "string") return null;
 	const shown = text.slice(0, maxEventText);
+	if (kind === "session") {
+		const landing = parseLanding(event.landing);
+		return landing ? { kind, at, landing, text: shown } : null;
+	}
 	if (kind !== "action") {
 		return { kind, at, text: shown } as CommentEvent;
 	}

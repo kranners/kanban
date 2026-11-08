@@ -5,6 +5,7 @@ import type { PromptReply } from "../shared/conversation.ts";
 import {
 	type Annotation,
 	type Board,
+	type Landing,
 	type LayoutUpdate,
 	landingId,
 	type Placement,
@@ -55,7 +56,7 @@ import { promptVerdict } from "./safePrompts.ts";
 import { type SessionLauncher, validateNewSession } from "./sessions.ts";
 
 export type ToolOutcome =
-	| { ok: true; text: string }
+	| { ok: true; text: string; landing?: Landing }
 	| { ok: false; error: string };
 
 export type BoardTools = (
@@ -693,11 +694,17 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 					at: now(),
 				});
 			}
-			return done(
-				"short" in result
-					? `Started a session in ${request.cwd} (short id ${result.short})`
-					: `Started a session in ${request.cwd} (cloud session ${result.id})`,
-			);
+			return "short" in result
+				? {
+						ok: true,
+						landing: { short: result.short },
+						text: `Started a session in ${request.cwd} (short id ${result.short})`,
+					}
+				: {
+						ok: true,
+						landing: { id: result.id },
+						text: `Started a session in ${request.cwd} (cloud session ${result.id})`,
+					};
 		},
 		put_note: ({ id, ...fields }) => {
 			const existing = id ? deps.annotations.current()[id] : undefined;

@@ -11,7 +11,7 @@ import {
 } from "./attention.ts";
 import { centreOn, glideMs } from "./Canvas.tsx";
 import { ignoredSessions } from "./ignoreState.ts";
-import type { NodeKey } from "./layout.ts";
+import type { NodeKey, PlacedNode } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import { board } from "./state.ts";
 
@@ -62,8 +62,12 @@ export function visitNextNeedingYou(): void {
 	);
 	const node = nextInLine(order, lastVisited);
 	if (!node) return;
-	const { key } = node;
 	lastVisited = { x: node.x, y: node.y };
+	beckonTo(node);
+}
+
+export function beckonTo(node: PlacedNode): void {
+	const { key } = node;
 	centreOn(node);
 	beckoned.value = key;
 	clearTimeout(beckonTimer);

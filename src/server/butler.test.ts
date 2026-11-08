@@ -10,12 +10,14 @@ import {
 	type Board,
 	type ButlerCard,
 	type ButlerPresence,
+	type Landing,
 	type Note,
 	type Session,
 } from "../shared/types.ts";
 import { createAnnotationStore } from "./annotations.ts";
 import type { AuditEvent } from "./audit.ts";
 import {
+	type Butler,
 	butlerAllowed,
 	createButler,
 	loadWatching,
@@ -60,7 +62,7 @@ const board: Board = {
 	generatedAt: 0,
 };
 
-const setup = async () => {
+const setup = async (launched: { landing?: Landing } = {}) => {
 	const dir = await mkdtemp(join(tmpdir(), "kanban-butler-"));
 	const layout = createLayoutStore({
 		file: join(dir, "l.json"),
@@ -88,6 +90,7 @@ const setup = async () => {
 		initial: [],
 		onChange: () => {},
 		onRemove: () => {},
+		now: () => clock,
 	});
 	const butler = createButler({
 		source: {
@@ -100,7 +103,7 @@ const setup = async () => {
 		regions,
 		tools: async (thread, call) => {
 			calls.push([thread, call]);
-			return { ok: true, text: `ran ${call.tool}` };
+			return { ok: true, text: `ran ${call.tool}`, ...launched };
 		},
 		audit: (event) => events.push(event),
 		file,
@@ -181,6 +184,67 @@ describe("Butler on the board", () => {
 			ok: false,
 			error: "message is required",
 		});
+	});
+
+	const startSession = (butler: Butler, call: Record<string, unknown>) =>
+		butler.tool("start_session", { cwd: "/tmp", prompt: "go", ...call });
+
+	const asked = async (butler: Butler, text: string) => {
+		const thread = butler.inbox?.start({ x: 0, y: 0, text });
+		assert.ok(thread && !("error" in thread));
+		const { messages } = JSON.parse(
+			((await butler.tool("board_inbox", {})) as { text: string }).text,
+		);
+		const message = messages.find(
+			(m: { thread: string }) => m.thread === thread.id,
+		);
+		await butler.tool("board_ack", { ids: [message.id] });
+		return { thread: thread.id, message: message.id };
+	};
+
+	it("shows a session he starts in the thread he is answering", async () => {
+		const { butler, comments } = await setup({
+			landing: { short: "feedbeef" },
+		});
+		const { thread } = await asked(butler, "start a session");
+		await startSession(butler, { name: "fix the tests" });
+		assert.deepEqual(comments.get(thread)?.events.at(-1), {
+			kind: "session",
+			at: comments.get(thread)?.events.at(-1)?.at,
+			landing: { short: "feedbeef" },
+			text: "fix the tests",
+		});
+	});
+
+	it("names a session by its prompt when its name is blank", async () => {
+		const { butler, comments } = await setup({
+			landing: { short: "feedbeef" },
+		});
+		const { thread } = await asked(butler, "start a session");
+		await startSession(butler, { name: "   " });
+		assert.equal(comments.get(thread)?.events.at(-1)?.text, "go");
+	});
+
+	it("shows his session in the thread he took last when he answers two", async () => {
+		const { butler, comments, tick } = await setup({
+			landing: { id: "session_01cloud" },
+		});
+		const first = await asked(butler, "one");
+		tick(1000);
+		const second = await asked(butler, "two");
+		await startSession(butler, {});
+		assert.equal(comments.get(second.thread)?.events.at(-1)?.kind, "session");
+		assert.equal(comments.get(first.thread)?.events.at(-1)?.kind, "user");
+	});
+
+	it("shows no session in a thread he has already answered", async () => {
+		const { butler, comments } = await setup({
+			landing: { short: "feedbeef" },
+		});
+		const { thread, message } = await asked(butler, "start a session");
+		await butler.tool("board_reply", { thread, message, text: "Done." });
+		await startSession(butler, {});
+		assert.equal(comments.get(thread)?.events.at(-1)?.kind, "reply");
 	});
 
 	it("creates, renames, moves and closes his own cards", async () => {

@@ -380,6 +380,7 @@ describe("board tools", () => {
 			}),
 			{
 				ok: true,
+				landing: { id: "session_01cloud" },
 				text: `Started a session in ${cwd} (cloud session session_01cloud)`,
 			},
 		);
@@ -390,7 +391,11 @@ describe("board tools", () => {
 				prompt: "go",
 				runsOn: "local",
 			}),
-			{ ok: true, text: `Started a session in ${cwd} (short id feedbeef)` },
+			{
+				ok: true,
+				landing: { short: "feedbeef" },
+				text: `Started a session in ${cwd} (short id feedbeef)`,
+			},
 		);
 		assert.deepEqual(
 			events.flatMap((event) =>

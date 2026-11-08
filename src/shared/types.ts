@@ -654,7 +654,9 @@ export type CommentEvent =
 			state: "running" | "done" | "failed";
 	  }
 	| { kind: "reply"; at: number; text: string }
-	| { kind: "error"; at: number; text: string };
+	| { kind: "error"; at: number; text: string }
+	/** A session Butler started while answering; text names it until its card arrives. */
+	| { kind: "session"; at: number; landing: Landing; text: string };
 
 export type BoardRect = { x: number; y: number; w: number; h: number };
 

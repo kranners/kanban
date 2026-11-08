@@ -6,6 +6,7 @@ import {
 	CircleAlert,
 	CircleCheck,
 	LoaderCircle,
+	LocateFixed,
 	MessageSquare,
 	RotateCcw,
 	Square,
@@ -14,11 +15,15 @@ import {
 } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type {
-	BoardRect,
-	CommentEvent,
-	CommentThread,
+import {
+	type BoardRect,
+	type CommentEvent,
+	type CommentThread,
+	hasLanded,
 } from "../shared/types.ts";
+import { ActivityBadge } from "./activity.tsx";
+import { arrangement } from "./arrangement.ts";
+import { beckonTo } from "./attentionState.ts";
 import { ButlerAvatar } from "./Butler.tsx";
 import { butlerPresence } from "./butler.ts";
 import { boardPointAt, clientPointOf, view } from "./Canvas.tsx";
@@ -41,9 +46,11 @@ import {
 	threadMenu,
 	threadTitle,
 } from "./comments.ts";
+import { nodeKey, type PlacedNode } from "./layout.ts";
 import { moveMenuFocus } from "./menuFocus.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 import { blocked, isTyping, pointerTarget } from "./Spawning.tsx";
+import { board, closeFocus, railView } from "./state.ts";
 
 const dragThreshold = 4;
 const panelWidth = 360;
@@ -294,8 +301,63 @@ function Composer(): JSX.Element | null {
 	);
 }
 
-function EventLine(props: { event: CommentEvent }): JSX.Element {
+const afterBoardResizes = (show: () => void) => setTimeout(show, 0);
+
+function showOnBoard(node: PlacedNode): void {
+	closeFocus();
+	if (innerWidth <= 720) railView.value = null;
+	afterBoardResizes(() => beckonTo(node));
+}
+
+/** A session Butler started: its live card in small, which goes to it on the board. */
+function StartedSession(props: {
+	event: Extract<CommentEvent, { kind: "session" }>;
+	onClose: () => void;
+}): JSX.Element {
 	const { event } = props;
+	const session = board.value?.sessions.find((s) =>
+		hasLanded(event.landing, s),
+	);
+	const node =
+		session &&
+		arrangement.value?.nodes.get(nodeKey({ kind: "session", id: session.id }));
+	if (!session || !node) {
+		return (
+			<p class="comment-event event-session" title="Not on the board">
+				<span class="event-session-name">{event.text}</span>
+			</p>
+		);
+	}
+	return (
+		<button
+			type="button"
+			class="comment-event event-session"
+			title="Show on the board"
+			onClick={() => {
+				props.onClose();
+				showOnBoard(node);
+			}}
+		>
+			<span class="event-session-head">
+				<span class="event-session-name">{session.name}</span>
+				<ActivityBadge activity={session.activity} />
+			</span>
+			<span class="event-session-foot">
+				<LocateFixed size={12} aria-hidden="true" />
+				{session.project}
+			</span>
+		</button>
+	);
+}
+
+function EventLine(props: {
+	event: CommentEvent;
+	onClose: () => void;
+}): JSX.Element {
+	const { event } = props;
+	if (event.kind === "session") {
+		return <StartedSession event={event} onClose={props.onClose} />;
+	}
 	if (event.kind === "user") {
 		return <p class="comment-event event-user">{event.text}</p>;
 	}
@@ -417,7 +479,11 @@ function ThreadBody(props: {
 			</header>
 			<div class="comment-log" ref={log} data-scrollable aria-live="polite">
 				{thread.events.map((event, index) => (
-					<EventLine key={`${event.at}-${index}`} event={event} />
+					<EventLine
+						key={`${event.at}-${index}`}
+						event={event}
+						onClose={props.onClose}
+					/>
 				))}
 				{waiting && (
 					<p

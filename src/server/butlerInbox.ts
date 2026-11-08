@@ -3,6 +3,7 @@ import {
 	type BoardContext,
 	type BoardRect,
 	type CommentThread,
+	type Landing,
 	maxButlerQueue,
 	type Point,
 } from "../shared/types.ts";
@@ -55,6 +56,8 @@ export type ButlerInbox = {
 		text: string,
 		ok: boolean,
 	): CommentThread | null;
+	/** Shows a session Butler started in the thread he is answering, if any. */
+	showSession(landing: Landing, text: string): void;
 	/** Absent until spike first polls or the boot's grace runs out. */
 	relay(): "up" | "down" | undefined;
 	/** Marks spike unreachable once it has not polled for a while. */
@@ -261,6 +264,25 @@ export const createButlerInbox = (deps: ButlerInboxDeps): ButlerInbox => {
 					],
 				};
 			});
+		},
+		showSession(landing, text) {
+			const answering = deps.store
+				.current()
+				.filter((thread) => isButler(thread) && thread.waiting?.length)
+				.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+			if (!answering) return;
+			deps.store.update(answering.id, (current) => ({
+				...current,
+				events: [
+					...current.events,
+					{
+						kind: "session",
+						at: now(),
+						landing,
+						text: text.slice(0, maxEventText),
+					},
+				],
+			}));
 		},
 		relay: () => relay,
 		check() {

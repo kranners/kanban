@@ -2066,6 +2066,9 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			else if (session) workOn(session.id);
 		}
 		const outcome = await deps.tools(butlerIdentity, call);
+		if (call.tool === "start_session" && outcome.ok && outcome.landing) {
+			inbox?.showSession(outcome.landing, call.name?.trim() || call.prompt);
+		}
 		if (call.tool !== "board_snapshot") return outcome;
 		if (!outcome.ok) return outcome;
 		return done(

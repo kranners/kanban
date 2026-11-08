@@ -89,6 +89,8 @@ describe("comment parsing", () => {
 						state: "running",
 					},
 					{ kind: "bogus", at: 3, text: "x" } as never,
+					{ kind: "session", at: 4, landing: { short: "feedbeef" }, text: "s" },
+					{ kind: "session", at: 5, landing: {}, text: "no landing" } as never,
 				],
 			}),
 			thread("a"),
@@ -105,6 +107,7 @@ describe("comment parsing", () => {
 		assert.deepEqual(parsed[0]?.events, [
 			{ kind: "user", at: 1, text: "go" },
 			{ kind: "action", at: 2, id: "t1", text: "Arranging", state: "failed" },
+			{ kind: "session", at: 4, landing: { short: "feedbeef" }, text: "s" },
 		]);
 		assert.deepEqual(parseComments({}), []);
 		assert.equal(
