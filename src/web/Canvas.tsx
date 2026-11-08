@@ -6,6 +6,7 @@ import type { Point } from "../shared/types.ts";
 import type { Arranging } from "./arrangement.ts";
 import { dotGrid, snap, snapWithin } from "./grid.ts";
 import type { NodeKey } from "./layout.ts";
+import { takeKeptView } from "./pageBuild.ts";
 import type { Bounds, Rect } from "./placement.ts";
 import { maxSessionSize, minSessionSize } from "./placement.ts";
 import {
@@ -136,6 +137,12 @@ export function Canvas(props: {
 		if (!el || !content || fitted.current === props.fitKey) return;
 		fitted.current = props.fitKey;
 		const anchor = props.anchor;
+		// After a reload for a new build, the board opens where Aaron left it.
+		const kept = takeKeptView<View>();
+		if (kept) {
+			view.value = kept;
+			return;
+		}
 		view.value = fromOrigin(
 			initialView(
 				content,

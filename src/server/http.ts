@@ -145,6 +145,8 @@ export type ServerDeps = {
 	archive?: ArchiveStore;
 	/** The token the board's page sends with every message to Butler. */
 	csrf: string;
+	/** The build of the page in `dist`, sent on every API reply as `x-kanban-build`. */
+	build?: () => string | null;
 	peerHook: PeerHook;
 	attach: AttachHub;
 	mirror: MirrorHub;
@@ -874,6 +876,15 @@ const conversationTarget = (
 	return session ? { kind: "session", session, path } : null;
 };
 
+/** The header naming the page build the server serves. */
+export const buildHeader = "x-kanban-build";
+
+/**
+ * Why a press from the page was refused, so the page can tell a stale token,
+ * which it refreshes once and retries, from anything else.
+ */
+export const stalePageCode = "stale-page";
+
 export const newCsrfToken = (): string => randomBytes(24).toString("base64url");
 
 export const csrfMatches = (sent: string, expected: string): boolean => {
@@ -1376,6 +1387,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		sendJson(res, 403, {
 			ok: false,
 			error: "Only the board's own page can message Butler; reload it",
+			code: stalePageCode,
 		});
 
 	// The page tells Butler what Aaron has in front of him, as Aaron, so it
@@ -1489,6 +1501,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			ok: false,
 			error:
 				"Approvals come only from the board's own page, signed in through the device gate; reload it",
+			code: stalePageCode,
 		});
 
 	/** Aaron's press of Approve or Decline on one of a thread card's requests. */
@@ -1771,6 +1784,9 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 	};
 
 	const handle = async (req: IncomingMessage, res: ServerResponse) => {
+		// An open page compares this with its own build and reloads when they differ.
+		const build = deps.build?.();
+		if (build) res.setHeader(buildHeader, build);
 		const route = matchRoute(req.method ?? "GET", requestUrl(req));
 		if (
 			route.kind === "runner-register" ||

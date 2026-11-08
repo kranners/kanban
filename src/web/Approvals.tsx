@@ -16,6 +16,7 @@ import {
 } from "./approvalCard.ts";
 import { needing, visitNextNeedingYou } from "./attentionState.ts";
 import { openThreadCard } from "./butlerThreads.ts";
+import { holdReload, reloadPage } from "./pageBuild.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 
 // Approving Butler's requests from the board: each request's card laid out
@@ -48,6 +49,15 @@ export function useWaitingApprovals(): void {
 	}, []);
 }
 
+/** Reloads the page, keeping where Aaron was, after a press it couldn't send. */
+function ReloadButton(): JSX.Element {
+	return (
+		<button type="button" class="approval-reload" onClick={reloadPage}>
+			Reload
+		</button>
+	);
+}
+
 /** A button that acts only once held for `ms`, a ring filling as it is held. */
 export function HoldButton(props: {
 	ms: number;
@@ -59,18 +69,24 @@ export function HoldButton(props: {
 }): JSX.Element {
 	const [holding, setHolding] = useState(false);
 	const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const release = useRef<(() => void) | null>(null);
 	const start = () => {
 		if (props.disabled || timer.current) return;
 		setHolding(true);
+		// A reload for a new build waits until the hold is over.
+		release.current = holdReload();
 		timer.current = setTimeout(() => {
 			timer.current = null;
 			setHolding(false);
 			props.onDone();
+			release.current?.();
 		}, props.ms);
 	};
 	const stop = () => {
 		if (timer.current) clearTimeout(timer.current);
 		timer.current = null;
+		release.current?.();
+		release.current = null;
 		setHolding(false);
 	};
 	useEffect(() => stop, []);
@@ -118,14 +134,18 @@ export function ApprovalCardView(props: {
 	const { approval } = props;
 	const sections = parseApprovalBody(approval.body);
 	const [busy, setBusy] = useState(false);
-	const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null);
+	const [said, setSaid] = useState<{
+		ok: boolean;
+		text: string;
+		reload?: boolean;
+	} | null>(null);
 	const pressed = approval.pressed;
 	const answer = async (decision: "approve" | "decline", held: boolean) => {
 		setBusy(true);
 		const got = await answerApproval(props.thread, approval, decision, held);
 		setBusy(false);
 		const text = got.ok ? got.value.text : got.error;
-		setSaid({ ok: got.ok, text });
+		setSaid({ ok: got.ok, text, reload: !got.ok && got.reload === true });
 		if (got.ok) props.onAnswered?.(text);
 	};
 	const critical = approval.critical === true;
@@ -252,6 +272,7 @@ export function ApprovalCardView(props: {
 			{said && !said.ok && (
 				<p class="comment-error" role="alert">
 					{said.text}
+					{said.reload && <ReloadButton />}
 				</p>
 			)}
 		</article>
@@ -292,7 +313,10 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 		approved: number;
 		left: (ButlerWaitingApproval & { why: string })[];
 	} | null>(null);
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<{
+		text: string;
+		reload: boolean;
+	} | null>(null);
 	const [busy, setBusy] = useState(false);
 	useRestoreFocus();
 	useEffect(() => {
@@ -307,7 +331,7 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 		const got = await approveAllSafe();
 		setBusy(false);
 		if (!got.ok) {
-			setError(got.error);
+			setError({ text: got.error, reload: got.reload === true });
 			return;
 		}
 		setError(null);
@@ -357,7 +381,8 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 			<div class="approvals-body" data-scrollable>
 				{error && (
 					<p class="comment-error" role="alert">
-						{error}
+						{error.text}
+						{error.reload && <ReloadButton />}
 					</p>
 				)}
 				{result && (

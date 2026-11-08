@@ -9,6 +9,7 @@ import { receiveExit } from "./exits.ts";
 import { receiveIgnores } from "./ignoreState.ts";
 import { lastRuns } from "./lastRuns.ts";
 import { receiveNotifications } from "./notificationState.ts";
+import { noteServerBuild } from "./pageBuild.ts";
 import { regions } from "./regionState.ts";
 import { relations } from "./relationState.ts";
 import {
@@ -35,6 +36,10 @@ function feedUrl(): string {
 }
 
 function receive(frame: BoardFeed): void {
+	if (frame.type === "hello") {
+		noteServerBuild(frame.build);
+		return;
+	}
 	if (frame.type === "board") {
 		board.value = frame.board;
 		const landing = awaitingLanding.value;

@@ -804,6 +804,7 @@ export type Digests = {
 export const noDigests: Digests = { projects: {}, sessions: {} };
 
 export type BoardFeed =
+	| { type: "hello"; build: string | null }
 	| { type: "board"; board: Board }
 	| { type: "layout"; layout: Layout }
 	| { type: "annotations"; annotations: Annotations }

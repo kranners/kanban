@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
 	copyFile,
 	cp,
@@ -84,6 +84,11 @@ async function writeServiceWorker(next: string): Promise<void> {
 	);
 }
 
+// Each build gets its own id, which the page carries and the server reports
+// from `build-id`, so an open page can tell it is older than the server's.
+export const newBuildId = (): string =>
+	`${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
+
 async function bundle(
 	entry: string,
 	outDir: string,
@@ -93,7 +98,9 @@ async function bundle(
 	const next = `${out}.next/`;
 	await rm(next, { recursive: true, force: true });
 	await mkdir(next, { recursive: true });
+	const buildId = newBuildId();
 	await esbuild.build({
+		define: { __KANBAN_BUILD__: JSON.stringify(buildId) },
 		entryPoints: { app: entry },
 		outdir: next,
 		splitting: true,
@@ -119,6 +126,7 @@ async function bundle(
 		staticFiles.map((file) => copyFile(`${web}${file}`, `${next}${file}`)),
 	);
 	await writeServiceWorker(next);
+	await writeFile(`${next}build-id`, `${buildId}\n`);
 	await extra(next);
 	await swapIn(next, out);
 }

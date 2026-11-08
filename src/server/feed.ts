@@ -71,6 +71,8 @@ export type FeedOptions = {
 	runners?: () => RunnerView[];
 	lastRuns?: () => LastRuns;
 	notifications?: () => BoardNotification[];
+	/** The page build being served, told first to each page so a stale one reloads. */
+	build?: () => string | null;
 };
 
 const socketOpen = 1;
@@ -93,6 +95,7 @@ export const createFeed = ({
 	runners,
 	lastRuns,
 	notifications,
+	build,
 }: FeedOptions): Feed => {
 	const clients = new Set<FeedSocket>();
 
@@ -116,6 +119,7 @@ export const createFeed = ({
 		add(socket) {
 			clients.add(socket);
 			socket.on("close", () => clients.delete(socket));
+			if (build) send(socket, { type: "hello", build: build() });
 			send(socket, { type: "layout", layout: layout() });
 			send(socket, { type: "annotations", annotations: annotations() });
 			send(socket, { type: "colours", colours: colours() });

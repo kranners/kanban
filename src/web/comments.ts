@@ -8,11 +8,14 @@ import type {
 	Point,
 } from "../shared/types.ts";
 import type { KeyPress } from "./actions.ts";
+import { noteServerBuild, writeStarted } from "./pageBuild.ts";
 
 /** Where the `/` popup opens, and any request a top bar button filled in for Aaron to edit. */
 export type Composer = { board: Point; client: Point; text?: string };
 export type ThreadMenu = { id: string; client: Point };
-export type Outcome<T> = { ok: true; value: T } | { ok: false; error: string };
+export type Outcome<T> =
+	| { ok: true; value: T }
+	| { ok: false; error: string; reload?: true };
 
 const echoMs = 3000;
 
@@ -115,7 +118,10 @@ let csrfToken: Promise<string | null> | null = null;
 /** The token that proves a message to Butler came from this page. */
 function csrf(): Promise<string | null> {
 	csrfToken ??= fetch("/api/csrf")
-		.then((r) => (r.ok ? r.json() : null))
+		.then((r) => {
+			noteServerBuild(r.headers.get(buildHeader));
+			return r.ok ? r.json() : null;
+		})
 		.then((body: { token?: unknown } | null) =>
 			typeof body?.token === "string" ? body.token : null,
 		)
@@ -127,34 +133,66 @@ function csrf(): Promise<string | null> {
 	return csrfToken;
 }
 
-export async function request<T>(
-	method: string,
-	path: string,
-	body?: unknown,
-	keepalive = false,
-): Promise<Outcome<T>> {
+const buildHeader = "x-kanban-build";
+/** The code the server gives a press it refused for a stale page token. */
+const stalePageCode = "stale-page";
+
+/** Whether the device gate's sign-in has lapsed, so a reply is its login page. */
+const signInLapsed = (response: Response): boolean => {
+	if (response.status === 401) return true;
+	if (!response.redirected) return false;
 	try {
-		const token = method === "GET" ? null : await csrf();
-		const response = await fetch(path, {
-			method,
-			...(keepalive ? { keepalive } : {}),
-			...(body === undefined
-				? token
-					? { headers: { "x-kanban-csrf": token } }
-					: {}
-				: {
-						headers: {
-							"content-type": "application/json",
-							...(token ? { "x-kanban-csrf": token } : {}),
-						},
-						body: JSON.stringify(body),
-					}),
-		});
-		if (response.status === 204) return { ok: true, value: undefined as T };
+		return new URL(response.url).pathname.startsWith("/.gate/");
+	} catch {
+		return false;
+	}
+};
+
+type Send = (token: string | null) => Promise<Response>;
+
+/**
+ * Sends one request with the page's token. The server makes a fresh token
+ * each time it starts, so a press it refused as from a stale page drops the
+ * token, fetches the current one and is sent once more before any error.
+ */
+export async function sendWithToken<T>(
+	method: string,
+	send: Send,
+	token: () => Promise<string | null>,
+	forget: () => void,
+): Promise<Outcome<T>> {
+	const attempt = async () => {
+		const response = await send(method === "GET" ? null : await token());
 		const parsed = (await response.json().catch(() => null)) as
-			| (T & { error?: string })
+			| (T & { error?: string; code?: string })
 			| null;
+		return { response, parsed };
+	};
+	try {
+		let { response, parsed } = await attempt();
+		const stale = () =>
+			response.status === 403 && parsed?.code === stalePageCode;
+		if (stale()) {
+			forget();
+			({ response, parsed } = await attempt());
+		}
+		if (response.status === 204) return { ok: true, value: undefined as T };
 		if (response.ok && parsed) return { ok: true, value: parsed };
+		if (stale()) {
+			return {
+				ok: false,
+				error:
+					"The board couldn't confirm this press came from its page. Reload to try again.",
+				reload: true,
+			};
+		}
+		if (!parsed && signInLapsed(response)) {
+			return {
+				ok: false,
+				error: "Your board sign-in has lapsed. Reload to sign in again.",
+				reload: true,
+			};
+		}
 		return {
 			ok: false,
 			error:
@@ -162,6 +200,45 @@ export async function request<T>(
 		};
 	} catch (caught) {
 		return { ok: false, error: `Couldn't reach the board server (${caught})` };
+	}
+}
+
+export async function request<T>(
+	method: string,
+	path: string,
+	body?: unknown,
+	keepalive = false,
+): Promise<Outcome<T>> {
+	const done = method === "GET" ? () => {} : writeStarted();
+	try {
+		return await sendWithToken<T>(
+			method,
+			async (token) => {
+				const response = await fetch(path, {
+					method,
+					...(keepalive ? { keepalive } : {}),
+					...(body === undefined
+						? token
+							? { headers: { "x-kanban-csrf": token } }
+							: {}
+						: {
+								headers: {
+									"content-type": "application/json",
+									...(token ? { "x-kanban-csrf": token } : {}),
+								},
+								body: JSON.stringify(body),
+							}),
+				});
+				noteServerBuild(response.headers.get(buildHeader));
+				return response;
+			},
+			csrf,
+			() => {
+				csrfToken = null;
+			},
+		);
+	} finally {
+		done();
 	}
 }
 

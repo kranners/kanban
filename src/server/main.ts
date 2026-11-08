@@ -40,6 +40,7 @@ import {
 	projectsOf,
 	summariesOfBoard,
 } from "./boardTools.ts";
+import { buildIdReader } from "./build.ts";
 import { type Butler, createButler, loadButlerState } from "./butler.ts";
 import { createThreadLogStore, loadThreadLogs } from "./butlerThreads.ts";
 import { agentMarker, isAgentDir } from "./claudeRuns.ts";
@@ -444,7 +445,9 @@ const digests = createDigester({
 	now: Date.now,
 	onChange: (next) => feed?.digests(next),
 });
+const pageBuild = buildIdReader(config.dist);
 feed = createFeed({
+	build: pageBuild,
 	board: source.board,
 	layout: layout.current,
 	annotations: annotations.current,
@@ -734,6 +737,7 @@ const server = createKanbanServer({
 	edges: messageEdges,
 	archive,
 	csrf: newCsrfToken(),
+	build: pageBuild,
 	peerHook: createPeerHook({
 		units: () =>
 			summariesOfBoard(source.board(), { layout, annotations, regions }),

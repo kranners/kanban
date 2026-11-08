@@ -534,6 +534,7 @@ describe("createKanbanServer", () => {
 			now: () => (tick += yourGapMs * 2),
 		});
 		feed = createFeed({
+			build: () => "build-1",
 			comments: comments.current,
 			layout: store.current,
 			annotations: annotations.current,
@@ -559,6 +560,7 @@ describe("createKanbanServer", () => {
 			origins,
 			dist,
 			csrf: "test-csrf",
+			build: () => "build-1",
 			authenticate,
 			runnerToken: runnerTokenCheck(runnerSecret),
 			source: {
@@ -1862,7 +1864,15 @@ describe("createKanbanServer", () => {
 				if (frame.type === "layout" && ++layouts === 2) resolve(frame);
 			});
 		});
+		const hello = new Promise<BoardFeed>((resolve) =>
+			socket.once("message", (data) => resolve(JSON.parse(String(data)))),
+		);
 		await new Promise((resolve) => socket.on("open", resolve));
+		assert.deepEqual(
+			await hello,
+			{ type: "hello", build: "build-1" },
+			"the feed names the page build first, so a stale page reloads",
+		);
 		const placement = { x: 24, y: -48, w: 480, h: 360 };
 		const stored = await send("PUT", "/api/layout", { key, placement });
 		assert.equal(stored.status, 204);
@@ -2292,7 +2302,7 @@ describe("createKanbanServer", () => {
 			});
 			socket.on("message", (data) => {
 				received.push(JSON.parse(String(data)));
-				if (received.length === 11) {
+				if (received.length === 12) {
 					socket.close();
 					resolve(received);
 				}
@@ -2301,6 +2311,7 @@ describe("createKanbanServer", () => {
 		assert.deepEqual(
 			frames.map((frame) => frame.type),
 			[
+				"hello",
 				"layout",
 				"annotations",
 				"colours",
@@ -2705,16 +2716,17 @@ describe("createKanbanServer", () => {
 			false,
 			"the page never sees a nonce",
 		);
+		const stale = await press({
+			"x-device-gate-device": "ipad",
+			"cf-connecting-ip": "10.100.0.13",
+		});
+		assert.equal(stale.status, 403, "no CSRF token");
 		assert.equal(
-			(
-				await press({
-					"x-device-gate-device": "ipad",
-					"cf-connecting-ip": "10.100.0.13",
-				})
-			).status,
-			403,
-			"no CSRF token",
+			(await stale.json()).code,
+			"stale-page",
+			"the page can tell a stale token, refresh it and press again",
 		);
+		assert.equal(stale.headers.get("x-kanban-build"), "build-1");
 		assert.equal(
 			(await press({ "x-kanban-csrf": "test-csrf" })).status,
 			403,
