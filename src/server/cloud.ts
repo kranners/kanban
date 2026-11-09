@@ -638,6 +638,23 @@ export const waitingWhy = (
 		: `Asks to use ${prompt.title}, which Butler's reviewer checks within seconds`;
 };
 
+/**
+ * Why a cloud session needs Aaron while the board answers prompts itself: the
+ * prompt it waits on and why the safe set left it for him, or null to say it
+ * as waitingWhy does.
+ */
+export const effectWhy = (
+	prompts: readonly OpenAction[],
+	verdict: (prompt: OpenAction) => { safe: boolean; reason?: string },
+): string | null => {
+	const prompt = prompts.at(-1);
+	if (!prompt) return null;
+	const judged = verdict(prompt);
+	return judged.safe
+		? `Asks to use ${prompt.title}, which the board allows as safe`
+		: `Needs your yes: asks to use ${prompt.title}, which ${judged.reason}`;
+};
+
 const promptFor = (action: OpenAction, asked?: Asked): CloudPrompt => ({
 	...action,
 	options: asked?.remembers
@@ -718,6 +735,7 @@ export const createCloudSessions = async ({
 	answerGraceMs = 60_000,
 	mirrorBatch = defaultMirrorBatch,
 	append = appendFile,
+	effects = false,
 	onChange,
 }: {
 	file: string;
@@ -728,6 +746,8 @@ export const createCloudSessions = async ({
 	mirrorBatch?: MirrorBatch;
 	/** Appends a batch of mirrored events to a transcript. */
 	append?: (path: string, text: string) => Promise<void>;
+	/** Whether a waiting card says the board allows a safe prompt itself, outside the legacy permissions mode. */
+	effects?: boolean;
 	onChange: () => void;
 }): Promise<CloudSessions> => {
 	const stored = createStateFile<CloudRecord[]>(file);
@@ -941,22 +961,17 @@ export const createCloudSessions = async ({
 		}
 		if (blocked) {
 			if (item.waiting.length === 0) item.waiting = askedWaiting(item);
+			const verdictOf = (prompt: OpenAction) =>
+				promptVerdict(prompt.toolName, prompt.title, prompt.input, undefined, {
+					self: id,
+					onBoard: (other) => tracked.has(other),
+				});
 			item.session = {
 				...item.session,
 				detail:
 					item.session.detail ??
-					waitingWhy(item.waiting, (prompt) =>
-						promptVerdict(
-							prompt.toolName,
-							prompt.title,
-							prompt.input,
-							undefined,
-							{
-								self: id,
-								onBoard: (other) => tracked.has(other),
-							},
-						),
-					),
+					(effects ? effectWhy(item.waiting, verdictOf) : null) ??
+					waitingWhy(item.waiting, verdictOf),
 			};
 		}
 		reported.delete(id);

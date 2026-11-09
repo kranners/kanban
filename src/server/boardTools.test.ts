@@ -62,7 +62,11 @@ const board: Board = {
 	generatedAt: 0,
 };
 
-const setup = async (shown: Board = board, reviews?: PromptReviews) => {
+const setup = async (
+	shown: Board = board,
+	reviews?: PromptReviews,
+	namesEffects = false,
+) => {
 	const dir = await mkdtemp(join(tmpdir(), "kanban-tools-"));
 	const events: AuditEvent[] = [];
 	const exits: [string, boolean, string | null, string?][] = [];
@@ -162,8 +166,9 @@ const setup = async (shown: Board = board, reviews?: PromptReviews) => {
 					},
 		answer: async (s, reply) => {
 			answered.push([s.id, reply]);
-			return reply
-				? { ok: true, value: `Answered ${s.name}'s prompt` }
+			if (reply) return { ok: true, value: `Answered ${s.name}'s prompt` };
+			return s.cloud
+				? { ok: true, value: `${s.name} asks permission for Bash:` }
 				: { ok: false, error: `${s.name} is not waiting on a question` };
 		},
 		approver: {
@@ -184,9 +189,11 @@ const setup = async (shown: Board = board, reviews?: PromptReviews) => {
 				);
 				return { ok: true, value: null };
 			},
+			refuse: async () => ({ ok: false, error: "unused" }),
 		},
 		audit: (event) => events.push(event),
 		...(reviews ? { reviews } : {}),
+		namesEffects,
 		edges: { record: (entry) => recorded.push(entry) },
 		history: async (since) => `history since ${new Date(since).toISOString()}`,
 		now: () => Date.UTC(2026, 10, 1),
@@ -829,8 +836,49 @@ describe("board tools", () => {
 		);
 	});
 
+	it("says why the board left a cloud session's shown prompt for Aaron outside the legacy mode", async () => {
+		const cloudBoard: Board = {
+			...board,
+			sessions: [
+				session("aaaaaaaa-1", {
+					cloud: { url: "https://claude.ai/code/session_01acme" },
+					activity: "needs-you",
+				}),
+			],
+		};
+		const read = async (namesEffects: boolean) => {
+			const { tools, prompts } = await setup(
+				cloudBoard,
+				undefined,
+				namesEffects,
+			);
+			prompts.set("aaaaaaaa-1", [
+				{
+					requestId: "r-push",
+					toolName: "Bash",
+					title: "Bash",
+					input: { command: "git push origin main" },
+				},
+			]);
+			return tools("t", {
+				tool: "answer_prompt",
+				session: "aaaaaaaa-1",
+				reply: null,
+			});
+		};
+		assert.deepEqual(await read(true), {
+			ok: true,
+			text: "acme-aaa asks permission for Bash:\nLeft for Aaron: pushes to main (git push origin main): git push origin main",
+		});
+		assert.deepEqual(await read(false), {
+			ok: true,
+			text: "acme-aaa asks permission for Bash:",
+		});
+	});
+
 	it("approves through claude.ai for cloud sessions and the terminal's Yes for others", async () => {
 		const sent: [string, string][] = [];
+		const chosen: [string, string, string][] = [];
 		const replies: [string, PromptReply | null][] = [];
 		const approver = createPromptApprover({
 			cloud: {
@@ -844,6 +892,10 @@ describe("board tools", () => {
 				],
 				approveSafe: async (id, requestId) => {
 					sent.push([id, requestId]);
+					return { ok: true, value: null };
+				},
+				choose: async (id, requestId, label) => {
+					chosen.push([id, requestId, label]);
 					return { ok: true, value: null };
 				},
 			},
@@ -886,6 +938,8 @@ describe("board tools", () => {
 			value: null,
 		});
 		assert.deepEqual(sent, [["aaaaaaaa-1", "abc123"]]);
+		await approver.refuse(cloudSession, prompt);
+		assert.deepEqual(chosen, [["aaaaaaaa-1", "abc123", "No"]]);
 		assert.deepEqual(replies, [
 			[
 				"bbbbbbbb-2",

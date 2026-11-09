@@ -35,6 +35,7 @@ import { createArchiveStore, loadArchive } from "./archive.ts";
 import { claudeAttachPty, createAttachHub } from "./attach.ts";
 import { fileAudit } from "./audit.ts";
 import { authenticatorFor, runnerTokenCheck } from "./auth.ts";
+import { createAutoAnswer, permissionsMode } from "./autoAnswer.ts";
 import {
 	createBoardTools,
 	createPromptApprover,
@@ -405,10 +406,13 @@ const runnersTick = async () => {
 	if ((feed?.size() ?? 0) > 0) feed?.runners(runnerHub.views());
 };
 const runnersPoll = setInterval(() => void runnersTick(), 5_000);
+const permissions = permissionsMode();
+const answersByEffect = permissions !== "legacy";
 const cloud = await createCloudSessions({
 	file: join(config.stateDir, "cloud.json"),
 	dir: join(config.stateDir, "cloud"),
 	apiFor: cloudApiFor,
+	effects: answersByEffect,
 	onChange: () => source.refresh(),
 });
 const source = startBoard({
@@ -643,6 +647,7 @@ const announce = createAnnouncer({
 	prompt: conversation.prompt,
 	audit,
 });
+const promptApprover = createPromptApprover({ cloud, terminal: conversation });
 const boardTools = createBoardTools({
 	source,
 	edges: messageEdges,
@@ -661,7 +666,8 @@ const boardTools = createBoardTools({
 	}),
 	announce,
 	answer: conversation.respond,
-	approver: createPromptApprover({ cloud, terminal: conversation }),
+	approver: promptApprover,
+	namesEffects: answersByEffect,
 	history: (since) =>
 		readHistory(
 			{
@@ -735,6 +741,16 @@ butler = createButler({
 		setTimeout(run, ms).unref();
 	},
 });
+const autoAnswer =
+	permissions === "legacy"
+		? null
+		: createAutoAnswer({
+				sessions: () => source.board().sessions,
+				approver: promptApprover,
+				audit,
+				mode: permissions,
+			});
+const autoAnswerPoll = setInterval(() => void autoAnswer?.(), 3000);
 const relayCheck = setInterval(() => {
 	butler?.inbox?.check();
 	butler?.check();
@@ -816,6 +832,7 @@ const listening = listenAll(server, config.hosts, config.port, (host) => {
 
 const shutdown = () => {
 	clearInterval(relayCheck);
+	clearInterval(autoAnswerPoll);
 	source.stop();
 	cloud.stop();
 	clearInterval(cmuxPoll);

@@ -36,7 +36,8 @@ import { summariesOf } from "../web/summaries.ts";
 import { type AnnotationStore, parseAnnotation } from "./annotations.ts";
 import { type Announcer, describeDeliveries } from "./announce.ts";
 import type { Audit } from "./audit.ts";
-import { allowOnce } from "./cloud.ts";
+import { promptDetail } from "./autoAnswer.ts";
+import { allowOnce, refuseOnce } from "./cloud.ts";
 import type { CmuxResult } from "./cmux.ts";
 import type { ColourStore } from "./colours.ts";
 import type { CommentStore } from "./comments.ts";
@@ -86,6 +87,8 @@ export type BoardToolDeps = {
 	answer: PromptAnswerer;
 	/** Reads and approves the permission prompts a session waits on, for the safe set. */
 	approver: PromptApprover;
+	/** Whether a read of a cloud session's prompt says why the board left it for Aaron, as it does outside the legacy permissions mode. */
+	namesEffects?: boolean;
 	/** Butler's reviewer's holds and reviews of claude.ai session tools' prompts; the board's own store by default. */
 	reviews?: PromptReviews;
 	history: (since: number) => Promise<string>;
@@ -117,6 +120,8 @@ export type PromptApprover = {
 	 * life, or a terminal session's Yes.
 	 */
 	approve(session: Session, prompt: OpenPrompt): Promise<CmuxResult<null>>;
+	/** Refuses it once. */
+	refuse(session: Session, prompt: OpenPrompt): Promise<CmuxResult<null>>;
 };
 
 /**
@@ -127,6 +132,11 @@ export const createPromptApprover = (deps: {
 	cloud: {
 		prompts(id: string): OpenPrompt[];
 		approveSafe(id: string, requestId: string): Promise<CmuxResult<null>>;
+		choose(
+			id: string,
+			requestId: string,
+			label: string,
+		): Promise<CmuxResult<null>>;
 	};
 	terminal: {
 		waiting(session: Session): Promise<CmuxResult<OpenPrompt[]>>;
@@ -135,22 +145,35 @@ export const createPromptApprover = (deps: {
 			reply: PromptReply | null,
 		): Promise<CmuxResult<string>>;
 	};
-}): PromptApprover => ({
-	open: async (session) =>
-		session.cloud
-			? { ok: true, value: deps.cloud.prompts(session.id) }
-			: deps.terminal.waiting(session),
-	approve: async (session, prompt) => {
+}): PromptApprover => {
+	const pick = async (
+		session: Session,
+		prompt: OpenPrompt,
+		label: string,
+	): Promise<CmuxResult<null>> => {
 		if (session.cloud) {
-			return deps.cloud.approveSafe(session.id, prompt.requestId);
+			return deps.cloud.choose(session.id, prompt.requestId, label);
 		}
 		const answered = await deps.terminal.respond(session, {
 			prompt: prompt.requestId,
-			answers: [{ selected: [allowOnce], other: null }],
+			answers: [{ selected: [label], other: null }],
 		});
 		return answered.ok ? { ok: true, value: null } : answered;
-	},
-});
+	};
+	return {
+		open: async (session) =>
+			session.cloud
+				? { ok: true, value: deps.cloud.prompts(session.id) }
+				: deps.terminal.waiting(session),
+		approve: async (session, prompt) => {
+			if (session.cloud) {
+				return deps.cloud.approveSafe(session.id, prompt.requestId);
+			}
+			return pick(session, prompt, allowOnce);
+		},
+		refuse: (session, prompt) => pick(session, prompt, refuseOnce),
+	};
+};
 
 /** Who an announce or exit through the board's tools is audited as: Butler, their only caller now. */
 export const agentIdentity = "butler";
@@ -618,7 +641,18 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				return done([tally(report), ...report.lines].join("\n"));
 			}
 			const result = await deps.answer(session, reply);
-			return result.ok ? done(result.value) : refused(result.error);
+			if (!result.ok) return refused(result.error);
+			if (reply || !session.cloud || !deps.namesEffects) {
+				return done(result.value);
+			}
+			const open = await deps.approver.open(session);
+			const shown = open.ok ? open.value.at(-1) : undefined;
+			const verdict = shown ? verdictFor(session, shown) : null;
+			return done(
+				shown && verdict && !verdict.safe
+					? `${result.value}\nLeft for Aaron: ${verdict.reason}: ${promptDetail(shown)}`
+					: result.value,
+			);
 		},
 		approve_safe_prompts: async ({ sessions: refs }) => {
 			const board = deps.source.board();

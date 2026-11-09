@@ -91,8 +91,8 @@ export type AuditEvent =
 			sessionId: string;
 			tool: string;
 			requestId: string;
-			/** Why the board approved it without the user: the safe set, or Butler's reviewer within it. */
-			via: "safe set" | "butler reviewer";
+			/** Why the board answered it without the user: the safe set, Butler's reviewer within it, or, while permissions are off, a refusal of what the safe set leaves. */
+			via: "safe set" | "butler reviewer" | "refused, permissions off";
 			identity: string | null;
 			result: string;
 	  }
