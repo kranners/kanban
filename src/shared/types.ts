@@ -495,8 +495,6 @@ export type ButlerThreadApproval = {
 	body?: string;
 	/** It lists something critical, so Approve needs the hold. */
 	critical?: boolean;
-	/** Approve all safe may approve it. */
-	safe?: boolean;
 	/**
 	 * What its Approve and Decline send back to the daemon, kept on the board's
 	 * server alone: the page is told only `answerable`.

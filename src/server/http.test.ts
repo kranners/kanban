@@ -2690,7 +2690,6 @@ describe("createKanbanServer", () => {
 							code: "qwert",
 							kind: "desk",
 							nonce,
-							safe: true,
 						},
 					],
 				},

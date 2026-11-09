@@ -204,8 +204,8 @@ export type Butler = {
 		decision: "approve" | "decline",
 		options: { held?: boolean; device?: string; bulk?: boolean },
 	): { ok: true; text: string } | ApprovalRefused;
-	/** Approves every request that lists nothing critical, and says what it left. */
-	approveAllSafe(device?: string): {
+	/** Approve all: approves every request but the critical ones, which need their own held press, and says what it left. */
+	approveAll(device?: string): {
 		approved: ButlerWaitingApproval[];
 		left: (ButlerWaitingApproval & { why: string })[];
 	};
@@ -2308,7 +2308,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		deps.audit({
 			action: "butler",
 			tool: `approval-${decision}`,
-			result: `${code} on ${thread}${options.device ? ` from ${options.device}` : ""}${options.bulk ? " (Approve all safe)" : ""}`,
+			result: `${code} on ${thread}${options.device ? ` from ${options.device}` : ""}${options.bulk ? " (Approve all)" : ""}`,
 		});
 		return {
 			ok: true,
@@ -2316,7 +2316,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		};
 	};
 
-	const approveAllSafe: Butler["approveAllSafe"] = (device) => {
+	const approveAll: Butler["approveAll"] = (device) => {
 		const approved: ButlerWaitingApproval[] = [];
 		const left: (ButlerWaitingApproval & { why: string })[] = [];
 		for (const item of approvalsWaiting()) {
@@ -2326,12 +2326,10 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				left.push({ ...item, why: "answer it in Discord" });
 				continue;
 			}
-			if (a.critical || !a.safe) {
+			if (a.critical) {
 				left.push({
 					...item,
-					why: a.critical
-						? "it has critical items, so it needs its own press"
-						: "its card does not say it has no critical items",
+					why: "it has critical items, so hold its own Approve",
 				});
 				continue;
 			}
@@ -2374,7 +2372,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		sendToThread,
 		approvalsWaiting,
 		answerApproval,
-		approveAllSafe,
+		approveAll,
 		startJob,
 		closeThreadCard,
 		tidy: (options = {}) => tidy(options),

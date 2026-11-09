@@ -120,11 +120,11 @@ export function answerApproval(
 	);
 }
 
-export function approveAllSafe(): Promise<
+export function approveAll(): Promise<
 	Outcome<{
 		approved: ButlerWaitingApproval[];
 		left: (ButlerWaitingApproval & { why: string })[];
 	}>
 > {
-	return request("POST", "/api/butler/approvals/safe", {});
+	return request("POST", "/api/butler/approvals/all", {});
 }

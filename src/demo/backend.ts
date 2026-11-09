@@ -1361,7 +1361,7 @@ export function createBackend(scenario: Scenario): Backend {
 		["GET", /^\/api\/butler\/approvals$/, () => json(200, { approvals: [] })],
 		[
 			"POST",
-			/^\/api\/butler\/approvals\/safe$/,
+			/^\/api\/butler\/approvals\/all$/,
 			() => json(200, { ok: true, approved: [], left: [] }),
 		],
 		[

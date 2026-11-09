@@ -9,7 +9,7 @@ import type {
 } from "../shared/types.ts";
 import {
 	answerApproval,
-	approveAllSafe,
+	approveAll,
 	fetchApprovals,
 	holdMs,
 	parseApprovalBody,
@@ -306,7 +306,7 @@ export function WaitingApprovalsButton(props: {
 	);
 }
 
-/** Every request waiting on Aaron, with Approve all safe, and the board's own sessions waiting on a prompt. */
+/** Every request waiting on Aaron, with Approve all, and the board's own sessions waiting on a prompt. */
 function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 	const dialog = useRef<HTMLDialogElement>(null);
 	const [result, setResult] = useState<{
@@ -324,11 +324,14 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 	}, []);
 	const all = waitingApprovals.value;
 	const open = all.filter((w) => !w.approval.pressed);
-	const safe = open.filter((w) => w.approval.safe && w.approval.answerable);
+	// Approve all takes every answerable request but the critical ones, which keep their held press.
+	const approvable = open.filter(
+		(w) => w.approval.answerable && !w.approval.critical,
+	);
 	const sessions = needing.value.size;
-	const runSafe = async () => {
+	const runAll = async () => {
 		setBusy(true);
-		const got = await approveAllSafe();
+		const got = await approveAll();
 		setBusy(false);
 		if (!got.ok) {
 			setError({ text: got.error, reload: got.reload === true });
@@ -361,13 +364,13 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 				<span class="comment-thread-title">Waiting on you</span>
 				<button
 					type="button"
-					class="approvals-safe"
-					disabled={busy || safe.length === 0}
-					title="Approve every request that lists no critical permission; anything critical keeps its own button"
-					onClick={() => void runSafe()}
+					class="approvals-all"
+					disabled={busy || approvable.length === 0}
+					title="Approve every request waiting on you; anything critical still needs its own Approve held"
+					onClick={() => void runAll()}
 				>
 					<ShieldCheck size={14} aria-hidden="true" />
-					Approve all safe ({safe.length})
+					Approve all
 				</button>
 				<button
 					type="button"
@@ -388,7 +391,7 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 				{result && (
 					<section class="approvals-result" role="status">
 						<p>
-							Approved {result.approved} safe request
+							Approved {result.approved} request
 							{result.approved === 1 ? "" : "s"}.
 							{result.left.length > 0 && ` Left ${result.left.length} for you:`}
 						</p>

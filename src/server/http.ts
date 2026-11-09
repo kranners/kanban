@@ -241,7 +241,7 @@ export type Route =
 	| { kind: "butler-thread-message"; threadId: string }
 	| { kind: "butler-thread-approval"; threadId: string }
 	| { kind: "butler-approvals" }
-	| { kind: "butler-approvals-safe" }
+	| { kind: "butler-approvals-all" }
 	| { kind: "butler-job" }
 	| { kind: "self-fix-action"; id: string; action: SelfFixAction }
 	| { kind: "peer-hook" }
@@ -554,9 +554,9 @@ export const matchRoute = (method: string, url: URL): Route => {
 			? { kind: "butler-approvals" }
 			: { kind: "method-not-allowed" };
 	}
-	if (path === "/api/butler/approvals/safe") {
+	if (path === "/api/butler/approvals/all") {
 		return method === "POST"
-			? { kind: "butler-approvals-safe" }
+			? { kind: "butler-approvals-all" }
 			: { kind: "method-not-allowed" };
 	}
 	const butlerThread = path.match(
@@ -1540,8 +1540,8 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		sendJson(res, 202, answered);
 	};
 
-	/** Approve all safe: every request that lists nothing critical, and what it left. */
-	const butlerApprovalsSafe = async (
+	/** Approve all: every request but the critical ones, which keep their held press, and what it left. */
+	const butlerApprovalsAll = async (
 		req: IncomingMessage,
 		res: ServerResponse,
 	) => {
@@ -1555,7 +1555,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				error: "Butler is not set up on this board",
 			});
 		}
-		sendJson(res, 200, { ok: true, ...deps.butler.approveAllSafe(device) });
+		sendJson(res, 200, { ok: true, ...deps.butler.approveAll(device) });
 	};
 
 	/** A Butler job from the top bar: a / thread at the middle of the screen, flagged as a job. */
@@ -1966,8 +1966,8 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return butlerThreadMessage(req, res, route.threadId);
 			case "butler-thread-approval":
 				return butlerThreadApproval(req, res, route.threadId);
-			case "butler-approvals-safe":
-				return butlerApprovalsSafe(req, res);
+			case "butler-approvals-all":
+				return butlerApprovalsAll(req, res);
 			case "butler-approvals":
 				if (byToken.has(req)) return sendError(res, 403);
 				return sendJson(res, 200, {

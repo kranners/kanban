@@ -201,8 +201,8 @@ const probes: Record<string, Probe> = {
 	"/api/butler/approvals": async (backend) => {
 		await answers(backend, "GET", "/api/butler/approvals");
 	},
-	"/api/butler/approvals/safe": async (backend) => {
-		await answers(backend, "POST", "/api/butler/approvals/safe", {});
+	"/api/butler/approvals/all": async (backend) => {
+		await answers(backend, "POST", "/api/butler/approvals/all", {});
 	},
 	"/api/butler/threads/:param/approvals": async (backend) => {
 		const response = backend.fetch(

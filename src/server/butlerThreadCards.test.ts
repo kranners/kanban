@@ -861,7 +861,7 @@ describe("Approving Butler's requests from the board", () => {
 		await sync([
 			entry("11111111", {
 				state: "needs-you",
-				approvals: [waiting("abcde", { body: safeCard, safe: true })],
+				approvals: [waiting("abcde", { body: safeCard })],
 			}),
 		]);
 		const view = butler.threadView("11111111");
@@ -907,17 +907,13 @@ describe("Approving Butler's requests from the board", () => {
 		await sync([
 			entry("11111111", {
 				state: "needs-you",
-				approvals: [
-					waiting("paydn", { body: critCard, critical: true, safe: true }),
-				],
+				approvals: [waiting("paydn", { body: critCard, critical: true })],
 			}),
 		]);
 		const tapped = butler.answerApproval("11111111", "paydn", "approve", {});
 		assert.ok("error" in tapped);
 		assert.equal(tapped.status, 400);
 		assert.equal((await presses(butler)).length, 0);
-		// The daemon's critical flag also rules out safe, whatever else it says.
-		assert.equal(butler.approvalsWaiting()[0]?.approval.safe, undefined);
 		const held = butler.answerApproval("11111111", "paydn", "approve", {
 			held: true,
 		});
@@ -925,33 +921,32 @@ describe("Approving Butler's requests from the board", () => {
 		assert.equal((await presses(butler))[0]?.approval?.held, true);
 	});
 
-	it("approves every safe request at once and lists what it left", async () => {
+	it("approves every request but the critical ones at once and lists what it left", async () => {
 		const { butler, sync } = await setup();
 		await sync([
 			entry("11111111", {
 				state: "needs-you",
 				approvals: [
-					waiting("safee", { body: safeCard, safe: true }),
+					waiting("safee", { body: safeCard }),
 					waiting("paydn", { body: critCard, critical: true }),
 					waiting("plain", { kind: "call" }),
 					{ at: 1, headline: "No buttons", code: "nonce" },
 				],
 			}),
 		]);
-		const { approved, left } = butler.approveAllSafe("ipad");
+		const { approved, left } = butler.approveAll("ipad");
 		assert.deepEqual(
 			approved.map((w) => w.approval.code),
-			["safee"],
+			["safee", "plain"],
 		);
 		assert.deepEqual(left.map((w) => [w.approval.code, w.why]).sort(), [
 			["nonce", "answer it in Discord"],
-			["paydn", "it has critical items, so it needs its own press"],
-			["plain", "its card does not say it has no critical items"],
+			["paydn", "it has critical items, so hold its own Approve"],
 		]);
 		const queued = await presses(butler);
 		assert.deepEqual(
 			queued.map((m) => m.approval?.code),
-			["safee"],
+			["safee", "plain"],
 		);
 		assert.equal(queued[0]?.approval?.bulk, true);
 	});

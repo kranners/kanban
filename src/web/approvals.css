@@ -205,7 +205,7 @@
 	gap: 8px;
 }
 
-.approvals-safe {
+.approvals-all {
 	margin-left: auto;
 	display: inline-flex;
 	align-items: center;
@@ -221,7 +221,7 @@
 	cursor: pointer;
 }
 
-.approvals-safe:disabled {
+.approvals-all:disabled {
 	opacity: 0.5;
 	cursor: default;
 }

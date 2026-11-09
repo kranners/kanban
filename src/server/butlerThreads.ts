@@ -79,8 +79,10 @@ export const parseThreadApproval = (
 	value: unknown,
 ): ButlerThreadApproval | null => {
 	if (typeof value !== "object" || value === null) return null;
-	const { at, headline, code, kind, body, critical, safe, nonce } =
-		value as Record<string, unknown>;
+	const { at, headline, code, kind, body, critical, nonce } = value as Record<
+		string,
+		unknown
+	>;
 	if (!isTime(at) || typeof headline !== "string") return null;
 	const line = headline.replace(/\s+/g, " ").trim().slice(0, 300);
 	if (line === "") return null;
@@ -94,8 +96,6 @@ export const parseThreadApproval = (
 			? { body: body.slice(0, maxThreadApprovalBody) }
 			: {}),
 		...(critical === true ? { critical: true } : {}),
-		// Never safe when it is critical, whatever the file says.
-		...(safe === true && critical !== true ? { safe: true } : {}),
 		...(coded && typeof nonce === "string" && /^[0-9a-f]{32}$/.test(nonce)
 			? { nonce }
 			: {}),
