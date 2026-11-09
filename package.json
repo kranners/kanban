@@ -12,7 +12,7 @@
 		"build:site": "node scripts/build.ts site",
 		"dev": "npm run build && KANBAN_AUTH=off node --watch src/server/main.ts",
 		"start": "node src/server/main.ts",
-		"check": "tsc --noEmit && biome check . && node --test",
+		"check": "bash scripts/check-sizes.sh && tsc --noEmit && biome check . && node --test",
 		"test": "node --test",
 		"demo": "npm run build:site && node scripts/demo-server.ts",
 		"land": "node scripts/land.ts",
