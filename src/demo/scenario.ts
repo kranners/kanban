@@ -89,7 +89,6 @@ export type Scenario = {
 export const s = (id: string) => ({ kind: "session", id }) as const;
 export const a = (id: string): NodeRef => ({ kind: "subagent", id });
 
-export const sessionKey = (id: string) => `session:${id}`;
 export const subagentKey = (id: string) => `subagent:${id}`;
 
 export function session(
