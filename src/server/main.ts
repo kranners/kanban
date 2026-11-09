@@ -9,6 +9,7 @@ import {
 	processStats,
 } from "../runner/usage.ts";
 import { readKanbanEnv } from "../shared/envFile.ts";
+import type { Project } from "../shared/projects.ts";
 import type { PlacedSession, RunnerUsage } from "../shared/runners.ts";
 import {
 	type Activity,
@@ -684,12 +685,37 @@ const archive = createArchiveStore({
 	file: archiveFile,
 	initial: await loadArchive(archiveFile),
 });
+const projectsSource = createProjectsSource({
+	config: config.projects,
+	readFile: (file) => readFile(file, "utf8"),
+});
+let projects: readonly Project[] = [];
+let projectsShape = "";
+/** Rereads Butler's projects and tidies the board when one he keeps a region for changed. */
+const refreshProjects = async () => {
+	const listing = await projectsSource.list();
+	const shape = JSON.stringify(
+		listing.projects.map((p) => [
+			p.id,
+			p.title,
+			p.stage,
+			p.parent,
+			p.links,
+			p.sessions,
+		]),
+	);
+	if (shape === projectsShape) return;
+	projectsShape = shape;
+	projects = listing.projects;
+	butler?.tidy();
+};
 butler = createButler({
 	source,
 	layout,
 	annotations,
 	regions,
 	tools,
+	projects: () => projects,
 	audit,
 	file: butlerFile,
 	...(await loadButlerState(butlerFile)),
@@ -710,6 +736,7 @@ const relayCheck = setInterval(() => {
 	butler?.inbox?.check();
 	butler?.check();
 	archive.observe(source.board().sessions);
+	void refreshProjects().catch(() => {});
 }, 5000);
 // Scheduled reports were the retired board agent's. Their file is kept
 // aside, not deleted, so Aaron can ask Butler to schedule them as jobs.
@@ -737,10 +764,7 @@ const server = createKanbanServer({
 	butler,
 	edges: messageEdges,
 	archive,
-	projects: createProjectsSource({
-		config: config.projects,
-		readFile: (file) => readFile(file, "utf8"),
-	}),
+	projects: projectsSource,
 	csrf: newCsrfToken(),
 	build: pageBuild,
 	peerHook: createPeerHook({

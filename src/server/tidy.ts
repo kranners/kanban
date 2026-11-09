@@ -1,55 +1,76 @@
+import type { Project, ProjectStage } from "../shared/projects.ts";
 import type { Annotation, ButlerCard, Region } from "../shared/types.ts";
 import { snap } from "../web/grid.ts";
 import type { Rect } from "../web/placement.ts";
 
 // Butler's cards are laid out by construction, never left where a sync
-// dropped them: each goes into one of four regions by topic, side by side
-// to the left of the board's sessions, and on a grid inside it in a fixed
-// order, state first and then newest first, each card followed by the
-// cards it started. A card Aaron pinned, or dragged in the last 10
-// minutes, stays where it is and the grid flows around it.
+// dropped them: each goes into the region of the project it belongs to,
+// from Butler's projects list, with a strip of Waiting on you across the
+// top, since that is the one queue across every project, and Unsorted for
+// cards no project claims. Regions sit in rows, by stage, to the left of
+// the board's sessions, each sized for its cards on a grid in a fixed
+// order, working first, each card followed by the cards it started, and
+// its done cards in one stack unless Aaron opened it. A card Aaron pinned,
+// or dragged in the last 10 minutes, stays where it is, and a region he
+// moved or resized keeps his bounds; the grid flows around both.
 
-/** The regions Tidy keeps, left to right; each is found again by its cwd, which no session has. */
-export const tidyTopics = [
-	{ id: "waiting", name: "Waiting on you", cwd: "/kanban/butler/waiting" },
-	{ id: "butler", name: "Butler", cwd: "/kanban/butler/threads" },
-	{ id: "jobs", name: "Jobs", cwd: "/kanban/butler/jobs" },
-	{ id: "changes", name: "Changes", cwd: "/kanban/butler/changes" },
-] as const;
+export const waitingCwd = "/kanban/butler/waiting";
+export const unsortedCwd = "/kanban/butler/unsorted";
+const projectPrefix = "/kanban/butler/project/";
+/** The regions of the layout before projects, which Tidy now removes. */
+const retiredCwds = new Set([
+	"/kanban/butler/threads",
+	"/kanban/butler/jobs",
+	"/kanban/butler/changes",
+]);
 
-export type TidyTopic = (typeof tidyTopics)[number]["id"];
+export const projectCwd = (id: string): string => `${projectPrefix}${id}`;
+
+/** The project a region of Tidy's is for, or null for any other region. */
+export const projectOfRegion = (cwd: string): string | null =>
+	cwd.startsWith(projectPrefix) ? cwd.slice(projectPrefix.length) : null;
 
 export const isTidyRegion = (region: Pick<Region, "cwd">): boolean =>
-	tidyTopics.some((topic) => topic.cwd === region.cwd);
+	region.cwd === waitingCwd ||
+	region.cwd === unsortedCwd ||
+	retiredCwds.has(region.cwd) ||
+	projectOfRegion(region.cwd) !== null;
 
 /** How long a card Aaron dragged is left where he put it. */
 export const movedHoldMs = 10 * 60_000;
-const columns = 2;
 const gap = 48;
 const padding = 24;
-const headroom = 48;
+const headroom = 72;
 const regionGap = 72;
+/** How wide a row of project regions may grow before the next starts. */
+const rowWidth = 3200;
 /** Room between the Butler regions and the sessions to their right. */
 const clearance = 96;
 const slotDefault = { w: 312, h: 216 };
 const noteGap = 24;
+const stackStep = 12;
+const emptyHeight = 120;
+const maxRegionName = 60;
 
 const stateRank: Record<ButlerCard["state"], number> = {
-	"needs-you": 0,
-	working: 1,
+	working: 0,
+	"needs-you": 1,
 	failed: 2,
 	idle: 3,
 	done: 4,
 };
 
-/** The region a card belongs in. */
-export const topicOf = (card: ButlerCard): TidyTopic => {
-	if (card.state === "needs-you") return "waiting";
-	if (card.selfFix && !card.thread) return "changes";
-	if (card.thread?.kind === "job" || card.thread?.kind === "scheduled") {
-		return "jobs";
-	}
-	return "butler";
+/** Projects in flight come first, then those being kept, then the rest. */
+const stageRank: Record<ProjectStage, number> = {
+	landing: 0,
+	building: 1,
+	live: 2,
+	planned: 3,
+	maintaining: 4,
+	idea: 5,
+	paused: 6,
+	done: 7,
+	dropped: 8,
 };
 
 /** When a change's id says it was asked for, such as 20261106-141450-402386. */
@@ -84,7 +105,7 @@ const byOrder = (a: ButlerCard, b: ButlerCard) =>
 	startOf(b) - startOf(a) ||
 	a.id.localeCompare(b.id);
 
-/** A topic's cards in grid order: each root in order, then the cards it started, depth first. */
+/** Cards in grid order: each root in order, then the cards it started, depth first. */
 export const orderCards = (cards: readonly ButlerCard[]): ButlerCard[] => {
 	const ids = new Set(cards.map((c) => c.id));
 	const children = new Map<string, ButlerCard[]>();
@@ -110,6 +131,54 @@ export const orderCards = (cards: readonly ButlerCard[]): ButlerCard[] => {
 	return out;
 };
 
+/** The refs a card is known by in a project's links. */
+const refsOf = (card: ButlerCard): string[] =>
+	[
+		card.id,
+		card.selfFix,
+		card.desk,
+		card.thread?.id,
+		card.thread ? `thread-${card.thread.id}` : undefined,
+	].filter((ref): ref is string => typeof ref === "string" && ref !== "");
+
+/**
+ * The project each card belongs to, by id, or null when none claims it:
+ * a project whose links name the card, its change, desk session or
+ * thread, a child project before its parent, else the project of the card
+ * that started it.
+ */
+export const projectsOfCards = (
+	cards: readonly ButlerCard[],
+	projects: readonly Project[],
+): Map<string, string | null> => {
+	const claims = new Map<string, Project>();
+	for (const project of projects) {
+		for (const ref of [
+			...project.links.map((link) => link.ref),
+			...project.sessions,
+		]) {
+			const held = claims.get(ref);
+			if (!held || (held.parent === null && project.parent !== null)) {
+				claims.set(ref, project);
+			}
+		}
+	}
+	const byId = new Map(cards.map((c) => [c.id, c]));
+	const resolve = (card: ButlerCard, seen: Set<string>): string | null => {
+		const own = refsOf(card)
+			.map((ref) => claims.get(ref))
+			.find(Boolean);
+		if (own) return own.id;
+		const parent = card.parent ? byId.get(card.parent) : undefined;
+		if (!parent || seen.has(parent.id)) return null;
+		seen.add(parent.id);
+		return resolve(parent, seen);
+	};
+	return new Map(
+		cards.map((card) => [card.id, resolve(card, new Set([card.id]))]),
+	);
+};
+
 const overlaps = (a: Rect, b: Rect, margin = 0) =>
 	a.x < b.x + b.w + margin &&
 	b.x < a.x + a.w + margin &&
@@ -123,23 +192,28 @@ export type TidyInput = {
 	/** Everything else on the board: sessions, their project frames and other regions, notes and stickers. */
 	obstacles: readonly Rect[];
 	regions: readonly Region[];
+	/** Butler's projects; with none, every card not waiting on Aaron is Unsorted. */
+	projects?: readonly Project[];
 	now: number;
+};
+
+export type TidyRegion = {
+	id?: string;
+	name: string;
+	cwd: string;
+	x: number;
+	y: number;
+	w: number;
+	h: number;
 };
 
 export type TidyPlan = {
 	/** New spots for cards and the notes on them. */
 	moves: { id: string; x: number; y: number }[];
-	/** The four regions, each with its new bounds, and the id of the existing one when there is one. */
-	regions: {
-		topic: TidyTopic;
-		id?: string;
-		name: string;
-		cwd: string;
-		x: number;
-		y: number;
-		w: number;
-		h: number;
-	}[];
+	/** Tidy's regions, each with its new bounds, and the id of the existing one when there is one. */
+	regions: TidyRegion[];
+	/** Tidy's regions it no longer keeps, by id. */
+	removed: string[];
 };
 
 const boundsOf = (rects: readonly Rect[]): Rect | null => {
@@ -151,23 +225,38 @@ const boundsOf = (rects: readonly Rect[]): Rect | null => {
 	return { x, y, w: right - x, h: bottom - y };
 };
 
+/** Columns for a region of this many slots: square-ish, never one tall column. */
+export const columnsFor = (slots: number): number =>
+	slots <= 1 ? 1 : slots <= 4 ? 2 : slots <= 9 ? 3 : 4;
+
+type Group = {
+	cwd: string;
+	name: string;
+	existing?: Region;
+	/** Cards laid out one to a slot. */
+	cards: ButlerCard[];
+	/** Done cards stacked in the last slot, or empty when the stack is open. */
+	stack: ButlerCard[];
+};
+
 /**
  * Where every one of Butler's cards goes. Pure: the same board always
  * gives the same plan, and a tidy board gives no moves.
  */
 export const planTidy = (input: TidyInput): TidyPlan => {
 	const { now } = input;
+	const projects = input.projects ?? [];
 	const notesOn = new Map<string, Annotation[]>();
 	for (const note of input.notes) {
 		if (note.kind !== "note" || !note.session) continue;
 		notesOn.set(note.session, [...(notesOn.get(note.session) ?? []), note]);
 	}
-	const held = input.cards.filter((c) => isHeld(c, now));
-	const heldRects: Rect[] = held.flatMap((c) => [
-		c,
-		...(notesOn.get(c.id) ?? []),
-	]);
+	const heldRects: Rect[] = input.cards
+		.filter((c) => isHeld(c, now))
+		.flatMap((c) => [c, ...(notesOn.get(c.id) ?? [])]);
 	const free = input.cards.filter((c) => !isHeld(c, now));
+	const owner = projectsOfCards(input.cards, projects);
+	const regionAt = (cwd: string) => input.regions.find((r) => r.cwd === cwd);
 
 	// Each slot holds a card and, to its right, the notes on it.
 	const footprint = (card: ButlerCard) => {
@@ -179,78 +268,177 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 		return { w: card.w + noteW, h: Math.max(card.h, noteH) };
 	};
 
+	const groupOf = (cwd: string, name: string, cards: ButlerCard[]): Group => {
+		const existing = regionAt(cwd);
+		const ordered = orderCards(cards);
+		const open = existing?.doneOpen === true;
+		return {
+			cwd,
+			name: name.slice(0, maxRegionName),
+			...(existing ? { existing } : {}),
+			cards: open ? ordered : ordered.filter((c) => c.state !== "done"),
+			stack: open ? [] : ordered.filter((c) => c.state === "done"),
+		};
+	};
+
+	const waiting = groupOf(
+		waitingCwd,
+		"Waiting on you",
+		free.filter((c) => c.state === "needs-you"),
+	);
+	const rest = free.filter((c) => c.state !== "needs-you");
+	const known = new Set(projects.map((p) => p.id));
+	const ownerOf = (card: ButlerCard) => {
+		const id = owner.get(card.id);
+		return id && known.has(id) ? id : null;
+	};
+	const claimed = new Set(input.cards.map(ownerOf));
+	const projectGroups = projects
+		.filter(
+			(p) => claimed.has(p.id) || regionAt(projectCwd(p.id))?.manual === true,
+		)
+		.sort(
+			(a, b) =>
+				stageRank[a.stage] - stageRank[b.stage] ||
+				a.title.localeCompare(b.title) ||
+				a.id.localeCompare(b.id),
+		)
+		.map((project) =>
+			groupOf(
+				projectCwd(project.id),
+				project.title,
+				rest.filter((c) => ownerOf(c) === project.id),
+			),
+		);
+	const unsorted = rest.filter((c) => ownerOf(c) === null);
+	const groups = [
+		...projectGroups,
+		...(unsorted.length > 0 || regionAt(unsortedCwd)?.manual
+			? [groupOf(unsortedCwd, "Unsorted", unsorted)]
+			: []),
+	];
+
+	const laidCards = [waiting, ...groups].flatMap((g) => g.cards);
+	const slot = {
+		w: snap(Math.max(slotDefault.w, ...laidCards.map((c) => footprint(c).w))),
+		h: snap(Math.max(slotDefault.h, ...laidCards.map((c) => footprint(c).h))),
+	};
+	const slotsOf = (group: Group) =>
+		group.cards.length + (group.stack.length > 0 ? 1 : 0);
+	const widthFor = (columns: number) =>
+		snap(padding * 2 + columns * (slot.w + gap) - gap);
+	const columnsIn = (width: number) =>
+		Math.max(1, Math.floor((width - padding * 2 + gap) / (slot.w + gap)));
+	const heightFor = (slots: number, columns: number) =>
+		slots === 0
+			? emptyHeight
+			: snap(
+					headroom +
+						Math.ceil(slots / columns) * (slot.h + gap) -
+						gap +
+						padding,
+				);
+
+	// Project regions in rows, by stage, wrapping at rowWidth.
+	type Spot = { group: Group; x: number; w: number; h: number };
+	const rows: Spot[][] = [];
+	for (const group of groups.filter((g) => !g.existing?.manual)) {
+		const columns = columnsFor(slotsOf(group));
+		const w = widthFor(columns);
+		const h = heightFor(slotsOf(group), columns);
+		const row = rows.at(-1);
+		const end = row ? (row.at(-1) as Spot) : null;
+		const x = end ? end.x + end.w + regionGap : 0;
+		if (row && x + w <= rowWidth) row.push({ group, x, w, h });
+		else rows.push([{ group, x: 0, w, h }]);
+	}
+	const dashboardW = Math.max(
+		widthFor(1),
+		...rows.map((r) => {
+			const end = r.at(-1) as Spot;
+			return end.x + end.w;
+		}),
+	);
+
 	const outside = boundsOf(input.obstacles);
 	const top = snap(outside ? outside.y : 0);
-	const right = snap(outside ? outside.x - clearance : 0);
+	const left = snap((outside ? outside.x - clearance : 0) - dashboardW);
 
-	const groups = tidyTopics.map((topic) => {
-		const cards = orderCards(free.filter((c) => topicOf(c) === topic.id));
-		const sizes = cards.map(footprint);
-		const slot = {
-			w: snap(Math.max(slotDefault.w, ...sizes.map((s) => s.w))),
-			h: snap(Math.max(slotDefault.h, ...sizes.map((s) => s.h))),
-		};
-		return { topic, cards, slot };
-	});
-
-	// The width each region needs, so the row of regions can end left of the sessions.
-	const widthOf = (slotW: number, count: number) =>
-		padding * 2 + Math.max(1, Math.min(columns, count)) * (slotW + gap) - gap;
-	const widths = groups.map((g) => widthOf(g.slot.w, g.cards.length));
-	const total =
-		widths.reduce((sum, w) => sum + w, 0) + regionGap * (groups.length - 1);
-	let x = snap(right - total);
+	const bounds = new Map<Group, Rect>();
+	const manual = (group: Group) =>
+		group.existing?.manual ? group.existing : null;
+	const waitingBox = manual(waiting) ?? {
+		x: left,
+		y: top,
+		w: dashboardW,
+		h: heightFor(slotsOf(waiting), columnsIn(dashboardW)),
+	};
+	bounds.set(waiting, waitingBox);
+	let y = top + (manual(waiting) ? 0 : waitingBox.h + regionGap);
+	for (const r of rows) {
+		for (const spot of r) {
+			bounds.set(spot.group, { x: left + spot.x, y, w: spot.w, h: spot.h });
+		}
+		y = snap(y + Math.max(...r.map((s) => s.h)) + regionGap);
+	}
+	for (const group of groups) {
+		const kept = manual(group);
+		if (kept) bounds.set(group, kept);
+	}
 
 	const moves: TidyPlan["moves"] = [];
-	const regions: TidyPlan["regions"] = [];
-	groups.forEach((group, index) => {
-		const width = widths[index] as number;
-		const existing = input.regions.find((r) => r.cwd === group.topic.cwd);
-		const origin = { x: x + padding, y: top + headroom };
+	const moveTo = (card: ButlerCard, spot: { x: number; y: number }) => {
+		if (card.x !== spot.x || card.y !== spot.y) {
+			moves.push({ id: card.id, ...spot });
+		}
+		let noteY = spot.y;
+		for (const note of notesOn.get(card.id) ?? []) {
+			const at = { x: snap(spot.x + card.w + noteGap), y: snap(noteY) };
+			if (note.x !== at.x || note.y !== at.y) {
+				moves.push({ id: note.id, ...at });
+			}
+			noteY += note.h + noteGap;
+		}
+	};
+	const regions: TidyRegion[] = [];
+	for (const group of [waiting, ...groups]) {
+		const box = bounds.get(group) as Rect;
+		const columns = Math.min(columnsIn(box.w), Math.max(1, slotsOf(group)));
+		const origin = { x: box.x + padding, y: box.y + headroom };
 		let slotIndex = 0;
-		let rows = 1;
-		for (const card of group.cards) {
-			// The next slot clear of every card Aaron is holding where it is.
+		// The next slot clear of every card Aaron is holding where it is.
+		const nextSpot = (size: { w: number; h: number }) => {
 			for (;;) {
-				const col = slotIndex % columns;
-				const row = Math.floor(slotIndex / columns);
 				const spot = {
-					x: snap(origin.x + col * (group.slot.w + gap)),
-					y: snap(origin.y + row * (group.slot.h + gap)),
+					x: snap(origin.x + (slotIndex % columns) * (slot.w + gap)),
+					y: snap(origin.y + Math.floor(slotIndex / columns) * (slot.h + gap)),
 				};
 				slotIndex += 1;
-				const box = { ...spot, ...footprint(card) };
-				if (heldRects.some((h) => overlaps(box, h, gap / 2))) continue;
-				rows = Math.max(rows, row + 1);
-				if (card.x !== spot.x || card.y !== spot.y) {
-					moves.push({ id: card.id, ...spot });
-				}
-				let noteY = spot.y;
-				for (const note of notesOn.get(card.id) ?? []) {
-					const at = { x: snap(spot.x + card.w + noteGap), y: snap(noteY) };
-					if (note.x !== at.x || note.y !== at.y) {
-						moves.push({ id: note.id, ...at });
-					}
-					noteY += note.h + noteGap;
-				}
-				break;
+				if (!heldRects.some((h) => overlaps({ ...spot, ...size }, h, gap / 2)))
+					return spot;
 			}
+		};
+		for (const card of group.cards) moveTo(card, nextSpot(footprint(card)));
+		if (group.stack.length > 0) {
+			const base = nextSpot(slot);
+			group.stack.forEach((card, index) => {
+				const step = Math.min(index, 2) * stackStep;
+				moveTo(card, { x: snap(base.x + step), y: snap(base.y + step) });
+			});
 		}
-		const height =
-			group.cards.length === 0
-				? 96
-				: headroom + rows * (group.slot.h + gap) - gap + padding;
 		regions.push({
-			topic: group.topic.id,
-			...(existing ? { id: existing.id } : {}),
-			name: group.topic.name,
-			cwd: group.topic.cwd,
-			x,
-			y: top,
-			w: snap(width),
-			h: snap(Math.max(96, height)),
+			...(group.existing ? { id: group.existing.id } : {}),
+			name: group.name,
+			cwd: group.cwd,
+			x: box.x,
+			y: box.y,
+			w: box.w,
+			h: box.h,
 		});
-		x = snap(x + width + regionGap);
-	});
-	return { moves, regions };
+	}
+	const keptCwds = new Set(regions.map((r) => r.cwd));
+	const removed = input.regions
+		.filter((r) => isTidyRegion(r) && !keptCwds.has(r.cwd) && !r.manual)
+		.map((r) => r.id);
+	return { moves, regions, removed };
 };

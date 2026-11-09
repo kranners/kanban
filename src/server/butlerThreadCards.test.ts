@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { handoverPrompt } from "../shared/failover.ts";
+import type { Project } from "../shared/projects.ts";
 import type {
 	Board,
 	ButlerCard,
@@ -26,7 +27,6 @@ import { createCommentStore } from "./comments.ts";
 import { createLayoutStore } from "./layout.ts";
 import { createMessageEdgeStore } from "./messageEdges.ts";
 import { createRegionStore } from "./regions.ts";
-import { topicOf } from "./tidy.ts";
 
 const session = (id: string, parent?: string): Session => ({
 	id,
@@ -53,7 +53,33 @@ const session = (id: string, parent?: string): Session => ({
 		: {}),
 });
 
-const setup = async (regions: Region[] = [], cloud?: CloudOverview) => {
+const project = (id: string, fields: Partial<Project> = {}): Project => ({
+	id,
+	title: id,
+	parent: null,
+	area: "butler",
+	kind: "project",
+	stage: "building",
+	state: "",
+	next: "",
+	blockedOn: null,
+	createdAt: null,
+	touchedAt: null,
+	stageSince: null,
+	links: [],
+	history: [],
+	stale: false,
+	progress: null,
+	live: [],
+	sessions: [],
+	...fields,
+});
+
+const setup = async (
+	regions: Region[] = [],
+	cloud?: CloudOverview,
+	projects: Project[] = [],
+) => {
 	const audits: unknown[] = [];
 	const dir = await mkdtemp(join(tmpdir(), "kanban-threads-"));
 	const board: Board = {
@@ -115,6 +141,7 @@ const setup = async (regions: Region[] = [], cloud?: CloudOverview) => {
 		threads,
 		edges,
 		...(cloud ? { cloud: () => cloud } : {}),
+		projects: () => projects,
 		archive,
 		newId: () => `id${++ids}`,
 		now: () => clock,
@@ -354,8 +381,20 @@ describe("Butler's thread cards", () => {
 		assert.equal(butler.restore("thread-11111111").ok, false);
 	});
 
-	it("lays out every card in its topic's region, children after their parent, without overlaps", async () => {
-		const { sync, annotations, regionStore, butler } = await setup();
+	it("lays out every card in its project's region, children after their parent, without overlaps", async () => {
+		const projects = [
+			project("ritual", {
+				links: [{ kind: "thread", ref: "11111111", url: null }],
+			}),
+			project("fox", {
+				links: [{ kind: "change", ref: "20261106-141450-402386", url: null }],
+			}),
+		];
+		const { sync, annotations, regionStore, butler } = await setup(
+			[],
+			undefined,
+			projects,
+		);
 		await sync([
 			entry("11111111", { kind: "conversation" }),
 			entry("11111112", { kind: "desk", parent: "11111111" }),
@@ -389,22 +428,20 @@ describe("Butler's thread cards", () => {
 				`${id} inside ${name}`,
 			);
 		};
-		inside("thread-11111111", "Butler");
-		inside("thread-11111112", "Butler");
-		inside("thread-11111113", "Jobs");
+		inside("thread-11111111", "ritual");
+		inside("thread-11111112", "ritual");
+		inside("thread-11111113", "Unsorted");
 		inside("thread-11111114", "Waiting on you");
-		// The DM has no card; a card it started falls back to Butler's region.
+		// The DM has no card; a card it started is Unsorted until a project links it.
 		assert.equal(cardOf(annotations, "thread-11111115"), undefined);
-		inside("thread-11111116", "Butler");
-		inside("self-fix-20261106-141450-402386", "Changes");
-		// Waiting on you is the leftmost region, at the top.
-		const xs = ["Waiting on you", "Butler", "Jobs", "Changes"].map(
-			(n) => named(n)?.x ?? Number.NaN,
-		);
-		assert.deepEqual(
-			[...xs].sort((a, b) => a - b),
-			xs,
-		);
+		inside("thread-11111116", "Unsorted");
+		inside("self-fix-20261106-141450-402386", "fox");
+		// Waiting on you is the strip across the top.
+		const strip = named("Waiting on you");
+		assert.ok(strip);
+		for (const name of ["ritual", "fox", "Unsorted"]) {
+			assert.ok((named(name)?.y ?? 0) > strip.y, name);
+		}
 		// The child sits right after its parent in the grid.
 		const parent = cardOf(annotations, "thread-11111111");
 		const child = cardOf(annotations, "thread-11111112");
@@ -412,26 +449,49 @@ describe("Butler's thread cards", () => {
 		assert.equal(child.y, parent.y);
 		assert.ok(child.x > parent.x);
 		// A note of Aaron's left inside one of Tidy's regions never pushes them further left.
-		const butlerRegion = named("Butler");
-		assert.ok(butlerRegion);
+		const ritual = named("ritual");
+		assert.ok(ritual);
 		annotations.put({
 			id: "aarons",
 			kind: "note",
 			text: "mine",
 			color: "yellow",
-			x: butlerRegion.x + 24,
-			y: butlerRegion.y + butlerRegion.h - 120,
+			x: ritual.x + 24,
+			y: ritual.y + ritual.h - 120,
 			w: 96,
 			h: 96,
 			z: 1,
 		} as Note);
 		butler.tidy();
-		assert.equal(named("Butler")?.x, butlerRegion.x);
+		assert.equal(named("ritual")?.x, ritual.x);
 		// A second tidy of a tidy board moves nothing.
 		assert.match(
 			(butler.tidy() as { text: string }).text,
 			/0 moved, 0 regions resized/,
 		);
+	});
+
+	it("keeps a region Aaron resized as he left it until his own Tidy hands it back", async () => {
+		const projects = [
+			project("ritual", {
+				links: [{ kind: "thread", ref: "11111111", url: null }],
+			}),
+		];
+		const { sync, regionStore, butler } = await setup([], undefined, projects);
+		await sync([entry("11111111", { kind: "conversation" })]);
+		butler.tidy();
+		const region = regionStore.current().find((r) => r.name === "ritual");
+		assert.ok(region);
+		regionStore.update(region.id, { w: 2400, h: 1200, manual: true });
+		butler.tidy();
+		assert.equal(
+			regionStore.current().find((r) => r.id === region.id)?.w,
+			2400,
+		);
+		butler.tidy({ sessions: true });
+		const handed = regionStore.current().find((r) => r.id === region.id);
+		assert.notEqual(handed?.w, 2400);
+		assert.ok(!handed?.manual);
 	});
 
 	it("tidies on its own a little after a burst of syncs", async () => {
@@ -772,7 +832,7 @@ describe("Butler's thread cards", () => {
 		assert.equal(cardOf(annotations, "thread-11111111")?.mission, undefined);
 	});
 
-	it("marks a thread whose question may be stale, in Butler's region, until a sync drops it", async () => {
+	it("marks a thread whose question may be stale until a sync drops it", async () => {
 		const { sync, annotations } = await setup();
 		await sync([
 			entry("11111111", {
@@ -786,7 +846,6 @@ describe("Butler's thread cards", () => {
 		assert.ok(card);
 		assert.equal(card.stale, true);
 		assert.equal(card.state, "idle");
-		assert.equal(topicOf(card), "butler");
 		assert.equal(cardOf(annotations, "thread-22222222")?.stale, undefined);
 
 		await sync([entry("11111111", { state: "idle" }), entry("22222222")]);

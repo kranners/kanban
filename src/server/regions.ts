@@ -106,6 +106,12 @@ export const parseRegionPatch = (
 			h: fields.h,
 		});
 	}
+	if ("doneOpen" in fields) {
+		if (typeof fields.doneOpen !== "boolean") {
+			return { error: "doneOpen must be true or false" };
+		}
+		patch.doneOpen = fields.doneOpen;
+	}
 	if (Object.keys(patch).length === 0) {
 		return { error: "Nothing to change" };
 	}
@@ -128,6 +134,8 @@ const parseRegion = (value: unknown): Region | null => {
 		y: y as number,
 		w: w as number,
 		h: h as number,
+		...(fields.manual === true ? { manual: true } : {}),
+		...(fields.doneOpen === true ? { doneOpen: true } : {}),
 	};
 };
 

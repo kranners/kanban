@@ -6,6 +6,7 @@ import {
 	parseCardSubagents,
 } from "../shared/cardSubagents.ts";
 import { handoverOpening } from "../shared/failover.ts";
+import type { Project } from "../shared/projects.ts";
 import {
 	type AaronFocus,
 	type Annotation,
@@ -101,7 +102,7 @@ import type { BoardSource } from "./http.ts";
 import { fromLoopback } from "./loopback.ts";
 import { type MessageEdgeStore, parseDaemonEdges } from "./messageEdges.ts";
 import { createStateFile, readState } from "./stateFile.ts";
-import { isTidyRegion, planTidy, tidyTopics, topicOf } from "./tidy.ts";
+import { isTidyRegion, planTidy, projectsOfCards } from "./tidy.ts";
 
 // Butler, Aaron's assistant bot on spike, reaches the board over ssh and
 // curl on the Mac's loopback. He gets the board agent's own tools under
@@ -262,6 +263,8 @@ export type ButlerDeps = Pick<
 	source: BoardSource;
 	annotations: AnnotationStore;
 	tools: BoardTools;
+	/** Butler's projects as last read, whose regions Tidy keeps. */
+	projects?: () => readonly Project[];
 	audit: Audit;
 	file: string;
 	initial: string[];
@@ -1483,10 +1486,12 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		);
 	};
 
-	/** The project an archived card belonged to: the Tidy region its topic names. */
-	const projectOfCard = (card: ButlerCard) =>
-		tidyTopics.find((t) => t.id === topicOf({ ...card, state: "done" }))
-			?.name ?? "Butler";
+	/** The project an archived card belonged to, by its title. */
+	const projectOfCard = (card: ButlerCard) => {
+		const projects = deps.projects?.() ?? [];
+		const id = projectsOfCards(butlerCards(), projects).get(card.id);
+		return projects.find((p) => p.id === id)?.title ?? "Butler";
+	};
 
 	const contextOf = (card: ButlerCard): CardContext => {
 		const parent = card.parent ? annotation(card.parent) : undefined;
@@ -1623,6 +1628,13 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		}
 		let relaid = 0;
 		if (options.sessions) {
+			// Aaron's own Tidy hands Butler's regions back to the layout too.
+			for (const region of deps.regions.current()) {
+				if (isTidyRegion(region) && region.manual) {
+					deps.regions.update(region.id, { manual: false });
+					relaid += 1;
+				}
+			}
 			const layout = deps.layout.current();
 			for (const [key, placement] of Object.entries(layout)) {
 				if (placement.pinned) continue;
@@ -1646,7 +1658,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		const insideTidy = (r: Rect) => tidyRegions.some((t) => centreIn(r, t));
 		const obstacles: Rect[] = [
 			...arranged(board(), deps).nodes.values(),
-			...deps.regions.current().filter((r) => !isTidyRegion(r)),
+			...deps.regions.current().filter((r) => !isTidyRegion(r) || r.manual),
 			...all.filter(
 				(a) =>
 					a.kind !== "butler-card" && !onCardIds.has(a.id) && !insideTidy(a),
@@ -1657,6 +1669,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			notes: onCards,
 			obstacles,
 			regions: deps.regions.current(),
+			projects: deps.projects?.() ?? [],
 			now: at,
 		});
 		const current = deps.annotations.current();
@@ -1689,6 +1702,9 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				deps.regions.create({ cwd: region.cwd, name: region.name, ...bounds });
 			}
 			regionsChanged += 1;
+		}
+		for (const id of plan.removed) {
+			if (deps.regions.remove(id)) regionsChanged += 1;
 		}
 		const summary = `Tidied the board: ${archived} card${archived === 1 ? "" : "s"} archived, ${plan.moves.length} moved, ${regionsChanged} region${regionsChanged === 1 ? "" : "s"} resized${options.sessions ? `, ${relaid} session spot${relaid === 1 ? "" : "s"} laid out afresh` : ""}`;
 		if (archived || plan.moves.length || regionsChanged || relaid) {

@@ -108,6 +108,7 @@ import {
 	type SessionLauncher,
 	validateNewSession,
 } from "./sessions.ts";
+import { isTidyRegion } from "./tidy.ts";
 import type { Undo } from "./undo.ts";
 
 export type BoardSource = {
@@ -1284,8 +1285,14 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if ("error" in patch) {
 			return sendJson(res, 400, { ok: false, error: patch.error });
 		}
-		const region = deps.regions.update(regionId, patch);
+		const before = deps.regions.current().find((r) => r.id === regionId);
+		const butlers = before !== undefined && isTidyRegion(before);
+		const region = deps.regions.update(regionId, {
+			...patch,
+			...(butlers && "w" in patch ? { manual: true } : {}),
+		});
 		if (!region) return sendError(res, 404);
+		if (butlers && "doneOpen" in patch) deps.butler?.tidy();
 		sendJson(res, 200, region);
 	};
 

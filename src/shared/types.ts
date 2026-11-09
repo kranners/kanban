@@ -645,6 +645,10 @@ export type Region = {
 	y: number;
 	w: number;
 	h: number;
+	/** Aaron moved or resized one of Butler's regions by hand, so Tidy keeps his bounds. */
+	manual?: boolean;
+	/** Aaron opened the region's stack of done cards. */
+	doneOpen?: boolean;
 };
 
 export type RegionDraft = Omit<Region, "id" | "name"> & { name?: string };
