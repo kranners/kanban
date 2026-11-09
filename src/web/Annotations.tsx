@@ -377,9 +377,7 @@ function AnnotationView(props: {
 	const kindClass =
 		annotation.kind === "note"
 			? `note note-${annotation.color}${annotation.report ? " report-note" : ""}`
-			: annotation.kind === "butler-card" && props.region
-				? `butler-card region region-${props.region}`
-				: annotation.kind;
+			: annotation.kind;
 	return (
 		<div
 			class={`annotation ${kindClass}${props.selected ? " selected" : ""}${props.editing ? " editing" : ""}`}
@@ -426,7 +424,7 @@ function AnnotationView(props: {
 			{annotation.kind === "note" ? (
 				<NoteBody note={annotation} editing={props.editing} />
 			) : annotation.kind === "butler-card" ? (
-				<ButlerCardBody card={annotation} />
+				<ButlerCardBody card={annotation} region={props.region} />
 			) : (
 				<StickerBody sticker={annotation} />
 			)}

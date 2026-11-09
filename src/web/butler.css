@@ -1,47 +1,46 @@
+/* The annotation only places a Butler card; the card face inside draws it, as it does a session. */
 .annotation.butler-card {
 	display: flex;
-	border-radius: var(--radius);
-	background: var(--surface);
-	border: 1px solid var(--hairline-strong);
-	border-top: 3px solid var(--butler);
-	box-shadow: var(--shadow-pop);
 	color: var(--ink);
-	overflow: hidden;
-}
-
-.annotation.butler-card.selected {
-	outline-color: var(--butler);
-}
-
-/* Moves, snaps and resizes as a session card does. */
-.annotation.butler-card {
 	transition:
 		transform calc(320ms * var(--motion)) cubic-bezier(0.2, 0.7, 0.2, 1),
 		width calc(320ms * var(--motion)) cubic-bezier(0.2, 0.7, 0.2, 1),
 		height calc(320ms * var(--motion)) cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
+.annotation.butler-card > .node {
+	position: relative;
+	flex: 1;
+	min-width: 0;
+	height: 100%;
+	animation: none;
+	transition: opacity calc(160ms * var(--motion));
+}
+
 .annotation.butler-card[data-arranging] {
 	z-index: 3;
 }
 
-/* In a project region, edged in its colour like the session cards there. */
-.annotation.butler-card.region {
-	border-color: var(--region-border);
-	border-top-color: var(--butler);
+.annotation.butler-card[data-arranging="move"] .frame {
+	box-shadow: var(--shadow-pop);
 }
 
-.world[data-detail="near"] .annotation.butler-card {
-	border-width: calc(1px * var(--unzoom));
-	border-top-width: calc(3px * var(--unzoom));
-	border-radius: calc(var(--radius) * var(--unzoom));
+.butler-face .foot {
+	gap: 6px;
+}
+
+.butler-face :is(.butler-card-chips, .butler-card-subagents) {
+	padding: 0 14px 8px;
+}
+
+.butler-face .butler-card-from {
+	padding: 0 14px 6px;
 }
 
 .butler-near-kind {
 	display: inline-flex;
 	align-items: center;
-	gap: 4px;
-	color: var(--butler);
+	gap: 6px;
 }
 
 .butler-near .butler-card-link {
@@ -56,115 +55,15 @@
 	overflow-wrap: anywhere;
 }
 
-.butler-card-body {
-	flex: 1;
-	min-width: 0;
-	display: flex;
-	flex-direction: column;
-	gap: 6px;
-	padding: 10px 12px;
-	font: 13px / 1.4 var(--sans);
-}
-
-.butler-card-head {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	color: var(--butler);
-	font-weight: 600;
-	font-size: 12px;
-}
-
-.butler-card-kind {
-	letter-spacing: 0.02em;
-	text-transform: uppercase;
-}
-
-.butler-card-badge {
-	margin-left: auto;
-}
-
-.butler-watching-icon {
-	color: var(--brass);
-}
-
-/* Sized like a session card's goal: it takes the room the card has. */
-.butler-card-title {
-	flex: 1;
-	min-height: 0;
-	margin: 0;
-	display: -webkit-box;
-	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 4;
-	line-clamp: 4;
-	overflow: hidden;
-	font-size: 20px;
-	font-weight: 600;
-	line-height: 1.3;
-	letter-spacing: -0.01em;
-	text-wrap: pretty;
-	overflow-wrap: anywhere;
-}
-
-.butler-card-status {
-	flex: none;
-	color: var(--muted);
-	font-size: 12.5px;
-	line-height: 18px;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-.butler-card-needs {
-	margin: 0 -12px;
-	padding: 6px 12px;
-	background: var(--amber-soft);
-	border-top: 1px solid rgb(210 153 34 / 0.5);
-	color: var(--amber-ink);
-	font-size: 12px;
-	line-height: 16px;
-}
-
-.butler-card-foot {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	margin-top: auto;
-	color: var(--muted);
-	font-size: 12px;
-}
-
 .butler-card-link {
-	margin-left: auto;
-	color: var(--butler);
+	color: var(--ink);
 	font-weight: 600;
 	text-decoration: none;
+	white-space: nowrap;
 }
 
 .butler-card-link:hover {
 	text-decoration: underline;
-}
-
-.butler-needs-you .butler-card-title {
-	color: var(--amber-ink);
-}
-
-.butler-card-body:has(.butler-card-status) .butler-card-title {
-	-webkit-line-clamp: 3;
-	line-clamp: 3;
-}
-
-.annotation.butler-card:has(.butler-needs-you) {
-	border-color: var(--amber);
-}
-
-.annotation.butler-card:has(.butler-failed) {
-	border-color: var(--red);
-}
-
-.annotation.butler-card:has(.butler-done) {
-	border-top-color: var(--green);
 }
 
 .butler-byline {
@@ -282,10 +181,6 @@
 .butler-chip-mission {
 	border-color: color-mix(in srgb, var(--butler) 45%, transparent);
 	color: var(--butler);
-}
-
-.annotation.butler-card:has(.butler-card-body) {
-	cursor: pointer;
 }
 
 /* The view of one of Butler's Discord threads, opened from its card. */

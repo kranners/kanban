@@ -19,7 +19,6 @@ import type {
 	Artifact,
 	Session,
 	SessionDigest,
-	Step,
 	Subagent,
 	Task,
 	TaskStatus,
@@ -28,12 +27,20 @@ import type {
 import "./attention.css";
 import "./detail.css";
 import { subagentState } from "../shared/subagents.ts";
-import { ActivityBadge, ActivityIcon, activityLabel } from "./activity.tsx";
+import { activityLabel } from "./activity.tsx";
 import { current } from "./annotations.ts";
 import { unreachable } from "./arrangement.ts";
 import { FromDmChip } from "./ButlerDm.tsx";
 import { butlerPresence } from "./butler.ts";
 import { isFromDm, openParent, parentTitle } from "./butlerThreads.ts";
+import { AuthorChip, BusyEdge, CardFace, StatusBadge } from "./CardFace.tsx";
+import {
+	authorFilter,
+	dimmedByAuthor,
+	sessionAuthor,
+	sessionLastActivity,
+	statusOf,
+} from "./cardFace.ts";
 import { digests, stuckOf } from "./digests.ts";
 import type { PlacedNode } from "./layout.ts";
 import { plainText } from "./markdown.ts";
@@ -48,7 +55,7 @@ import {
 	workflowDetail,
 } from "./subagentChips.ts";
 import { Timeline } from "./Timeline.tsx";
-import { ago, relativeTime } from "./time.ts";
+import { relativeTime } from "./time.ts";
 import { averageTaskMs, type Lane, sessionLane } from "./timeline.ts";
 import { accountChip, accountOf, usage } from "./usage.ts";
 import type { Detail } from "./viewport.ts";
@@ -143,32 +150,6 @@ function CardBody(props: {
 			)}
 			<SubagentChips session={session} now={props.now} />
 		</div>
-	);
-}
-
-function BusyEdge() {
-	return <span class="busy-edge" aria-hidden="true" />;
-}
-
-function Ribbon(props: { session: Session; now: number }) {
-	const { activity } = props.session;
-	if (
-		activity === "working" ||
-		activity === "watching" ||
-		activity === "stopped"
-	)
-		return null;
-	return (
-		<span class={`ribbon act-${activity}`} aria-hidden="true">
-			<ActivityIcon activity={activity} size={13} />
-			<span class="ribbon-text">
-				{activity === "done"
-					? `Finished · ${ago(props.session.updatedAt, props.now)}`
-					: activity === "idle"
-						? `Idle · ${ago(props.session.updatedAt, props.now)}`
-						: activityLabel[activity]}
-			</span>
-		</span>
 	);
 }
 
@@ -352,6 +333,10 @@ function NearPanel(props: {
 }) {
 	const { session } = props;
 	const digest = digests.value.sessions[session.id];
+	const lastActivity = sessionLastActivity(
+		session,
+		board.value?.subagents ?? [],
+	);
 	const KindIcon = session.cloud
 		? Cloud
 		: session.runner
@@ -363,7 +348,12 @@ function NearPanel(props: {
 		<div class="near-panel" data-scrollable>
 			<header class="near-head">
 				<div class="near-meta">
-					<ActivityBadge activity={session.activity} />
+					<StatusBadge
+						status={statusOf(session.activity, lastActivity, props.now)}
+						lastActivity={lastActivity}
+						now={props.now}
+					/>
+					<AuthorChip author={sessionAuthor(session)} />
 					{!repeatsGoal(session) && (
 						<span class="near-name">{session.name}</span>
 					)}
@@ -513,29 +503,35 @@ export function SessionCard(props: {
 			control.closest("[data-node]")?.querySelector(".frame") ?? control;
 		props.onOpen(session.id, frame.getBoundingClientRect());
 	};
+	const author = sessionAuthor(session);
+	const lastActivity = sessionLastActivity(
+		session,
+		board.value?.subagents ?? [],
+	);
 	return (
-		<div
+		<CardFace
+			status={statusOf(session.activity, lastActivity, props.now)}
+			lastActivity={lastActivity}
+			author={author}
+			name={session.name}
+			now={props.now}
 			class={nodeClass(
-				[
-					"node session",
-					`act-${session.activity}`,
-					session.artifacts.length > 0 && "has-artifacts",
-					props.state,
-				]
+				[session.artifacts.length > 0 && "has-artifacts", props.state]
 					.filter(Boolean)
 					.join(" "),
-				props.emphasis,
+				{
+					...props.emphasis,
+					dimmed:
+						props.emphasis.dimmed || dimmedByAuthor(author, authorFilter.value),
+				},
 			)}
 			style={position(props.node)}
-			data-node={props.node.key}
-		>
-			<button
-				type="button"
-				class="frame"
-				aria-label={cardLabel(session, props.workflows)}
-				onClick={open}
-			>
-				{props.detail === "near" ? (
+			dataNode={props.node.key}
+			frameLabel={cardLabel(session, props.workflows)}
+			onOpen={open}
+			corner={props.corner}
+			frame={
+				props.detail === "near" ? (
 					<NearPanel
 						session={session}
 						workflows={props.workflows}
@@ -579,24 +575,16 @@ export function SessionCard(props: {
 							</span>
 						</div>
 					</>
-				)}
-			</button>
+				)
+			}
+		>
 			<CardArtifacts artifacts={session.artifacts} onMore={open} />
-			<div class="card-bar">
-				<span class="card-bar-label" title={session.name}>
-					<ActivityIcon activity={session.activity} size={13} />
-					<span class="card-bar-name">{session.name}</span>
-				</span>
-				<Ribbon session={session} now={props.now} />
-				{props.corner && <div class="card-corner">{props.corner}</div>}
-			</div>
-			{session.activity === "working" && <BusyEdge />}
 			{props.notice}
 			<span class="resize-handle" data-resize aria-hidden="true" />
 			{linkRefusal(session) === null && (
 				<RelationHandles end={{ kind: "session", id: session.id }} />
 			)}
-		</div>
+		</CardFace>
 	);
 }
 

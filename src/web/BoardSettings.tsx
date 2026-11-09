@@ -4,9 +4,24 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import "./boardSettings.css";
 import type { FaceMode } from "./butlerDm.ts";
 import { faceSettings, setFaceSettings } from "./butlerFaceSettings.ts";
+import {
+	type AuthorFilter,
+	authorFilter,
+	authorKindLabels,
+	cardAuthorKinds,
+	setAuthorFilter,
+} from "./cardFace.ts";
 import { setShowSubagents, showSubagents } from "./subagentSetting.ts";
 
-// The board's settings, kept per browser: whether subagents show, and how Butler's DM face shows.
+// The board's settings, kept per browser: whether subagents show, whose cards stand out, and how Butler's DM face shows.
+
+const authorChoices: { filter: AuthorFilter; label: string }[] = [
+	{ filter: "all", label: "Every card" },
+	...cardAuthorKinds.map((kind) => ({
+		filter: kind,
+		label: `Only ${authorKindLabels[kind]}'s`,
+	})),
+];
 
 const faceModes: { mode: FaceMode; label: string; hint: string }[] = [
 	{
@@ -63,6 +78,24 @@ function SettingsPanel(props: { onClose: () => void }): JSX.Element {
 						</span>
 					</span>
 				</label>
+			</fieldset>
+			<fieldset class="board-settings-group">
+				<legend>Cards by author</legend>
+				<p class="board-settings-note">
+					Every other author's cards are dimmed in place.
+				</p>
+				{authorChoices.map((choice) => (
+					<label key={choice.filter} class="board-settings-choice">
+						<input
+							type="radio"
+							name="card-author"
+							value={choice.filter}
+							checked={authorFilter.value === choice.filter}
+							onChange={() => setAuthorFilter(choice.filter)}
+						/>
+						<span>{choice.label}</span>
+					</label>
+				))}
 			</fieldset>
 			<fieldset class="board-settings-group">
 				<legend>Butler face</legend>

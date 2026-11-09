@@ -1,0 +1,137 @@
+import { signal } from "@preact/signals";
+import type {
+	Activity,
+	ButlerCard,
+	Session,
+	Subagent,
+} from "../shared/types.ts";
+
+// Every card on the board, Aaron's own sessions and Butler's threads, desk
+// sessions and changes alike, is drawn by one card face. This is its model:
+// who started the card and the status its colours follow.
+
+export const cardAuthorKinds = ["kanban", "butler", "desk", "change"] as const;
+export type CardAuthorKind = (typeof cardAuthorKinds)[number];
+
+/** Who started a card, and the card it came from when it has one. */
+export type CardAuthor = { kind: CardAuthorKind; label: string; from?: string };
+
+export const authorKindLabels: Record<CardAuthorKind, string> = {
+	kanban: "Kanban",
+	butler: "Butler",
+	desk: "Desk",
+	change: "Change",
+};
+
+const fromTitle = (title: string | undefined) => (title ? { from: title } : {});
+
+export function sessionAuthor(session: Pick<Session, "parent">): CardAuthor {
+	const { parent } = session;
+	if (!parent) return { kind: "kanban", label: authorKindLabels.kanban };
+	if (parent.desk) {
+		return {
+			kind: "desk",
+			label: `Desk ${parent.desk}`,
+			...fromTitle(parent.title),
+		};
+	}
+	return {
+		kind: "butler",
+		label: authorKindLabels.butler,
+		...fromTitle(parent.title),
+	};
+}
+
+export function butlerCardAuthor(
+	card: Pick<ButlerCard, "selfFix" | "desk" | "thread">,
+): CardAuthor {
+	if (card.selfFix) return { kind: "change", label: authorKindLabels.change };
+	if (card.desk) return { kind: "desk", label: `Desk ${card.desk}` };
+	if (card.thread?.kind === "desk") {
+		return { kind: "desk", label: authorKindLabels.desk };
+	}
+	return { kind: "butler", label: authorKindLabels.butler };
+}
+
+/** A card's status: its activity, or stalled once it claims to work with nothing new for `stallMs`. */
+export type CardStatus = Activity | "stalled";
+
+/** How long a working card may go without a tool call, message or subagent step before it counts as stalled. */
+export const stallMs = 10 * 60_000;
+
+export function statusOf(
+	activity: Activity,
+	lastActivity: number,
+	now: number,
+): CardStatus {
+	return activity === "working" && now - lastActivity > stallMs
+		? "stalled"
+		: activity;
+}
+
+const newest = (times: readonly number[]) => Math.max(0, ...times);
+
+export function sessionLastActivity(
+	session: Pick<Session, "id" | "updatedAt">,
+	subagents: readonly Pick<Subagent, "sessionId" | "updatedAt">[],
+): number {
+	return newest([
+		session.updatedAt,
+		...subagents
+			.filter((subagent) => subagent.sessionId === session.id)
+			.map((subagent) => subagent.updatedAt),
+	]);
+}
+
+export function butlerCardLastActivity(
+	card: Pick<ButlerCard, "updatedAt" | "history" | "subagents">,
+): number {
+	return newest([
+		card.updatedAt,
+		...(card.history ?? []).map((event) => event.at),
+		...(card.subagents ?? []).map((subagent) => subagent.updatedAt),
+	]);
+}
+
+export const statusLabels: Record<CardStatus, string> = {
+	working: "Working",
+	"needs-you": "Needs you",
+	watching: "Watching",
+	idle: "Idle",
+	done: "Finished",
+	failed: "Failed",
+	stopped: "Stopped",
+	stalled: "Stalled",
+};
+
+export function stalledText(lastActivity: number, now: number): string {
+	return `Stalled ${Math.floor((now - lastActivity) / 60_000)} min`;
+}
+
+/** Which authors' cards the board shows at full strength, kept per browser; the rest are dimmed. */
+export type AuthorFilter = CardAuthorKind | "all";
+
+export const authorFilterKey = "kanban.authorFilter";
+
+function readFilter(): AuthorFilter {
+	try {
+		const kept = localStorage.getItem(authorFilterKey);
+		return (cardAuthorKinds as readonly string[]).includes(kept ?? "")
+			? (kept as CardAuthorKind)
+			: "all";
+	} catch {
+		return "all";
+	}
+}
+
+export const authorFilter = signal<AuthorFilter>(readFilter());
+
+export function setAuthorFilter(filter: AuthorFilter): void {
+	authorFilter.value = filter;
+	try {
+		localStorage.setItem(authorFilterKey, filter);
+	} catch {}
+}
+
+export const dimmedByAuthor = (author: CardAuthor, filter: AuthorFilter) =>
+	filter !== "all" && author.kind !== filter;

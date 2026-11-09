@@ -503,6 +503,32 @@ button.reconnecting {
 	white-space: nowrap;
 }
 
+/* Who started a card: Aaron on the board, Butler, a desk session or a change. */
+.author-chip {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	height: 20px;
+	padding: 0 7px 0 5px;
+	border: 1px solid var(--hairline-strong);
+	border-radius: 999px;
+	color: var(--muted);
+	font-size: 11px;
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.author-chip svg {
+	flex: none;
+}
+
+.card-bar:has(.ribbon) .author-chip-label {
+	max-width: 7em;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
 .card-corner {
 	flex: none;
 	align-self: stretch;
@@ -901,6 +927,9 @@ button.reconnecting {
 .act-stopped {
 	--act: var(--muted);
 }
+.act-stalled {
+	--act: var(--stalled-edge);
+}
 
 .badge,
 .status-row svg,
@@ -925,6 +954,10 @@ button.reconnecting {
 
 .badge.act-idle {
 	color: var(--idle-ink);
+}
+
+.badge.act-stalled {
+	color: var(--stalled-ink);
 }
 
 .badge.act-stopped {

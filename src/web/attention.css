@@ -14,6 +14,8 @@
 	--idle-edge: #5b7fa8;
 	--idle-ink: #3f6189;
 	--stopped-edge: var(--hairline-strong);
+	--stalled-edge: #8a55c9;
+	--stalled-ink: #6b3fa6;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -28,6 +30,8 @@
 		--idle-edge: #7d9fc8;
 		--idle-ink: #9dbbe0;
 		--stopped-edge: #4a4742;
+		--stalled-edge: #b48cf0;
+		--stalled-ink: #c9a8f5;
 	}
 }
 
@@ -42,6 +46,8 @@
 	--idle-edge: #7d9fc8;
 	--idle-ink: #9dbbe0;
 	--stopped-edge: #4a4742;
+	--stalled-edge: #b48cf0;
+	--stalled-ink: #c9a8f5;
 }
 
 .world.gliding {
@@ -166,6 +172,16 @@
 	box-shadow: 0 0 0 calc(1px * var(--unzoom) - 1px) var(--idle-edge);
 }
 
+/* Claims to work with nothing new for ten minutes: dashed, so a stall never reads as a pause between turns. */
+.node.session.act-stalled .frame {
+	border-style: dashed;
+	border-color: var(--stalled-edge);
+}
+
+.node.session.act-stalled::before {
+	box-shadow: 0 0 0 calc(1px * var(--unzoom) - 1px) var(--stalled-edge);
+}
+
 .node.session.act-stopped .frame {
 	border-style: dashed;
 	border-color: var(--stopped-edge);
@@ -212,6 +228,12 @@
 	--ribbon-fill: color-mix(in srgb, var(--idle-edge) 14%, var(--surface));
 	--ribbon-ink: var(--idle-ink);
 	padding: 0 4px;
+}
+
+.ribbon.act-stalled {
+	--ribbon-edge: var(--stalled-edge);
+	--ribbon-fill: color-mix(in srgb, var(--stalled-edge) 14%, var(--surface));
+	--ribbon-ink: var(--stalled-ink);
 }
 
 .workflows {
