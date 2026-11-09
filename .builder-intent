@@ -1,0 +1,1 @@
+Change 20261109-153547-3542997: add a Projects lifecycle view to the kanban board (server-side fetch of Butler's projects JSON via one adapter, project chips on linked session cards, fixture mode).
