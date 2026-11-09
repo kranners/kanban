@@ -12,6 +12,7 @@ const session = (id: string, overrides: Partial<Session> = {}) =>
 		cwd: "/Users/me/dev/acme",
 		activity: "needs-you",
 		needs: "waiting",
+		cloud: { url: `https://claude.ai/code/${id}` },
 		...overrides,
 	}) as Session;
 
@@ -21,32 +22,35 @@ const prompt = (
 	input: Record<string, unknown> = {},
 ): OpenPrompt => ({ requestId, toolName, title: toolName, input });
 
-const harness = (sessions: Session[], open: Map<string, OpenPrompt[]>) => {
+const harness = (
+	sessions: Session[],
+	open: Map<string, OpenPrompt[]>,
+	fails = new Set<string>(),
+) => {
 	const allowed: [string, string][] = [];
-	const reads: string[] = [];
 	const events: AuditEvent[] = [];
 	const run = createAutoAnswer({
 		sessions: () => sessions,
 		approver: {
-			open: async (s) => {
-				reads.push(s.id);
-				return { ok: true, value: open.get(s.id) ?? [] };
-			},
+			open: async (s) => ({ ok: true, value: open.get(s.id) ?? [] }),
 			approve: async (s, p) => {
+				if (fails.has(p.requestId)) {
+					return { ok: false, error: "That prompt is no longer open" };
+				}
 				allowed.push([s.id, p.requestId]);
 				return { ok: true, value: null };
 			},
 		},
 		audit: (event) => events.push(event),
 	});
-	return { run, allowed, reads, events };
+	return { run, allowed, events };
 };
 
 describe("the board's automatic answer", () => {
-	it("allows harmless prompts and leaves serious ones and questions for Aaron", async () => {
+	it("allows a cloud session's harmless prompts and leaves serious ones and questions for Aaron", async () => {
 		const open = new Map([
 			[
-				"a",
+				"session_a",
 				[
 					prompt("spawn", "mcp__claude-code-remote__create_session"),
 					prompt("push", "Bash", { command: "git push origin main" }),
@@ -56,13 +60,13 @@ describe("the board's automatic answer", () => {
 			],
 		]);
 		const { run, allowed, events } = harness(
-			[session("a"), session("b", { activity: "working" })],
+			[session("session_a"), session("session_b", { activity: "working" })],
 			open,
 		);
 		await run();
 		assert.deepEqual(allowed, [
-			["a", "spawn"],
-			["a", "test"],
+			["session_a", "spawn"],
+			["session_a", "test"],
 		]);
 		assert.deepEqual(
 			events.map((event) => event.action === "prompt-approve" && event.via),
@@ -70,19 +74,45 @@ describe("the board's automatic answer", () => {
 		);
 	});
 
-	it("reads a waiting state left only for Aaron once, until it changes", async () => {
+	it("never answers a terminal session, whose prompt is read off its screen", async () => {
+		const open = new Map([["local", [prompt("read", "Read")]]]);
+		const local = session("local");
+		delete local.cloud;
+		const { run, allowed } = harness([local], open);
+		await run();
+		assert.deepEqual(allowed, []);
+	});
+
+	it("allows a harmless prompt that follows a serious one in the same waiting state", async () => {
 		const open = new Map([
-			["a", [prompt("push", "Bash", { command: "git push -f" })]],
+			["session_a", [prompt("push", "Bash", { command: "git push -f" })]],
 		]);
-		const sessions = [session("a")];
-		const { run, reads, allowed } = harness(sessions, open);
+		const { run, allowed } = harness([session("session_a")], open);
+		await run();
+		open.set("session_a", [
+			prompt("push", "Bash", { command: "git push -f" }),
+			prompt("read", "WebFetch", { url: "https://example.com" }),
+		]);
+		await run();
+		assert.deepEqual(allowed, [["session_a", "read"]]);
+	});
+
+	it("retries an allow that failed, auditing the failure once", async () => {
+		const open = new Map([["session_a", [prompt("flaky", "WebSearch")]]]);
+		const fails = new Set(["flaky"]);
+		const { run, allowed, events } = harness(
+			[session("session_a")],
+			open,
+			fails,
+		);
 		await run();
 		await run();
-		assert.deepEqual(reads, ["a"]);
-		sessions[0] = session("a", { needs: "something new" });
-		open.set("a", [prompt("read", "Read", { file_path: "x" })]);
+		fails.clear();
 		await run();
-		assert.deepEqual(reads, ["a", "a"]);
-		assert.deepEqual(allowed, [["a", "read"]]);
+		assert.deepEqual(allowed, [["session_a", "flaky"]]);
+		assert.deepEqual(
+			events.map((event) => event.action === "prompt-approve" && event.result),
+			["That prompt is no longer open", "ok"],
+		);
 	});
 });

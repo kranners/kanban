@@ -36,11 +36,12 @@ import { summariesOf } from "../web/summaries.ts";
 import { type AnnotationStore, parseAnnotation } from "./annotations.ts";
 import { type Announcer, describeDeliveries } from "./announce.ts";
 import type { Audit } from "./audit.ts";
-import { promptEffect } from "./autoAnswer.ts";
+import { promptDetail } from "./autoAnswer.ts";
 import { allowOnce } from "./cloud.ts";
 import type { CmuxResult } from "./cmux.ts";
 import type { ColourStore } from "./colours.ts";
 import type { CommentStore } from "./comments.ts";
+import { seriousEffect } from "./effects.ts";
 import type { ExitRunner, SessionAsker } from "./exit.ts";
 import type { BoardSource } from "./http.ts";
 import { truncate } from "./ingest/json.ts";
@@ -490,14 +491,14 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 			if ("ok" in session) return session;
 			const result = await deps.answer(session, reply);
 			if (!result.ok) return refused(result.error);
-			if (reply) return done(result.value);
+			if (reply || !session.cloud) return done(result.value);
 			const open = await deps.approver.open(session);
-			const effects = open.ok
-				? open.value.flatMap((prompt) => {
-						const effect = promptEffect(session, prompt);
-						return effect ? [`Serious effect: ${effect}`] : [];
-					})
-				: [];
+			const shown = open.ok ? open.value.at(-1) : undefined;
+			const effect = shown ? seriousEffect(shown.toolName, shown.input) : null;
+			const effects =
+				shown && effect
+					? [`Serious effect: ${effect}: ${promptDetail(shown)}`]
+					: [];
 			return done([result.value, ...effects].join("\n"));
 		},
 		finish_session: async ({

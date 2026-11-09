@@ -687,7 +687,15 @@ describe("board tools", () => {
 	});
 
 	it("names each serious effect when it reads a session's open prompts", async () => {
-		const { tools, prompts } = await setup();
+		const { tools, prompts } = await setup({
+			...board,
+			sessions: [
+				session("aaaaaaaa-1", {
+					cloud: { url: "https://claude.ai/code/session_01acme" },
+					activity: "needs-you",
+				}),
+			],
+		});
 		prompts.set("aaaaaaaa-1", [
 			{
 				requestId: "r-title",
@@ -710,7 +718,7 @@ describe("board tools", () => {
 			}),
 			{
 				ok: true,
-				text: "acme-aaa asks permission for Bash:\nSerious effect: Push to main without review",
+				text: "acme-aaa asks permission for Bash:\nSerious effect: Push to main without review: git push origin main",
 			},
 		);
 	});

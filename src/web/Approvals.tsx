@@ -434,9 +434,10 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 					<section class="approvals-sessions">
 						<p>
 							{sessions} board session{sessions === 1 ? "" : "s"} wait
-							{sessions === 1 ? "s" : ""} on a prompt. The board allows every
-							harmless prompt itself, so a session still waiting here has a
-							serious one, also asked in Discord.
+							{sessions === 1 ? "s" : ""} on a prompt. The board allows a cloud
+							session's harmless prompts itself, so a cloud session still
+							waiting has a serious one, also asked in Discord; a terminal
+							session's prompt waits for you there.
 						</p>
 						<button
 							type="button"

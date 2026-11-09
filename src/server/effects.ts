@@ -1,8 +1,7 @@
-import { isAbsolute, normalize, resolve, sep } from "node:path";
-
-// The serious set: the effects that still need Aaron, judged by what a
-// prompt does, never by how. Everything else a session asks for is harmless
-// and the board allows it at once.
+// The serious set: the effects that still need Aaron, judged by what a cloud
+// session's prompt does, never by how. A cloud session's container is
+// scratch, so deleting or writing its own files is never serious. Everything
+// else it asks for is harmless and the board allows it at once.
 
 const remotePrefix = "mcp__claude-code-remote__";
 
@@ -15,169 +14,454 @@ const accessRemote = new Set([
 	"confirm_repository_trust",
 ]);
 
-const sendTool =
-	/gmail|outlook|mail|slack|messenger|whatsapp|imessage|sms|twilio|discord|tweet|linkedin/i;
-const sendVerb = /send|post|reply|publish|draft_and_send|chat_post/i;
-const payTool = /pay|purchase|checkout|stripe|order_place|place_order|buy/i;
+const access = "Change an account, access or security setting";
+const deploy = "Deploy or change production";
+const destroy = "Delete production data or cloud resources";
+const send = "Send a message as Aaron";
+const secretLeaves = "Send a secret off the machine";
 
-const shellSplit = /&&|\|\||[;|\n]/;
+/** A shell command as segments of words, quotes removed, split outside quotes on operators and substitutions. */
+export const segmentsOf = (command: string): string[][] => {
+	const segments: string[][] = [];
+	let words: string[] = [];
+	let word = "";
+	let quote: string | null = null;
+	let quoted = false;
+	const endWord = () => {
+		if (word !== "" || quoted) words.push(word);
+		word = "";
+		quoted = false;
+	};
+	const endSegment = () => {
+		endWord();
+		if (words.length > 0) segments.push(words);
+		words = [];
+	};
+	for (let at = 0; at < command.length; at++) {
+		const char = command[at] ?? "";
+		if (quote) {
+			if (char === quote) quote = null;
+			else if (char === "\\" && quote === '"') word += command[++at] ?? "";
+			else word += char;
+			continue;
+		}
+		if (char === "'" || char === '"') {
+			quote = char;
+			quoted = true;
+		} else if (char === "\\") {
+			word += command[++at] ?? "";
+		} else if (char === "$" && command[at + 1] === "(") {
+			endSegment();
+			at++;
+		} else if (/[;&|()`\n]/.test(char)) {
+			endSegment();
+		} else if (/\s/.test(char)) {
+			endWord();
+		} else {
+			word += char;
+		}
+	}
+	endSegment();
+	return segments;
+};
 
-const scratchRoots = ["/tmp", "/private/tmp", "/var/folders"];
+const baseName = (word: string) => word.split("/").at(-1) ?? word;
 
-const inside = (path: string, root: string) =>
-	path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
+const wrappers =
+	/^(sudo|doas|env|nohup|time|command|exec|nice|ionice|timeout|stdbuf|xargs|butler-root)$/;
+const wrapperValues = /^-[ugCDhprtnkscIP]$/;
 
-const words = (segment: string) =>
-	segment
-		.trim()
-		.split(/\s+/)
-		.map((word) => word.replace(/^['"]|['"]$/g, ""))
-		.filter(Boolean);
+/** The command a segment runs, past variable assignments and wrappers such as sudo -u and timeout. */
+const unwrapped = (argv: readonly string[]): string[] => {
+	let rest = [...argv];
+	while (rest.length > 0) {
+		const head = rest[0] ?? "";
+		if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(head)) {
+			rest = rest.slice(1);
+			continue;
+		}
+		if (!wrappers.test(baseName(head))) break;
+		rest = rest.slice(1);
+		while ((rest[0] ?? "").startsWith("-")) {
+			const flag = rest.shift() ?? "";
+			if (wrapperValues.test(flag)) rest.shift();
+		}
+		if (baseName(head) === "timeout" && /^\d/.test(rest[0] ?? "")) {
+			rest.shift();
+		}
+	}
+	return rest.length > 0 ? [baseName(rest[0] ?? ""), ...rest.slice(1)] : [];
+};
 
-const unprivileged = (argv: string[]) => {
-	const rest = [...argv];
-	while (
-		rest.length > 0 &&
-		/^(sudo|doas|env|nohup|time|command|exec|butler-root|[A-Z_]+=.*)$/.test(
-			rest[0] ?? "",
-		)
-	) {
-		rest.shift();
-		while ((rest[0] ?? "").startsWith("-")) rest.shift();
+const valueFlags =
+	/^(-[A-Za-z]|--(context|namespace|chdir|repo|profile|region|project|kubeconfig|app|config))$/;
+
+/** A command's arguments from its first that is not a flag, skipping flags and their values. */
+const subcommand = (argv: readonly string[]): string[] => {
+	const rest = argv.slice(1);
+	while (rest.length > 0 && (rest[0] ?? "").startsWith("-")) {
+		const flag = rest.shift() ?? "";
+		if (valueFlags.test(flag)) rest.shift();
 	}
 	return rest;
 };
 
-const secretPath =
-	/(^|[\s/@=:'"])(\.env(\.[\w-]+)?|\.ssh\/|id_(rsa|ed25519|ecdsa)|[\w.-]+\.(pem|key|p12)|\.aws\/credentials|\.netrc|credentials\.json)\b/i;
+/** Commands that only print, search or record text, whose words never act. */
+const textOnly = new Set([
+	"echo",
+	"printf",
+	"grep",
+	"rg",
+	"ag",
+	"cat",
+	"less",
+	"head",
+	"tail",
+	"jq",
+	"yq",
+	"wc",
+	"sort",
+	"diff",
+	"getent",
+	"man",
+	"which",
+	"type",
+]);
 
-const offMachine = /^(curl|wget|scp|rsync|nc|ncat|sftp|ftp|http|https|xh)$/;
+const gitText = new Set([
+	"log",
+	"show",
+	"diff",
+	"grep",
+	"commit",
+	"blame",
+	"status",
+]);
 
-const deletesRemotely =
-	/\b(aws\s+s3\s+(rm|rb)|aws\s+\S+\s+delete-|gcloud\s+.*\bdelete\b|gsutil\s+(rm|rb)|kubectl\s+delete|helm\s+(uninstall|delete)|terraform\s+destroy|(psql|mysql|mongosh|bq|snowsql|clickhouse-client)\b.*\b(DROP\s+(TABLE|DATABASE|SCHEMA)|TRUNCATE|DELETE\s+FROM|dropDatabase))\b/i;
+const dryRun = (argv: readonly string[]) =>
+	argv.some((word) => /^--(dry-run|help|server-dry-run)\b|^-h$/.test(word));
 
-const changesProduction =
-	/\b(terraform\s+apply|tofu\s+apply|pulumi\s+up|kubectl\s+(apply|rollout|scale|set|patch|replace|edit)|helm\s+(install|upgrade)|cdk\s+deploy|sst\s+deploy|serverless\s+deploy|sls\s+deploy|fly\s+deploy|vercel\s+(--prod|deploy\s+--prod)|netlify\s+deploy\s+--prod|wrangler\s+(deploy|publish)|aws\s+\S+\s+(create|put|update|modify|run|start|stop|terminate)-|gcloud\s+.*\b(deploy|create|update)\b|(npm|pnpm|yarn|bun)\s+run\s+deploy[\w:-]*)\b/i;
+const secretFile =
+	/(^|\/)(\.env(rc)?$|\.env\.(?!example$|sample$|template$)[\w-]+$|\.ssh(\/|$)|id_(rsa|ed25519|ecdsa)$|[\w.-]+\.(pem|p12)$|\.aws\/credentials$|\.netrc$|credentials(\.json)?$|secrets?\.(ya?ml|json)$|hosts\.yml$)|^\/var\/lib\/secrets\//;
 
-const sendsAsAaron =
-	/\b(sendmail|mutt|msmtp|mail\s+-s|hooks\.slack\.com|slack\.com\/api\/chat\.|api\.sendgrid\.com|api\.mailgun\.net|api\.twilio\.com|api\.postmarkapp\.com|graph\.facebook\.com)\b/i;
+const uploaded = (argv: readonly string[]): string[] =>
+	argv.flatMap((word, at) => {
+		const next = argv[at + 1] ?? "";
+		if (/^(-d|--data(-binary|-raw|-urlencode)?|-F|--form)$/.test(word)) {
+			return next.includes("@") ? [next.replace(/^[^@]*@/, "")] : [];
+		}
+		return /^(-T|--upload-file)$/.test(word) ? [next] : [];
+	});
 
-const spends =
-	/\b(api\.stripe\.com|stripe\s+(charges|payment_intents|checkout)\s+create)\b/i;
+const loopback = (argv: readonly string[]) =>
+	argv.some((word) =>
+		/^(https?:\/\/)?(localhost|127\.|\[?::1\]?)|@(localhost|127\.)/.test(word),
+	);
 
-const securityChange =
-	/\b(passwd|chpasswd|visudo|dscl|dseditgroup|sysadminctl|useradd|usermod|userdel|csrutil|fdesetup\s+disable|spctl\s+--master-disable|pfctl\s+-d|tccutil|gh\s+auth\s+(login|logout|refresh|token)|gh\s+secret\s+(set|delete|remove)|gh\s+ssh-key\s+(add|delete)|security\s+(add|delete|set)-)\b|\/etc\/sudoers|authorized_keys/i;
+const sendHosts =
+	/hooks\.slack\.com|slack\.com\/api\/chat\.|api\.sendgrid\.com|api\.mailgun\.net|api\.twilio\.com|api\.postmarkapp\.com|graph\.facebook\.com|api\.telegram\.org|gmail\.googleapis\.com\/.*\/send|api\.(twitter|x)\.com|discord(app)?\.com\/api\/webhooks/;
 
-const readsKeychain =
-	/\bsecurity\s+(find-(generic|internet)-password\s.*-[wg]\b|dump-keychain)/i;
-
-const gitPush = (argv: string[]): string | null => {
-	const at = argv.indexOf("push");
-	if (argv[0] !== "git" || at === -1) return null;
-	const args = argv.slice(at + 1);
+const gitPush = (args: readonly string[]): string | null => {
 	if (
 		args.some(
-			(arg) =>
-				arg === "-f" ||
-				arg.startsWith("--force") ||
-				(arg.startsWith("+") && arg.length > 1),
+			(arg) => arg === "-f" || arg.startsWith("--force") || arg === "--mirror",
 		)
 	) {
 		return "Force push";
 	}
-	const refs = args.filter((arg) => !arg.startsWith("-")).slice(1);
+	const refs = args.filter((arg) => !arg.startsWith("-")).slice(2);
+	if (refs.some((ref) => ref.startsWith("+") && ref.length > 1)) {
+		return "Force push";
+	}
 	if (refs.some((ref) => /(^|:)(refs\/heads\/)?(main|master)$/.test(ref))) {
 		return "Push to main without review";
+	}
+	if (refs.some((ref) => ref.startsWith(":")))
+		return "Delete a branch on GitHub";
+	return null;
+};
+
+const toolEffect = (tool: string, args: readonly string[]): string | null => {
+	const [verb = "", second = ""] = args;
+	switch (tool) {
+		case "terraform":
+		case "tofu":
+			return verb === "destroy" ? destroy : verb === "apply" ? deploy : null;
+		case "pulumi":
+			return verb === "destroy" ? destroy : verb === "up" ? deploy : null;
+		case "kubectl":
+			if (verb === "delete") return destroy;
+			if (/^(apply|scale|set|patch|replace|edit|create)$/.test(verb)) {
+				return deploy;
+			}
+			return verb === "rollout" && /^(restart|undo)$/.test(second)
+				? deploy
+				: null;
+		case "helm":
+			if (/^(uninstall|delete)$/.test(verb)) return destroy;
+			return /^(install|upgrade|rollback)$/.test(verb) ? deploy : null;
+		case "fly":
+		case "flyctl":
+			if (args.includes("destroy")) return destroy;
+			return /^(deploy|scale|secrets)$/.test(verb) ? deploy : null;
+		case "heroku":
+			return /destroy/.test(verb) ? destroy : null;
+		case "cdk":
+		case "sst":
+		case "serverless":
+		case "sls":
+		case "wrangler":
+		case "vercel":
+		case "netlify":
+		case "railway":
+			if (/^(destroy|remove|delete)$/.test(verb)) return destroy;
+			if (tool === "wrangler" && verb === "d1" && second === "execute") {
+				return deploy;
+			}
+			return /^(deploy|publish|up)$/.test(verb) || args.includes("--prod")
+				? deploy
+				: null;
+		case "aws":
+			if (verb === "s3") {
+				if (/^(rm|rb)$/.test(second)) return destroy;
+				return second === "sync" && args.includes("--delete") ? destroy : null;
+			}
+			if (verb === "iam" && !/^(get|list|simulate)-/.test(second)) {
+				return access;
+			}
+			if (/^(delete|terminate)-/.test(second)) return destroy;
+			return /^(create|put|update|modify|run|start|stop|attach|detach)-/.test(
+				second,
+			) && !/^start-(query|session)/.test(second)
+				? deploy
+				: null;
+		case "gcloud":
+		case "az":
+		case "doctl":
+			if (/^(components|config|auth|account|login)$/.test(verb)) return null;
+			if (args.includes("delete")) return destroy;
+			return args.some((arg) => /^(deploy|create|update)$/.test(arg))
+				? deploy
+				: null;
+		case "gsutil":
+			return /^(rm|rb)$/.test(verb) ? destroy : null;
+		case "ansible-playbook":
+			return deploy;
+		case "nixos-rebuild":
+		case "darwin-rebuild":
+			return verb === "switch" ? deploy : null;
+		case "nh":
+			return second === "switch" ? deploy : null;
+		case "make":
+			return /^deploy\b/.test(verb) ? deploy : null;
+		case "npm":
+		case "pnpm":
+		case "yarn":
+		case "bun":
+			if (/^(un)?publish$/.test(verb)) return "Publish a package";
+			return verb === "run" && /^deploy(:prod.*)?$/.test(second)
+				? deploy
+				: null;
+		case "cargo":
+			return verb === "publish" ? "Publish a package" : null;
+		case "twine":
+			return verb === "upload" ? "Publish a package" : null;
+		case "docker":
+			if (verb === "push") return "Publish a container image";
+			return verb === "volume" && second === "rm" ? destroy : null;
+		default:
+			return null;
+	}
+};
+
+const databaseClients =
+	/^(psql|mysql|mongosh|bq|snowsql|clickhouse-client|redis-cli)$/;
+const destructiveSql =
+	/\b(DROP\s+(TABLE|DATABASE|SCHEMA)|TRUNCATE|DELETE\s+FROM|dropDatabase|FLUSHALL|FLUSHDB)\b/i;
+
+const ghEffect = (argv: readonly string[]): string | null => {
+	const args = subcommand(argv);
+	const [group = "", verb = ""] = args;
+	if (dryRun(args)) return null;
+	if (group === "pr" && verb === "merge") return "Merge a pull request";
+	if (group === "pr" && verb === "review" && args.includes("--approve")) {
+		return "Approve a pull request";
+	}
+	if (group === "repo" && verb === "delete") return "Delete a repository";
+	if (
+		group === "repo" &&
+		verb === "edit" &&
+		args.some((arg) => /visibility/.test(arg))
+	) {
+		return access;
+	}
+	if (group === "release" && verb === "create") return "Publish a release";
+	if (group === "gist" && verb === "create") return "Publish a gist";
+	if (
+		group === "workflow" &&
+		verb === "run" &&
+		/deploy|release|publish/i.test(args[2] ?? "")
+	) {
+		return deploy;
+	}
+	if (
+		/^(secret|ssh-key|gpg-key)$/.test(group) &&
+		/^(set|delete|remove|add)$/.test(verb)
+	) {
+		return access;
+	}
+	if (group === "auth" && /^(login|logout|refresh)$/.test(verb)) return access;
+	if (group !== "api") return null;
+	const method = args.findIndex((arg) => arg === "-X" || arg === "--method");
+	const named = (args[method + 1] ?? "").toUpperCase();
+	const written = method !== -1 && /^(PUT|PATCH|DELETE)$/.test(named);
+	const path = args.join(" ");
+	if (/mergePullRequest|\/merges\b/.test(path)) return "Merge a pull request";
+	if (written && /\/merge\b/.test(path)) return "Merge a pull request";
+	if (
+		written &&
+		/collaborators|protection|permissions|private|visibility/.test(path)
+	) {
+		return access;
+	}
+	return named === "DELETE" ? "Delete on GitHub" : null;
+};
+
+const accessCommands =
+	/^(passwd|chpasswd|visudo|dscl|dseditgroup|sysadminctl|useradd|usermod|userdel|csrutil|tccutil)$/;
+
+const segmentEffect = (raw: readonly string[]): string | null => {
+	const argv = unwrapped(raw);
+	const [tool = "", ...rest] = argv;
+	if (tool === "" || textOnly.has(tool)) return null;
+	if (/^(bash|sh|zsh|dash)$/.test(tool)) {
+		const at = rest.indexOf("-c");
+		return at === -1 ? null : bashEffect(rest[at + 1] ?? "");
+	}
+	if (tool === "eval") return bashEffect(rest.join(" "));
+	if (tool === "ssh") {
+		const remote = subcommand(argv).slice(1);
+		return remote.length > 0 ? bashEffect(remote.join(" ")) : null;
+	}
+	if (tool === "git") {
+		const args = subcommand(argv);
+		if (gitText.has(args[0] ?? "")) return null;
+		return args[0] === "push" ? gitPush(args) : null;
+	}
+	if (tool === "gh") return ghEffect(argv);
+	if (databaseClients.test(tool)) {
+		return !loopback(rest) && rest.some((word) => destructiveSql.test(word))
+			? destroy
+			: null;
+	}
+	if (/^(sendmail|mutt|msmtp|swaks|mail|mailx)$/.test(tool)) return send;
+	if (tool === "osascript" && /\bsend\b/.test(rest.join(" "))) return send;
+	if (tool === "stripe" && rest.includes("create")) return "Spend money";
+	if (accessCommands.test(tool)) return access;
+	if (
+		tool === "security" &&
+		/^(find-(generic|internet)-password|dump-keychain)$/.test(rest[0] ?? "")
+	) {
+		return "Read a secret from the keychain";
+	}
+	if (
+		/^(ufw|iptables|nft|pfctl|fdesetup|spctl)$/.test(tool) &&
+		rest.some((word) => /^(disable|-F|flush|-d|--master-disable)$/.test(word))
+	) {
+		return access;
+	}
+	if (!dryRun(rest)) {
+		const effect = toolEffect(tool, subcommand(argv));
+		if (effect) return effect;
+	}
+	if (/^(curl|wget|http|https|xh)$/.test(tool) && !loopback(rest)) {
+		if (rest.some((word) => sendHosts.test(word))) return send;
+		if (rest.some((word) => /api\.stripe\.com/.test(word))) {
+			return "Spend money";
+		}
+		if (uploaded(rest).some((path) => secretFile.test(path))) {
+			return secretLeaves;
+		}
+	}
+	if (/^(scp|rsync|sftp)$/.test(tool)) {
+		const paths = rest.filter(
+			(word, at) =>
+				!word.startsWith("-") && !/^--exclude/.test(rest[at - 1] ?? ""),
+		);
+		if (
+			paths
+				.slice(0, -1)
+				.some((path) => secretFile.test(path.replace(/\/$/, "")))
+		) {
+			return secretLeaves;
+		}
 	}
 	return null;
 };
 
-const deletesLocally = (argv: string[], cwd: string | undefined) => {
-	if (cwd === undefined || argv[0] !== "rm") return null;
-	const paths = argv.slice(1).filter((arg) => !arg.startsWith("-"));
-	const home = process.env.HOME ?? "";
-	const outside = paths.filter((path) => {
-		if (/[$`*~]/.test(path) && !path.startsWith("~/")) return true;
-		const full = normalize(
-			path.startsWith("~/")
-				? resolve(home, path.slice(2))
-				: isAbsolute(path)
-					? path
-					: resolve(cwd, path),
-		);
-		return ![cwd, ...scratchRoots].some((root) => inside(full, root));
-	});
-	return outside.length > 0 ? `Delete ${outside.join(", ")}` : null;
-};
-
-const bashEffect = (command: string, cwd: string | undefined) => {
-	if (deletesRemotely.test(command)) {
-		return "Delete production data or cloud resources";
-	}
-	if (changesProduction.test(command)) return "Deploy or change production";
-	if (sendsAsAaron.test(command)) return "Send a message as Aaron";
-	if (spends.test(command)) return "Spend money";
-	if (securityChange.test(command)) {
-		return "Change an account, access or security setting";
-	}
-	if (readsKeychain.test(command)) return "Read a secret from the keychain";
-	const segments = command.split(shellSplit).map(words);
+const bashEffect = (command: string): string | null => {
+	const segments = segmentsOf(command);
+	const tools = segments.map((argv) => unwrapped(argv)[0] ?? "");
 	if (
-		segments.some((argv) => offMachine.test(unprivileged(argv)[0] ?? "")) &&
-		secretPath.test(command)
+		segments.some(
+			(argv) =>
+				argv.length === 1 && /^(env|printenv)$/.test(baseName(argv[0] ?? "")),
+		) &&
+		tools.some((tool) => /^(curl|wget|nc|ncat|http|xh)$/.test(tool))
 	) {
-		return "Send a secret off the machine";
+		return secretLeaves;
 	}
-	for (const segment of segments) {
-		const argv = unprivileged(segment);
-		if (argv[0] === "gh" && argv[1] === "pr" && argv[2] === "merge") {
-			return "Merge a pull request";
-		}
-		if (argv[0] === "gh" && argv[1] === "repo" && argv[2] === "delete") {
-			return "Delete a repository";
-		}
-		const pushed = gitPush(argv);
-		if (pushed) return pushed;
-		const deleted = deletesLocally(argv, cwd);
-		if (deleted) return deleted;
+	for (const argv of segments) {
+		const effect = segmentEffect(argv);
+		if (effect) return effect;
 	}
 	return null;
 };
 
 const mainBranch = (input: Record<string, unknown>) =>
-	typeof input.branch === "string" && /^(main|master)$/.test(input.branch);
+	typeof input.branch === "string" &&
+	/^(refs\/heads\/)?(main|master)$/.test(input.branch);
 
-/**
- * The serious effect a permission prompt would have, in one line for Aaron,
- * or null when it is harmless. cwd is the folder a local session works in;
- * a cloud session's container is scratch, so it has none.
- */
-export const seriousEffect = (
+const readVerb =
+	/^(get|list|read|search|check|find|fetch|describe|view|show|run_secret_scanning)(_|$)/;
+const sendServer =
+	/gmail|outlook|mail|slack|messenger|whatsapp|imessage|sms|twilio|discord|telegram|twitter|bluesky|mastodon|linkedin|threads/i;
+const sendVerb =
+	/(^|_)(send|post|reply|forward|schedule|publish|tweet|create_post|draft_and_send)(_|$)/;
+const payVerb =
+	/(^|_)(pay|payment|purchase|buy|place_order|create_order|refund|invoice|payout|transfer|charge|request_ride|checkout_session)(_|$)/;
+const destroyVerb =
+	/(^|_)(delete|destroy|drop|remove|purge|trash|batch_delete)(_|$)/;
+const deployVerb = /(^|_)(deploy|apply_migration|publish)(_|$)|deploy-site/;
+const secretServer = /1password|bitwarden|vault|keychain/i;
+const accessVerb =
+	/(^|_)(secrets?|credentials?|permissions?|collaborators?|roles?|groups?|share|add_user|remove_user|update_user|grant|revoke|invite)(_|$)/;
+
+const commandInputs = (input: Record<string, unknown>) =>
+	["command", "cli_command", "sql", "query"].flatMap((key) => {
+		const value = input[key];
+		return typeof value === "string" ? [value] : [];
+	});
+
+const mcpEffect = (
 	toolName: string,
 	input: Record<string, unknown>,
-	cwd?: string,
 ): string | null => {
-	if (toolName === "Bash") {
-		return typeof input.command === "string"
-			? bashEffect(input.command, cwd)
-			: null;
+	const [, server = "", ...parts] = toolName.split("__");
+	const tool = parts.join("__");
+	for (const command of commandInputs(input)) {
+		if (destructiveSql.test(command)) return destroy;
+		const effect = bashEffect(command);
+		if (effect) return effect;
 	}
-	if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(toolName)) {
-		const path = String(input.file_path ?? input.notebook_path ?? "");
-		return /authorized_keys|\/etc\/sudoers|\/etc\/pam\.d/.test(path)
-			? "Change an account, access or security setting"
-			: null;
-	}
-	if (toolName.startsWith(remotePrefix)) {
-		const tool = toolName.slice(remotePrefix.length);
-		return accessRemote.has(tool)
-			? "Change an account, access or security setting"
-			: null;
-	}
-	if (!toolName.startsWith("mcp__")) return null;
-	const tool = toolName.split("__").slice(2).join("__");
 	if (/merge_pull_request|enable_pr_auto_merge/.test(tool)) {
 		return "Merge a pull request";
+	}
+	if (
+		/pull_request_review/.test(tool) &&
+		/APPROVE/i.test(String(input.event ?? ""))
+	) {
+		return "Approve a pull request";
 	}
 	if (
 		/create_or_update_file|push_files|delete_file/.test(tool) &&
@@ -185,16 +469,54 @@ export const seriousEffect = (
 	) {
 		return "Write main on GitHub without review";
 	}
-	if (/delete_repository|delete_repo/.test(tool)) return "Delete a repository";
 	if (
-		/secret|credential|permission|collaborator/.test(tool) &&
-		!/^(get|list|read)/.test(tool)
+		/actions_run_trigger|run_workflow/.test(tool) &&
+		/deploy|release|publish/i.test(JSON.stringify(input))
 	) {
-		return "Change an account, access or security setting";
+		return deploy;
 	}
-	if (payTool.test(tool)) return `Spend money through ${tool}`;
-	if (sendTool.test(toolName) && sendVerb.test(tool)) {
+	if (secretServer.test(server) && !/^list/.test(tool)) {
+		return "Read a secret from a password manager";
+	}
+	if (readVerb.test(tool) || readVerb.test(tool.replace(/^[a-z0-9]+_/, ""))) {
+		return null;
+	}
+	if (payVerb.test(tool)) return `Spend money through ${tool}`;
+	if (sendServer.test(server) && sendVerb.test(tool)) {
 		return `Send as Aaron through ${tool}`;
 	}
+	if (
+		/calendar/i.test(server) &&
+		/create|update/.test(tool) &&
+		Array.isArray(input.attendees) &&
+		input.attendees.length > 0
+	) {
+		return `Send as Aaron through ${tool}`;
+	}
+	if (accessVerb.test(tool)) return access;
+	if (server === "github") {
+		return /delete_repository/.test(tool) ? "Delete a repository" : null;
+	}
+	if (destroyVerb.test(tool)) return `Delete through ${tool}`;
+	if (deployVerb.test(tool)) return `Deploy through ${tool}`;
 	return null;
+};
+
+/**
+ * The serious effect a cloud session's permission prompt would have, in one
+ * line for Aaron, or null when it is harmless.
+ */
+export const seriousEffect = (
+	toolName: string,
+	input: Record<string, unknown>,
+): string | null => {
+	if (toolName === "Bash") {
+		return typeof input.command === "string" ? bashEffect(input.command) : null;
+	}
+	if (toolName.startsWith(remotePrefix)) {
+		return accessRemote.has(toolName.slice(remotePrefix.length))
+			? access
+			: null;
+	}
+	return toolName.startsWith("mcp__") ? mcpEffect(toolName, input) : null;
 };
