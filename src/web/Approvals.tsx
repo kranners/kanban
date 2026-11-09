@@ -311,6 +311,7 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 	const dialog = useRef<HTMLDialogElement>(null);
 	const [result, setResult] = useState<{
 		approved: number;
+		critical: number;
 		left: (ButlerWaitingApproval & { why: string })[];
 	} | null>(null);
 	const [error, setError] = useState<{
@@ -324,10 +325,8 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 	}, []);
 	const all = waitingApprovals.value;
 	const open = all.filter((w) => !w.approval.pressed);
-	// Approve all takes every answerable request but the critical ones, which keep their held press.
-	const approvable = open.filter(
-		(w) => w.approval.answerable && !w.approval.critical,
-	);
+	// Approve all takes every answerable request, critical ones included, with no confirm.
+	const approvable = open.filter((w) => w.approval.answerable);
 	const sessions = needing.value.size;
 	const runAll = async () => {
 		setBusy(true);
@@ -338,7 +337,11 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 			return;
 		}
 		setError(null);
-		setResult({ approved: got.value.approved.length, left: got.value.left });
+		setResult({
+			approved: got.value.approved.length,
+			critical: got.value.approved.filter((w) => w.approval.critical).length,
+			left: got.value.left,
+		});
 		const refreshed = await fetchApprovals();
 		if (refreshed.ok) waitingApprovals.value = refreshed.value.approvals;
 	};
@@ -366,7 +369,7 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 					type="button"
 					class="approvals-all"
 					disabled={busy || approvable.length === 0}
-					title="Approve every request waiting on you; anything critical still needs its own Approve held"
+					title="Approve every request waiting on you, critical ones included"
 					onClick={() => void runAll()}
 				>
 					<ShieldCheck size={14} aria-hidden="true" />
@@ -392,7 +395,8 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 					<section class="approvals-result" role="status">
 						<p>
 							Approved {result.approved} request
-							{result.approved === 1 ? "" : "s"}.
+							{result.approved === 1 ? "" : "s"}
+							{result.critical > 0 && `, ${result.critical} of them critical`}.
 							{result.left.length > 0 && ` Left ${result.left.length} for you:`}
 						</p>
 						{result.left.length > 0 && (

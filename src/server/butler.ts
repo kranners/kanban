@@ -205,7 +205,11 @@ export type Butler = {
 		decision: "approve" | "decline",
 		options: { held?: boolean; device?: string; bulk?: boolean },
 	): { ok: true; text: string } | ApprovalRefused;
-	/** Approve all: approves every request but the critical ones, which need their own held press, and says what it left. */
+	/**
+	 * Approve all: approves every answerable request, critical ones included,
+	 * Aaron's one press standing in for each critical card's hold, as he
+	 * decided on 9 Nov 2026, and says what it left.
+	 */
 	approveAll(device?: string): {
 		approved: ButlerWaitingApproval[];
 		left: (ButlerWaitingApproval & { why: string })[];
@@ -2327,15 +2331,10 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				left.push({ ...item, why: "answer it in Discord" });
 				continue;
 			}
-			if (a.critical) {
-				left.push({
-					...item,
-					why: "it has critical items, so hold its own Approve",
-				});
-				continue;
-			}
+			// His press of Approve all is the hold for a critical request.
 			const done = answerApproval(item.thread, a.code ?? "", "approve", {
 				bulk: true,
+				...(a.critical ? { held: true } : {}),
 				...(device ? { device } : {}),
 			});
 			if ("error" in done) left.push({ ...item, why: done.error });

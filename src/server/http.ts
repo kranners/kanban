@@ -1540,7 +1540,7 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		sendJson(res, 202, answered);
 	};
 
-	/** Approve all: every request but the critical ones, which keep their held press, and what it left. */
+	/** Approve all: every answerable request, critical ones included, and what it left. */
 	const butlerApprovalsAll = async (
 		req: IncomingMessage,
 		res: ServerResponse,

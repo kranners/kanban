@@ -921,7 +921,7 @@ describe("Approving Butler's requests from the board", () => {
 		assert.equal((await presses(butler))[0]?.approval?.held, true);
 	});
 
-	it("approves every request but the critical ones at once and lists what it left", async () => {
+	it("approves every request, critical ones included, at once and lists what it left", async () => {
 		const { butler, sync } = await setup();
 		await sync([
 			entry("11111111", {
@@ -937,18 +937,23 @@ describe("Approving Butler's requests from the board", () => {
 		const { approved, left } = butler.approveAll("ipad");
 		assert.deepEqual(
 			approved.map((w) => w.approval.code),
-			["safee", "plain"],
+			["safee", "paydn", "plain"],
 		);
-		assert.deepEqual(left.map((w) => [w.approval.code, w.why]).sort(), [
-			["nonce", "answer it in Discord"],
-			["paydn", "it has critical items, so hold its own Approve"],
-		]);
+		assert.deepEqual(
+			left.map((w) => [w.approval.code, w.why]),
+			[["nonce", "answer it in Discord"]],
+		);
 		const queued = await presses(butler);
 		assert.deepEqual(
 			queued.map((m) => m.approval?.code),
-			["safee", "plain"],
+			["safee", "paydn", "plain"],
 		);
-		assert.equal(queued[0]?.approval?.bulk, true);
+		assert.ok(queued.every((m) => m.approval?.bulk === true));
+		// The critical one carries the hold, since his press of Approve all stands in for it.
+		assert.deepEqual(
+			queued.map((m) => m.approval?.held === true),
+			[false, true, false],
+		);
 	});
 
 	it("lists and answers the DM's requests, though the DM has no card", async () => {
