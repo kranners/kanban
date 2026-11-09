@@ -102,7 +102,7 @@ function ButlerChips(props: { card: ButlerCard }): JSX.Element | null {
 export const deskSubagentsMissing =
 	"Subagents not shown: desk sessions run in Butler's own Claude home on spike, which the board does not read, so their subagents and workflow runs are not mirrored yet.";
 
-const cardChipLimit = 3;
+const cardChipLimit = 2;
 
 /**
  * The subagents of the cloud session behind a Butler card: a count by state
@@ -151,7 +151,11 @@ function CardSubagents(props: {
 						key={subagent.id}
 						type="button"
 						class={`sub-chip act-${subagent.state}`}
-						style={depth > 0 ? { marginInlineStart: `${depth * 12}px` } : {}}
+						style={
+							props.near && depth > 0
+								? { marginInlineStart: `${depth * 12}px` }
+								: {}
+						}
 						title={`${subagent.description || subagent.type} · ${subagent.type} · ${subagent.state}`}
 						aria-label={`Subagent ${chipName(subagent)}, ${subagent.state}`}
 						onPointerDown={(event) => event.stopPropagation()}
