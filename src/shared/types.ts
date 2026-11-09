@@ -113,6 +113,8 @@ export type Session = {
 	tokens?: TokenUsage;
 	/** The Butler thread that started it, through start_session, and that thread's card. */
 	parent?: SessionParent & { card: string };
+	/** A tool call it made has no result yet, so a quiet transcript is not a stall. */
+	toolRunning?: true;
 };
 
 /** The Discord thread of Butler's that asked for a session, as start_session takes it. */

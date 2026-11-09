@@ -132,12 +132,45 @@ describe("stalled", () => {
 
 	it("counts a session's subagents' steps as activity, and only its own", () => {
 		const session = { id: "s1", updatedAt: 0 };
-		const last = sessionLastActivity(session, [
-			{ sessionId: "s1", updatedAt: 9 * minute },
-			{ sessionId: "s2", updatedAt: 30 * minute },
-		]);
+		const last = sessionLastActivity(
+			session,
+			[
+				{ sessionId: "s1", updatedAt: 9 * minute, live: false },
+				{ sessionId: "s2", updatedAt: 30 * minute, live: true },
+			],
+			15 * minute,
+		);
 		assert.equal(last, 9 * minute);
 		assert.equal(statusOf("working", last, 15 * minute), "working");
+	});
+
+	it("never stalls a session while a tool call or subagent of its own still runs", () => {
+		const now = 30 * minute;
+		const quiet = { id: "s1", updatedAt: 0 };
+		assert.equal(
+			statusOf(
+				"working",
+				sessionLastActivity({ ...quiet, toolRunning: true }, [], now),
+				now,
+			),
+			"working",
+		);
+		assert.equal(
+			statusOf(
+				"working",
+				sessionLastActivity(
+					quiet,
+					[{ sessionId: "s1", updatedAt: 0, live: true }],
+					now,
+				),
+				now,
+			),
+			"working",
+		);
+		assert.equal(
+			statusOf("working", sessionLastActivity(quiet, [], now), now),
+			"stalled",
+		);
 	});
 
 	it("counts a Butler card's newest event and subagent as activity", () => {

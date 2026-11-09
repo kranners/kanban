@@ -29,12 +29,13 @@
 	gap: 6px;
 }
 
-.butler-face :is(.butler-card-chips, .butler-card-subagents) {
+.butler-face .body > :is(.butler-card-chips, .butler-card-subagents) {
 	padding: 0 14px 8px;
 }
 
-.butler-face .butler-card-from {
-	padding: 0 14px 6px;
+.card-face .body > .butler-card-from {
+	margin: 0 14px 6px;
+	max-width: calc(100% - 28px);
 }
 
 .butler-near-kind {

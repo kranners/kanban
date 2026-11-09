@@ -39,6 +39,7 @@ import {
 	dimmedByAuthor,
 	sessionAuthor,
 	sessionLastActivity,
+	stalledText,
 	statusOf,
 } from "./cardFace.ts";
 import { digests, stuckOf } from "./digests.ts";
@@ -336,6 +337,7 @@ function NearPanel(props: {
 	const lastActivity = sessionLastActivity(
 		session,
 		board.value?.subagents ?? [],
+		props.now,
 	);
 	const KindIcon = session.cloud
 		? Cloud
@@ -507,10 +509,12 @@ export function SessionCard(props: {
 	const lastActivity = sessionLastActivity(
 		session,
 		board.value?.subagents ?? [],
+		props.now,
 	);
+	const status = statusOf(session.activity, lastActivity, props.now);
 	return (
 		<CardFace
-			status={statusOf(session.activity, lastActivity, props.now)}
+			status={status}
 			lastActivity={lastActivity}
 			author={author}
 			name={session.name}
@@ -527,7 +531,11 @@ export function SessionCard(props: {
 			)}
 			style={position(props.node)}
 			dataNode={props.node.key}
-			frameLabel={cardLabel(session, props.workflows)}
+			frameLabel={
+				status === "stalled"
+					? `${stalledText(lastActivity, props.now)}. ${cardLabel(session, props.workflows)}`
+					: cardLabel(session, props.workflows)
+			}
 			onOpen={open}
 			corner={props.corner}
 			frame={

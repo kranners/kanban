@@ -239,6 +239,8 @@ export const createSessionManager = ({
 		return { listed, best: bestAccount(listed, cooldowns, now(), exclude) };
 	};
 
+	/** How often a stream line that changes nothing still counts as the session being heard from. */
+	const heardEveryMs = 30_000;
 	const touch = (tracked: Tracked, patch: Partial<RunnerSession>) => {
 		tracked.session = { ...tracked.session, ...patch, updatedAt: now() };
 		onChange();
@@ -426,7 +428,12 @@ export const createSessionManager = ({
 					}
 					if (event.detail) patch.detail = event.detail;
 					if (tracked.session.state === "starting") patch.state = "working";
-					if (Object.keys(patch).length > 0) touch(tracked, patch);
+					if (
+						Object.keys(patch).length > 0 ||
+						now() - tracked.session.updatedAt >= heardEveryMs
+					) {
+						touch(tracked, patch);
+					}
 				}
 			});
 			child.stderr?.setEncoding("utf8");

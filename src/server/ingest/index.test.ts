@@ -569,6 +569,7 @@ describe("startBoard", () => {
 			cmux: true,
 			artifacts: [],
 			tasks: [],
+			toolRunning: true,
 		});
 		assert.deepEqual(steps.at(-1), {
 			at: now - 530_000,

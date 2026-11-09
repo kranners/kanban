@@ -505,7 +505,9 @@ button.reconnecting {
 
 /* Who started a card: Aaron on the board, Butler, a desk session or a change. */
 .author-chip {
-	flex: none;
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
@@ -523,10 +525,12 @@ button.reconnecting {
 	flex: none;
 }
 
+.card-bar:has(.ribbon) .author-chip {
+	padding: 0 4px;
+}
+
 .card-bar:has(.ribbon) .author-chip-label {
-	max-width: 7em;
-	overflow: hidden;
-	text-overflow: ellipsis;
+	display: none;
 }
 
 .card-corner {

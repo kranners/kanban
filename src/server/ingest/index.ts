@@ -574,8 +574,12 @@ function toSession(
 		steps: [...(tail?.facts.steps ?? [])],
 		...tokensField(tail ? [tail.facts.tokens, ...agentTokens] : []),
 		...(item.home !== claudeHome ? { configDir: item.home } : {}),
+		...toolRunning(tail?.facts ?? null),
 	};
 }
+
+const toolRunning = (facts: TranscriptFacts | null) =>
+	facts && facts.tools.size > 0 ? { toolRunning: true as const } : {};
 
 function toCloudSession(cs: CloudSession, tail: Tail | null): Session {
 	const facts = tail?.facts ?? null;
@@ -606,6 +610,7 @@ function toCloudSession(cs: CloudSession, tail: Tail | null): Session {
 		...(cs.parent
 			? { parent: { ...cs.parent, card: `thread-${cs.parent.thread}` } }
 			: {}),
+		...toolRunning(facts),
 	};
 }
 

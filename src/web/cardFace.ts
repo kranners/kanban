@@ -71,15 +71,17 @@ export function statusOf(
 
 const newest = (times: readonly number[]) => Math.max(0, ...times);
 
+/** When a session last did something; now while a tool call or subagent of its own is still running. */
 export function sessionLastActivity(
-	session: Pick<Session, "id" | "updatedAt">,
-	subagents: readonly Pick<Subagent, "sessionId" | "updatedAt">[],
+	session: Pick<Session, "id" | "updatedAt" | "toolRunning">,
+	subagents: readonly Pick<Subagent, "sessionId" | "updatedAt" | "live">[],
+	now: number,
 ): number {
+	const own = subagents.filter((subagent) => subagent.sessionId === session.id);
+	if (session.toolRunning || own.some((subagent) => subagent.live)) return now;
 	return newest([
 		session.updatedAt,
-		...subagents
-			.filter((subagent) => subagent.sessionId === session.id)
-			.map((subagent) => subagent.updatedAt),
+		...own.map((subagent) => subagent.updatedAt),
 	]);
 }
 
@@ -92,6 +94,7 @@ export function butlerCardLastActivity(
 	if (card.lastActiveAt !== undefined) {
 		return newest([
 			card.lastActiveAt,
+			...(card.history ?? []).map((event) => event.at),
 			...(card.subagents ?? []).map((subagent) => subagent.updatedAt),
 		]);
 	}
