@@ -53,6 +53,7 @@ const session = (id: string, parent?: string): Session => ({
 });
 
 const setup = async (regions: Region[] = [], cloud?: CloudOverview) => {
+	const audits: unknown[] = [];
 	const dir = await mkdtemp(join(tmpdir(), "kanban-threads-"));
 	const board: Board = {
 		sessions: [session("session_abc", "11111111")],
@@ -103,7 +104,9 @@ const setup = async (regions: Region[] = [], cloud?: CloudOverview) => {
 		annotations,
 		regions: regionStore,
 		tools: async (_thread, call) => ({ ok: true, text: `ran ${call.tool}` }),
-		audit: () => {},
+		audit: (entry: unknown) => {
+			audits.push(entry);
+		},
 		file,
 		initial: [],
 		onChange: () => {},
@@ -126,6 +129,7 @@ const setup = async (regions: Region[] = [], cloud?: CloudOverview) => {
 		return outcome.text;
 	};
 	return {
+		audits,
 		butler,
 		board,
 		annotations,
@@ -954,6 +958,35 @@ describe("Approving Butler's requests from the board", () => {
 			queued.map((m) => m.approval?.held === true),
 			[false, true, false],
 		);
+	});
+
+	it("names each critical request it approved in the audit, and takes only what the page showed", async () => {
+		const { butler, sync, audits } = await setup();
+		await sync([
+			entry("11111111", {
+				state: "needs-you",
+				approvals: [
+					waiting("paydn", { body: critCard, critical: true }),
+					waiting("plain", { kind: "call" }),
+					// Arrived after the page drew, so the press does not cover it.
+					waiting("latee", { body: critCard, critical: true }),
+				],
+			}),
+		]);
+		const { approved } = butler.approveAll("ipad", ["paydn", "plain"]);
+		assert.deepEqual(
+			approved.map((w) => w.approval.code),
+			["paydn", "plain"],
+		);
+		const still = butler
+			.approvalsWaiting()
+			.find((w) => w.approval.code === "latee");
+		assert.ok(still && !still.approval.pressed);
+		const named = audits.filter(
+			(a) => (a as { tool?: string }).tool === "approval-approve-all-critical",
+		) as { result: string }[];
+		assert.equal(named.length, 1);
+		assert.match(named[0]?.result ?? "", /^paydn on 11111111 .*from ipad$/);
 	});
 
 	it("lists and answers the DM's requests, though the DM has no card", async () => {

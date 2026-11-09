@@ -120,11 +120,12 @@ export function answerApproval(
 	);
 }
 
-export function approveAll(): Promise<
+/** Approve all for exactly the requests the page shows, by code. */
+export function approveAll(codes: readonly string[]): Promise<
 	Outcome<{
 		approved: ButlerWaitingApproval[];
 		left: (ButlerWaitingApproval & { why: string })[];
 	}>
 > {
-	return request("POST", "/api/butler/approvals/all", {});
+	return request("POST", "/api/butler/approvals/all", { codes });
 }

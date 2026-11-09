@@ -208,9 +208,14 @@ export type Butler = {
 	/**
 	 * Approve all: approves every answerable request, critical ones included,
 	 * Aaron's one press standing in for each critical card's hold, as he
-	 * decided on 9 Nov 2026, and says what it left.
+	 * decided on 9 Nov 2026, and says what it left. Given `codes`, the requests
+	 * the page showed when he pressed it, it approves only those, so a request
+	 * that arrived meanwhile waits for its own answer.
 	 */
-	approveAll(device?: string): {
+	approveAll(
+		device?: string,
+		codes?: readonly string[],
+	): {
 		approved: ButlerWaitingApproval[];
 		left: (ButlerWaitingApproval & { why: string })[];
 	};
@@ -2321,12 +2326,14 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		};
 	};
 
-	const approveAll: Butler["approveAll"] = (device) => {
+	const approveAll: Butler["approveAll"] = (device, codes) => {
 		const approved: ButlerWaitingApproval[] = [];
 		const left: (ButlerWaitingApproval & { why: string })[] = [];
+		const shown = codes ? new Set(codes) : null;
 		for (const item of approvalsWaiting()) {
 			const a = item.approval;
 			if (a.pressed) continue;
+			if (shown && !shown.has(a.code ?? "")) continue;
 			if (!a.answerable) {
 				left.push({ ...item, why: "answer it in Discord" });
 				continue;
@@ -2338,7 +2345,17 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				...(device ? { device } : {}),
 			});
 			if ("error" in done) left.push({ ...item, why: done.error });
-			else approved.push(item);
+			else {
+				approved.push(item);
+				// A critical one is named in the audit, so nothing it allowed is silent.
+				if (a.critical) {
+					deps.audit({
+						action: "butler",
+						tool: "approval-approve-all-critical",
+						result: `${a.code} on ${item.thread} (${item.title}): ${a.headline}${device ? ` from ${device}` : ""}`,
+					});
+				}
+			}
 		}
 		return { approved, left };
 	};

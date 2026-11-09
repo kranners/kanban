@@ -311,7 +311,7 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 	const dialog = useRef<HTMLDialogElement>(null);
 	const [result, setResult] = useState<{
 		approved: number;
-		critical: number;
+		critical: { key: string; text: string }[];
 		left: (ButlerWaitingApproval & { why: string })[];
 	} | null>(null);
 	const [error, setError] = useState<{
@@ -330,7 +330,10 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 	const sessions = needing.value.size;
 	const runAll = async () => {
 		setBusy(true);
-		const got = await approveAll();
+		// Only what the panel shows now: a request arriving after this press waits for its own answer.
+		const got = await approveAll(
+			approvable.map((w) => w.approval.code ?? "").filter(Boolean),
+		);
 		setBusy(false);
 		if (!got.ok) {
 			setError({ text: got.error, reload: got.reload === true });
@@ -339,7 +342,12 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 		setError(null);
 		setResult({
 			approved: got.value.approved.length,
-			critical: got.value.approved.filter((w) => w.approval.critical).length,
+			critical: got.value.approved
+				.filter((w) => w.approval.critical)
+				.map((w) => ({
+					key: `${w.thread}-${w.approval.code}`,
+					text: `${w.title || "A thread"}: ${w.approval.headline}`,
+				})),
 			left: got.value.left,
 		});
 		const refreshed = await fetchApprovals();
@@ -396,9 +404,21 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 						<p>
 							Approved {result.approved} request
 							{result.approved === 1 ? "" : "s"}
-							{result.critical > 0 && `, ${result.critical} of them critical`}.
-							{result.left.length > 0 && ` Left ${result.left.length} for you:`}
+							{result.critical.length > 0 &&
+								`, ${result.critical.length} of them critical`}
+							. Butler acts on them as spike takes them, so there is no undo
+							from here.
 						</p>
+						{result.critical.length > 0 && (
+							<ul class="approvals-result-critical">
+								{result.critical.map((c) => (
+									<li key={c.key}>{c.text}</li>
+								))}
+							</ul>
+						)}
+						{result.left.length > 0 && (
+							<p>Left {result.left.length} for you:</p>
+						)}
 						{result.left.length > 0 && (
 							<ul>
 								{result.left.map((w) => (

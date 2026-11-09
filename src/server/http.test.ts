@@ -2726,6 +2726,21 @@ describe("createKanbanServer", () => {
 			"the page can tell a stale token, refresh it and press again",
 		);
 		assert.equal(stale.headers.get("x-kanban-build"), "build-1");
+		// Approve all from a stale page gets the same build-id reload and approves nothing.
+		const staleAll = await fetch(`${base}/api/butler/approvals/all`, {
+			method: "POST",
+			headers: {
+				...authed,
+				"content-type": "application/json",
+				origin,
+				"x-device-gate-device": "ipad",
+				"cf-connecting-ip": "10.100.0.13",
+			},
+			body: JSON.stringify({ codes: ["qwert"] }),
+		});
+		assert.equal(staleAll.status, 403);
+		assert.equal((await staleAll.json()).code, "stale-page");
+		assert.equal(staleAll.headers.get("x-kanban-build"), "build-1");
 		assert.equal(
 			(await press({ "x-kanban-csrf": "test-csrf" })).status,
 			403,

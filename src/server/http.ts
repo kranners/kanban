@@ -1555,7 +1555,15 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				error: "Butler is not set up on this board",
 			});
 		}
-		sendJson(res, 200, { ok: true, ...deps.butler.approveAll(device) });
+		// The codes the page showed: a request that arrived after it drew is not approved by this press.
+		const shown = (read.body as { codes?: unknown } | null)?.codes;
+		const codes = Array.isArray(shown)
+			? shown.filter((c): c is string => typeof c === "string").slice(0, 200)
+			: undefined;
+		sendJson(res, 200, {
+			ok: true,
+			...deps.butler.approveAll(device, codes),
+		});
 	};
 
 	/** A Butler job from the top bar: a / thread at the middle of the screen, flagged as a job. */
