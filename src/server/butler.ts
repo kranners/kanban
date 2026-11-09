@@ -1439,10 +1439,16 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				...(entry.stale ? { stale: true } : {}),
 				...kept(before),
 				startedAt: entry.createdAt,
+				lastActiveAt: entry.lastActiveAt,
 				...threadFinish(entry),
 			};
 			threadLogs.sync(id, entry.events, entry.approvals);
-			if (before && sameCard(before, card)) continue;
+			if (before && sameCard(before, card)) {
+				if (before.lastActiveAt !== card.lastActiveAt) {
+					put({ ...before, lastActiveAt: card.lastActiveAt });
+				}
+				continue;
+			}
 			const fresh = before === undefined;
 			const placed = fresh ? clearOf(card, taken()) : card;
 			const failed = put({ ...placed, updatedAt: now() });

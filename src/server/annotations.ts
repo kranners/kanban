@@ -231,6 +231,7 @@ export const parseAnnotation = (
 			movedAt,
 			startedAt,
 			finishedAt,
+			lastActiveAt,
 			outcome,
 			subagents,
 		} = fields;
@@ -248,6 +249,7 @@ export const parseAnnotation = (
 			["movedAt", movedAt],
 			["startedAt", startedAt],
 			["finishedAt", finishedAt],
+			["lastActiveAt", lastActiveAt],
 		] as const) {
 			if (
 				value !== undefined &&
@@ -364,6 +366,9 @@ export const parseAnnotation = (
 			...(movedAt === undefined ? {} : { movedAt: movedAt as number }),
 			...(startedAt === undefined ? {} : { startedAt: startedAt as number }),
 			...(finishedAt === undefined ? {} : { finishedAt: finishedAt as number }),
+			...(lastActiveAt === undefined
+				? {}
+				: { lastActiveAt: lastActiveAt as number }),
 			...(outcome === undefined ? {} : { outcome: outcome as ArchiveOutcome }),
 			...(cardSubagents === undefined ? {} : { subagents: cardSubagents }),
 			...(history === undefined

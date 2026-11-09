@@ -219,6 +219,19 @@ describe("Butler's thread cards", () => {
 		assert.doesNotMatch(JSON.stringify(history), /secret words/);
 	});
 
+	it("keeps when the daemon last saw the thread active, without touching the card's update time", async () => {
+		const { sync, annotations, tick } = await setup();
+		await sync([entry("11111111", { lastActiveAt: 5000 })]);
+		const first = cardOf(annotations, "thread-11111111");
+		assert.equal(first?.lastActiveAt, 5000);
+		tick(60_000);
+		await sync([entry("11111111", { lastActiveAt: 9000 })]);
+		const later = cardOf(annotations, "thread-11111111");
+		assert.equal(later?.lastActiveAt, 9000);
+		assert.equal(later?.updatedAt, first?.updatedAt);
+		assert.equal(later?.x, first?.x);
+	});
+
 	it("puts a new card beside its parent, else in Butler's region, and keeps where it was moved", async () => {
 		const butlerRegion: Region = {
 			id: "r1",

@@ -84,8 +84,17 @@ export function sessionLastActivity(
 }
 
 export function butlerCardLastActivity(
-	card: Pick<ButlerCard, "updatedAt" | "history" | "subagents">,
+	card: Pick<
+		ButlerCard,
+		"updatedAt" | "lastActiveAt" | "history" | "subagents"
+	>,
 ): number {
+	if (card.lastActiveAt !== undefined) {
+		return newest([
+			card.lastActiveAt,
+			...(card.subagents ?? []).map((subagent) => subagent.updatedAt),
+		]);
+	}
 	return newest([
 		card.updatedAt,
 		...(card.history ?? []).map((event) => event.at),

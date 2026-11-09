@@ -385,6 +385,8 @@ export type ButlerCard = Annotated & {
 	startedAt?: number;
 	finishedAt?: number;
 	outcome?: ArchiveOutcome;
+	/** When the daemon last saw its thread do anything, which tells a stall from a pause. */
+	lastActiveAt?: number;
 	/** The subagents of the cloud session behind it, as spike reads them from its transcript. */
 	subagents?: CardSubagent[];
 };
