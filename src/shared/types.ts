@@ -375,6 +375,8 @@ export type ButlerCard = Annotated & {
 	mission?: ButlerCardMission;
 	/** The machines the thread has driven, by host, such as `piggys-MBP`, and `browser` for Butler's own. */
 	machines?: string[];
+	/** The daemon's question to Aaron there has waited over 6 hours with nothing since. */
+	stale?: boolean;
 	/** Aaron pinned it: Tidy never moves it and it is never archived on its own. */
 	pinned?: boolean;
 	/** When Aaron last dragged it on the board; Tidy leaves it alone for 10 minutes after. */

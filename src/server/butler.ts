@@ -508,6 +508,7 @@ const sameCard = (a: ButlerCard, b: ButlerCard): boolean =>
 	a.boardThread === b.boardThread &&
 	JSON.stringify(a.mission) === JSON.stringify(b.mission) &&
 	JSON.stringify(a.machines) === JSON.stringify(b.machines) &&
+	a.stale === b.stale &&
 	a.startedAt === b.startedAt &&
 	a.finishedAt === b.finishedAt &&
 	a.outcome === b.outcome &&
@@ -599,6 +600,8 @@ export type ThreadEntry = {
 	boardThread?: string;
 	mission?: ButlerCardMission;
 	machines?: string[];
+	/** The daemon's question to Aaron there has waited over 6 hours with nothing since. */
+	stale?: boolean;
 	private: boolean;
 	/** The mood the daemon reads in Butler's latest reply there. */
 	mood?: ButlerMood;
@@ -685,6 +688,7 @@ export const parseThreadEntry = (value: unknown): ThreadEntry | null => {
 			: {}),
 		...threadMission(f.mission),
 		...threadMachines(f.machines),
+		...(f.stale === true ? { stale: true } : {}),
 		private: f.private,
 		...(butlerMoods.includes(f.mood as ButlerMood)
 			? { mood: f.mood as ButlerMood }
@@ -1432,6 +1436,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				...(entry.boardThread ? { boardThread: entry.boardThread } : {}),
 				...(entry.mission ? { mission: entry.mission } : {}),
 				...(entry.machines ? { machines: entry.machines } : {}),
+				...(entry.stale ? { stale: true } : {}),
 				...kept(before),
 				startedAt: entry.createdAt,
 				...threadFinish(entry),

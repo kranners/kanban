@@ -26,6 +26,7 @@ import { createCommentStore } from "./comments.ts";
 import { createLayoutStore } from "./layout.ts";
 import { createMessageEdgeStore } from "./messageEdges.ts";
 import { createRegionStore } from "./regions.ts";
+import { topicOf } from "./tidy.ts";
 
 const session = (id: string, parent?: string): Session => ({
 	id,
@@ -756,6 +757,27 @@ describe("Butler's thread cards", () => {
 		]);
 		assert.match(text, /^2 thread cards: 1 updated, 0 removed\n/);
 		assert.equal(cardOf(annotations, "thread-11111111")?.mission, undefined);
+	});
+
+	it("marks a thread whose question may be stale, in Butler's region, until a sync drops it", async () => {
+		const { sync, annotations } = await setup();
+		await sync([
+			entry("11111111", {
+				state: "idle",
+				status: "This question may be stale: Butler will check",
+				stale: true,
+			}),
+			entry("22222222", { stale: "yes" }),
+		]);
+		const card = cardOf(annotations, "thread-11111111");
+		assert.ok(card);
+		assert.equal(card.stale, true);
+		assert.equal(card.state, "idle");
+		assert.equal(topicOf(card), "butler");
+		assert.equal(cardOf(annotations, "thread-22222222")?.stale, undefined);
+
+		await sync([entry("11111111", { state: "idle" }), entry("22222222")]);
+		assert.equal(cardOf(annotations, "thread-11111111")?.stale, undefined);
 	});
 });
 

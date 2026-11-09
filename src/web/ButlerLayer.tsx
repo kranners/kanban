@@ -75,12 +75,17 @@ function ParentLine(props: { card: ButlerCard }): JSX.Element | null {
 	);
 }
 
-/** The thread's mission and the machines it drove, as chips; nothing when it has neither. */
+/** The thread's mission, the machines it drove and whether its question may be stale, as chips; nothing when it has none. */
 function ButlerChips(props: { card: ButlerCard }): JSX.Element | null {
-	const { mission, machines } = props.card;
-	if (!mission && !machines?.length) return null;
+	const { mission, machines, stale } = props.card;
+	if (!mission && !machines?.length && !stale) return null;
 	return (
 		<div class="butler-card-chips">
+			{stale && (
+				<span class="butler-chip" title="Its question has waited over 6 hours">
+					stale?
+				</span>
+			)}
 			{mission && (
 				<span
 					class="butler-chip butler-chip-mission"
