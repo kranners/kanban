@@ -69,7 +69,12 @@ import {
 } from "./notes.ts";
 import type { Rect } from "./placement.ts";
 import { spacedFrom, spacedMove, spacedResize } from "./placement.ts";
-import { cardOwners, inFilter, projectFilter } from "./projectRegions.ts";
+import {
+	cardOwners,
+	inFilter,
+	projectFilter,
+	tileKeyOf,
+} from "./projectRegions.ts";
 import { projectsById } from "./projects.ts";
 import {
 	openReport,
@@ -462,22 +467,28 @@ export function AnnotationLayer(): JSX.Element {
 		annotation.kind === "butler-card" &&
 		!inFilter(filter, { card: annotation.id }, owners, byId);
 	const regions = new Map<string, RegionColour>();
+	const underTiles = new Set<string>();
+	const far = detail.value === "far";
 	for (const project of groups.value) {
-		for (const id of project.cards ?? [])
+		for (const id of project.cards ?? []) {
 			regions.set(id, colourOf(project.cwd));
+			if (far && tileKeyOf(project.cwd) !== undefined) underTiles.add(id);
+		}
 	}
 	return (
 		<>
-			{ordered.value.map((annotation) => (
-				<AnnotationView
-					key={annotation.id}
-					annotation={annotation}
-					selected={chosen.has(annotation.id)}
-					editing={open === annotation.id}
-					region={regions.get(annotation.id)}
-					dimmed={dimmed(annotation)}
-				/>
-			))}
+			{ordered.value
+				.filter((annotation) => !underTiles.has(annotation.id))
+				.map((annotation) => (
+					<AnnotationView
+						key={annotation.id}
+						annotation={annotation}
+						selected={chosen.has(annotation.id)}
+						editing={open === annotation.id}
+						region={regions.get(annotation.id)}
+						dimmed={dimmed(annotation)}
+					/>
+				))}
 		</>
 	);
 }

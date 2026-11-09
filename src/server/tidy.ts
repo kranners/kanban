@@ -291,8 +291,9 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 	const rows: Spot[][] = [];
 	for (const group of groups.filter((g) => !g.existing?.manual)) {
 		const columns = columnsFor(slotsOf(group));
-		const w = widthFor(columns);
-		const h = heightFor(slotsOf(group), columns);
+		// Never narrower than two cards, so its zoomed-out tile reads.
+		const w = widthFor(Math.max(2, columns));
+		const h = heightFor(Math.max(1, slotsOf(group)), columns);
 		const row = rows.at(-1);
 		const end = row ? (row.at(-1) as Spot) : null;
 		const x = end ? end.x + end.w + regionGap : 0;
