@@ -419,6 +419,10 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				prompt.title,
 				prompt.input,
 				session.cloud ? undefined : session.cwd,
+				{
+					self: session.id,
+					onBoard: (id) => findSession(deps.source.board(), id) !== null,
+				},
 			);
 			if (!verdict.safe) {
 				report.left += 1;

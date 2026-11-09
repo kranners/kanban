@@ -78,6 +78,9 @@ const safeRemote = [
 
 const safeRemoteSet = new Set(safeRemote);
 
+/** The tools that schedule a prompt into a session, each judged by the session it wakes. */
+const scheduleTools = new Set([...triggerTools, "send_later"]);
+
 /** Tools that are safe whatever their input. */
 const inputFree = [
 	"Workflow",
@@ -340,13 +343,49 @@ export const promptTool = (toolName: string, title?: string): string => {
 	return name;
 };
 
+/**
+ * The session a prompt comes from and which other sessions are on the
+ * board, so a prompt scheduled for or sent to one of them can be told from
+ * one aimed elsewhere.
+ */
+export type PromptTargets = {
+	self?: string;
+	onBoard?: (id: string) => boolean;
+};
+
 /** safeVerdict for a prompt as the board lists it, by its tool name and its label. */
 export const promptVerdict = (
 	toolName: string,
 	title: string | undefined,
 	input: Record<string, unknown>,
 	cwd?: string,
-): SafeVerdict => safeVerdict(promptTool(toolName, title), input, cwd);
+	targets: PromptTargets = {},
+): SafeVerdict => safeVerdict(promptTool(toolName, title), input, cwd, targets);
+
+/** The fields a scheduling tool may name the session it wakes by. */
+const targetFields = [
+	"persistent_session_id",
+	"session_id",
+	"target_session_id",
+];
+
+/**
+ * Whether a scheduled prompt goes to the session itself or another session on
+ * the board: true when it names none, as send_later never does, since that
+ * wakes its own session.
+ */
+const aimedOnBoard = (
+	input: Record<string, unknown>,
+	targets: PromptTargets,
+): boolean =>
+	targetFields.every((field) => {
+		const target = input[field];
+		if (target === undefined || target === null || target === "") return true;
+		return (
+			typeof target === "string" &&
+			(target === targets.self || targets.onBoard?.(target) === true)
+		);
+	});
 
 /**
  * Whether the board may approve a permission prompt for this tool and input
@@ -356,6 +395,7 @@ export const safeVerdict = (
 	toolName: string,
 	input: Record<string, unknown>,
 	cwd?: string,
+	targets: PromptTargets = {},
 ): SafeVerdict => {
 	if (toolName.startsWith(remotePrefix)) {
 		const tool = toolName.slice(remotePrefix.length);
@@ -365,10 +405,9 @@ export const safeVerdict = (
 				"changes environments, credentials, computers, trust or another session",
 			);
 		}
-		if (triggerTools.has(tool)) {
-			const bound = input.persistent_session_id;
-			if (bound !== undefined && bound !== null && bound !== "") {
-				return unsafe("schedules a wake of another session");
+		if (scheduleTools.has(tool)) {
+			if (!aimedOnBoard(input, targets)) {
+				return unsafe("schedules a wake of a session not on the board");
 			}
 			const spawns = input.create_new_session_on_fire;
 			if (spawns !== undefined && spawns !== null && spawns !== false) {

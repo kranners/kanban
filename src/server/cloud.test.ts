@@ -621,7 +621,9 @@ describe("createCloudSessions", () => {
 		await until(() => activity() === "needs-you");
 		assert.equal(store.sessions()[0]?.detail, "Approve the push");
 		fake.info.set(id, info("requires_action", "2026-10-30T12:01:30Z"));
-		await until(() => store.sessions()[0]?.detail === null);
+		await until(() =>
+			/the board cannot read/.test(store.sessions()[0]?.detail ?? ""),
+		);
 		assert.equal(activity(), "needs-you");
 		fake.info.set(id, {
 			...info("idle", "2026-10-30T12:02:00Z"),
@@ -1046,6 +1048,55 @@ describe("createCloudSessions", () => {
 		const fetches = fake.cursors.length;
 		await new Promise((resolve) => setTimeout(resolve, 30));
 		assert.equal(fake.cursors.length, fetches, "stops once it has the prompt");
+		store.stop();
+	});
+
+	it("reads a prompt claude.ai's status leaves out from the events, and says why it needs Aaron", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
+		const fake = fakeCloud();
+		fake.info.set(id, info("requires_action", "2026-10-30T12:00:00Z"));
+		fake.log.set(id, [
+			asked("e1", "old", "Bash", { command: "ls" }),
+			{
+				uuid: "e2",
+				type: "control_response",
+				created_at: "2026-10-30T12:00:01Z",
+				response: { subtype: "success", request_id: "old" },
+			},
+			asked("e3", "later", "mcp__claude-code-remote__send_later", {
+				message: "Check the runs again",
+				delay_minutes: 240,
+			}),
+		]);
+		const { store } = await storeIn(dir, fake);
+		store.add(record);
+		await until(() => store.prompts(id).length === 1);
+		assert.equal(store.prompts(id)[0]?.requestId, "later");
+		assert.match(
+			store.sessions()[0]?.detail ?? "",
+			/safe sweep approves within/,
+		);
+		assert.deepEqual(await store.approveSafe(id, "later"), {
+			ok: true,
+			value: null,
+		});
+		assert.equal(fake.responses[0]?.[1], "later");
+		fake.log.get(id)?.push(
+			{
+				uuid: "e4",
+				type: "control_response",
+				created_at: "2026-10-30T12:00:02Z",
+				response: { subtype: "success", request_id: "later" },
+			},
+			asked("e5", "stop", "mcp__claude-code-remote__interrupt_session", {
+				session_id: "session_other",
+			}),
+		);
+		fake.info.set(id, info("requires_action", "2026-10-30T12:00:05Z"));
+		await until(() => store.prompts(id)[0]?.requestId === "stop");
+		await until(() => /left for you/.test(store.sessions()[0]?.detail ?? ""));
+		const refused = await store.approveSafe(id, "stop");
+		assert.equal(refused.ok, false);
 		store.stop();
 	});
 

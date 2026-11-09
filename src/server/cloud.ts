@@ -542,7 +542,12 @@ export const rejection =
 	"The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.";
 
 type OpenAction = Omit<RemotePrompt, "options">;
-type Asked = { suggestions: unknown[]; remembers: boolean };
+type Asked = {
+	suggestions: unknown[];
+	remembers: boolean;
+	/** The prompt as its request names it, for when claude.ai's status leaves it out. */
+	action?: OpenAction;
+};
 type CloudPrompt = RemotePrompt & { suggestions: unknown[] };
 
 const waitingOn = (info: CloudSessionInfo): OpenAction[] => {
@@ -575,14 +580,54 @@ const askedOf = (event: CloudEvent): [string, Asked] | null => {
 	const suggestions = Array.isArray(request.permission_suggestions)
 		? request.permission_suggestions
 		: [];
+	const toolName = asString(request.tool_name);
 	return [
 		requestId,
 		{
 			suggestions,
 			remembers:
 				suggestions.length > 0 && request.server_policy_ask_only !== true,
+			...(toolName
+				? {
+						action: {
+							requestId,
+							toolUseId: asString(request.tool_use_id),
+							toolName,
+							title: asString(request.display_name) ?? toolName,
+							input: asObject(request.input) ?? {},
+						},
+					}
+				: {}),
 		},
 	];
+};
+
+/** The request a control_response or a cancel closes, from either side of the session. */
+const closedOf = (event: CloudEvent): string | null => {
+	if (event.type === "control_cancel_request") {
+		return asString(event.request_id);
+	}
+	if (event.type !== "control_response") return null;
+	return asString(asObject(event.response)?.request_id);
+};
+
+/**
+ * Why a cloud session needs Aaron, in one line for its card: the prompt it
+ * waits on and whether the safe sweep approves it, so a needs-you is never a
+ * mystery.
+ */
+export const waitingWhy = (
+	prompts: readonly OpenAction[],
+	verdict: (prompt: OpenAction) => { safe: boolean; reason?: string },
+): string => {
+	const prompt = prompts.at(-1);
+	if (!prompt) {
+		return "Waiting on something claude.ai shows but the board cannot read; open the session";
+	}
+	const judged = verdict(prompt);
+	return judged.safe
+		? `Asks to use ${prompt.title}, which the safe sweep approves within a minute`
+		: `Asks to use ${prompt.title}, left for you: ${judged.reason}`;
 };
 
 const promptFor = (action: OpenAction, asked?: Asked): CloudPrompt => ({
@@ -643,6 +688,8 @@ type Tracked = {
 	echoes: string[];
 	waiting: OpenAction[];
 	asked: Map<string, Asked>;
+	/** Requests the event stream shows answered or cancelled. */
+	closed: Set<string>;
 	answered: Map<string, number>;
 	/** What claude.ai's last answer to a poll said, null until one answers. */
 	polledActivity: Activity | null;
@@ -700,6 +747,7 @@ export const createCloudSessions = async ({
 			echoes: record.prompt === undefined ? [] : [record.prompt],
 			waiting: [],
 			asked: new Map(),
+			closed: new Set(),
 			answered: new Map(),
 			polledActivity: null,
 		});
@@ -752,7 +800,21 @@ export const createCloudSessions = async ({
 		for (const event of events) {
 			const asked = askedOf(event);
 			if (asked) item.asked.set(...asked);
+			const closed = closedOf(event);
+			if (closed) item.closed.add(closed);
 		}
+	};
+
+	/**
+	 * The newest prompt the event stream asked and nothing answered, for a
+	 * session claude.ai says needs action while its status lists no prompt.
+	 */
+	const askedWaiting = (item: Tracked): OpenAction[] => {
+		const open = [...item.asked].filter(
+			([requestId, asked]) => asked.action && !item.closed.has(requestId),
+		);
+		const newest = open.at(-1)?.[1].action;
+		return newest ? [newest] : [];
 	};
 
 	const openPrompts = (item: Tracked): CloudPrompt[] => {
@@ -833,6 +895,7 @@ export const createCloudSessions = async ({
 			detail: cloudDetail(info),
 			updatedAt: Date.parse(info.updated_at) || item.session.updatedAt,
 		};
+		const blocked = info.session_status === "requires_action";
 		let mirrored = false;
 		const unread = item.waiting.some(
 			({ requestId }) => !item.asked.has(requestId),
@@ -867,6 +930,26 @@ export const createCloudSessions = async ({
 				return report(id, events.error);
 			}
 			item.seenUpdatedAt = info.updated_at;
+		}
+		if (blocked) {
+			if (item.waiting.length === 0) item.waiting = askedWaiting(item);
+			item.session = {
+				...item.session,
+				detail:
+					item.session.detail ??
+					waitingWhy(item.waiting, (prompt) =>
+						promptVerdict(
+							prompt.toolName,
+							prompt.title,
+							prompt.input,
+							undefined,
+							{
+								self: id,
+								onBoard: (other) => tracked.has(other),
+							},
+						),
+					),
+			};
 		}
 		reported.delete(id);
 		if (mirrored || JSON.stringify(item.session) !== before) onChange();
@@ -967,6 +1050,8 @@ export const createCloudSessions = async ({
 				prompt.toolName,
 				prompt.title,
 				prompt.input,
+				undefined,
+				{ self: id, onBoard: (other) => tracked.has(other) },
 			);
 			if (!verdict.safe) {
 				return Promise.resolve({

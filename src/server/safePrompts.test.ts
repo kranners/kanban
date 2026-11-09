@@ -112,7 +112,7 @@ describe("safeVerdict", () => {
 					toolReason(`mcp__claude-code-remote__${tool}`, {
 						persistent_session_id: bound,
 					}),
-					/another session/,
+					/session not on the board/,
 				);
 			}
 			assert.match(
@@ -120,6 +120,84 @@ describe("safeVerdict", () => {
 					create_new_session_on_fire: true,
 				}),
 				/new session/,
+			);
+		}
+	});
+
+	it("approves a scheduled prompt only for the session itself or another on the board", () => {
+		const targets = {
+			self: "session_self",
+			onBoard: (id: string) => id === "session_board",
+		};
+		const judged = (
+			tool: string,
+			input: Record<string, unknown>,
+			title?: string,
+		) => {
+			const verdict = promptVerdict(tool, title, input, undefined, targets);
+			return verdict.safe ? "safe" : verdict.reason;
+		};
+		// send_later from a board session wakes that session, as its label shows it too.
+		assert.equal(
+			judged("mcp__claude-code-remote__send_later", {
+				message: "Check the runs again",
+				delay_minutes: 240,
+			}),
+			"safe",
+		);
+		assert.equal(
+			judged(
+				"send_later",
+				{ message: "Check again", delay_minutes: 240 },
+				"Approve or deny claude-code-remote — Send Later",
+			),
+			"safe",
+		);
+		for (const target of ["session_self", "session_board"]) {
+			assert.equal(
+				judged("mcp__claude-code-remote__send_later", {
+					message: "Check again",
+					session_id: target,
+				}),
+				"safe",
+				target,
+			);
+			assert.equal(
+				judged("mcp__claude-code-remote__create_trigger", {
+					prompt: "Check again",
+					run_once_at: "2026-11-09T12:00:00Z",
+					persistent_session_id: target,
+				}),
+				"safe",
+				target,
+			);
+		}
+		// Aimed at a session off the board, it stays Aaron's.
+		for (const field of ["session_id", "persistent_session_id"]) {
+			assert.match(
+				judged("mcp__claude-code-remote__send_later", {
+					message: "Check again",
+					[field]: "session_elsewhere",
+				}),
+				/session not on the board/,
+				field,
+			);
+		}
+		assert.match(
+			judged("mcp__claude-code-remote__create_trigger", {
+				prompt: "Check again",
+				persistent_session_id: "session_elsewhere",
+			}),
+			/session not on the board/,
+		);
+		// Interrupting, stopping or archiving a session never is, even one on the board.
+		for (const tool of ["interrupt_session", "archive_session"]) {
+			assert.match(
+				judged(`mcp__claude-code-remote__${tool}`, {
+					session_id: "session_board",
+				}),
+				/changes environments/,
+				tool,
 			);
 		}
 	});
