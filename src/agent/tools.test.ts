@@ -40,6 +40,13 @@ describe("tool definitions", () => {
 			create_region: { cwd: "/tmp", x: 0, y: 0, w: 480, h: 336 },
 			update_region: { id: "r-1", name: "Acme" },
 			delete_region: { id: "r-1" },
+			pending_reviews: {},
+			review_prompt: {
+				session: "abcd1234",
+				prompt: "p-1",
+				verdict: "hold",
+				reason: "asks for a token",
+			},
 		};
 		for (const tool of toolDefinitions) {
 			const call = parseToolCall(tool.name, minimal[tool.name]);

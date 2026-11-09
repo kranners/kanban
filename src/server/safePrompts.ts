@@ -1,5 +1,6 @@
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, normalize, resolve, sep } from "node:path";
+import { reviewedRemote } from "./promptReviews.ts";
 
 // Which permission prompts the board may approve without Aaron: tools that
 // only read, organise a session's own work or reach claude.ai's own session
@@ -110,9 +111,10 @@ const inputFree = [
  */
 export const SAFE_SESSION_RULES: readonly string[] = [
 	...inputFree,
-	// A scheduled task may wake another session, so each is judged again every time.
+	// A scheduled task may wake another session, so each is judged again every time,
+	// and Butler's reviewer judges every spawn, title, message and repository.
 	...safeRemote
-		.filter((tool) => !triggerTools.has(tool))
+		.filter((tool) => !triggerTools.has(tool) && !reviewedRemote.has(tool))
 		.map((tool) => `${remotePrefix}${tool}`),
 ];
 

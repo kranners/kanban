@@ -1074,7 +1074,7 @@ describe("createCloudSessions", () => {
 		assert.equal(store.prompts(id)[0]?.requestId, "later");
 		assert.match(
 			store.sessions()[0]?.detail ?? "",
-			/safe sweep approves within/,
+			/Butler's reviewer checks within seconds/,
 		);
 		assert.deepEqual(await store.approveSafe(id, "later"), {
 			ok: true,

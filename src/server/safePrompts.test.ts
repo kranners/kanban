@@ -350,10 +350,23 @@ describe("safeVerdict", () => {
 	});
 
 	it("grants a session only tools that are safe whatever their input", () => {
-		assert.ok(SAFE_SESSION_RULES.includes("mcp__claude-code-remote__add_repo"));
 		assert.ok(
-			SAFE_SESSION_RULES.includes("mcp__claude-code-remote__set_session_title"),
+			SAFE_SESSION_RULES.includes("mcp__claude-code-remote__list_sessions"),
 		);
+		// Butler's reviewer judges every spawn, title, message and repository, so none is granted for good.
+		for (const tool of [
+			"add_repo",
+			"set_session_title",
+			"set_session_tags",
+			"create_session",
+			"send_message",
+			"send_later",
+		]) {
+			assert.ok(
+				!SAFE_SESSION_RULES.includes(`mcp__claude-code-remote__${tool}`),
+				tool,
+			);
+		}
 		assert.ok(SAFE_SESSION_RULES.includes("Workflow"));
 		assert.ok(SAFE_SESSION_RULES.includes("TodoWrite"));
 		for (const tool of [

@@ -23,6 +23,7 @@ import { claudeEnv } from "./accounts.ts";
 import { lastLine, stripAnsi } from "./ansi.ts";
 import type { CmuxResult } from "./cmux.ts";
 import { asObject, asString } from "./ingest/json.ts";
+import { promptReviews, reviewKind } from "./promptReviews.ts";
 import { promptVerdict, SAFE_SESSION_RULES } from "./safePrompts.ts";
 import { accountCommand, untrustedHint } from "./sessions.ts";
 import { createStateFile, readState } from "./stateFile.ts";
@@ -624,10 +625,17 @@ export const waitingWhy = (
 	if (!prompt) {
 		return "Waiting on something claude.ai shows but the board cannot read; open the session";
 	}
+	const held = promptReviews.held(prompt.requestId);
+	if (held !== null) {
+		return `Asks to use ${prompt.title}, held for you by Butler's reviewer: ${held}`;
+	}
 	const judged = verdict(prompt);
-	return judged.safe
+	if (!judged.safe) {
+		return `Asks to use ${prompt.title}, left for you: ${judged.reason}`;
+	}
+	return reviewKind(prompt.toolName) === null
 		? `Asks to use ${prompt.title}, which the safe sweep approves within a minute`
-		: `Asks to use ${prompt.title}, left for you: ${judged.reason}`;
+		: `Asks to use ${prompt.title}, which Butler's reviewer checks within seconds`;
 };
 
 const promptFor = (action: OpenAction, asked?: Asked): CloudPrompt => ({

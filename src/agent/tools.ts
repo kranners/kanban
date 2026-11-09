@@ -45,6 +45,14 @@ export type ToolCall =
 			allowSafe?: true;
 	  }
 	| { tool: "approve_safe_prompts"; sessions: string[] | null }
+	| { tool: "pending_reviews" }
+	| {
+			tool: "review_prompt";
+			session: string;
+			prompt: string;
+			verdict: ReviewVerdict;
+			reason: string;
+	  }
 	| {
 			tool: "finish_session";
 			session: string;
@@ -102,6 +110,15 @@ export type ToolCall =
 			colour?: RegionColour | null;
 	  } & Partial<Bounds>)
 	| { tool: "delete_region"; id: string };
+
+/** Butler's reviewer's answer on a claude.ai session tool's prompt. */
+export type ReviewVerdict = "approve" | "hold" | "unavailable";
+export const reviewVerdicts: readonly ReviewVerdict[] = [
+	"approve",
+	"hold",
+	"unavailable",
+];
+export const maxReviewReason = 200;
 
 export type ToolName = ToolCall["tool"];
 
@@ -294,6 +311,26 @@ export const toolDefinitions: ToolDefinition[] = [
 					"Only these sessions; default every session that needs the user",
 			},
 		}),
+	},
+	{
+		name: "pending_reviews",
+		description:
+			"For spike's prompt reviewer alone: the open prompts of claude.ai's session tools (spawning, titling, messaging, scheduling, adding a repository, and reads) that the safe set allows, on sessions waiting on the user, each with its session's name, folder, region, goal and recent transcript. Each prompt listed stays out of the safe sweep's reach for 90 seconds, until review_prompt answers it.",
+		inputSchema: object({}),
+	},
+	{
+		name: "review_prompt",
+		description:
+			"For spike's prompt reviewer alone: approve a prompt pending_reviews listed, hold it for the user with a one-line reason shown on its card, or say the reviewer is unavailable, which hands it back to the safe set.",
+		inputSchema: object(
+			{
+				session: sessionRef,
+				prompt: { type: "string", maxLength: 64 },
+				verdict: { type: "string", enum: [...reviewVerdicts] },
+				reason: { type: "string", maxLength: maxReviewReason },
+			},
+			["session", "prompt", "verdict", "reason"],
+		),
 	},
 	{
 		name: "finish_session",
@@ -696,6 +733,20 @@ const readers: { [K in ToolName]: (fields: Fields) => ToolCall } = {
 					? ref
 					: fail("sessions must hold session ids"),
 			),
+		};
+	},
+	pending_reviews: () => ({ tool: "pending_reviews" }),
+	review_prompt: (fields) => {
+		const verdict = fields.verdict;
+		if (!reviewVerdicts.includes(verdict as ReviewVerdict)) {
+			return fail(`verdict must be one of ${reviewVerdicts.join(", ")}`);
+		}
+		return {
+			tool: "review_prompt",
+			session: string(fields, "session", 128),
+			prompt: string(fields, "prompt", 64),
+			verdict: verdict as ReviewVerdict,
+			reason: string(fields, "reason", maxReviewReason),
 		};
 	},
 	finish_session: (fields) => {
