@@ -1,4 +1,5 @@
-import { type BoardFeed, hasLanded } from "../shared/types.ts";
+import { effect } from "@preact/signals";
+import { type Board, type BoardFeed, hasLanded } from "../shared/types.ts";
 import { butlerPresence } from "./butler.ts";
 import { butlerEdges } from "./butlerEdges.ts";
 import { receiveColours } from "./colours.ts";
@@ -26,9 +27,18 @@ import {
 	layout,
 	openSession,
 } from "./state.ts";
+import { showSubagents, withSubagentsShown } from "./subagentSetting.ts";
 import { usage } from "./usage.ts";
 
 const attemptsBeforeLost = 4;
+
+/** The board as the server last sent it, before the Show subagents setting. */
+let latest: Board | null = null;
+
+effect(() => {
+	const shown = showSubagents.value;
+	if (latest) board.value = withSubagentsShown(latest, shown);
+});
 
 function feedUrl(): string {
 	const scheme = location.protocol === "https:" ? "wss:" : "ws:";
@@ -41,7 +51,8 @@ function receive(frame: BoardFeed): void {
 		return;
 	}
 	if (frame.type === "board") {
-		board.value = frame.board;
+		latest = frame.board;
+		board.value = withSubagentsShown(frame.board, showSubagents.peek());
 		const landing = awaitingLanding.value;
 		const created = landing
 			? frame.board.sessions.find((s) => hasLanded(landing, s))

@@ -50,6 +50,8 @@ export type BackgroundShell = {
 export type AgentCall = {
 	toolUseId: string;
 	agentId: string | null;
+	/** The Agent call this one was made inside, for a subagent's own subagent. */
+	parentToolUseId: string | null;
 	type: string;
 	description: string;
 	startedAt: number;
@@ -240,6 +242,8 @@ function applyNested(
 	// A cloud subagent hands back with SubagentHandback, its last word.
 	const agent = facts.agentCalls.get(parentToolUse);
 	const content = Array.isArray(message?.content) ? message.content : [];
+	// A subagent's own Agent calls are subagents too, nested under it.
+	if (agent) applyNestedCalls(facts, record, content, parentToolUse, at);
 	if (
 		agent &&
 		record.type === "assistant" &&
@@ -251,12 +255,56 @@ function applyNested(
 		end(agent, at);
 }
 
+/** The Agent calls a subagent makes and the results that answer them, in its parent's stream. */
+function applyNestedCalls(
+	facts: TranscriptFacts,
+	record: Json,
+	content: unknown[],
+	parentToolUse: string,
+	at: number,
+) {
+	const type = record.type;
+	const result =
+		asObject(record.tool_use_result) ?? asObject(record.toolUseResult);
+	for (const item of content) {
+		const block = asObject(item);
+		if (!block) continue;
+		const id = asString(block.id);
+		const name = asString(block.name);
+		if (
+			type === "assistant" &&
+			block.type === "tool_use" &&
+			(name === "Agent" || name === "Task")
+		) {
+			startCall(
+				facts,
+				id,
+				name,
+				asObject(block.input) ?? {},
+				at,
+				parentToolUse,
+			);
+		} else if (type === "user" && block.type === "tool_result") {
+			const callId = asString(block.tool_use_id);
+			if (callId && facts.agentCalls.has(callId))
+				closeCall(
+					facts,
+					callId,
+					result ?? launchedFromText(block),
+					block.is_error === true,
+					at,
+				);
+		}
+	}
+}
+
 function startCall(
 	facts: TranscriptFacts,
 	id: string | null,
 	name: string,
 	input: Json,
 	at: number,
+	parentToolUseId: string | null = null,
 ) {
 	if (!id) return;
 	if (name === "Agent" || name === "Task") {
@@ -264,6 +312,7 @@ function startCall(
 		facts.agentCalls.set(id, {
 			toolUseId: id,
 			agentId: null,
+			parentToolUseId,
 			type: asString(input.subagent_type) ?? "agent",
 			description: truncate(asString(input.description) ?? "", summaryLength),
 			startedAt: at,

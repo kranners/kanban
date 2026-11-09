@@ -1,4 +1,8 @@
 import {
+	maxCardSubagents,
+	parseCardSubagents,
+} from "../shared/cardSubagents.ts";
+import {
 	type Annotation,
 	type Annotations,
 	type ArchiveOutcome,
@@ -227,7 +231,15 @@ export const parseAnnotation = (
 			startedAt,
 			finishedAt,
 			outcome,
+			subagents,
 		} = fields;
+		const cardSubagents =
+			subagents === undefined ? undefined : parseCardSubagents(subagents);
+		if (cardSubagents === null) {
+			return {
+				error: `subagents must be at most ${maxCardSubagents} subagents, each with an id, description, type, state and time`,
+			};
+		}
 		if (pinned !== undefined && typeof pinned !== "boolean") {
 			return { error: "pinned must be true or false" };
 		}
@@ -351,6 +363,7 @@ export const parseAnnotation = (
 			...(startedAt === undefined ? {} : { startedAt: startedAt as number }),
 			...(finishedAt === undefined ? {} : { finishedAt: finishedAt as number }),
 			...(outcome === undefined ? {} : { outcome: outcome as ArchiveOutcome }),
+			...(cardSubagents === undefined ? {} : { subagents: cardSubagents }),
 			...(history === undefined
 				? {}
 				: {

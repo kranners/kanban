@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import "./boardSettings.css";
 import type { FaceMode } from "./butlerDm.ts";
 import { faceSettings, setFaceSettings } from "./butlerFaceSettings.ts";
+import { setShowSubagents, showSubagents } from "./subagentSetting.ts";
 
-// The board's settings, kept per browser: for now how Butler's DM face shows.
+// The board's settings, kept per browser: whether subagents show, and how Butler's DM face shows.
 
 const faceModes: { mode: FaceMode; label: string; hint: string }[] = [
 	{
@@ -46,6 +47,23 @@ function SettingsPanel(props: { onClose: () => void }): JSX.Element {
 				}
 			}}
 		>
+			<fieldset class="board-settings-group">
+				<legend>Subagents</legend>
+				<label class="board-settings-choice">
+					<input
+						type="checkbox"
+						checked={showSubagents.value}
+						onChange={(event) => setShowSubagents(event.currentTarget.checked)}
+					/>
+					<span>
+						Show subagents
+						<span class="board-settings-hint">
+							Subagent cards and chips under every session and Butler card,
+							finished ones greyed for an hour
+						</span>
+					</span>
+				</label>
+			</fieldset>
 			<fieldset class="board-settings-group">
 				<legend>Butler face</legend>
 				<p class="board-settings-note">

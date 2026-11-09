@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { parseToolCall, type ToolCall } from "../agent/tools.ts";
+import {
+	maxCardSubagents,
+	parseCardSubagents,
+} from "../shared/cardSubagents.ts";
 import { handoverOpening } from "../shared/failover.ts";
 import {
 	type AaronFocus,
@@ -506,7 +510,8 @@ const sameCard = (a: ButlerCard, b: ButlerCard): boolean =>
 	JSON.stringify(a.machines) === JSON.stringify(b.machines) &&
 	a.startedAt === b.startedAt &&
 	a.finishedAt === b.finishedAt &&
-	a.outcome === b.outcome;
+	a.outcome === b.outcome &&
+	JSON.stringify(a.subagents) === JSON.stringify(b.subagents);
 
 /** A change's times and outcome as spike sends them, the valid ones alone. */
 const changeTimes = (
@@ -1213,6 +1218,15 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			for (const value of [status, title, summary, link]) {
 				if (isOutcome(value)) return refused(`${fixId}: ${value.error}`);
 			}
+			const subagents =
+				fix.subagents === undefined
+					? undefined
+					: parseCardSubagents(fix.subagents);
+			if (subagents === null) {
+				return refused(
+					`${fixId}: subagents must be at most ${maxCardSubagents}, each with an id, description, type, state and time`,
+				);
+			}
 			const id = selfFixCardId(fixId);
 			fixIds.add(fixId);
 			const times = changeTimes(fix);
@@ -1267,6 +1281,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				...(parent ? { parent } : {}),
 				...kept(existing?.kind === "butler-card" ? existing : undefined),
 				...times,
+				...(subagents?.length ? { subagents } : {}),
 			};
 			if (existing?.kind === "butler-card" && sameCard(existing, card)) {
 				continue;

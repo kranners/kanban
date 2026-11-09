@@ -29,7 +29,9 @@ export function subagentChips(
 }
 
 /** A chip's label: the subagent's description, else its type, clipped. */
-export function chipName(subagent: Subagent): string {
+export function chipName(
+	subagent: Pick<Subagent, "description" | "type">,
+): string {
 	const name = subagent.description.trim() || subagent.type;
 	return name.length > nameLength
 		? `${name.slice(0, nameLength - 1).trimEnd()}…`

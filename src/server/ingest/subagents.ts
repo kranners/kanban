@@ -22,7 +22,8 @@ export type FoundSubagent = {
 	workflowRun: string | null;
 };
 
-export const subagentWindowMs = 30 * 60_000;
+/** How long a finished subagent stays under its session: an hour, so a run that just ended is still there to read. */
+export const subagentWindowMs = 60 * 60_000;
 export const subagentLiveMs = 120_000;
 export const subagentLimit = 40;
 const metaFile = /(?:^|\/)agent-([^/]+)\.meta\.json$/;
@@ -204,11 +205,11 @@ function readJournal(dir: string): JournalProgress {
 }
 
 /** How long a finished workflow run stays on its session's card. */
-export const workflowShownMs = 30 * 60_000;
+export const workflowShownMs = 60 * 60_000;
 
 /**
  * Each session's workflow runs: those running while the session is live, and
- * those that ended in the last 30 minutes, with when they ended.
+ * those that ended in the last hour, with when they ended.
  */
 export function sessionWorkflows(
 	found: readonly FoundSubagent[],

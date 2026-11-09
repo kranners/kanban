@@ -1,6 +1,10 @@
 import "./butler.css";
 import { Pin, TriangleAlert } from "lucide-preact";
 import type { JSX } from "preact";
+import {
+	cardSubagentSummary,
+	orderCardSubagents,
+} from "../shared/cardSubagents.ts";
 import type { ButlerCard, Note } from "../shared/types.ts";
 import { ActivityBadge } from "./activity.tsx";
 import { current } from "./annotations.ts";
@@ -28,6 +32,8 @@ import { threads } from "./comments.ts";
 import { nodeKey } from "./layout.ts";
 import type { Rect } from "./placement.ts";
 import { board, now } from "./state.ts";
+import { chipName } from "./subagentChips.ts";
+import { showSubagents } from "./subagentSetting.ts";
 import { Timeline } from "./Timeline.tsx";
 import { ago, relativeTime } from "./time.ts";
 
@@ -92,6 +98,88 @@ function ButlerChips(props: { card: ButlerCard }): JSX.Element | null {
 	);
 }
 
+/** What a desk session's card says in place of subagents, which the board cannot read yet. */
+export const deskSubagentsMissing =
+	"Subagents not shown: desk sessions run in Butler's own Claude home on spike, which the board does not read, so their subagents and workflow runs are not mirrored yet.";
+
+const cardChipLimit = 3;
+
+/**
+ * The subagents of the cloud session behind a Butler card: a count by state
+ * and its newest few as chips, finished ones greyed, each opening the
+ * session; zoomed in, every one, nested under the one it ran under.
+ */
+function CardSubagents(props: {
+	card: ButlerCard;
+	now: number;
+	near?: boolean;
+}): JSX.Element | null {
+	const { card } = props;
+	if (!showSubagents.value) return null;
+	const subagents = card.subagents ?? [];
+	if (subagents.length === 0) {
+		if (!card.desk) return null;
+		return props.near ? (
+			<p class="butler-card-subagents-missing">{deskSubagentsMissing}</p>
+		) : (
+			<div
+				class="butler-card-subagents-missing butler-card-status"
+				title={deskSubagentsMissing}
+			>
+				Subagents not mirrored yet
+			</div>
+		);
+	}
+	const ordered = orderCardSubagents(subagents);
+	const shown = props.near ? ordered : ordered.slice(0, cardChipLimit);
+	const more = ordered.length - shown.length;
+	const open = (event: MouseEvent) => {
+		event.stopPropagation();
+		if (card.link) window.open(card.link, "_blank", "noopener,noreferrer");
+	};
+	return (
+		<div
+			class={`butler-card-subagents${props.near ? " near" : ""}`}
+			data-no-pan
+		>
+			<div class="butler-card-subagents-count">
+				{cardSubagentSummary(subagents)}
+			</div>
+			<div class="sub-chips">
+				{shown.map(({ subagent, depth }) => (
+					<button
+						key={subagent.id}
+						type="button"
+						class={`sub-chip act-${subagent.state}`}
+						style={depth > 0 ? { marginInlineStart: `${depth * 12}px` } : {}}
+						title={`${subagent.description || subagent.type} · ${subagent.type} · ${subagent.state}`}
+						aria-label={`Subagent ${chipName(subagent)}, ${subagent.state}`}
+						onPointerDown={(event) => event.stopPropagation()}
+						onClick={open}
+					>
+						<span class="sub-chip-dot" aria-hidden="true" />
+						<span class="sub-chip-name">
+							{depth > 0 ? "↳ " : ""}
+							{chipName(subagent)}
+						</span>
+						<time class="sub-chip-time num">
+							{relativeTime(subagent.updatedAt, props.now)}
+						</time>
+					</button>
+				))}
+				{more > 0 && (
+					<span
+						class="sub-chip-more num"
+						title={`${more} more ${more === 1 ? "subagent" : "subagents"}`}
+					>
+						+{more}
+					</span>
+				)}
+			</div>
+		</div>
+	);
+}
+
 /** A Butler card zoomed in, laid out as a session card's near view, with its timeline. */
 function ButlerNearPanel(props: {
 	card: ButlerCard;
@@ -146,6 +234,7 @@ function ButlerNearPanel(props: {
 				)}
 				<ParentLine card={card} />
 				<ButlerChips card={card} />
+				<CardSubagents card={card} now={props.now} near />
 			</header>
 			<div class="near-content">
 				<div class="near-side">
@@ -226,6 +315,7 @@ export function ButlerCardBody(props: { card: ButlerCard }): JSX.Element {
 				</div>
 			)}
 			<ButlerChips card={card} />
+			<CardSubagents card={card} now={t} />
 			<div class="butler-card-foot">
 				<ButlerAvatar size={16} />
 				<span>Butler · {ago(card.updatedAt, t)}</span>

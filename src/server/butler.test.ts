@@ -378,6 +378,42 @@ describe("Butler on the board", () => {
 		assert.equal(bad.ok, false);
 	});
 
+	it("puts a change's subagents, nested ones included, under its card", async () => {
+		const { butler, annotations } = await setup();
+		const subagents = [
+			{
+				id: "toolu_a",
+				description: "Merge main",
+				type: "general-purpose",
+				state: "done",
+				updatedAt: 5,
+			},
+			{
+				id: "toolu_b",
+				description: "Fix conflict",
+				type: "general-purpose",
+				state: "working",
+				parent: "toolu_a",
+				updatedAt: 6,
+			},
+		];
+		const fix = {
+			id: "20261109-154955-3693305",
+			state: "running",
+			title: "Show subagents",
+			subagents,
+		};
+		assert.equal((await butler.tool("changes", { fixes: [fix] })).ok, true);
+		const id = "self-fix-20261109-154955-3693305";
+		assert.deepEqual(cardOf(annotations, id).subagents, subagents);
+		await butler.tool("changes", { fixes: [{ ...fix, subagents: [] }] });
+		assert.equal(cardOf(annotations, id).subagents, undefined);
+		const bad = await butler.tool("changes", {
+			fixes: [{ ...fix, subagents: [{ id: "x", state: "lost" }] }],
+		});
+		assert.equal(bad.ok, false);
+	});
+
 	it("takes Aaron's board actions on a self-fix back to spike", async () => {
 		const { butler, annotations, file } = await setup();
 		const fix = {
