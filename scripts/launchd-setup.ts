@@ -88,7 +88,10 @@ export const buildPath = (
 
 // Plists sit world-readable in ~/Library/LaunchAgents, so secrets never go
 // into them: the server and the runner read those from ~/.config/kanban/env.
-export const secretKeys = ["KANBAN_RUNNER_TOKEN"] as const;
+export const secretKeys = [
+	"KANBAN_RUNNER_TOKEN",
+	"KANBAN_PROJECTS_TOKEN",
+] as const;
 
 export const withoutSecrets = (
 	env: Record<string, string>,

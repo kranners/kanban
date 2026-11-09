@@ -37,6 +37,7 @@ import { isFromDm, openParent, parentTitle } from "./butlerThreads.ts";
 import { digests, stuckOf } from "./digests.ts";
 import type { PlacedNode } from "./layout.ts";
 import { plainText } from "./markdown.ts";
+import { SessionProjectChips } from "./Projects.tsx";
 import { RelationHandles } from "./RelationHandles.tsx";
 import { unreachableText } from "./reach.ts";
 import { board, openSession, openSubagent } from "./state.ts";
@@ -130,6 +131,7 @@ function CardBody(props: {
 			<WorkflowBars workflows={props.workflows} />
 			<GoalBody goal={session.goal} />
 			<SessionParentLine session={session} />
+			<SessionProjectChips session={session} />
 			{needs ? (
 				<div class="needs" title={needs}>
 					{needs}

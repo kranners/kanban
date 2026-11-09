@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { join, resolve } from "node:path";
 import { browseFolder } from "../runner/browse.ts";
@@ -107,6 +107,7 @@ import { createMirrorHub } from "./mirror.ts";
 import { createNotificationStore, loadNotifications } from "./notifications.ts";
 import { createPeerHook, peerHookSettings } from "./peers.ts";
 import { createPermissions } from "./permissions.ts";
+import { createProjectsSource } from "./projects.ts";
 import { createPromptSender } from "./prompts.ts";
 import { createRegionStore, loadRegions } from "./regions.ts";
 import { createRelationStore, loadRelations } from "./relations.ts";
@@ -736,6 +737,10 @@ const server = createKanbanServer({
 	butler,
 	edges: messageEdges,
 	archive,
+	projects: createProjectsSource({
+		config: config.projects,
+		readFile: (file) => readFile(file, "utf8"),
+	}),
 	csrf: newCsrfToken(),
 	build: pageBuild,
 	peerHook: createPeerHook({

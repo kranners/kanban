@@ -11,6 +11,7 @@ import {
 import { extname, join, normalize, sep } from "node:path";
 import { type Duplex, pipeline } from "node:stream";
 import { WebSocketServer } from "ws";
+import { emptyListing } from "../shared/projects.ts";
 import { maxImageBytes, maxPromptImages } from "../shared/promptImages.ts";
 import { linkRefusal } from "../shared/reach.ts";
 import {
@@ -86,6 +87,7 @@ import {
 } from "./notifications.ts";
 import { type PeerHook, parsePeerHookInput } from "./peers.ts";
 import { type Permissions, parseGrants } from "./permissions.ts";
+import type { ProjectsSource } from "./projects.ts";
 import {
 	isRegionId,
 	maxRegions,
@@ -143,6 +145,8 @@ export type ServerDeps = {
 	edges?: Pick<MessageEdgeStore, "messages">;
 	/** Cards and sessions whose work is over, served to the page alone. */
 	archive?: ArchiveStore;
+	/** Butler's projects for the Projects view, read on the server. */
+	projects?: ProjectsSource;
 	/** The token the board's page sends with every message to Butler. */
 	csrf: string;
 	/** The build of the page in `dist`, sent on every API reply as `x-kanban-build`. */
@@ -209,6 +213,7 @@ export type Route =
 	| { kind: "put-annotation"; id: string }
 	| { kind: "archive"; query: ArchiveQuery }
 	| { kind: "archive-restore"; id: string }
+	| { kind: "projects" }
 	| { kind: "tidy" }
 	| { kind: "delete-annotation"; id: string }
 	| { kind: "update-colour" }
@@ -584,6 +589,11 @@ export const matchRoute = (method: string, url: URL): Route => {
 					from: url.searchParams.get("from"),
 					to: url.searchParams.get("to"),
 				}
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/projects") {
+		return method === "GET"
+			? { kind: "projects" }
 			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api/archive") {
@@ -1903,6 +1913,10 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			case "archive":
 				if (!deps.archive) return sendError(res, 404);
 				return sendJson(res, 200, deps.archive.list(route.query));
+			case "projects":
+				if (!deps.projects)
+					return sendJson(res, 200, emptyListing("unconfigured"));
+				return sendJson(res, 200, await deps.projects.list());
 			case "archive-restore": {
 				if (!originOk(req)) return sendError(res, 403);
 				if (!deps.butler) return sendError(res, 404);

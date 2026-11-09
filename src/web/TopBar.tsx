@@ -34,6 +34,7 @@ import { Mark } from "./Mark.tsx";
 import { NextNeedingYou } from "./NeedsYou.tsx";
 import { NotificationsMenu } from "./Notifications.tsx";
 import { PermissionSurveyDialog } from "./PermissionSurvey.tsx";
+import { ProjectsButton } from "./Projects.tsx";
 import { connection, newSessionOpen } from "./state.ts";
 import { cycleTheme, theme } from "./theme.ts";
 
@@ -297,6 +298,7 @@ export function TopBar() {
 				<WaitingApprovalsButton />
 				<NextNeedingYou />
 				<TidyButton />
+				<ProjectsButton />
 				<ButlerRequestButton request="snooze" />
 				<NewJobButton />
 				<ReportButton />

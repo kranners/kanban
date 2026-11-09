@@ -2,6 +2,7 @@ import { accessSync, constants, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { cswapRoot } from "./accounts.ts";
+import { type ProjectsConfig, parseProjectsConfig } from "./projects.ts";
 
 export type AuthConfig =
 	| { mode: "off" }
@@ -29,6 +30,8 @@ export type Config = {
 	dist: string;
 	auditLog: string;
 	stateDir: string;
+	/** Where Butler's projects come from, for the Projects view. */
+	projects: ProjectsConfig;
 };
 
 const repoRoot = resolve(import.meta.dirname, "../..");
@@ -177,7 +180,10 @@ const parseOrigins = (
 // Secrets stay out of the launchd plist (scripts/launchd-setup.ts drops
 // them), so the server reads them from ~/.config/kanban/env itself when the
 // environment doesn't carry them.
-export const secretKeys = ["KANBAN_RUNNER_TOKEN"] as const;
+export const secretKeys = [
+	"KANBAN_RUNNER_TOKEN",
+	"KANBAN_PROJECTS_TOKEN",
+] as const;
 
 export const withFileSecrets = (
 	env: NodeJS.ProcessEnv,
@@ -217,5 +223,6 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
 			env.KANBAN_AUDIT_LOG ||
 			join(homedir(), "Library/Logs/kanban/audit.jsonl"),
 		stateDir: env.KANBAN_STATE || defaultStateDir(port),
+		projects: parseProjectsConfig(env),
 	};
 };

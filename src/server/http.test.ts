@@ -76,6 +76,10 @@ describe("matchRoute", () => {
 			kind: "archive-restore",
 			id: "session:abc",
 		});
+		assert.deepEqual(route("GET", "/api/projects"), { kind: "projects" });
+		assert.deepEqual(route("POST", "/api/projects"), {
+			kind: "method-not-allowed",
+		});
 		assert.deepEqual(route("POST", "/api/archive"), {
 			kind: "method-not-allowed",
 		});

@@ -165,6 +165,11 @@ const probes: Record<string, Probe> = {
 	"/api/cloud-blocker": async (backend) => {
 		await answers(backend, "GET", "/api/cloud-blocker", null, "cwd=/Users/me");
 	},
+	"/api/projects": async (backend) => {
+		const response = await answers(backend, "GET", "/api/projects");
+		const body = (await response.json()) as { projects: unknown[] };
+		assert.ok(body.projects.length > 0, "the demo shows sample projects");
+	},
 	"/api/remote-hosts": async (backend) => {
 		await answers(backend, "GET", "/api/remote-hosts", null, "account=2");
 	},

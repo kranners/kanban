@@ -51,6 +51,7 @@ import { JobComposerHost } from "./JobComposer.tsx";
 import type { NodeKey, PlacedNode } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import { useNeedsYouShortcut } from "./NeedsYou.tsx";
+import { ProjectsHost } from "./Projects.tsx";
 import type { Arrangement } from "./placement.ts";
 import { Rail } from "./Rail.tsx";
 import { RegionNotices } from "./RegionControls.tsx";
@@ -403,6 +404,7 @@ export function App() {
 				<ReportModalHost />
 				<ThreadCardPanelHost />
 				<ApprovalsHost />
+				<ProjectsHost />
 				<JobComposerHost />
 				<StickerPicker />
 				<RegionMenu />

@@ -1,3 +1,4 @@
+import { normaliseProjects, projectsFixture } from "../server/projects.ts";
 import type { RegionColour } from "../shared/colours.ts";
 import type {
 	ConversationClientFrame,
@@ -992,6 +993,19 @@ export function createBackend(scenario: Scenario): Backend {
 			([store = ""]) => deleteDocStore(store),
 		],
 		["GET", /^\/api\/cloud-blocker$/, () => json(200, { reason: null })],
+		[
+			"GET",
+			/^\/api\/projects$/,
+			() =>
+				json(200, {
+					status: "fixture",
+					fetchedAt: Date.now(),
+					...(normaliseProjects(projectsFixture(Date.now()), Date.now()) ?? {
+						updatedAt: null,
+						projects: [],
+					}),
+				}),
+		],
 		[
 			"GET",
 			/^\/api\/archive$/,
