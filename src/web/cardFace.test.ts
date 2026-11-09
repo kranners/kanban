@@ -193,8 +193,12 @@ describe("stalled", () => {
 		);
 	});
 
-	it("trusts the daemon's last activity over when the board last stored a Butler card", () => {
-		const card = { updatedAt: 30 * minute, lastActiveAt: 2 * minute };
+	it("trusts the daemon's last activity over when the board last stored or restated a Butler card", () => {
+		const card = {
+			updatedAt: 30 * minute,
+			lastActiveAt: 2 * minute,
+			history: [{ at: 30 * minute, state: "working" as const }],
+		};
 		const last = butlerCardLastActivity(card);
 		assert.equal(last, 2 * minute);
 		assert.equal(statusOf("working", last, 14 * minute), "stalled");

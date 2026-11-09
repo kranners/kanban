@@ -94,7 +94,6 @@ export function butlerCardLastActivity(
 	if (card.lastActiveAt !== undefined) {
 		return newest([
 			card.lastActiveAt,
-			...(card.history ?? []).map((event) => event.at),
 			...(card.subagents ?? []).map((subagent) => subagent.updatedAt),
 		]);
 	}
