@@ -1,0 +1,15 @@
+# Tracked files allowed over 1 MiB, one bash glob per line.
+
+# README's headline animation, shown on GitHub for each colour scheme.
+docs/media/headline-light.gif
+docs/media/headline-dark.gif
+
+# The pages site's headline video, both encodings for each colour scheme (site/index.html).
+docs/media/headline-light.mp4
+docs/media/headline-dark.mp4
+docs/media/headline-light.webm
+docs/media/headline-dark.webm
+
+# Clips shown in README and on the pages site.
+docs/media/clip-focus-search.gif
+docs/media/clip-new-session.gif

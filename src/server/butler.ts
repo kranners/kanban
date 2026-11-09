@@ -161,18 +161,6 @@ const readingTools = new Set<ToolCall["tool"]>([
 /** At most this many cards listed as on Aaron's screen. */
 export const maxOnScreen = 20;
 
-/** Tools that act through a session: never Butler's own cards or notes. */
-export const sessionTools = new Set<ToolCall["tool"]>([
-	"ask_session",
-	"send_prompt",
-	"announce",
-	"answer_prompt",
-	"approve_safe_prompts",
-	"review_prompt",
-	"finish_session",
-	"start_session",
-]);
-
 /**
  * What Aaron, or Butler on his word, did to a self-fix's card on the
  * board: closing it archives the fix's cloud session, marking it done

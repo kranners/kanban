@@ -20,11 +20,7 @@ import { arrange, near, nearestFree, seedsOf } from "../web/placement.ts";
 import { type AnnotationStore, maxAnnotations } from "./annotations.ts";
 import type { Audit } from "./audit.ts";
 import type { Answer, SessionAsker } from "./exit.ts";
-import {
-	buildReport,
-	regionReportBody,
-	sessionReportBody,
-} from "./reportTimeline.ts";
+import { regionReportBody, sessionReportBody } from "./reportTimeline.ts";
 
 export const reportPrompt = [
 	"The kanban board wants a status report on this session. Do not do any more work.",
@@ -80,18 +76,6 @@ const spotBeside = (
 	const fits = (at: Point) =>
 		!taken.some((rect) => near({ ...at, ...size }, rect, gridSize));
 	return nearestFree(start, fits) ?? start;
-};
-
-export const spotBesideSession = (
-	sessionId: string,
-	size: { w: number; h: number },
-	annotations: Annotations,
-	cards: ReadonlyMap<NodeKey, Rect>,
-): Point => {
-	const card = cards.get(nodeKey({ kind: "session", id: sessionId }));
-	return card
-		? spotBeside(card, size, [...cards.values(), ...Object.values(annotations)])
-		: { x: 0, y: 0 };
 };
 
 export const reportSize = { w: gridSize * 30, h: gridSize * 20 };
@@ -170,20 +154,6 @@ export const regionReportNote = (
 	);
 
 export type ShotCollector = (session: Session) => Promise<ReportShot[]>;
-
-const maxShots = 6;
-
-const shotsOf = async (
-	collect: ShotCollector | undefined,
-	sessions: readonly Session[],
-): Promise<ReportShot[]> => {
-	if (!collect) return [];
-	const all = await Promise.all(
-		sessions.map((s) => collect(s).catch(() => [] as ReportShot[])),
-	);
-	const unique = new Map(all.flat().map((shot) => [shot.url, shot]));
-	return [...unique.values()].sort((a, b) => a.at - b.at).slice(-maxShots);
-};
 
 export const cardsOf = (
 	board: Board,
