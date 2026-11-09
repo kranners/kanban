@@ -446,7 +446,14 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 
 	type SafeReport = { lines: string[]; approved: number; left: number };
 
-	const approveSafe = async (session: Session): Promise<SafeReport> => {
+	/**
+	 * releaseHeld is answer_prompt's allow_safe on one named session, Butler acting on Aaron's yes, which also
+	 * approves what the reviewer held or is judging; the sweep over every session never does.
+	 */
+	const approveSafe = async (
+		session: Session,
+		releaseHeld = false,
+	): Promise<SafeReport> => {
 		const open = await deps.approver.open(session);
 		if (!open.ok) {
 			return {
@@ -466,7 +473,9 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 		for (const prompt of open.value) {
 			const named = `${prompt.title} (${prompt.toolName}, request ${prompt.requestId})`;
 			const heldBy = reviews.held(prompt.requestId);
-			if (heldBy !== null || reviews.reviewing(prompt.requestId)) {
+			if (releaseHeld) {
+				reviews.release(prompt.requestId);
+			} else if (heldBy !== null || reviews.reviewing(prompt.requestId)) {
 				report.left += 1;
 				report.lines.push(
 					`${session.name}: left for Aaron ${named}: ${heldBy === null ? "in Butler's review" : `Butler's reviewer held it: ${heldBy}`}`,
@@ -605,7 +614,7 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 			const session = sessionFor(ref);
 			if ("ok" in session) return session;
 			if (allowSafe) {
-				const report = await approveSafe(session);
+				const report = await approveSafe(session, true);
 				return done([tally(report), ...report.lines].join("\n"));
 			}
 			const result = await deps.answer(session, reply);

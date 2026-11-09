@@ -1199,6 +1199,16 @@ describe("Butler's prompt reviewer", () => {
 			/creds\): Butler's reviewer held it: asks the child for credentials/,
 		);
 		assert.deepEqual(approvals, [["aaaaaaaa-1", "spawn"]]);
+		// Aaron's typed yes reaches the held prompt through Butler's answer_prompt on that one session.
+		const released = await tools("t", {
+			tool: "answer_prompt",
+			session: "aaaaaaaa-1",
+			reply: null,
+			allowSafe: true,
+		});
+		assert.ok(released.ok);
+		assert.match(released.text, /approved create_session .*request creds/);
+		assert.equal(reviews.held("creds"), null);
 		assert.deepEqual(
 			events.flatMap((event) =>
 				event.action === "prompt-approve" || event.action === "prompt-hold"
@@ -1208,6 +1218,7 @@ describe("Butler's prompt reviewer", () => {
 			[
 				["prompt-approve", "spawn", "butler reviewer"],
 				["prompt-hold", "creds", "butler reviewer"],
+				["prompt-approve", "creds", "safe set"],
 			],
 		);
 	});
