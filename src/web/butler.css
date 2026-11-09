@@ -160,7 +160,7 @@
 	white-space: nowrap;
 }
 
-/* A thread card's mission and the machines it drove: one row, never wrapping, so the card keeps its size. */
+/* The machines a thread card's thread drove: one row, never wrapping, so the card keeps its size. */
 .butler-card-chips {
 	flex: none;
 	display: flex;
@@ -177,11 +177,6 @@
 	color: var(--muted);
 	font-size: 11.5px;
 	line-height: 17px;
-}
-
-.butler-chip-mission {
-	border-color: color-mix(in srgb, var(--butler) 45%, transparent);
-	color: var(--butler);
 }
 
 /* The view of one of Butler's Discord threads, opened from its card. */

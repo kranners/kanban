@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseApprovalBody, plain } from "./approvalCard.ts";
 
-test("reads a mission card's sections as Discord shows them", () => {
+test("reads an approval card's sections as Discord shows them", () => {
 	const body = [
 		"**Goal:** Pay the dentist for \\*today\\*",
 		"### 🔴 Needs your approval",
@@ -14,7 +14,7 @@ test("reads a mission card's sections as Discord shows them", () => {
 		"- Use the screen and shell on piggys-MBP",
 		"### Limits",
 		"- Lasts 24 hours",
-		"- Logged to audit/mission",
+		"- Logged to audit/shell",
 	].join("\n");
 	assert.deepEqual(parseApprovalBody(body), {
 		goal: "Pay the dentist for *today*",
@@ -32,7 +32,7 @@ test("reads a mission card's sections as Discord shows them", () => {
 		],
 		noCritical: false,
 		included: ["Use the screen and shell on piggys-MBP"],
-		limits: ["Lasts 24 hours", "Logged to audit/mission"],
+		limits: ["Lasts 24 hours", "Logged to audit/shell"],
 		other: [],
 	});
 });

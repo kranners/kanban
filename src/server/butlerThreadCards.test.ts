@@ -811,34 +811,21 @@ describe("Butler's thread cards", () => {
 		assert.match(written, /pay it/);
 	});
 
-	it("shows a thread's mission and machines, dropping what is not one, and keeps them off the snapshot", async () => {
+	it("shows a thread's machines, dropping what is not one and any mission it carries, and keeps them off the snapshot", async () => {
 		const { sync, annotations, snapshotOf } = await setup();
 		await sync([
 			entry("11111111", {
-				mission: { id: "m87245d", covers: "mac on\npiggys-MBP  for 24 hours" },
+				mission: { id: "m87245d", covers: "mac on piggys-MBP for 24 hours" },
 				machines: ["piggys-MBP", "browser", "bad host!", "piggys-MBP"],
 			}),
-			entry("22222222", { mission: { id: "has space", covers: "x" } }),
-		]);
-		const card = cardOf(annotations, "thread-11111111");
-		assert.deepEqual(card?.mission, {
-			id: "m87245d",
-			covers: "mac on piggys-MBP for 24 hours",
-		});
-		assert.deepEqual(card?.machines, ["piggys-MBP", "browser"]);
-		const other = cardOf(annotations, "thread-22222222");
-		assert.ok(other);
-		assert.equal(other.mission, undefined);
-		assert.equal(other.machines, undefined);
-		assert.doesNotMatch(JSON.stringify(snapshotOf()), /24 hours/);
-
-		// The mission ending changes the card.
-		const text = await sync([
-			entry("11111111", { machines: ["piggys-MBP", "browser"] }),
 			entry("22222222"),
 		]);
-		assert.match(text, /^2 thread cards: 1 updated, 0 removed\n/);
-		assert.equal(cardOf(annotations, "thread-11111111")?.mission, undefined);
+		const card = cardOf(annotations, "thread-11111111");
+		assert.ok(card);
+		assert.equal("mission" in card, false);
+		assert.deepEqual(card.machines, ["piggys-MBP", "browser"]);
+		assert.equal(cardOf(annotations, "thread-22222222")?.machines, undefined);
+		assert.doesNotMatch(JSON.stringify(snapshotOf()), /piggys-MBP|24 hours/);
 	});
 
 	it("marks a thread whose question may be stale until a sync drops it", async () => {
@@ -936,14 +923,14 @@ describe("The orphan report", () => {
 describe("Approving Butler's requests from the board", () => {
 	const NONCE = "0123456789abcdef0123456789abcdef";
 	const safeCard =
-		"**Goal:** Tidy\n### ⚪ Needs your approval\nNo critical permissions\n### Limits\n- 24 hours";
+		"**Goal:** Tidy\n### ⚪ Needs your approval\nNo critical permissions";
 	const critCard =
-		"**Goal:** Pay\n### 🔴 Needs your approval\n- `$` **Make payments**\n-# dentist\n### Limits\n- 24 hours";
+		"**Goal:** Pay\n### 🔴 Needs your approval\n- `$` **Make payments**\n-# dentist";
 	const waiting = (code: string, extra: Record<string, unknown> = {}) => ({
 		at: 300,
 		headline: `Request ${code}`,
 		code,
-		kind: "desk",
+		kind: "call",
 		nonce: NONCE,
 		...extra,
 	});
@@ -962,6 +949,20 @@ describe("Approving Butler's requests from the board", () => {
 			}
 		).messages.filter((m) => m.approval);
 	};
+
+	it("drops a desk session's mission request, keeping a call's prompt", async () => {
+		const { butler, sync } = await setup();
+		await sync([
+			entry("11111111", {
+				state: "needs-you",
+				approvals: [waiting("abcde", { kind: "desk" }), waiting("fghij")],
+			}),
+		]);
+		assert.deepEqual(
+			butler.threadView("11111111")?.approvals.map((a) => a.code),
+			["fghij"],
+		);
+	});
 
 	it("never shows the page a request's nonce, only that it is answerable", async () => {
 		const { butler, sync } = await setup();

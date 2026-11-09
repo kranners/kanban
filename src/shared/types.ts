@@ -373,8 +373,6 @@ export type ButlerCard = Annotated & {
 	desk?: string;
 	/** The board comment thread it began from, for a board message or job. */
 	boardThread?: string;
-	/** The mission Aaron approved for the thread, while it lasts. */
-	mission?: ButlerCardMission;
 	/** The machines the thread has driven, by host, such as `piggys-MBP`, and `browser` for Butler's own. */
 	machines?: string[];
 	/** The daemon's question to Aaron there has waited over 6 hours with nothing since. */
@@ -434,7 +432,6 @@ export type ArchiveEntry = {
 	discord?: string;
 	session?: string;
 	machines?: string[];
-	mission?: ButlerCardMission;
 	/** The thread's log, read-only, for a thread card. */
 	log?: ButlerThreadEvent[];
 	/** The card as it was, to put it back on the board. */
@@ -450,11 +447,8 @@ export type ArchiveListing = {
 	projects: string[];
 };
 
-export type ButlerCardMission = { id: string; covers: string };
 export const maxCardMachines = 8;
-export const maxMissionCovers = 200;
 export const machinePattern = /^[A-Za-z0-9._-]{1,40}$/;
-export const missionIdPattern = /^[A-Za-z0-9_-]{1,40}$/;
 
 export const butlerThreadKinds = [
 	"dm",
@@ -498,8 +492,8 @@ export type ButlerThreadApproval = {
 	at: number;
 	headline: string;
 	code?: string;
-	/** A call's approval prompt, or a desk session's mission request. */
-	kind?: "call" | "desk";
+	/** A call's approval prompt, the only kind the board keeps. */
+	kind?: "call";
 	/** The card it shows, as Discord shows it: goal, Needs your approval, Also included, Limits. */
 	body?: string;
 	/** It lists something critical, so Approve needs the hold. */

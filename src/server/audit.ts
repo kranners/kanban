@@ -87,12 +87,12 @@ export type AuditEvent =
 			result: string;
 	  }
 	| {
-			action: "prompt-approve" | "prompt-hold";
+			action: "prompt-approve";
 			sessionId: string;
 			tool: string;
 			requestId: string;
-			/** Why the board approved it without the user: the safe set, or Butler's reviewer within it. */
-			via: "safe set" | "butler reviewer";
+			/** The board allowed it without the user because it has no serious effect. */
+			via: "harmless";
 			identity: string | null;
 			result: string;
 	  }

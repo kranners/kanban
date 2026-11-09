@@ -84,6 +84,7 @@ export const parseThreadApproval = (
 		unknown
 	>;
 	if (!isTime(at) || typeof headline !== "string") return null;
+	if (kind === "desk") return null;
 	const line = headline.replace(/\s+/g, " ").trim().slice(0, 300);
 	if (line === "") return null;
 	const coded = typeof code === "string" && /^[A-Za-z0-9-]{1,32}$/.test(code);
@@ -91,7 +92,7 @@ export const parseThreadApproval = (
 		at,
 		headline: line,
 		...(coded ? { code } : {}),
-		...(kind === "call" || kind === "desk" ? { kind } : {}),
+		...(kind === "call" ? { kind } : {}),
 		...(typeof body === "string" && body.trim()
 			? { body: body.slice(0, maxThreadApprovalBody) }
 			: {}),

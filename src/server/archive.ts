@@ -124,7 +124,6 @@ export const entryOfCard = (
 		...(card.link && !card.thread ? { session: card.link } : {}),
 		...(context.cloudLink ? { session: context.cloudLink } : {}),
 		...(card.machines?.length ? { machines: card.machines } : {}),
-		...(card.mission ? { mission: card.mission } : {}),
 		...(context.log?.length ? { log: context.log } : {}),
 		card,
 	};
@@ -172,7 +171,6 @@ export const compact = (entry: ArchiveEntry, now: number): ArchiveEntry => {
 		log: _log,
 		card: _card,
 		machines: _machines,
-		mission: _mission,
 		discord: _discord,
 		session: _session,
 		...kept
@@ -220,7 +218,6 @@ export const parseArchiveEntry = (value: unknown): ArchiveEntry | null => {
 	const log = Array.isArray(f.log)
 		? f.log.flatMap((e) => parseThreadEvent(e) ?? [])
 		: [];
-	const mission = f.mission as Record<string, unknown> | undefined;
 	return {
 		id: f.id,
 		kind: f.kind as ArchiveKind,
@@ -246,16 +243,6 @@ export const parseArchiveEntry = (value: unknown): ArchiveEntry | null => {
 		...(isLink(f.discord) ? { discord: f.discord } : {}),
 		...(isLink(f.session) ? { session: f.session } : {}),
 		...(machines ? { machines } : {}),
-		...(mission &&
-		typeof mission.id === "string" &&
-		typeof mission.covers === "string"
-			? {
-					mission: {
-						id: mission.id.slice(0, 40),
-						covers: mission.covers.slice(0, 200),
-					},
-				}
-			: {}),
 		...(log.length ? { log } : {}),
 		...(card && !("error" in card) && card.kind === "butler-card"
 			? { card }

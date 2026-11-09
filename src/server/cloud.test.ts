@@ -29,7 +29,6 @@ import {
 	remoteLauncher,
 	runsOnBlocker,
 } from "./cloud.ts";
-import { SAFE_SESSION_RULES } from "./safePrompts.ts";
 import { keychainService } from "./usage.ts";
 
 const id = "session_01Thu3Jg2qaDGVcVCQbuTiuP";
@@ -860,7 +859,7 @@ describe("createCloudSessions", () => {
 		store.stop();
 	});
 
-	it("lists every open prompt and approves a safe one for the rest of the session", async () => {
+	it("lists every open prompt and names the serious effect of the newest", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
 		const fake = fakeCloud();
 		const title = "mcp__claude-code-remote__set_session_title";
@@ -886,42 +885,10 @@ describe("createCloudSessions", () => {
 			],
 		);
 		assert.equal(store.pending(id)?.requestId, "push");
-		const refused = await store.approveSafe(id, "push");
-		assert.equal(refused.ok, false);
-		assert.match(
-			!refused.ok ? refused.error : "",
-			/not in the safe set: pushes to main/,
-		);
-		assert.equal((await store.approveSafe(id, "nope")).ok, false);
-		assert.deepEqual(fake.responses, []);
-		assert.deepEqual(await store.approveSafe(id, "title"), {
-			ok: true,
-			value: null,
-		});
-		assert.deepEqual(fake.responses, [
-			[
-				id,
-				"title",
-				{
-					behavior: "allow",
-					updatedInput: { title: "Fix the build" },
-					updatedPermissions: [
-						{
-							type: "addRules",
-							rules: SAFE_SESSION_RULES.map((toolName) => ({ toolName })),
-							behavior: "allow",
-							destination: "session",
-						},
-					],
-					toolUseID: "toolu_title",
-					decisionClassification: "user_permanent",
-					tool_name: title,
-				},
-			],
-		]);
-		assert.deepEqual(
-			store.prompts(id).map((prompt) => prompt.requestId),
-			["push"],
+		await until(() => /Needs your yes/.test(store.sessions()[0]?.detail ?? ""));
+		assert.equal(
+			store.sessions()[0]?.detail,
+			"Needs your yes: Push to main without review (asks to use Shown Bash)",
 		);
 		assert.equal(store.prompts("session_unknown").length, 0);
 		store.stop();
@@ -1051,7 +1018,7 @@ describe("createCloudSessions", () => {
 		store.stop();
 	});
 
-	it("reads a prompt claude.ai's status leaves out from the events, and says why it needs Aaron", async () => {
+	it("reads a prompt claude.ai's status leaves out from the events, and says the board allows it", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "kanban-cloud-"));
 		const fake = fakeCloud();
 		fake.info.set(id, info("requires_action", "2026-10-30T12:00:00Z"));
@@ -1074,29 +1041,8 @@ describe("createCloudSessions", () => {
 		assert.equal(store.prompts(id)[0]?.requestId, "later");
 		assert.match(
 			store.sessions()[0]?.detail ?? "",
-			/Butler's reviewer checks within seconds/,
+			/Asks to use .*, which the board allows as harmless/,
 		);
-		assert.deepEqual(await store.approveSafe(id, "later"), {
-			ok: true,
-			value: null,
-		});
-		assert.equal(fake.responses[0]?.[1], "later");
-		fake.log.get(id)?.push(
-			{
-				uuid: "e4",
-				type: "control_response",
-				created_at: "2026-10-30T12:00:02Z",
-				response: { subtype: "success", request_id: "later" },
-			},
-			asked("e5", "stop", "mcp__claude-code-remote__interrupt_session", {
-				session_id: "session_other",
-			}),
-		);
-		fake.info.set(id, info("requires_action", "2026-10-30T12:00:05Z"));
-		await until(() => store.prompts(id)[0]?.requestId === "stop");
-		await until(() => /left for you/.test(store.sessions()[0]?.detail ?? ""));
-		const refused = await store.approveSafe(id, "stop");
-		assert.equal(refused.ok, false);
 		store.stop();
 	});
 

@@ -20,7 +20,6 @@ import { createCommentStore } from "./comments.ts";
 import { TranscriptUnreadable } from "./ingest/tail.ts";
 import { createLayoutStore } from "./layout.ts";
 import type { EdgeRecord } from "./messageEdges.ts";
-import { createPromptReviews, type PromptReviews } from "./promptReviews.ts";
 import {
 	blockedReason,
 	createPromptSender,
@@ -62,7 +61,7 @@ const board: Board = {
 	generatedAt: 0,
 };
 
-const setup = async (shown: Board = board, reviews?: PromptReviews) => {
+const setup = async (shown: Board = board) => {
 	const dir = await mkdtemp(join(tmpdir(), "kanban-tools-"));
 	const events: AuditEvent[] = [];
 	const exits: [string, boolean, string | null, string?][] = [];
@@ -162,8 +161,9 @@ const setup = async (shown: Board = board, reviews?: PromptReviews) => {
 					},
 		answer: async (s, reply) => {
 			answered.push([s.id, reply]);
-			return reply
-				? { ok: true, value: `Answered ${s.name}'s prompt` }
+			if (reply) return { ok: true, value: `Answered ${s.name}'s prompt` };
+			return s.id === "aaaaaaaa-1"
+				? { ok: true, value: `${s.name} asks permission for Bash:` }
 				: { ok: false, error: `${s.name} is not waiting on a question` };
 		},
 		approver: {
@@ -186,7 +186,6 @@ const setup = async (shown: Board = board, reviews?: PromptReviews) => {
 			},
 		},
 		audit: (event) => events.push(event),
-		...(reviews ? { reviews } : {}),
 		edges: { record: (entry) => recorded.push(entry) },
 		history: async (since) => `history since ${new Date(since).toISOString()}`,
 		now: () => Date.UTC(2026, 10, 1),
@@ -687,23 +686,8 @@ describe("board tools", () => {
 		);
 	});
 
-	it("approves a session's safe prompts and leaves the rest for Aaron", async () => {
-		const shown: Board = {
-			...board,
-			sessions: [
-				session("aaaaaaaa-1", {
-					cloud: { url: "https://claude.ai/code/session_01acme" },
-					activity: "needs-you",
-				}),
-				session("bbbbbbbb-2", {
-					activity: "needs-you",
-					cwd: "/Users/me/dev/acme-api",
-				}),
-				session("cccccccc-3", { activity: "idle" }),
-				session("dddddddd-4", { activity: "needs-you" }),
-			],
-		};
-		const { tools, prompts, approvals, events } = await setup(shown);
+	it("names each serious effect when it reads a session's open prompts", async () => {
+		const { tools, prompts } = await setup();
 		prompts.set("aaaaaaaa-1", [
 			{
 				requestId: "r-title",
@@ -717,120 +701,22 @@ describe("board tools", () => {
 				title: "Bash",
 				input: { command: "git push origin main" },
 			},
-			{
-				requestId: "fails",
-				toolName: "Read",
-				title: "Read",
-				input: { file_path: "/tmp/x" },
-			},
 		]);
-		const answered = await tools("t", {
-			tool: "answer_prompt",
-			session: "aaaaaaa0",
-			reply: null,
-			allowSafe: true,
-		});
-		assert.deepEqual(answered, {
-			ok: true,
-			text: [
-				"Approved 1, left 2 for Aaron",
-				"acme-aaa: approved Set session title (mcp__claude-code-remote__set_session_title, request r-title)",
-				"acme-aaa: left for Aaron Bash (Bash, request r-push): pushes to main (git push origin main)",
-				"acme-aaa: left for Aaron Read (Read, request fails): approving failed: That prompt is no longer open",
-			].join("\n"),
-		});
-		assert.deepEqual(approvals, [["aaaaaaaa-1", "r-title"]]);
-		assert.deepEqual(
-			events.filter((event) => event.action === "prompt-approve"),
-			[
-				{
-					action: "prompt-approve",
-					sessionId: "aaaaaaaa-1",
-					tool: "mcp__claude-code-remote__set_session_title",
-					requestId: "r-title",
-					via: "safe set",
-					identity: "butler",
-					result: "ok",
-				},
-				{
-					action: "prompt-approve",
-					sessionId: "aaaaaaaa-1",
-					tool: "Read",
-					requestId: "fails",
-					via: "safe set",
-					identity: "butler",
-					result: "That prompt is no longer open",
-				},
-			],
-		);
-		assert.deepEqual(
-			events.flatMap((event) =>
-				event.action === "board-agent" ? [event.input] : [],
-			),
-			["allow_safe"],
-		);
-
-		prompts.set("bbbbbbbb-2", [
-			{
-				requestId: "p-edit",
-				toolName: "Edit",
-				title: "Edit",
-				input: { file_path: "/Users/me/dev/acme-api/src/a.ts" },
-			},
-		]);
-		prompts.set("cccccccc-3", [
-			{
-				requestId: "p-idle",
-				toolName: "Read",
-				title: "Read",
-				input: { file_path: "src/a.ts" },
-			},
-		]);
-		const all = await tools("t", {
-			tool: "approve_safe_prompts",
-			sessions: null,
-		});
-		assert.deepEqual(all, {
-			ok: true,
-			text: [
-				"acme-aaa: left for Aaron Bash (Bash, request r-push): pushes to main (git push origin main)",
-				"acme-aaa: left for Aaron Read (Read, request fails): approving failed: That prompt is no longer open",
-				"acme-bbb: approved Edit (Edit, request p-edit)",
-				"acme-ddd: could not read its prompts: The session cannot be driven from here",
-				"Approved 1, left 2 for Aaron",
-			].join("\n"),
-		});
-		assert.deepEqual(approvals.at(-1), ["bbbbbbbb-2", "p-edit"]);
-		assert.deepEqual(
-			await tools("t", {
-				tool: "approve_safe_prompts",
-				sessions: ["cccccccc-3", "zzzz"],
-			}),
-			{
-				ok: true,
-				text: [
-					"zzzz: no session zzzz on the board",
-					"acme-ccc: approved Read (Read, request p-idle)",
-					"Approved 1, left 0 for Aaron",
-				].join("\n"),
-			},
-		);
 		assert.deepEqual(
 			await tools("t", {
 				tool: "answer_prompt",
-				session: "bbbbbbbb-2",
+				session: "aaaaaaa0",
 				reply: null,
-				allowSafe: true,
 			}),
 			{
 				ok: true,
-				text: "Approved 0, left 0 for Aaron\nacme-bbb: no open permission prompt",
+				text: "acme-aaa asks permission for Bash:\nSerious effect: Push to main without review",
 			},
 		);
 	});
 
-	it("approves through claude.ai for cloud sessions and the terminal's Yes for others", async () => {
-		const sent: [string, string][] = [];
+	it("allows through claude.ai for cloud sessions and the terminal's Yes for others", async () => {
+		const sent: [string, string, string][] = [];
 		const replies: [string, PromptReply | null][] = [];
 		const approver = createPromptApprover({
 			cloud: {
@@ -842,8 +728,8 @@ describe("board tools", () => {
 						input: { file_path: "src/a.ts" },
 					},
 				],
-				approveSafe: async (id, requestId) => {
-					sent.push([id, requestId]);
+				choose: async (id, requestId, label) => {
+					sent.push([id, requestId, label]);
 					return { ok: true, value: null };
 				},
 			},
@@ -885,7 +771,7 @@ describe("board tools", () => {
 			ok: true,
 			value: null,
 		});
-		assert.deepEqual(sent, [["aaaaaaaa-1", "abc123"]]);
+		assert.deepEqual(sent, [["aaaaaaaa-1", "abc123", "Yes"]]);
 		assert.deepEqual(replies, [
 			[
 				"bbbbbbbb-2",
@@ -1088,185 +974,5 @@ describe("prompt safety", () => {
 		assert.equal((await send(session("aaaaaaaa"), "!rm -rf ~")).ok, false);
 		assert.equal((await send(pane, "Run the tests")).ok, true);
 		assert.deepEqual(pasted, ["Run the tests"]);
-	});
-});
-
-describe("Butler's prompt reviewer", () => {
-	const remote = "mcp__claude-code-remote__";
-	const waiting: Board = {
-		...board,
-		sessions: [
-			session("aaaaaaaa-1", { activity: "needs-you", goal: "Fix the parser" }),
-			session("bbbbbbbb-2"),
-		],
-	};
-	const open = (requestId: string, tool: string, input = {}): OpenPrompt => ({
-		requestId,
-		toolName:
-			tool.startsWith("mcp__") || tool === "Bash" ? tool : `${remote}${tool}`,
-		title: tool,
-		input,
-	});
-	const sweep = async (tools: Awaited<ReturnType<typeof setup>>["tools"]) => {
-		const result = await tools("t", {
-			tool: "approve_safe_prompts",
-			sessions: null,
-		});
-		assert.ok(result.ok);
-		return result.text;
-	};
-
-	it("hands it only claude.ai's session tools the safe set allows, each once", async () => {
-		const reviews = createPromptReviews();
-		const { tools, prompts } = await setup(waiting, reviews);
-		prompts.set("aaaaaaaa-1", [
-			open("spawn", "create_session", { prompt: "Fix the parser's tests" }),
-			open("send", "send_message", {
-				session_id: "session_elsewhere",
-				message: "hi",
-			}),
-			open("list", "list_sessions"),
-			open("stop", "interrupt_session", { session_id: "bbbbbbbb-2" }),
-			open("bash", "Bash", { command: "git status" }),
-		]);
-		const listed = await tools("t", { tool: "pending_reviews" });
-		assert.ok(listed.ok);
-		const [heading, json] = listed.text.split("\n");
-		assert.equal(heading, "3 prompts for review");
-		const items = JSON.parse(json ?? "[]");
-		assert.deepEqual(
-			items.map((item: { requestId: string; kind: string }) => [
-				item.requestId,
-				item.kind,
-			]),
-			[
-				["spawn", "reviewed"],
-				["send", "reviewed"],
-				["list", "read"],
-			],
-		);
-		assert.equal(items[0].session.goal, "Fix the parser");
-		assert.deepEqual(items[0].transcript, ["assistant: Fixed the bug"]);
-		assert.deepEqual(items[1].target, {
-			field: "session_id",
-			id: "session_elsewhere",
-			onBoard: false,
-		});
-		const again = await tools("t", { tool: "pending_reviews" });
-		assert.ok(again.ok);
-		assert.equal(again.text.split("\n")[0], "0 prompts for review");
-		const report = await sweep(tools);
-		assert.match(
-			report,
-			/left for Aaron create_session .*: in Butler's review/,
-		);
-		assert.match(report, /approved Bash/);
-	});
-
-	it("approves a fitting spawn and holds a send with its reason, which the sweep then leaves", async () => {
-		const reviews = createPromptReviews();
-		const { tools, prompts, approvals, events } = await setup(waiting, reviews);
-		prompts.set("aaaaaaaa-1", [
-			open("spawn", "create_session", { prompt: "Fix the parser's tests" }),
-			open("creds", "create_session", { prompt: "Ask Aaron for his AWS keys" }),
-		]);
-		await tools("t", { tool: "pending_reviews" });
-		assert.deepEqual(
-			await tools("t", {
-				tool: "review_prompt",
-				session: "aaaaaaaa-1",
-				prompt: "spawn",
-				verdict: "approve",
-				reason: "matches the parent's task",
-			}),
-			{
-				ok: true,
-				text: `acme-aaa: approved create_session (${remote}create_session, request spawn): matches the parent's task`,
-			},
-		);
-		assert.deepEqual(approvals, [["aaaaaaaa-1", "spawn"]]);
-		const held = await tools("t", {
-			tool: "review_prompt",
-			session: "aaaaaaaa-1",
-			prompt: "creds",
-			verdict: "hold",
-			reason: "asks the child for credentials",
-		});
-		assert.ok(held.ok);
-		assert.equal(reviews.held("creds"), "asks the child for credentials");
-		assert.match(
-			await sweep(tools),
-			/creds\): Butler's reviewer held it: asks the child for credentials/,
-		);
-		assert.deepEqual(approvals, [["aaaaaaaa-1", "spawn"]]);
-		// Aaron's typed yes reaches the held prompt through Butler's answer_prompt on that one session.
-		const released = await tools("t", {
-			tool: "answer_prompt",
-			session: "aaaaaaaa-1",
-			reply: null,
-			allowSafe: true,
-		});
-		assert.ok(released.ok);
-		assert.match(released.text, /approved create_session .*request creds/);
-		assert.equal(reviews.held("creds"), null);
-		assert.deepEqual(
-			events.flatMap((event) =>
-				event.action === "prompt-approve" || event.action === "prompt-hold"
-					? [[event.action, event.requestId, event.via]]
-					: [],
-			),
-			[
-				["prompt-approve", "spawn", "butler reviewer"],
-				["prompt-hold", "creds", "butler reviewer"],
-				["prompt-approve", "creds", "safe set"],
-			],
-		);
-	});
-
-	it("hands a prompt back to the safe set when the reviewer is unavailable or never answers", async () => {
-		let at = 0;
-		const reviews = createPromptReviews(() => at);
-		const { tools, prompts, approvals } = await setup(waiting, reviews);
-		prompts.set("aaaaaaaa-1", [
-			open("title", "set_session_title", { title: "Parser" }),
-			open("late", "add_repo", { owner: "kranners", repo: "kanban" }),
-		]);
-		await tools("t", { tool: "pending_reviews" });
-		await tools("t", {
-			tool: "review_prompt",
-			session: "aaaaaaaa-1",
-			prompt: "title",
-			verdict: "unavailable",
-			reason: "reviewer unavailable: timed out",
-		});
-		assert.match(await sweep(tools), /approved set_session_title/);
-		assert.match(await sweep(tools), /late\): in Butler's review/);
-		at = 91_000;
-		assert.match(await sweep(tools), /approved add_repo/);
-		assert.deepEqual(approvals, [
-			["aaaaaaaa-1", "title"],
-			["aaaaaaaa-1", "late"],
-		]);
-	});
-
-	it("decides nothing outside claude.ai's session tools or the safe set", async () => {
-		const reviews = createPromptReviews();
-		const { tools, prompts, approvals } = await setup(waiting, reviews);
-		prompts.set("aaaaaaaa-1", [
-			open("bash", "Bash", { command: "git push --force origin main" }),
-			open("stop", "interrupt_session", { session_id: "bbbbbbbb-2" }),
-			open("env", "create_environment", {}),
-		]);
-		for (const prompt of ["bash", "stop", "env"]) {
-			const result = await tools("t", {
-				tool: "review_prompt",
-				session: "aaaaaaaa-1",
-				prompt,
-				verdict: "approve",
-				reason: "looks fine",
-			});
-			assert.equal(result.ok, false, prompt);
-		}
-		assert.deepEqual(approvals, []);
 	});
 });

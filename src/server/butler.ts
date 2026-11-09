@@ -20,7 +20,6 @@ import {
 	type ButlerApprovalPress,
 	type ButlerCard,
 	type ButlerCardEvent,
-	type ButlerCardMission,
 	type ButlerCardState,
 	type ButlerDm,
 	type ButlerMood,
@@ -43,7 +42,6 @@ import {
 	maxButlerSummary,
 	maxButlerTitle,
 	maxCardMachines,
-	maxMissionCovers,
 	maxNoteText,
 	maxThreadApprovals,
 	maxThreadEvents,
@@ -67,7 +65,6 @@ import {
 	type AnnotationStore,
 	parseAnnotation,
 	parseCardMachines,
-	parseCardMission,
 } from "./annotations.ts";
 import {
 	type ArchiveStore,
@@ -167,8 +164,6 @@ export const sessionTools = new Set<ToolCall["tool"]>([
 	"send_prompt",
 	"announce",
 	"answer_prompt",
-	"approve_safe_prompts",
-	"review_prompt",
 	"finish_session",
 	"start_session",
 ]);
@@ -509,7 +504,6 @@ const sameCard = (a: ButlerCard, b: ButlerCard): boolean =>
 	a.parent === b.parent &&
 	a.desk === b.desk &&
 	a.boardThread === b.boardThread &&
-	JSON.stringify(a.mission) === JSON.stringify(b.mission) &&
 	JSON.stringify(a.machines) === JSON.stringify(b.machines) &&
 	a.stale === b.stale &&
 	a.startedAt === b.startedAt &&
@@ -601,7 +595,6 @@ export type ThreadEntry = {
 	parent?: string;
 	desk?: { id: string; task: string; state: string };
 	boardThread?: string;
-	mission?: ButlerCardMission;
 	machines?: string[];
 	/** The daemon's question to Aaron there has waited over 6 hours with nothing since. */
 	stale?: boolean;
@@ -610,17 +603,6 @@ export type ThreadEntry = {
 	mood?: ButlerMood;
 	events: ButlerThreadEvent[];
 	approvals: ButlerThreadApproval[];
-};
-
-/** A thread's mission as the daemon sends it, its covers line folded and clipped; nothing when there is none. */
-const threadMission = (raw: unknown): { mission?: ButlerCardMission } => {
-	if (typeof raw !== "object" || raw === null) return {};
-	const covers = (raw as Fields).covers;
-	const mission = parseCardMission({
-		id: (raw as Fields).id,
-		covers: typeof covers === "string" ? oneLine(covers, maxMissionCovers) : "",
-	});
-	return mission ? { mission } : {};
 };
 
 /** The machines a thread drove, the valid names alone, at most maxCardMachines. */
@@ -689,7 +671,6 @@ export const parseThreadEntry = (value: unknown): ThreadEntry | null => {
 		boardThreadPattern.test(f.boardThread)
 			? { boardThread: f.boardThread }
 			: {}),
-		...threadMission(f.mission),
 		...threadMachines(f.machines),
 		...(f.stale === true ? { stale: true } : {}),
 		private: f.private,
@@ -1437,7 +1418,6 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				...(parent ? { parent } : {}),
 				...(entry.desk ? { desk: entry.desk.id } : {}),
 				...(entry.boardThread ? { boardThread: entry.boardThread } : {}),
-				...(entry.mission ? { mission: entry.mission } : {}),
 				...(entry.machines ? { machines: entry.machines } : {}),
 				...(entry.stale ? { stale: true } : {}),
 				...kept(before),
@@ -1543,7 +1523,6 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			},
 			...(entry.parent ? { parent: threadCardId(entry.parent) } : {}),
 			...(entry.desk ? { desk: entry.desk.id } : {}),
-			...(entry.mission ? { mission: entry.mission } : {}),
 			...(entry.machines ? { machines: entry.machines } : {}),
 			startedAt: entry.createdAt,
 			...threadFinish(entry),

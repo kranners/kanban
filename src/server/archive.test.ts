@@ -93,7 +93,6 @@ describe("The archive's rules", () => {
 			card({
 				parent: "thread-1",
 				machines: ["pilot"],
-				mission: { id: "m1", covers: "mail" },
 			}),
 			{
 				project: "Butler",
@@ -108,7 +107,6 @@ describe("The archive's rules", () => {
 		assert.equal(entry.report, "All done");
 		assert.equal(entry.parent?.title, "DM");
 		assert.deepEqual(entry.machines, ["pilot"]);
-		assert.equal(entry.mission?.id, "m1");
 		const change = entryOfCard(
 			card({
 				id: "self-fix-20261106-141450-1",

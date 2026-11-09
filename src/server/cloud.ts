@@ -22,9 +22,8 @@ import {
 import { claudeEnv } from "./accounts.ts";
 import { lastLine, stripAnsi } from "./ansi.ts";
 import type { CmuxResult } from "./cmux.ts";
+import { seriousEffect } from "./effects.ts";
 import { asObject, asString } from "./ingest/json.ts";
-import { promptReviews, reviewKind } from "./promptReviews.ts";
-import { promptVerdict, SAFE_SESSION_RULES } from "./safePrompts.ts";
 import { accountCommand, untrustedHint } from "./sessions.ts";
 import { createStateFile, readState } from "./stateFile.ts";
 import type { RemotePrompt, SessionTty } from "./terminals.ts";
@@ -455,12 +454,6 @@ export type CloudSessions = {
 	pending(id: string): RemotePrompt | null;
 	/** Every prompt the session is waiting on, oldest first. */
 	prompts(id: string): RemotePrompt[];
-	/**
-	 * Approves an open prompt the safe set allows, granting the session the
-	 * whole input-free safe set for the rest of its life, so it stops asking
-	 * for those tools.
-	 */
-	approveSafe(id: string, requestId: string): Promise<CmuxResult<null>>;
 	choose(
 		id: string,
 		requestId: string,
@@ -613,29 +606,18 @@ const closedOf = (event: CloudEvent): string | null => {
 };
 
 /**
- * Why a cloud session needs Aaron, in one line for its card: the prompt it
- * waits on and whether the safe sweep approves it, so a needs-you is never a
- * mystery.
+ * Why a cloud session needs Aaron, in one line for its card: the serious
+ * effect of the prompt it waits on, or that the board is allowing it.
  */
-export const waitingWhy = (
-	prompts: readonly OpenAction[],
-	verdict: (prompt: OpenAction) => { safe: boolean; reason?: string },
-): string => {
+export const waitingWhy = (prompts: readonly OpenAction[]): string => {
 	const prompt = prompts.at(-1);
 	if (!prompt) {
 		return "Waiting on something claude.ai shows but the board cannot read; open the session";
 	}
-	const held = promptReviews.held(prompt.requestId);
-	if (held !== null) {
-		return `Asks to use ${prompt.title}, held for you by Butler's reviewer: ${held}`;
-	}
-	const judged = verdict(prompt);
-	if (!judged.safe) {
-		return `Asks to use ${prompt.title}, left for you: ${judged.reason}`;
-	}
-	return reviewKind(prompt.toolName) === null
-		? `Asks to use ${prompt.title}, which the safe sweep approves within a minute`
-		: `Asks to use ${prompt.title}, which Butler's reviewer checks within seconds`;
+	const effect = seriousEffect(prompt.toolName, prompt.input);
+	return effect
+		? `Needs your yes: ${effect} (asks to use ${prompt.title})`
+		: `Asks to use ${prompt.title}, which the board allows as harmless`;
 };
 
 const promptFor = (action: OpenAction, asked?: Asked): CloudPrompt => ({
@@ -645,16 +627,6 @@ const promptFor = (action: OpenAction, asked?: Asked): CloudPrompt => ({
 		: [allowOnce, refuseOnce],
 	suggestions: asked?.suggestions ?? [],
 });
-
-/** The permission update that grants a cloud session the safe set for the rest of its life. */
-export const safeSessionGrant = () => [
-	{
-		type: "addRules",
-		rules: SAFE_SESSION_RULES.map((toolName) => ({ toolName })),
-		behavior: "allow",
-		destination: "session",
-	},
-];
 
 const answering = (prompt: CloudPrompt) => ({
 	...(prompt.toolUseId !== null && { toolUseID: prompt.toolUseId }),
@@ -943,20 +915,7 @@ export const createCloudSessions = async ({
 			if (item.waiting.length === 0) item.waiting = askedWaiting(item);
 			item.session = {
 				...item.session,
-				detail:
-					item.session.detail ??
-					waitingWhy(item.waiting, (prompt) =>
-						promptVerdict(
-							prompt.toolName,
-							prompt.title,
-							prompt.input,
-							undefined,
-							{
-								self: id,
-								onBoard: (other) => tracked.has(other),
-							},
-						),
-					),
+				detail: item.session.detail ?? waitingWhy(item.waiting),
 			};
 		}
 		reported.delete(id);
@@ -1047,34 +1006,6 @@ export const createCloudSessions = async ({
 			return item
 				? openPrompts(item).map(({ suggestions: _, ...shown }) => shown)
 				: [];
-		},
-		approveSafe(id, requestId) {
-			const item = tracked.get(id);
-			const prompt = item
-				? openPrompts(item).find((open) => open.requestId === requestId)
-				: undefined;
-			if (!prompt) return Promise.resolve(closed);
-			const verdict = promptVerdict(
-				prompt.toolName,
-				prompt.title,
-				prompt.input,
-				undefined,
-				{ self: id, onBoard: (other) => tracked.has(other) },
-			);
-			if (!verdict.safe) {
-				return Promise.resolve({
-					ok: false,
-					error: `That prompt is not in the safe set: ${verdict.reason}`,
-				});
-			}
-			return respond(id, requestId, (open) => ({
-				behavior: "allow",
-				updatedInput: open.input,
-				updatedPermissions: safeSessionGrant(),
-				...answering(open),
-				decisionClassification: "user_permanent",
-				tool_name: open.toolName,
-			}));
 		},
 		choose: (id, requestId, label) =>
 			respond(id, requestId, (prompt) => decisionFor(prompt, label)),

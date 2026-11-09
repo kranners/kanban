@@ -35,6 +35,7 @@ import { createArchiveStore, loadArchive } from "./archive.ts";
 import { claudeAttachPty, createAttachHub } from "./attach.ts";
 import { fileAudit } from "./audit.ts";
 import { authenticatorFor, runnerTokenCheck } from "./auth.ts";
+import { createAutoAnswer } from "./autoAnswer.ts";
 import {
 	createBoardTools,
 	createPromptApprover,
@@ -643,6 +644,7 @@ const announce = createAnnouncer({
 	prompt: conversation.prompt,
 	audit,
 });
+const promptApprover = createPromptApprover({ cloud, terminal: conversation });
 const boardTools = createBoardTools({
 	source,
 	edges: messageEdges,
@@ -661,7 +663,7 @@ const boardTools = createBoardTools({
 	}),
 	announce,
 	answer: conversation.respond,
-	approver: createPromptApprover({ cloud, terminal: conversation }),
+	approver: promptApprover,
 	history: (since) =>
 		readHistory(
 			{
@@ -735,6 +737,12 @@ butler = createButler({
 		setTimeout(run, ms).unref();
 	},
 });
+const autoAnswer = createAutoAnswer({
+	sessions: () => source.board().sessions,
+	approver: promptApprover,
+	audit,
+});
+const autoAnswerPoll = setInterval(() => void autoAnswer(), 3000);
 const relayCheck = setInterval(() => {
 	butler?.inbox?.check();
 	butler?.check();
@@ -816,6 +824,7 @@ const listening = listenAll(server, config.hosts, config.port, (host) => {
 
 const shutdown = () => {
 	clearInterval(relayCheck);
+	clearInterval(autoAnswerPoll);
 	source.stop();
 	cloud.stop();
 	clearInterval(cmuxPoll);

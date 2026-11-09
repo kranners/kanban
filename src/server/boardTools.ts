@@ -36,6 +36,7 @@ import { summariesOf } from "../web/summaries.ts";
 import { type AnnotationStore, parseAnnotation } from "./annotations.ts";
 import { type Announcer, describeDeliveries } from "./announce.ts";
 import type { Audit } from "./audit.ts";
+import { promptEffect } from "./autoAnswer.ts";
 import { allowOnce } from "./cloud.ts";
 import type { CmuxResult } from "./cmux.ts";
 import type { ColourStore } from "./colours.ts";
@@ -46,18 +47,12 @@ import { truncate } from "./ingest/json.ts";
 import { TranscriptUnreadable } from "./ingest/tail.ts";
 import { boardKeys, type LayoutStore } from "./layout.ts";
 import type { EdgeRecord } from "./messageEdges.ts";
-import {
-	type PromptReviews,
-	promptReviews,
-	reviewKind,
-} from "./promptReviews.ts";
 import type { PromptSender } from "./prompts.ts";
 import {
 	parseRegionDraft,
 	parseRegionPatch,
 	type RegionStore,
 } from "./regions.ts";
-import { promptVerdict } from "./safePrompts.ts";
 import { type SessionLauncher, validateNewSession } from "./sessions.ts";
 
 export type ToolOutcome =
@@ -84,10 +79,8 @@ export type BoardToolDeps = {
 	prompt: PromptSender;
 	announce: Announcer;
 	answer: PromptAnswerer;
-	/** Reads and approves the permission prompts a session waits on, for the safe set. */
+	/** Reads the permission prompts a session waits on, to name their serious effects. */
 	approver: PromptApprover;
-	/** Butler's reviewer's holds and reviews of claude.ai session tools' prompts; the board's own store by default. */
-	reviews?: PromptReviews;
 	history: (since: number) => Promise<string>;
 	audit: Audit;
 	/** Counts the prompts a Butler thread sends sessions, for the board's message edges. */
@@ -101,7 +94,7 @@ export type PromptAnswerer = (
 	reply: PromptReply | null,
 ) => Promise<CmuxResult<string>>;
 
-/** A permission prompt a session waits on, as the safe set judges it. */
+/** A permission prompt a session waits on. */
 export type OpenPrompt = {
 	requestId: string;
 	toolName: string;
@@ -112,21 +105,19 @@ export type OpenPrompt = {
 export type PromptApprover = {
 	/** Every prompt the session is waiting on; none while it waits on nothing. */
 	open(session: Session): Promise<CmuxResult<OpenPrompt[]>>;
-	/**
-	 * Approves one, as a cloud session's whole safe set for the rest of its
-	 * life, or a terminal session's Yes.
-	 */
+	/** Allows it once. */
 	approve(session: Session, prompt: OpenPrompt): Promise<CmuxResult<null>>;
 };
 
-/**
- * Cloud sessions' prompts come from claude.ai, where an approval grants the
- * whole safe set; other sessions' from their terminal, where it picks Yes.
- */
+/** Cloud sessions' prompts come from claude.ai, other sessions' from their terminal; either is allowed with Yes. */
 export const createPromptApprover = (deps: {
 	cloud: {
 		prompts(id: string): OpenPrompt[];
-		approveSafe(id: string, requestId: string): Promise<CmuxResult<null>>;
+		choose(
+			id: string,
+			requestId: string,
+			label: string,
+		): Promise<CmuxResult<null>>;
 	};
 	terminal: {
 		waiting(session: Session): Promise<CmuxResult<OpenPrompt[]>>;
@@ -142,7 +133,7 @@ export const createPromptApprover = (deps: {
 			: deps.terminal.waiting(session),
 	approve: async (session, prompt) => {
 		if (session.cloud) {
-			return deps.cloud.approveSafe(session.id, prompt.requestId);
+			return deps.cloud.choose(session.id, prompt.requestId, allowOnce);
 		}
 		const answered = await deps.terminal.respond(session, {
 			prompt: prompt.requestId,
@@ -395,126 +386,10 @@ const cardPlacement = (
 export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 	const newId = deps.newId ?? randomUUID;
 	const now = deps.now ?? Date.now;
-	const reviews = deps.reviews ?? promptReviews;
 
 	const sessionFor = (ref: string): Session | ToolOutcome =>
 		findSession(deps.source.board(), ref) ??
 		refused(`No session ${ref} on the board; use board_snapshot for ids`);
-
-	const verdictFor = (session: Session, prompt: OpenPrompt) =>
-		promptVerdict(
-			prompt.toolName,
-			prompt.title,
-			prompt.input,
-			session.cloud ? undefined : session.cwd,
-			{
-				self: session.id,
-				onBoard: (id) => findSession(deps.source.board(), id) !== null,
-			},
-		);
-
-	/** The other board session a prompt names, as its session_id or another target field. */
-	const promptTarget = (input: Record<string, unknown>) => {
-		for (const field of [
-			"session_id",
-			"persistent_session_id",
-			"target_session_id",
-		]) {
-			const id = input[field];
-			if (typeof id !== "string" || id === "") continue;
-			const found = findSession(deps.source.board(), id);
-			return {
-				field,
-				id,
-				onBoard: found !== null,
-				...(found ? { name: found.name, cwd: found.cwd } : {}),
-			};
-		}
-		return null;
-	};
-
-	const reviewTranscript = async (session: Session): Promise<string[]> => {
-		try {
-			const entries = await deps.source.transcript(session.id, 12);
-			return entries.map(
-				(entry) => `${entry.role}: ${truncate(entry.text, 300)}`,
-			);
-		} catch (error) {
-			return [`(transcript unreadable: ${(error as Error).message})`];
-		}
-	};
-
-	type SafeReport = { lines: string[]; approved: number; left: number };
-
-	/**
-	 * releaseHeld is answer_prompt's allow_safe on one named session, Butler acting on Aaron's yes, which also
-	 * approves what the reviewer held or is judging; the sweep over every session never does.
-	 */
-	const approveSafe = async (
-		session: Session,
-		releaseHeld = false,
-	): Promise<SafeReport> => {
-		const open = await deps.approver.open(session);
-		if (!open.ok) {
-			return {
-				lines: [`${session.name}: could not read its prompts: ${open.error}`],
-				approved: 0,
-				left: 0,
-			};
-		}
-		if (open.value.length === 0) {
-			return {
-				lines: [`${session.name}: no open permission prompt`],
-				approved: 0,
-				left: 0,
-			};
-		}
-		const report: SafeReport = { lines: [], approved: 0, left: 0 };
-		for (const prompt of open.value) {
-			const named = `${prompt.title} (${prompt.toolName}, request ${prompt.requestId})`;
-			const heldBy = reviews.held(prompt.requestId);
-			if (releaseHeld) {
-				reviews.release(prompt.requestId);
-			} else if (heldBy !== null || reviews.reviewing(prompt.requestId)) {
-				report.left += 1;
-				report.lines.push(
-					`${session.name}: left for Aaron ${named}: ${heldBy === null ? "in Butler's review" : `Butler's reviewer held it: ${heldBy}`}`,
-				);
-				continue;
-			}
-			const verdict = verdictFor(session, prompt);
-			if (!verdict.safe) {
-				report.left += 1;
-				report.lines.push(
-					`${session.name}: left for Aaron ${named}: ${verdict.reason}`,
-				);
-				continue;
-			}
-			const approved = await deps.approver.approve(session, prompt);
-			deps.audit({
-				action: "prompt-approve",
-				sessionId: session.id,
-				tool: prompt.toolName,
-				requestId: prompt.requestId,
-				via: "safe set",
-				identity: agentIdentity,
-				result: approved.ok ? "ok" : approved.error,
-			});
-			if (approved.ok) {
-				report.approved += 1;
-				report.lines.push(`${session.name}: approved ${named}`);
-			} else {
-				report.left += 1;
-				report.lines.push(
-					`${session.name}: left for Aaron ${named}: approving failed: ${approved.error}`,
-				);
-			}
-		}
-		return report;
-	};
-
-	const tally = ({ approved, left }: SafeReport) =>
-		`Approved ${approved}, left ${left} for Aaron`;
 
 	const store = (
 		annotation: unknown,
@@ -610,155 +485,20 @@ export const createBoardTools = (deps: BoardToolDeps): BoardTools => {
 				? done(describeDeliveries(result.deliveries))
 				: refused(result.error);
 		},
-		answer_prompt: async ({ session: ref, reply, allowSafe }) => {
+		answer_prompt: async ({ session: ref, reply }) => {
 			const session = sessionFor(ref);
 			if ("ok" in session) return session;
-			if (allowSafe) {
-				const report = await approveSafe(session, true);
-				return done([tally(report), ...report.lines].join("\n"));
-			}
 			const result = await deps.answer(session, reply);
-			return result.ok ? done(result.value) : refused(result.error);
-		},
-		approve_safe_prompts: async ({ sessions: refs }) => {
-			const board = deps.source.board();
-			const missing: string[] = [];
-			const targets = refs
-				? refs.flatMap((ref) => {
-						const found = findSession(board, ref);
-						if (!found) missing.push(ref);
-						return found ? [found] : [];
-					})
-				: board.sessions.filter((s) => s.activity === "needs-you");
-			const total: SafeReport = {
-				lines: missing.map((ref) => `${ref}: no session ${ref} on the board`),
-				approved: 0,
-				left: 0,
-			};
-			for (const session of new Set(targets)) {
-				const report = await approveSafe(session);
-				total.lines.push(...report.lines);
-				total.approved += report.approved;
-				total.left += report.left;
-			}
-			if (targets.length === 0 && missing.length === 0) {
-				total.lines.push("No session needs Aaron");
-			}
-			return done([...total.lines, tally(total)].join("\n"));
-		},
-		pending_reviews: async () => {
-			const listed: unknown[] = [];
-			for (const session of deps.source
-				.board()
-				.sessions.filter((s) => s.activity === "needs-you")) {
-				const open = await deps.approver.open(session);
-				if (!open.ok) continue;
-				const fresh = open.value.filter(
-					(prompt) =>
-						reviewKind(prompt.toolName) !== null &&
-						verdictFor(session, prompt).safe &&
-						reviews.claim(prompt.requestId),
-				);
-				if (fresh.length === 0) continue;
-				const transcript = fresh.some(
-					(prompt) => reviewKind(prompt.toolName) === "reviewed",
-				)
-					? await reviewTranscript(session)
-					: [];
-				for (const prompt of fresh) {
-					listed.push({
-						session: {
-							id: session.id,
-							name: session.name,
-							cwd: session.cwd,
-							region: session.project,
-							goal: session.goal,
-							doing: session.doing,
-							cloud: session.cloud !== undefined,
-							...(session.parent
-								? { parent: session.parent.title ?? session.parent.thread }
-								: {}),
-						},
-						requestId: prompt.requestId,
-						tool: prompt.toolName,
-						title: prompt.title,
-						kind: reviewKind(prompt.toolName),
-						input: truncate(JSON.stringify(prompt.input), 4000),
-						target: promptTarget(prompt.input),
-						transcript,
-					});
-				}
-			}
-			return done(
-				`${plural(listed.length, "prompt")} for review\n${JSON.stringify(listed)}`,
-			);
-		},
-		review_prompt: async ({
-			session: ref,
-			prompt: requestId,
-			verdict,
-			reason,
-		}) => {
-			const session = sessionFor(ref);
-			if ("ok" in session) return session;
+			if (!result.ok) return refused(result.error);
+			if (reply) return done(result.value);
 			const open = await deps.approver.open(session);
-			const prompt = open.ok
-				? open.value.find((each) => each.requestId === requestId)
-				: undefined;
-			if (!prompt) {
-				reviews.release(requestId);
-				return refused(`${session.name} has no open prompt ${requestId}`);
-			}
-			// The reviewer only ever narrows the safe set: outside claude.ai's session tools, or outside the safe set, it decides nothing.
-			if (reviewKind(prompt.toolName) === null) {
-				reviews.release(requestId);
-				return refused(
-					`${prompt.toolName} is not one of claude.ai's session tools the reviewer judges`,
-				);
-			}
-			const fixed = verdictFor(session, prompt);
-			if (!fixed.safe) {
-				reviews.release(requestId);
-				return refused(
-					`${prompt.title} is not in the safe set, so it stays Aaron's: ${fixed.reason}`,
-				);
-			}
-			if (verdict === "hold") {
-				reviews.hold(requestId, reason);
-				deps.audit({
-					action: "prompt-hold",
-					sessionId: session.id,
-					tool: prompt.toolName,
-					requestId,
-					via: "butler reviewer",
-					identity: agentIdentity,
-					result: reason,
-				});
-				return done(
-					`${session.name}: held ${prompt.title} for Aaron: ${reason}`,
-				);
-			}
-			reviews.release(requestId);
-			if (verdict === "unavailable") {
-				return done(
-					`${session.name}: ${prompt.title} goes back to the safe set: ${reason}`,
-				);
-			}
-			const approved = await deps.approver.approve(session, prompt);
-			deps.audit({
-				action: "prompt-approve",
-				sessionId: session.id,
-				tool: prompt.toolName,
-				requestId,
-				via: "butler reviewer",
-				identity: agentIdentity,
-				result: approved.ok ? "ok" : approved.error,
-			});
-			return approved.ok
-				? done(
-						`${session.name}: approved ${prompt.title} (${prompt.toolName}, request ${requestId}): ${reason}`,
-					)
-				: refused(`approving failed: ${approved.error}`);
+			const effects = open.ok
+				? open.value.flatMap((prompt) => {
+						const effect = promptEffect(session, prompt);
+						return effect ? [`Serious effect: ${effect}`] : [];
+					})
+				: [];
+			return done([result.value, ...effects].join("\n"));
 		},
 		finish_session: async ({
 			session: ref,
@@ -1081,15 +821,7 @@ const inputOf = (call: ToolCall): string | null => {
 	}
 	if (call.tool === "ask_session") return call.question;
 	if (call.tool === "answer_prompt") {
-		return call.allowSafe ? "allow_safe" : JSON.stringify(call.reply);
-	}
-	if (call.tool === "review_prompt") {
-		return `${call.verdict} ${call.prompt}: ${call.reason}`;
-	}
-	if (call.tool === "approve_safe_prompts") {
-		return call.sessions
-			? call.sessions.join(", ")
-			: "every session needing Aaron";
+		return JSON.stringify(call.reply);
 	}
 	if (call.tool === "start_session") return call.prompt;
 	return null;

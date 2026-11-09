@@ -2681,7 +2681,7 @@ describe("createKanbanServer", () => {
 					title: "Desk session: tidy",
 					kind: "desk",
 					state: "needs-you",
-					status: "Waiting on Aaron: Mission request: tidy",
+					status: "Waiting on Aaron: Allow a command: tidy",
 					link: "https://discord.com/channels/1/33333333",
 					createdAt: 1,
 					lastActiveAt: 2,
@@ -2690,9 +2690,9 @@ describe("createKanbanServer", () => {
 					approvals: [
 						{
 							at: 2,
-							headline: "Mission request: tidy",
+							headline: "Allow a command: tidy",
 							code: "qwert",
-							kind: "desk",
+							kind: "call",
 							nonce,
 						},
 					],

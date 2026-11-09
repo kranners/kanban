@@ -137,14 +137,6 @@ function Row(props: {
 					{entry.parent && (
 						<p class="archive-line">Asked by {entry.parent.title}</p>
 					)}
-					{entry.mission && (
-						<p class="archive-line">
-							<span class="butler-chip butler-chip-mission">
-								Mission {entry.mission.id}
-							</span>{" "}
-							{entry.mission.covers}
-						</p>
-					)}
 					{entry.machines && entry.machines.length > 0 && (
 						<p class="archive-line">
 							{entry.machines.map((m) => (

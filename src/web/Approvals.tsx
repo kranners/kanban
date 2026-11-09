@@ -22,7 +22,7 @@ import { useRestoreFocus } from "./restoreFocus.ts";
 // Approving Butler's requests from the board: each request's card laid out
 // as Discord shows it, with Approve and Decline that count as Aaron's own
 // press, Approve held for a second on anything critical, and the Waiting on
-// you panel, which lists every request and approves the safe ones at once.
+// you panel, which lists every request with Approve all.
 
 /** Whether the Waiting on you panel is open. */
 export const approvalsOpen = signal(false);
@@ -434,9 +434,9 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 					<section class="approvals-sessions">
 						<p>
 							{sessions} board session{sessions === 1 ? "" : "s"} wait
-							{sessions === 1 ? "s" : ""} on a prompt. The safe ones are
-							approved for you every minute; the rest show their real prompt
-							with its buttons in the session.
+							{sessions === 1 ? "s" : ""} on a prompt. The board allows every
+							harmless prompt itself, so a session still waiting here has a
+							serious one, also asked in Discord.
 						</p>
 						<button
 							type="button"
