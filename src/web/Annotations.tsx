@@ -69,6 +69,8 @@ import {
 } from "./notes.ts";
 import type { Rect } from "./placement.ts";
 import { spacedFrom, spacedMove, spacedResize } from "./placement.ts";
+import { cardOwners, inFilter, projectFilter } from "./projectRegions.ts";
+import { projectsById } from "./projects.ts";
 import {
 	openReport,
 	ReportDashboard,
@@ -372,6 +374,7 @@ function AnnotationView(props: {
 	selected: boolean;
 	editing: boolean;
 	region?: RegionColour;
+	dimmed?: boolean;
 }): JSX.Element {
 	const { annotation } = props;
 	const kindClass =
@@ -380,7 +383,7 @@ function AnnotationView(props: {
 			: annotation.kind;
 	return (
 		<div
-			class={`annotation ${kindClass}${props.selected ? " selected" : ""}${props.editing ? " editing" : ""}`}
+			class={`annotation ${kindClass}${props.selected ? " selected" : ""}${props.editing ? " editing" : ""}${props.dimmed ? " filtered-out" : ""}`}
 			style={position(annotation)}
 			data-annotation={annotation.id}
 			data-no-pan
@@ -452,6 +455,12 @@ export function ReportModalHost(): JSX.Element | null {
 export function AnnotationLayer(): JSX.Element {
 	const chosen = selection.value;
 	const open = editing.value;
+	const filter = projectFilter.value;
+	const owners = cardOwners.value;
+	const byId = projectsById.value;
+	const dimmed = (annotation: Annotation) =>
+		annotation.kind === "butler-card" &&
+		!inFilter(filter, { card: annotation.id }, owners, byId);
 	const regions = new Map<string, RegionColour>();
 	for (const project of groups.value) {
 		for (const id of project.cards ?? [])
@@ -466,6 +475,7 @@ export function AnnotationLayer(): JSX.Element {
 					selected={chosen.has(annotation.id)}
 					editing={open === annotation.id}
 					region={regions.get(annotation.id)}
+					dimmed={dimmed(annotation)}
 				/>
 			))}
 		</>

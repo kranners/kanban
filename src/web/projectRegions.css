@@ -1,0 +1,169 @@
+.project-region-header {
+	position: absolute;
+	top: 32px;
+	left: 0;
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	height: 32px;
+	padding: 0 12px;
+	overflow: hidden;
+	font-size: 12px;
+	color: var(--ink-2, var(--ink));
+	pointer-events: auto;
+}
+
+.project-region-where {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.project-region-stage {
+	flex: none;
+	padding: 1px 8px;
+	border-radius: 999px;
+	background: color-mix(
+		in srgb,
+		var(--region-border, var(--hairline)) 35%,
+		transparent
+	);
+	font-weight: 600;
+	font-size: 11px;
+	white-space: nowrap;
+}
+
+.project-region-stage:is(.stage-building, .stage-landing) {
+	background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.project-region-stage.stage-live {
+	background: color-mix(in srgb, var(--green) 22%, transparent);
+}
+.project-region-stage:is(.stage-paused, .stage-dropped, .stage-done) {
+	opacity: 0.7;
+}
+
+.project-region-counts {
+	display: flex;
+	flex: none;
+	gap: 6px;
+}
+
+.project-region-count {
+	padding: 1px 6px;
+	border-radius: 999px;
+	white-space: nowrap;
+	color: var(--status);
+	background: color-mix(in srgb, var(--status) 14%, transparent);
+}
+
+.status-working {
+	--status: var(--accent);
+}
+.status-needs-you {
+	--status: var(--amber);
+}
+.status-stalled {
+	--status: var(--amber);
+}
+.status-failed {
+	--status: var(--red);
+}
+.status-idle {
+	--status: var(--idle-edge);
+}
+.status-done {
+	--status: var(--green);
+}
+
+.project-region-button {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 8px;
+	border: 1px solid var(--hairline);
+	border-radius: 999px;
+	background: var(--surface);
+	color: inherit;
+	font: inherit;
+	cursor: pointer;
+}
+
+.project-region-button:hover,
+.project-region-button.on {
+	border-color: var(--accent);
+}
+
+.annotation.filtered-out {
+	opacity: 0.18;
+	filter: grayscale(1);
+}
+
+.project-tile {
+	border-radius: var(--radius);
+}
+
+.project-tile-inner {
+	gap: 10px;
+	padding: 12px 14px;
+	font-size: 14px;
+}
+
+.project-tile-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: zoom-in;
+}
+
+.project-tile-title {
+	min-width: 0;
+	overflow: hidden;
+	font-size: 20px;
+	font-weight: 700;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.project-tile-next {
+	margin: 0;
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.project-tile-label {
+	font-weight: 600;
+	opacity: 0.7;
+}
+
+.project-region-progress {
+	display: block;
+	height: 6px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--hairline) 70%, transparent);
+	overflow: hidden;
+}
+
+.project-region-progress > span {
+	display: block;
+	height: 100%;
+	border-radius: inherit;
+	background: var(--accent);
+}
+
+.project-tile-open {
+	align-self: flex-start;
+}

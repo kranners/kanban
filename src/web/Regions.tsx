@@ -18,6 +18,7 @@ import {
 import type { Group } from "./groups.ts";
 import { ignoreFor } from "./ignoreState.ts";
 import { NeedsYouCount, needsYouClass } from "./NeedsYou.tsx";
+import { ProjectRegionHeader } from "./ProjectRegions.tsx";
 import { justDragged, projectGestures } from "./projectDrag.ts";
 import { RegionControls } from "./RegionControls.tsx";
 import {
@@ -88,6 +89,7 @@ function ProjectFrame(props: { group: Group }): JSX.Element {
 				{group.cwd === waitingRegionCwd && <WaitingApprovalsButton />}
 				<RegionControls group={group} />
 			</div>
+			{region && <ProjectRegionHeader region={region} />}
 			{region &&
 				regionEdges.map((edge) => (
 					<div

@@ -86,6 +86,16 @@ export function renameRegion(
 	);
 }
 
+/** Spreads out or stacks again one of Butler's regions' done cards; the server tidies it at once. */
+export function setRegionDoneOpen(
+	id: string,
+	doneOpen: boolean,
+): Promise<Outcome<Region>> {
+	return request<Region>("PATCH", `/api/regions/${encodeURIComponent(id)}`, {
+		doneOpen,
+	});
+}
+
 export function deleteRegion(id: string): Promise<Outcome<void>> {
 	return request<void>("DELETE", `/api/regions/${encodeURIComponent(id)}`);
 }

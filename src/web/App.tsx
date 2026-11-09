@@ -51,13 +51,17 @@ import { JobComposerHost } from "./JobComposer.tsx";
 import type { NodeKey, PlacedNode } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import { useNeedsYouShortcut } from "./NeedsYou.tsx";
+import { ProjectTiles } from "./ProjectRegions.tsx";
 import { ProjectsHost } from "./Projects.tsx";
 import type { Arrangement } from "./placement.ts";
+import { inFilter, projectFilter, tileKeyOf } from "./projectRegions.ts";
+import { projectsById } from "./projects.ts";
 import { Rail } from "./Rail.tsx";
 import { RegionNotices } from "./RegionControls.tsx";
 import { ProjectFrames, RegionLayer } from "./Regions.tsx";
 import { RelationLayer, RelationPreview } from "./Relations.tsx";
 import { ReportButton, ReportNotice } from "./ReportControls.tsx";
+import { shownRegions } from "./regionState.ts";
 import { reports } from "./reports.ts";
 import { localMachinePhrase, localRunner } from "./runners.ts";
 import { BoardMenu, SpawnLayer, useBoardGestures } from "./Spawning.tsx";
@@ -93,6 +97,7 @@ import { UndoToast, useUndoShortcut } from "./Undo.tsx";
 function visibility(): (key: NodeKey) => boolean {
 	const sessions = sessionsById.value;
 	const agents = subagentsById.value;
+	const filter = projectFilter.value;
 	const working = workingSubagentsOnly.value
 		? sessionsWithWorkingSubagents([...agents.values()])
 		: null;
@@ -107,6 +112,11 @@ function visibility(): (key: NodeKey) => boolean {
 			if (!highlighted) return false;
 		}
 		const sessionId = kind === "session" ? id : agents.get(id)?.sessionId;
+		if (
+			sessionId &&
+			!inFilter(filter, { session: sessionId }, new Map(), projectsById.value)
+		)
+			return false;
 		const session = sessionId ? sessions.get(sessionId) : undefined;
 		return session ? sessionMatches(session) : true;
 	};
@@ -263,6 +273,13 @@ function World(props: { board: Board; layout: Arrangement }) {
 					)}
 					board={props.board}
 					visible={visible}
+				/>
+			)}
+			{level === "far" && (
+				<ProjectTiles
+					regions={shownRegions.value.filter(
+						(region) => tileKeyOf(region.cwd) !== undefined,
+					)}
 				/>
 			)}
 			<RegionNotices groups={frames} />
