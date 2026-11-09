@@ -263,8 +263,8 @@ export type ButlerDeps = Pick<
 	source: BoardSource;
 	annotations: AnnotationStore;
 	tools: BoardTools;
-	/** Butler's projects as last read, whose regions Tidy keeps. */
-	projects?: () => readonly Project[];
+	/** Butler's projects as last read, whose regions Tidy keeps; null until the first read, when Tidy lays nothing out. */
+	projects?: () => readonly Project[] | null;
 	audit: Audit;
 	file: string;
 	initial: string[];
@@ -1642,6 +1642,12 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				relaid += 1;
 			}
 		}
+		const projects = deps.projects ? deps.projects() : [];
+		if (projects === null) {
+			return done(
+				`Archived ${archived} card${archived === 1 ? "" : "s"}; Butler's projects are not read yet, so nothing was laid out`,
+			);
+		}
 		const cards = butlerCards();
 		const cardIds = new Set(cards.map((c) => c.id));
 		const all = Object.values(deps.annotations.current());
@@ -1669,7 +1675,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			notes: onCards,
 			obstacles,
 			regions: deps.regions.current(),
-			projects: deps.projects?.() ?? [],
+			projects,
 			now: at,
 		});
 		const current = deps.annotations.current();
@@ -1682,6 +1688,9 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			}
 		}
 		let regionsChanged = 0;
+		for (const id of plan.removed) {
+			if (deps.regions.remove(id)) regionsChanged += 1;
+		}
 		for (const region of plan.regions) {
 			const bounds = { x: region.x, y: region.y, w: region.w, h: region.h };
 			const existing = region.id
@@ -1702,9 +1711,6 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				deps.regions.create({ cwd: region.cwd, name: region.name, ...bounds });
 			}
 			regionsChanged += 1;
-		}
-		for (const id of plan.removed) {
-			if (deps.regions.remove(id)) regionsChanged += 1;
 		}
 		const summary = `Tidied the board: ${archived} card${archived === 1 ? "" : "s"} archived, ${plan.moves.length} moved, ${regionsChanged} region${regionsChanged === 1 ? "" : "s"} resized${options.sessions ? `, ${relaid} session spot${relaid === 1 ? "" : "s"} laid out afresh` : ""}`;
 		if (archived || plan.moves.length || regionsChanged || relaid) {

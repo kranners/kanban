@@ -297,6 +297,102 @@ describe("Tidy's project regions", () => {
 		for (const c of placed(others, p)) assert.ok(!overlap(c, pinned), c.id);
 	});
 
+	it("grows a region to hold the cards that flow around a pinned card, so none spill out", () => {
+		const projects = [project("p", { links: ["a", "b", "c"].map(change) })];
+		const free = ["a", "b"].map((id) =>
+			card(id, { selfFix: id, thread: undefined }),
+		);
+		const first = plan(free, projects);
+		const box = regionOf(first, projectCwd("p"));
+		assert.ok(box);
+		const pinned = card("c", {
+			selfFix: "c",
+			thread: undefined,
+			pinned: true,
+			x: box.x + 24,
+			y: box.y + 72,
+		});
+		const p = plan([...free, pinned], projects);
+		const region = regionOf(p, projectCwd("p"));
+		assert.ok(region);
+		for (const c of placed(free, p)) assert.ok(inside(c, region), c.id);
+		for (const [i, a] of p.regions.entries()) {
+			for (const b of p.regions.slice(i + 1)) assert.ok(!overlap(a, b));
+		}
+	});
+
+	it("sizes slots for a stacked done card's notes, keeping them inside its region", () => {
+		const projects = [project("p", { links: [change("a"), change("d")] })];
+		const a = card("a", { selfFix: "a", thread: undefined });
+		const d = card("d", { selfFix: "d", thread: undefined, state: "done" });
+		const note: Note = {
+			id: "n",
+			kind: "note",
+			text: "report",
+			color: "blue",
+			author: "butler",
+			session: "d",
+			x: 0,
+			y: 0,
+			w: 600,
+			h: 400,
+			z: 1,
+		};
+		const p = planTidy({
+			cards: [a, d],
+			notes: [note],
+			obstacles: sessions,
+			regions: [],
+			projects,
+			now: 0,
+		});
+		const region = regionOf(p, projectCwd("p"));
+		const moved = p.moves.find((m) => m.id === "n");
+		assert.ok(region && moved);
+		assert.ok(inside({ ...note, ...moved }, region));
+	});
+
+	it("grows a region Aaron shaped only as far as its cards need, keeping his place and width", () => {
+		const ids = ["a", "b", "c", "d", "e", "f"];
+		const projects = [project("p", { links: ids.map(change) })];
+		const cards = ids.map((id) => card(id, { selfFix: id, thread: undefined }));
+		const mine: Region = {
+			id: "mine",
+			cwd: projectCwd("p"),
+			name: "p",
+			x: -4800,
+			y: 2400,
+			w: 720,
+			h: 360,
+			manual: true,
+		};
+		const p = plan(cards, projects, [mine]);
+		const kept = regionOf(p, projectCwd("p"));
+		assert.ok(kept);
+		assert.deepEqual([kept.x, kept.y, kept.w], [-4800, 2400, 720]);
+		for (const c of placed(cards, p)) assert.ok(inside(c, kept), c.id);
+	});
+
+	it("removes a region Aaron shaped once its project has left the list", () => {
+		const p = plan(
+			[],
+			[project("q")],
+			[
+				{
+					id: "orphan",
+					cwd: projectCwd("gone"),
+					name: "gone",
+					x: 0,
+					y: 0,
+					w: 720,
+					h: 360,
+					manual: true,
+				},
+			],
+		);
+		assert.deepEqual(p.removed, ["orphan"]);
+	});
+
 	it("keeps the bounds of a region Aaron moved or resized and lays its cards inside them", () => {
 		const projects = [
 			project("p", { links: ["a", "b", "c"].map(change) }),

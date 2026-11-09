@@ -1,4 +1,4 @@
-import { computed, signal } from "@preact/signals";
+import { computed, effect, signal } from "@preact/signals";
 import { projectsOfCards } from "../shared/butlerRegions.ts";
 import type { ButlerCard, Region } from "../shared/types.ts";
 import { projectsById, projectsListing } from "./projects.ts";
@@ -8,6 +8,7 @@ import {
 	tileKeyOf,
 	tileOf,
 } from "./projectTiles.ts";
+import { regions } from "./regionState.ts";
 import { annotations } from "./state.ts";
 
 export * from "./projectTiles.ts";
@@ -45,3 +46,14 @@ export function toggleProjectFilter(key: string | null): void {
 
 export const isFilteredTo = (key: string | null): boolean =>
 	projectFilter.value === filterKey(key);
+
+// A filter whose region has gone has no button left to clear it, so it clears itself.
+effect(() => {
+	const filter = projectFilter.value;
+	if (filter === null) return;
+	const shown = regions.value.some((region) => {
+		const key = tileKeyOf(region.cwd);
+		return key !== undefined && filterKey(key) === filter;
+	});
+	if (!shown) projectFilter.value = null;
+});

@@ -689,11 +689,14 @@ const projectsSource = createProjectsSource({
 	config: config.projects,
 	readFile: (file) => readFile(file, "utf8"),
 });
-let projects: readonly Project[] = [];
+// Until the first good read Tidy lays nothing out, so a slow or failed read never folds every project region into Unsorted.
+let projects: readonly Project[] | null =
+	config.projects.mode === "off" ? [] : null;
 let projectsShape = "";
 /** Rereads Butler's projects and tidies the board when one he keeps a region for changed. */
 const refreshProjects = async () => {
 	const listing = await projectsSource.list();
+	if (listing.status !== "ok" && listing.status !== "fixture") return;
 	const shape = JSON.stringify(
 		listing.projects.map((p) => [
 			p.id,

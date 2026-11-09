@@ -1,6 +1,7 @@
 import {
 	isTidyRegion,
 	projectCwd,
+	projectOfRegion,
 	projectsOfCards,
 	unsortedCwd,
 	waitingCwd,
@@ -265,10 +266,13 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 			: []),
 	];
 
-	const laidCards = [waiting, ...groups].flatMap((g) => g.cards);
+	const slotCards = [waiting, ...groups].flatMap((g) => [
+		...g.cards,
+		...g.stack,
+	]);
 	const slot = {
-		w: snap(Math.max(slotDefault.w, ...laidCards.map((c) => footprint(c).w))),
-		h: snap(Math.max(slotDefault.h, ...laidCards.map((c) => footprint(c).h))),
+		w: snap(Math.max(slotDefault.w, ...slotCards.map((c) => footprint(c).w))),
+		h: snap(Math.max(slotDefault.h, ...slotCards.map((c) => footprint(c).h))),
 	};
 	const slotsOf = (group: Group) =>
 		group.cards.length + (group.stack.length > 0 ? 1 : 0);
@@ -285,108 +289,142 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 						gap +
 						padding,
 				);
-
-	// Project regions in rows, by stage, wrapping at rowWidth.
-	type Spot = { group: Group; x: number; w: number; h: number };
-	const rows: Spot[][] = [];
-	for (const group of groups.filter((g) => !g.existing?.manual)) {
-		const columns = columnsFor(slotsOf(group));
-		// Never narrower than two cards, so its zoomed-out tile reads.
-		const w = widthFor(Math.max(2, columns));
-		const h = heightFor(Math.max(1, slotsOf(group)), columns);
-		const row = rows.at(-1);
-		const end = row ? (row.at(-1) as Spot) : null;
-		const x = end ? end.x + end.w + regionGap : 0;
-		if (row && x + w <= rowWidth) row.push({ group, x, w, h });
-		else rows.push([{ group, x: 0, w, h }]);
-	}
-	const dashboardW = Math.max(
-		widthFor(1),
-		...rows.map((r) => {
-			const end = r.at(-1) as Spot;
-			return end.x + end.w;
-		}),
-	);
-
 	const outside = boundsOf(input.obstacles);
 	const top = snap(outside ? outside.y : 0);
-	const left = snap((outside ? outside.x - clearance : 0) - dashboardW);
 
-	const bounds = new Map<Group, Rect>();
-	const manual = (group: Group) =>
-		group.existing?.manual ? group.existing : null;
-	const waitingBox = manual(waiting) ?? {
-		x: left,
-		y: top,
-		w: dashboardW,
-		h: heightFor(slotsOf(waiting), columnsIn(dashboardW)),
-	};
-	bounds.set(waiting, waitingBox);
-	let y = top + (manual(waiting) ? 0 : waitingBox.h + regionGap);
-	for (const r of rows) {
-		for (const spot of r) {
-			bounds.set(spot.group, { x: left + spot.x, y, w: spot.w, h: spot.h });
-		}
-		y = snap(y + Math.max(...r.map((s) => s.h)) + regionGap);
-	}
-	for (const group of groups) {
-		const kept = manual(group);
-		if (kept) bounds.set(group, kept);
-	}
+	// Slots each group needs, counting those it skips around held cards, which a pass can find it needs more of.
+	const needed = new Map<Group, number>();
+	const slotsNeeded = (group: Group) => needed.get(group) ?? slotsOf(group);
 
-	const moves: TidyPlan["moves"] = [];
-	const moveTo = (card: ButlerCard, spot: { x: number; y: number }) => {
-		if (card.x !== spot.x || card.y !== spot.y) {
-			moves.push({ id: card.id, ...spot });
+	const place = () => {
+		// Project regions in rows, by stage, wrapping at rowWidth.
+		type Spot = { group: Group; x: number; w: number; h: number };
+		const rows: Spot[][] = [];
+		for (const group of groups.filter((g) => !g.existing?.manual)) {
+			const columns = columnsFor(slotsOf(group));
+			// Never narrower than two cards, so its zoomed-out tile reads.
+			const w = widthFor(Math.max(2, columns));
+			const h = heightFor(
+				Math.max(1, slotsNeeded(group)),
+				Math.min(columnsIn(w), Math.max(1, slotsOf(group))),
+			);
+			const row = rows.at(-1);
+			const end = row ? (row.at(-1) as Spot) : null;
+			const x = end ? end.x + end.w + regionGap : 0;
+			if (row && x + w <= rowWidth) row.push({ group, x, w, h });
+			else rows.push([{ group, x: 0, w, h }]);
 		}
-		let noteY = spot.y;
-		for (const note of notesOn.get(card.id) ?? []) {
-			const at = { x: snap(spot.x + card.w + noteGap), y: snap(noteY) };
-			if (note.x !== at.x || note.y !== at.y) {
-				moves.push({ id: note.id, ...at });
+		const dashboardW = Math.max(
+			widthFor(1),
+			...rows.map((r) => {
+				const end = r.at(-1) as Spot;
+				return end.x + end.w;
+			}),
+		);
+		const left = snap((outside ? outside.x - clearance : 0) - dashboardW);
+
+		// A region Aaron shaped keeps his bounds, growing taller only when its cards would not fit.
+		const kept = (group: Group): Rect | null => {
+			const region = group.existing;
+			if (!region?.manual) return null;
+			const fits = heightFor(slotsNeeded(group), columnsIn(region.w));
+			return { ...region, h: Math.max(region.h, fits) };
+		};
+		const bounds = new Map<Group, Rect>();
+		const waitingBox = kept(waiting) ?? {
+			x: left,
+			y: top,
+			w: dashboardW,
+			h: heightFor(slotsNeeded(waiting), columnsIn(dashboardW)),
+		};
+		bounds.set(waiting, waitingBox);
+		let y = top + (kept(waiting) ? 0 : waitingBox.h + regionGap);
+		for (const r of rows) {
+			for (const spot of r) {
+				bounds.set(spot.group, { x: left + spot.x, y, w: spot.w, h: spot.h });
 			}
-			noteY += note.h + noteGap;
+			y = snap(y + Math.max(...r.map((s) => s.h)) + regionGap);
 		}
-	};
-	const regions: TidyRegion[] = [];
-	for (const group of [waiting, ...groups]) {
-		const box = bounds.get(group) as Rect;
-		const columns = Math.min(columnsIn(box.w), Math.max(1, slotsOf(group)));
-		const origin = { x: box.x + padding, y: box.y + headroom };
-		let slotIndex = 0;
-		// The next slot clear of every card Aaron is holding where it is.
-		const nextSpot = (size: { w: number; h: number }) => {
-			for (;;) {
-				const spot = {
-					x: snap(origin.x + (slotIndex % columns) * (slot.w + gap)),
-					y: snap(origin.y + Math.floor(slotIndex / columns) * (slot.h + gap)),
-				};
-				slotIndex += 1;
-				if (!heldRects.some((h) => overlaps({ ...spot, ...size }, h, gap / 2)))
-					return spot;
+		for (const group of groups) {
+			const box = kept(group);
+			if (box) bounds.set(group, box);
+		}
+
+		const moves: TidyPlan["moves"] = [];
+		const moveTo = (card: ButlerCard, spot: { x: number; y: number }) => {
+			if (card.x !== spot.x || card.y !== spot.y) {
+				moves.push({ id: card.id, ...spot });
+			}
+			let noteY = spot.y;
+			for (const note of notesOn.get(card.id) ?? []) {
+				const at = { x: snap(spot.x + card.w + noteGap), y: snap(noteY) };
+				if (note.x !== at.x || note.y !== at.y) {
+					moves.push({ id: note.id, ...at });
+				}
+				noteY += note.h + noteGap;
 			}
 		};
-		for (const card of group.cards) moveTo(card, nextSpot(footprint(card)));
-		if (group.stack.length > 0) {
-			const base = nextSpot(slot);
-			group.stack.forEach((card, index) => {
-				const step = Math.min(index, 2) * stackStep;
-				moveTo(card, { x: snap(base.x + step), y: snap(base.y + step) });
+		const regions: TidyRegion[] = [];
+		let short = false;
+		for (const group of [waiting, ...groups]) {
+			const box = bounds.get(group) as Rect;
+			const columns = Math.min(columnsIn(box.w), Math.max(1, slotsOf(group)));
+			const origin = { x: box.x + padding, y: box.y + headroom };
+			let slotIndex = 0;
+			// The next slot clear of every card Aaron is holding where it is.
+			const nextSpot = (size: { w: number; h: number }) => {
+				for (;;) {
+					const spot = {
+						x: snap(origin.x + (slotIndex % columns) * (slot.w + gap)),
+						y: snap(
+							origin.y + Math.floor(slotIndex / columns) * (slot.h + gap),
+						),
+					};
+					slotIndex += 1;
+					if (
+						!heldRects.some((h) => overlaps({ ...spot, ...size }, h, gap / 2))
+					)
+						return spot;
+				}
+			};
+			for (const card of group.cards) moveTo(card, nextSpot(footprint(card)));
+			if (group.stack.length > 0) {
+				const base = nextSpot(slot);
+				group.stack.forEach((card, index) => {
+					const step = Math.min(index, 2) * stackStep;
+					moveTo(card, { x: snap(base.x + step), y: snap(base.y + step) });
+				});
+			}
+			if (slotIndex > slotsNeeded(group)) {
+				needed.set(group, slotIndex);
+				short = true;
+			}
+			regions.push({
+				...(group.existing ? { id: group.existing.id } : {}),
+				name: group.name,
+				cwd: group.cwd,
+				x: box.x,
+				y: box.y,
+				w: box.w,
+				h: box.h,
 			});
 		}
-		regions.push({
-			...(group.existing ? { id: group.existing.id } : {}),
-			name: group.name,
-			cwd: group.cwd,
-			x: box.x,
-			y: box.y,
-			w: box.w,
-			h: box.h,
-		});
-	}
+		return { moves, regions, short };
+	};
+
+	// Growing a region can move held cards' overlaps, so a few passes settle it.
+	let laid = place();
+	for (let pass = 0; laid.short && pass < 5; pass += 1) laid = place();
+	const { moves, regions } = laid;
 	const keptCwds = new Set(regions.map((r) => r.cwd));
+	const gone = (region: Region) => {
+		const id = projectOfRegion(region.cwd);
+		return id !== null && !known.has(id);
+	};
 	const removed = input.regions
-		.filter((r) => isTidyRegion(r) && !keptCwds.has(r.cwd) && !r.manual)
+		.filter(
+			(r) => isTidyRegion(r) && !keptCwds.has(r.cwd) && (!r.manual || gone(r)),
+		)
 		.map((r) => r.id);
 	return { moves, regions, removed };
 };

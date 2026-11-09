@@ -78,7 +78,7 @@ const project = (id: string, fields: Partial<Project> = {}): Project => ({
 const setup = async (
 	regions: Region[] = [],
 	cloud?: CloudOverview,
-	projects: Project[] = [],
+	projects: Project[] | null = [],
 ) => {
 	const audits: unknown[] = [];
 	const dir = await mkdtemp(join(tmpdir(), "kanban-threads-"));
@@ -469,6 +469,15 @@ describe("Butler's thread cards", () => {
 			(butler.tidy() as { text: string }).text,
 			/0 moved, 0 regions resized/,
 		);
+	});
+
+	it("lays nothing out until Butler's projects have been read, so a slow read never folds them into Unsorted", async () => {
+		const { sync, regionStore, butler } = await setup([], undefined, null);
+		await sync([entry("11111111", { kind: "conversation" })]);
+		const outcome = butler.tidy();
+		assert.ok(outcome.ok);
+		assert.match((outcome as { text: string }).text, /not read yet/);
+		assert.deepEqual(regionStore.current(), []);
 	});
 
 	it("keeps a region Aaron resized as he left it until his own Tidy hands it back", async () => {

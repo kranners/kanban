@@ -5,6 +5,7 @@ import { stageNames } from "../shared/projects.ts";
 import type { Region } from "../shared/types.ts";
 import { centreOn } from "./Canvas.tsx";
 import { colourOf } from "./colours.ts";
+import { groupLabelSpace } from "./placement.ts";
 import {
 	isFilteredTo,
 	type ProjectTile,
@@ -18,6 +19,9 @@ import {
 import { openProject } from "./projects.ts";
 import { setRegionDoneOpen } from "./regionState.ts";
 import { now } from "./state.ts";
+
+/** Leaves the region's frame and bar showing around its tile, as the session summaries do. */
+const tileEdge = 2;
 
 const shownCounts: readonly TileStatus[] = [
 	"working",
@@ -152,9 +156,9 @@ function ProjectTileView(props: { region: Region }): JSX.Element | null {
 			class={`summary region region-${colourOf(region.cwd)} project-tile`}
 			data-summary={region.id}
 			style={{
-				transform: `translate(${region.x}px, ${region.y}px)`,
-				width: `${region.w}px`,
-				height: `${region.h}px`,
+				transform: `translate(${region.x + tileEdge}px, ${region.y + groupLabelSpace}px)`,
+				width: `${region.w - 2 * tileEdge}px`,
+				height: `${region.h - groupLabelSpace - tileEdge}px`,
 			}}
 		>
 			<div class="summary-inner project-tile-inner">
