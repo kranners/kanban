@@ -280,6 +280,18 @@ describe("Butler on the board", () => {
 		assert.equal(annotations.current()["butler-id1"], undefined);
 	});
 
+	it("closes a note of his own, and only his", async () => {
+		const { butler, annotations } = await setup();
+		const pinned = await butler.tool("note", { text: "Waiting in Discord" });
+		assert.equal(pinned.ok, true);
+		const id = /\(id ([^)]+)\)/.exec(pinned.ok ? pinned.text : "")?.[1];
+		assert.ok(id);
+		const closed = await butler.tool("close_card", { id });
+		assert.equal(closed.ok, true);
+		assert.equal(annotations.current()[id], undefined);
+		assert.equal((await butler.tool("close_card", { id })).ok, false);
+	});
+
 	it("refuses to treat a session as one of his cards", async () => {
 		const { butler } = await setup();
 		const closing = await butler.tool("close_card", { id: "aaaaaaaa-1" });

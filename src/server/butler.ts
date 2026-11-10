@@ -1026,6 +1026,10 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		const id = fixRef === undefined ? text(fields, "id", 64, true) : fixRef;
 		if (isOutcome(id)) return id;
 		const card = annotation(id as string);
+		if (card?.kind === "note" && card.author === "butler") {
+			deps.annotations.remove(card.id);
+			return done(`Removed note ${card.id}`);
+		}
 		if (card?.kind !== "butler-card") {
 			return findSession(board(), id as string)
 				? refused(`${id} is a session: close it with finish_session`)
