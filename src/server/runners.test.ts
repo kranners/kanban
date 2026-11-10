@@ -162,6 +162,67 @@ describe("createRunnerHub", () => {
 		assert.equal(sessions[0]?.doing, "Bash: npm test");
 	});
 
+	it("puts its sessions' subagents on the board, dropping a malformed list", () => {
+		const { hub, advance } = setup();
+		const subagents = [
+			{
+				id: "toolu_a",
+				description: "Read the tests",
+				type: "Explore",
+				state: "working",
+				startedAt: 11,
+				updatedAt: 12,
+			},
+			{
+				id: "toolu_b",
+				description: "Plan",
+				type: "workflow",
+				state: "done",
+				parent: "toolu_a",
+				updatedAt: 15,
+			},
+		];
+		hub.register(
+			report({
+				sessions: [
+					{ ...running("s1"), subagents },
+					{ ...running("s2"), subagents: [{ id: "bad id" }] },
+					running("s3"),
+				],
+			} as unknown as Partial<RunnerReport>),
+		);
+		assert.deepEqual(hub.subagents(), [
+			{
+				id: "toolu_a",
+				kind: "agent",
+				sessionId: "s1",
+				parentAgentId: null,
+				type: "Explore",
+				description: "Read the tests",
+				live: true,
+				done: false,
+				startedAt: 11,
+				updatedAt: 12,
+			},
+			{
+				id: "toolu_b",
+				kind: "agent",
+				sessionId: "s1",
+				parentAgentId: "toolu_a",
+				type: "workflow",
+				description: "Plan",
+				live: false,
+				done: true,
+				startedAt: 15,
+				updatedAt: 15,
+			},
+		]);
+		assert.equal(hub.sessions().length, 3);
+		advance(20_000);
+		hub.sweep();
+		assert.equal(hub.subagents()[0]?.live, false);
+	});
+
 	it("marks a silent runner offline, or asleep when it last came back from sleep", () => {
 		const { hub, advance, changes } = setup();
 		hub.register(report({ sessions: [running("s1")] }));

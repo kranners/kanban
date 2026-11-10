@@ -7,6 +7,10 @@ import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, sep } from "node:path";
 import {
+	type CardSubagent,
+	maxCardSubagents,
+} from "../shared/cardSubagents.ts";
+import {
 	accountName,
 	bestAccount,
 	continuePrompt,
@@ -140,10 +144,79 @@ export const mapCwd = (
 	return cwdCandidates(cwd, opts).find(opts.isDirectory) ?? null;
 };
 
+/** An Agent, Task or Workflow call the session made itself. */
+export type AgentStart = {
+	id: string;
+	description: string;
+	type: string;
+};
+
+/** A call's tool result, or, when not final, only the launch of a backgrounded one. */
+export type AgentEnd = { id: string; final: boolean };
+
 export type StreamEvent = {
 	sessionId?: string;
 	detail?: string;
 	result?: { ok: boolean; text: string | null };
+	agentStarts?: AgentStart[];
+	agentEnds?: AgentEnd[];
+};
+
+const agentTools = ["Agent", "Task", "Workflow"];
+const toolUseIdPattern = /^[A-Za-z0-9_-]{1,128}$/;
+const maxAgentText = 200;
+
+const clip = (text: string): string =>
+	text.length > maxAgentText ? `${text.slice(0, maxAgentText - 1)}…` : text;
+
+const agentStartOf = (part: Record<string, unknown>): AgentStart | null => {
+	if (
+		part.type !== "tool_use" ||
+		typeof part.name !== "string" ||
+		!agentTools.includes(part.name) ||
+		typeof part.id !== "string" ||
+		!toolUseIdPattern.test(part.id)
+	)
+		return null;
+	const input = (part.input ?? {}) as Record<string, unknown>;
+	const workflow = part.name === "Workflow";
+	const text = [input.description, input.name].find(
+		(value): value is string => typeof value === "string" && value !== "",
+	);
+	return {
+		id: part.id,
+		description: clip(text ?? part.name),
+		type: workflow
+			? "workflow"
+			: clip(
+					typeof input.subagent_type === "string" && input.subagent_type
+						? input.subagent_type
+						: "general-purpose",
+				),
+	};
+};
+
+const launchedStatuses = ["async_launched", "remote_launched"];
+
+const launchedInBackground = (
+	result: unknown,
+	block: Record<string, unknown>,
+): boolean => {
+	const status = (result as { status?: unknown } | null)?.status;
+	if (typeof status === "string") return launchedStatuses.includes(status);
+	const content = block.content;
+	const text = (
+		typeof content === "string"
+			? [content]
+			: Array.isArray(content)
+				? content.map((part) => (part as { text?: unknown })?.text)
+				: []
+	)
+		.filter((part): part is string => typeof part === "string")
+		.join("\n");
+	return /^Async agent launched|launched in (?:the )?background[\s\S]*?Task ID:/i.test(
+		text,
+	);
 };
 
 const toolDetail = (name: string, input: unknown): string => {
@@ -199,10 +272,47 @@ export const readStreamLine = (line: string): StreamEvent | null => {
 				detail = oneLine(toolDetail(part.name, part.input)) ?? detail;
 			}
 		}
-		return { sessionId, ...(detail ? { detail } : {}) };
+		const agentStarts = (Array.isArray(content) ? content : []).flatMap(
+			(block) => agentStartOf(block as Record<string, unknown>) ?? [],
+		);
+		return {
+			sessionId,
+			...(detail ? { detail } : {}),
+			...(agentStarts.length > 0 ? { agentStarts } : {}),
+		};
 	}
+	if (event.type === "user" && typeof event.parent_tool_use_id !== "string") {
+		const content = (event.message as { content?: unknown } | undefined)
+			?.content;
+		const agentEnds = (Array.isArray(content) ? content : []).flatMap(
+			(block): AgentEnd[] => {
+				const part = block as Record<string, unknown>;
+				return part.type === "tool_result" &&
+					typeof part.tool_use_id === "string"
+					? [
+							{
+								id: part.tool_use_id,
+								final:
+									part.is_error === true ||
+									!launchedInBackground(event.tool_use_result, part),
+							},
+						]
+					: [];
+			},
+		);
+		if (agentEnds.length > 0) return { sessionId, agentEnds };
+	}
+	if (
+		event.type === "system" &&
+		event.subtype === "task_notification" &&
+		typeof event.tool_use_id === "string"
+	)
+		return { sessionId, agentEnds: [{ id: event.tool_use_id, final: true }] };
 	return sessionId ? { sessionId } : null;
 };
+
+/** How long a finished subagent stays in reports. */
+export const keepSubagentMs = 30 * 60_000;
 
 type Tracked = {
 	session: RunnerSession;
@@ -212,6 +322,7 @@ type Tracked = {
 	stderr: string;
 	account: AccountUsage | null;
 	moves: number;
+	agents: Map<string, CardSubagent>;
 };
 
 export const createSessionManager = ({
@@ -325,7 +436,37 @@ export const createSessionManager = ({
 		return ok;
 	};
 
+	const endAgents = (tracked: Tracked, ends: readonly AgentEnd[]): boolean => {
+		let ended = false;
+		for (const { id, final } of ends) {
+			const agent = tracked.agents.get(id);
+			if (agent?.state === "working" && final) {
+				agent.state = "done";
+				agent.updatedAt = now();
+				ended = true;
+			}
+		}
+		return ended;
+	};
+
+	const reported = (tracked: Tracked): RunnerSession => {
+		const agents = [...tracked.agents.values()].filter(
+			(agent) =>
+				agent.state !== "done" || now() - agent.updatedAt <= keepSubagentMs,
+		);
+		if (agents.length === 0) return tracked.session;
+		const rank = (agent: CardSubagent) => (agent.state === "done" ? 1 : 0);
+		const subagents = agents
+			.sort((a, b) => rank(a) - rank(b) || b.updatedAt - a.updatedAt)
+			.slice(0, maxCardSubagents);
+		return { ...tracked.session, subagents };
+	};
+
 	const finish = (tracked: Tracked, code: number | null) => {
+		endAgents(
+			tracked,
+			[...tracked.agents.keys()].map((id) => ({ id, final: true })),
+		);
 		const limited =
 			!tracked.stopping &&
 			(isLimitText(tracked.result?.text) ||
@@ -422,6 +563,18 @@ export const createSessionManager = ({
 					const event = readStreamLine(line);
 					if (!event) continue;
 					if (event.result) tracked.result = event.result;
+					let agentsChanged = false;
+					for (const start of event.agentStarts ?? []) {
+						if (tracked.agents.has(start.id)) continue;
+						tracked.agents.set(start.id, {
+							...start,
+							state: "working",
+							startedAt: now(),
+							updatedAt: now(),
+						});
+						agentsChanged = true;
+					}
+					if (endAgents(tracked, event.agentEnds ?? [])) agentsChanged = true;
 					const patch: Partial<RunnerSession> = {};
 					if (event.sessionId && !tracked.session.claudeSessionId) {
 						patch.claudeSessionId = event.sessionId;
@@ -430,6 +583,7 @@ export const createSessionManager = ({
 					if (tracked.session.state === "starting") patch.state = "working";
 					if (
 						Object.keys(patch).length > 0 ||
+						agentsChanged ||
 						now() - tracked.session.updatedAt >= heardEveryMs
 					) {
 						touch(tracked, patch);
@@ -481,6 +635,7 @@ export const createSessionManager = ({
 			stderr: "",
 			account: null,
 			moves: 0,
+			agents: new Map(),
 		};
 		const placed = await pick();
 		tracked.account = placed?.best ?? null;
@@ -518,7 +673,7 @@ export const createSessionManager = ({
 		stop,
 		list() {
 			prune();
-			return [...sessions.values()].map(({ session }) => session);
+			return [...sessions.values()].map(reported);
 		},
 		pids() {
 			const pids = new Map<string, number>();

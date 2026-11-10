@@ -4,6 +4,7 @@
 // restart. A machine that stops reporting is offline (or asleep), not an error.
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
+import { parseCardSubagents } from "../shared/cardSubagents.ts";
 import {
 	browseProtocol,
 	heartbeatMs,
@@ -31,6 +32,7 @@ import type {
 	NewSessionRequest,
 	NewSessionResult,
 	Session,
+	Subagent,
 } from "../shared/types.ts";
 
 export type LocalRunner = {
@@ -74,6 +76,8 @@ export type RunnerHub = {
 	localLabel(): string;
 	views(): RunnerView[];
 	sessions(): Session[];
+	/** The subagents runner sessions report, shaped for the board. */
+	subagents(): Subagent[];
 	sweep(): void;
 	stopAll(): void;
 };
@@ -162,6 +166,7 @@ const parseSession = (value: unknown): RunnerSession | null => {
 	) {
 		return null;
 	}
+	const subagents = parseCardSubagents(value.subagents);
 	return {
 		id,
 		cwd,
@@ -175,6 +180,7 @@ const parseSession = (value: unknown): RunnerSession | null => {
 		claudeSessionId: str(value.claudeSessionId, 128),
 		cpuPercent: num(value.cpuPercent),
 		rss: num(value.rss),
+		...(subagents ? { subagents } : {}),
 	};
 };
 
@@ -660,6 +666,26 @@ export const createRunnerHub = ({
 						steps: [],
 						runner: { id: runner.id, name: labelOf(runner) },
 					}),
+				),
+			);
+		},
+		subagents() {
+			return [...runners.values()].flatMap((runner) =>
+				(runner.report?.sessions ?? []).flatMap((session) =>
+					(session.subagents ?? []).map(
+						(agent): Subagent => ({
+							id: agent.id,
+							kind: "agent",
+							sessionId: session.id,
+							parentAgentId: agent.parent ?? null,
+							type: agent.type,
+							description: agent.description,
+							live: runner.online && agent.state !== "done",
+							done: agent.state === "done",
+							startedAt: agent.startedAt ?? agent.updatedAt,
+							updatedAt: agent.updatedAt,
+						}),
+					),
 				),
 			);
 		},

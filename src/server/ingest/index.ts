@@ -89,6 +89,8 @@ export function startBoard(opts: {
 	cloud?: () => CloudSession[];
 	/** Sessions running on other machines, already shaped for the board. */
 	remote?: () => Session[];
+	/** The subagents of those sessions, already shaped for the board. */
+	remoteSubagents?: () => Subagent[];
 }): BoardHandle {
 	const {
 		claudeHome,
@@ -98,6 +100,7 @@ export function startBoard(opts: {
 		profiles = () => [],
 		cloud = () => [],
 		remote = () => [],
+		remoteSubagents = () => [],
 	} = opts;
 	const tails = new Map<string, Tail>();
 	const agentTails = new Map<string, Tail>();
@@ -209,11 +212,18 @@ export function startBoard(opts: {
 					]
 				: [];
 		});
-		const cloudAgents = ofClouds.flatMap(({ subagents }) => subagents);
+		const remoteSessions = remote().filter(
+			(session) => !ignore(session.id, session.cwd),
+		);
+		const remoteIds = new Set(remoteSessions.map(({ id }) => id));
+		const fileless = [
+			...ofClouds.flatMap(({ subagents }) => subagents),
+			...remoteSubagents().filter(({ sessionId }) => remoteIds.has(sessionId)),
+		];
 		const subagents = [
 			...shown.map(({ subagent }) => subagent),
 			...shells,
-			...cloudAgents,
+			...fileless,
 		];
 		const localWorkflows = sessionWorkflows(
 			settled,
@@ -252,7 +262,7 @@ export function startBoard(opts: {
 				),
 			),
 			...clouds.map((cs) => toCloudSession(cs, cloudTails.get(cs.id) ?? null)),
-			...remote().filter((session) => !ignore(session.id, session.cwd)),
+			...remoteSessions,
 		].sort((a, b) => b.updatedAt - a.updatedAt);
 		subagentPaths.clear();
 		for (const { subagent, transcriptPath } of shown) {
@@ -294,11 +304,11 @@ export function startBoard(opts: {
 			subagents,
 			subagentCounts: subagentCountsBySession([
 				...settled.map(({ subagent }) => subagent),
-				...cloudAgents,
+				...fileless,
 			]),
 			subagentStates: outstandingStates([
 				...settled.map(({ subagent }) => subagent),
-				...cloudAgents,
+				...fileless,
 			]),
 			workflowRuns: workflowRunsOf(settled),
 			workflows,

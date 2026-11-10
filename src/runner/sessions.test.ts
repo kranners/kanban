@@ -13,6 +13,7 @@ import type { AccountUsage } from "../shared/types.ts";
 import {
 	accountSpawn,
 	createSessionManager,
+	keepSubagentMs,
 	mapCwd,
 	readStreamLine,
 } from "./sessions.ts";
@@ -119,6 +120,98 @@ describe("readStreamLine", () => {
 			{ sessionId: "abc" },
 		);
 	});
+
+	it("notes the session's own Agent and Workflow calls and their ends", () => {
+		const line = (event: unknown) => readStreamLine(JSON.stringify(event));
+		assert.deepEqual(
+			line({
+				type: "assistant",
+				message: {
+					content: [
+						{
+							type: "tool_use",
+							id: "toolu_1",
+							name: "Agent",
+							input: { description: "Find it", subagent_type: "Explore" },
+						},
+						{
+							type: "tool_use",
+							id: "toolu_2",
+							name: "Task",
+							input: { description: "x".repeat(300), run_in_background: true },
+						},
+						{ type: "tool_use", id: "toolu_3", name: "Workflow", input: {} },
+						{ type: "tool_use", id: "toolu_4", name: "Bash", input: {} },
+						{ type: "tool_use", id: "bad id", name: "Agent", input: {} },
+					],
+				},
+			})?.agentStarts,
+			[
+				{
+					id: "toolu_1",
+					description: "Find it",
+					type: "Explore",
+				},
+				{
+					id: "toolu_2",
+					description: `${"x".repeat(199)}…`,
+					type: "general-purpose",
+				},
+				{
+					id: "toolu_3",
+					description: "Workflow",
+					type: "workflow",
+				},
+			],
+		);
+		assert.deepEqual(
+			line({
+				type: "user",
+				message: {
+					content: [
+						{ type: "tool_result", tool_use_id: "toolu_1" },
+						{ type: "tool_result", tool_use_id: "toolu_2", is_error: true },
+						{
+							type: "tool_result",
+							tool_use_id: "toolu_5",
+							content: [
+								{ type: "text", text: "Async agent launched successfully." },
+							],
+						},
+					],
+				},
+			})?.agentEnds,
+			[
+				{ id: "toolu_1", final: true },
+				{ id: "toolu_2", final: true },
+				{ id: "toolu_5", final: false },
+			],
+		);
+		assert.deepEqual(
+			line({
+				type: "user",
+				tool_use_result: { status: "async_launched", agentId: "a1" },
+				message: { content: [{ type: "tool_result", tool_use_id: "toolu_6" }] },
+			})?.agentEnds,
+			[{ id: "toolu_6", final: false }],
+		);
+		assert.deepEqual(
+			line({
+				type: "system",
+				subtype: "task_notification",
+				tool_use_id: "toolu_3",
+			})?.agentEnds,
+			[{ id: "toolu_3", final: true }],
+		);
+		assert.equal(
+			line({
+				type: "user",
+				parent_tool_use_id: "toolu_1",
+				message: { content: [{ type: "tool_result", tool_use_id: "toolu_9" }] },
+			})?.agentEnds,
+			undefined,
+		);
+	});
 });
 
 describe("createSessionManager", { skip: process.platform === "win32" }, () => {
@@ -138,7 +231,21 @@ process.stdin.on("end", () => {
 	const out = (event) => process.stdout.write(JSON.stringify(event) + "\\n");
 	out({ type: "system", subtype: "init", session_id: "claude-1" });
 	out({ type: "assistant", message: { content: [{ type: "text", text: "on " + process.cwd() } ] } });
-	if (prompt === "hang") { setInterval(() => {}, 1000); return; }
+	if (prompt === "agents") {
+		const call = (id, name, input) => ({ type: "tool_use", id, name, input });
+		const answer = (id, status = "completed") => out({ type: "user", tool_use_result: { status }, message: { content: [{ type: "tool_result", tool_use_id: id }] } });
+		out({ type: "assistant", message: { content: [
+			call("toolu_fg", "Agent", { description: "Look", subagent_type: "Explore" }),
+			call("toolu_bg", "Agent", { description: "Wait" }),
+			call("toolu_wf", "Workflow", { description: "Plan" }),
+		] } });
+		out({ type: "assistant", parent_tool_use_id: "toolu_fg", message: { content: [call("toolu_in", "Agent", {})] } });
+		answer("toolu_fg");
+		answer("toolu_bg", "async_launched");
+		answer("toolu_wf", "async_launched");
+		out({ type: "system", subtype: "task_notification", tool_use_id: "toolu_wf" });
+	}
+	if (prompt === "hang" || prompt === "agents") { setInterval(() => {}, 1000); return; }
 	if (prompt === "fail") { process.stderr.write("boom\\n"); process.exit(3); }
 	out({ type: "result", subtype: "success", is_error: false, result: "did " + prompt });
 });
@@ -217,6 +324,53 @@ process.stdin.on("end", () => {
 		const result = await broken.launch(launchOf("s5", "x"));
 		assert.equal(result.ok, false);
 		assert.match(result.ok ? "" : result.error, /Couldn't start claude/);
+	});
+
+	it("reports its own subagents, ending a backgrounded one with its notification or the session", async () => {
+		const manager = managerFor();
+		await manager.launch(launchOf("s7", "agents"));
+		const states = () =>
+			Object.fromEntries(
+				(manager.list().find((s) => s.id === "s7")?.subagents ?? []).map(
+					(agent) => [agent.id, `${agent.type} ${agent.state}`],
+				),
+			);
+		for (let i = 0; i < 200 && states().toolu_wf !== "workflow done"; i++)
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		assert.deepEqual(states(), {
+			toolu_bg: "general-purpose working",
+			toolu_fg: "Explore done",
+			toolu_wf: "workflow done",
+		});
+		await manager.stop("s7", false);
+		await settled(manager, "s7");
+		assert.deepEqual(states(), {
+			toolu_bg: "general-purpose done",
+			toolu_fg: "Explore done",
+			toolu_wf: "workflow done",
+		});
+	});
+
+	it("drops finished subagents after half an hour", async () => {
+		let at = 1_000;
+		const manager = createSessionManager({
+			claude: { file: process.execPath, args: [fake] },
+			now: () => at,
+			stopGraceMs: 500,
+		});
+		await manager.launch(launchOf("s8", "agents"));
+		const count = () =>
+			manager.list().find((s) => s.id === "s8")?.subagents?.length ?? 0;
+		for (let i = 0; i < 200 && count() < 3; i++)
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		await manager.stop("s8", false);
+		await settled(manager, "s8");
+		assert.equal(count(), 3);
+		at += keepSubagentMs + 1;
+		assert.equal(
+			manager.list().find((s) => s.id === "s8")?.subagents,
+			undefined,
+		);
 	});
 
 	it("keeps only recent finished sessions", async () => {

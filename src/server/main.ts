@@ -358,7 +358,10 @@ const localPlaced = (): Session[] =>
 let runnersFrame: NodeJS.Timeout | undefined;
 let remoteSignature = "";
 const runnersChanged = () => {
-	const signature = JSON.stringify(runnerHub.sessions());
+	const signature = JSON.stringify([
+		runnerHub.sessions(),
+		runnerHub.subagents(),
+	]);
 	if (signature !== remoteSignature) {
 		remoteSignature = signature;
 		source.refresh();
@@ -419,6 +422,7 @@ const source = startBoard({
 	claudeHome: config.claudeHome,
 	cloud: cloud.sessions,
 	remote: () => runnerHub.sessions(),
+	remoteSubagents: () => runnerHub.subagents(),
 	profiles: () => profileHomes(config.cswapRoot),
 	ignore: (sessionId, cwd) =>
 		probes.has(sessionId) || comments.owns(sessionId) || isAgentDir(cwd),
