@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { realpathSync } from "node:fs";
+import { mkdtempSync, realpathSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -8,6 +8,7 @@ import { after, before, describe, it, type TestContext } from "node:test";
 import WebSocket from "ws";
 import type { ToolCall } from "../agent/tools.ts";
 import { startRunnerClient } from "../runner/client.ts";
+import { createJobRunner } from "../runner/jobs.ts";
 import type { SessionManager } from "../runner/sessions.ts";
 import type { PermissionGrant } from "../shared/permissions.ts";
 import type {
@@ -50,12 +51,16 @@ import {
 	staticFile,
 } from "./http.ts";
 import { createIgnoreStore } from "./ignores.ts";
+import { compareShadow } from "./jobCompare.ts";
+import { createJobQueue } from "./jobQueue.ts";
+import { createJobsHttp } from "./jobsHttp.ts";
 import { createLastRunStore, type LastRunStore } from "./lastRuns.ts";
 import { createLayoutStore } from "./layout.ts";
 import { createMessageEdgeStore } from "./messageEdges.ts";
 import { createRegionStore } from "./regions.ts";
 import { createRelationStore } from "./relations.ts";
 import { createRegionReportRunner, createReportRunner } from "./reports.ts";
+import { createRunnerKeys, parseRunnerAddresses } from "./runnerKeys.ts";
 import { createRunnerHub } from "./runners.ts";
 import { boardParts, createUndo, yourGapMs } from "./undo.ts";
 import {
@@ -440,10 +445,22 @@ describe("createKanbanServer", () => {
 	const announced: [string, string | null][] = [];
 	const browsed: [string, string | null][] = [];
 	const refusedRunners: string[] = [];
+	const jobState = mkdtempSync(join(tmpdir(), "kanban-http-jobs-"));
+	const runnerKeys = createRunnerKeys({
+		file: join(jobState, "runner-keys.json"),
+		sharedToken: runnerSecret,
+		addresses: parseRunnerAddresses("job-runner=10.0.0.5"),
+	});
+	const jobQueue = createJobQueue({
+		file: join(jobState, "jobs.sqlite"),
+		compare: compareShadow,
+	});
 	const runnerHub = createRunnerHub({
 		hubHome: "/Users/me",
 		local: () => ({ name: "pilot", usage: null, cap: 4, sessions: [] }),
 		onChange: () => {},
+		jobs: jobQueue,
+		keys: runnerKeys,
 	});
 	let base = "";
 	let origin = "";
@@ -571,7 +588,16 @@ describe("createKanbanServer", () => {
 			csrf: "test-csrf",
 			build: () => "build-1",
 			authenticate,
-			runnerToken: runnerTokenCheck(runnerSecret),
+			runnerToken: (req) =>
+				runnerKeys.credential(req).kind === "own"
+					? "ok"
+					: runnerTokenCheck(runnerSecret)(req),
+			runnerKeys,
+			jobs: createJobsHttp({
+				queue: jobQueue,
+				offFile: join(jobState, "jobs-off"),
+				runners: () => runnerHub.views(),
+			}),
 			source: {
 				board: () => board,
 				transcript: async (_id, limit) => [
@@ -1037,6 +1063,136 @@ describe("createKanbanServer", () => {
 				})
 			).status,
 			405,
+		);
+	});
+
+	it("enrols a runner's own secret from its address, then runs a job on it", async (t) => {
+		const home = mkdtempSync(join(jobState, "home-"));
+		const own = "o".repeat(43);
+		const fromItsAddress: typeof fetch = (input, init) =>
+			fetch(input, {
+				...init,
+				headers: {
+					...(init?.headers as Record<string, string>),
+					"cf-connecting-ip": "10.0.0.5",
+				},
+			});
+		let client: ReturnType<typeof startRunnerClient> | null = null;
+		const jobs = createJobRunner({
+			configFile: "unused",
+			read: async () =>
+				JSON.stringify({
+					jobs: {
+						upper: { personal: false, command: ["/usr/bin/tr", "a-z", "A-Z"] },
+					},
+					limits: { cores: 2, memoryMb: 2048, slots: 1 },
+				}),
+			home,
+			tmp: home,
+			platform: "linux",
+			log: () => {},
+			post: async (id, attempt, result) => client?.postJob(id, attempt, result),
+		});
+		client = startRunnerClient({
+			config: {
+				hub: base,
+				token: runnerSecret,
+				name: "job-runner",
+				cap: 2,
+				claudeBin: "claude",
+				claudeArgs: [],
+				paths: [],
+				cswapBin: "off",
+			},
+			secret: own,
+			jobs,
+			fetch: fromItsAddress,
+			sessions: {
+				launch: async () => ({ ok: true }),
+				stop: async () => ({ ok: true }),
+				list: () => [],
+				pids: () => new Map(),
+				stopAll: async () => {},
+			},
+			sample: async () => ({
+				cpus: 4,
+				cpuPercent: 10,
+				load1: 0.5,
+				memTotal: 8e9,
+				memUsed: 2e9,
+				diskTotal: 1e11,
+				diskFree: 5e10,
+			}),
+			log: () => {},
+		});
+		t.after(() => client?.stop());
+		assert.equal(await client.registered, "job-runner");
+		assert.equal(runnerKeys.state("job-runner"), "enrolled");
+
+		const shared = await fetch(`${base}/api/runners/register`, {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${runnerSecret}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				name: "job-runner",
+				usage: { cpus: 1, memTotal: 1, memUsed: 0 },
+				cap: 1,
+				sessions: [],
+			}),
+		});
+		assert.equal(
+			shared.status,
+			403,
+			"the shared token no longer speaks for it",
+		);
+		const elsewhere = await fetch(`${base}/api/runners/enrol`, {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${runnerSecret}`,
+				"content-type": "application/json",
+				"cf-connecting-ip": "10.0.0.9",
+			},
+			body: JSON.stringify({ name: "other", hash: "a".repeat(64) }),
+		});
+		assert.equal(elsewhere.status, 403);
+
+		const submitted = await fetch(`${base}/api/jobs`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				class: "upper",
+				input: Buffer.from("shadow").toString("base64"),
+				personal: false,
+				shadow: {
+					kind: "bytes",
+					reference: Buffer.from("SHADOW").toString("base64"),
+				},
+			}),
+		});
+		assert.equal(submitted.status, 200);
+		runnerHub.dispatch();
+		for (let i = 0; i < 200 && jobQueue.counts().done === 0; i++) {
+			await new Promise((resolve) => setTimeout(resolve, 25));
+		}
+		assert.equal(jobQueue.counts().done, 1);
+		assert.equal(jobQueue.shadows()[0]?.match, true);
+		const view = (await (await fetch(`${base}/api/jobs`)).json()) as {
+			runners: { id: string; enrolment: string }[];
+		};
+		assert.equal(
+			view.runners.find((runner) => runner.id === "job-runner")?.enrolment,
+			"enrolled",
+		);
+		assert.equal(
+			(
+				await fetch(`${base}/api/jobs`, {
+					headers: { "cf-connecting-ip": "10.0.0.5" },
+				})
+			).status,
+			403,
+			"never through the proxy",
 		);
 	});
 

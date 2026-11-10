@@ -20,6 +20,12 @@ export type Config = {
 	runnerCap: number;
 	/** Runner names to list (as offline) before they first check in. */
 	expectedRunners: string[];
+	/** Each runner's address as the proxy in front of the board sees it, for enrolment. */
+	runnerAddresses: string | undefined;
+	/** Runners that never take a personal job. */
+	plainOnlyRunners: string[];
+	/** Runners told of a new runner.js last. */
+	updateLastRunners: string[];
 	auth: AuthConfig;
 	origins: string[];
 	claudeBin: string;
@@ -196,6 +202,12 @@ export const withFileSecrets = (
 	return merged;
 };
 
+const names = (raw: string | undefined): string[] =>
+	(raw ?? "")
+		.split(",")
+		.map((name) => name.trim())
+		.filter((name) => name !== "");
+
 export const loadConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
 	const port = parsePort(env.KANBAN_PORT);
 	const hosts = parseHosts(env.KANBAN_HOST);
@@ -206,10 +218,10 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
 		hosts,
 		runnerToken: parseRunnerToken(env.KANBAN_RUNNER_TOKEN),
 		runnerCap: parseRunnerCap(env.KANBAN_RUNNER_CAP),
-		expectedRunners: (env.KANBAN_RUNNERS ?? "")
-			.split(",")
-			.map((name) => name.trim())
-			.filter((name) => name !== ""),
+		expectedRunners: names(env.KANBAN_RUNNERS),
+		runnerAddresses: env.KANBAN_RUNNER_ADDRESSES,
+		plainOnlyRunners: names(env.KANBAN_RUNNERS_PLAIN_ONLY),
+		updateLastRunners: names(env.KANBAN_RUNNERS_UPDATE_LAST),
 		auth,
 		origins: parseOrigins(env, auth, port),
 		claudeBin: env.CLAUDE_BIN || findClaude(env.PATH),

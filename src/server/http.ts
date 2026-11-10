@@ -14,6 +14,7 @@ import { WebSocketServer } from "ws";
 import { emptyListing } from "../shared/projects.ts";
 import { maxImageBytes, maxPromptImages } from "../shared/promptImages.ts";
 import { linkRefusal } from "../shared/reach.ts";
+import { runnerIdOf } from "../shared/runners.ts";
 import {
 	type AccountResult,
 	type Board,
@@ -102,6 +103,7 @@ import {
 } from "./relations.ts";
 import { reportShotContentType, reportShotName } from "./reportShots.ts";
 import type { RegionReportRunner, ReportRunner } from "./reports.ts";
+import { forwardedAddress, type RunnerKeys } from "./runnerKeys.ts";
 import type { RunnerHub } from "./runners.ts";
 import {
 	isAccountNumber,
@@ -118,12 +120,23 @@ export type BoardSource = {
 	transcriptPath(node: NodeRef): string | null;
 };
 
+export type JobsHttp = {
+	submit(
+		body: unknown,
+	): { ok: true; id: string } | { ok: false; error: string };
+	view(): unknown;
+};
+
 export type ServerDeps = {
 	origins: string[];
 	dist: string;
 	authenticate: Authenticate;
 	/** Checks the shared runner bearer token; absent means none is configured. */
 	runnerToken?: RunnerTokenCheck;
+	/** Each runner's own enrolled secret; without it every runner shares the token. */
+	runnerKeys?: RunnerKeys;
+	/** The job queue's submit and read-only view, for processes on the hub's own machine. */
+	jobs?: JobsHttp;
 	source: BoardSource;
 	launch: SessionLauncher;
 	exit: ExitRunner;
@@ -185,6 +198,7 @@ export type ServerDeps = {
 		| "complete"
 		| "views"
 		| "refused"
+		| "jobResult"
 	>;
 	permissions: Permissions;
 	announce: Announcer;
@@ -260,6 +274,14 @@ export type Route =
 	| { kind: "runner-heartbeat"; runnerId: string }
 	| { kind: "runner-poll"; runnerId: string; waitMs: number }
 	| { kind: "runner-complete"; runnerId: string; commandId: string }
+	| { kind: "runner-enrol" }
+	| {
+			kind: "runner-job-result";
+			runnerId: string;
+			jobId: string;
+			attempt: number;
+	  }
+	| { kind: "jobs" }
 	| { kind: "static"; path: string }
 	| { kind: "not-found" }
 	| { kind: "method-not-allowed" };
@@ -279,6 +301,7 @@ const maxBodyBytes = 128 * 1024;
 export const maxButlerToolBytes = 8 * 1024 * 1024;
 const maxHookBytes = 64 * 1024 * 1024;
 const maxRunnerBytes = 256 * 1024;
+const maxJobBytes = 24 * 1024 ** 2;
 
 const parseWait = (raw: string | null): number => {
 	const wait = Number(raw);
@@ -643,6 +666,29 @@ export const matchRoute = (method: string, url: URL): Route => {
 	if (path === "/api/runners/placement") {
 		return method === "GET"
 			? { kind: "runner-placement" }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/jobs") {
+		return method === "GET" || method === "POST"
+			? { kind: "jobs" }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/runners/enrol") {
+		return method === "POST"
+			? { kind: "runner-enrol" }
+			: { kind: "method-not-allowed" };
+	}
+	const jobResult = path.match(
+		/^\/api\/runners\/([a-z0-9][a-z0-9-]{0,39})\/jobs\/([\w-]{1,64})\/([1-9][0-9]{0,5})$/,
+	);
+	if (jobResult?.[1] && jobResult[2] && jobResult[3]) {
+		return method === "POST"
+			? {
+					kind: "runner-job-result",
+					runnerId: jobResult[1],
+					jobId: jobResult[2],
+					attempt: Number(jobResult[3]),
+				}
 			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api/runners/register") {
@@ -1776,7 +1822,8 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 					| "runner-register"
 					| "runner-heartbeat"
 					| "runner-poll"
-					| "runner-complete";
+					| "runner-complete"
+					| "runner-job-result";
 			}
 		>,
 	) => {
@@ -1793,6 +1840,13 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		if (token !== "ok") return sendError(res, token === "none" ? 401 : 403);
 		const hub = deps.runners;
 		if (!hub) return sendError(res, 404);
+		const refuseAs = (id: string): boolean => {
+			const why = deps.runnerKeys?.mayActAs(req, id) ?? null;
+			if (why === null) return false;
+			sendJson(res, 403, { ok: false, error: why });
+			return true;
+		};
+		if (route.kind !== "runner-register" && refuseAs(route.runnerId)) return;
 		if (route.kind === "runner-poll") {
 			let gone = false;
 			res.on("close", () => {
@@ -1812,26 +1866,94 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 		}
 		let body: unknown;
 		try {
-			body = await readJson(req, maxRunnerBytes);
+			body = await readJson(
+				req,
+				route.kind === "runner-job-result" ? maxJobBytes : maxRunnerBytes,
+			);
 		} catch {
 			return sendJson(res, 400, { ok: false, error: "Invalid JSON body" });
 		}
+		if (route.kind === "runner-job-result") {
+			const outcome = hub.jobResult(
+				route.runnerId,
+				route.jobId,
+				route.attempt,
+				body,
+			);
+			if (outcome === "unknown") return sendError(res, 404);
+			if (typeof outcome === "object") {
+				return sendJson(res, 400, { ok: false, ...outcome });
+			}
+			return sendJson(res, 200, { ok: true, outcome });
+		}
 		if (route.kind === "runner-register") {
+			const name = (body as { name?: unknown } | null)?.name;
+			if (typeof name === "string" && refuseAs(runnerIdOf(name))) return;
 			const registered = hub.register(body);
 			return sendJson(res, registered.ok ? 200 : 400, registered);
 		}
 		if (route.kind === "runner-heartbeat") {
 			const beat = hub.heartbeat(route.runnerId, body);
 			if (beat === "unknown") return sendError(res, 404);
-			if (beat !== "ok") return sendJson(res, 400, { ok: false, ...beat });
-			res.writeHead(204, { "cache-control": "no-store" });
-			return res.end();
+			if (!("ok" in beat)) return sendJson(res, 400, { ok: false, ...beat });
+			return sendJson(res, 200, beat);
 		}
 		if (!hub.complete(route.runnerId, route.commandId, body)) {
 			return sendError(res, 404);
 		}
 		res.writeHead(204, { "cache-control": "no-store" });
 		res.end();
+	};
+
+	// The shared token, from the address the runner's name belongs to, enrols that runner's own secret.
+	const runnerEnrol = async (req: IncomingMessage, res: ServerResponse) => {
+		const keys = deps.runnerKeys;
+		if (!keys) return sendError(res, 404);
+		const held = keys.credential(req);
+		if (held.kind !== "shared")
+			return sendError(res, held.kind === "none" ? 401 : 403);
+		if (!req.headers["content-type"]?.startsWith("application/json")) {
+			return sendError(res, 415);
+		}
+		let body: unknown;
+		try {
+			body = await readJson(req, maxRunnerBytes);
+		} catch {
+			return sendJson(res, 400, { ok: false, error: "Invalid JSON body" });
+		}
+		const { name, hash } = (body ?? {}) as { name?: unknown; hash?: unknown };
+		if (typeof name !== "string" || name.length > 60) {
+			return sendJson(res, 400, { ok: false, error: "Send the runner's name" });
+		}
+		const enrolled = keys.enrol(runnerIdOf(name), hash, forwardedAddress(req));
+		if (!enrolled.ok) {
+			return sendJson(res, enrolled.status, {
+				ok: false,
+				error: enrolled.error,
+			});
+		}
+		return sendJson(res, 200, enrolled);
+	};
+
+	// Only processes on the hub's own machine submit jobs or read the queue.
+	const jobsCall = async (req: IncomingMessage, res: ServerResponse) => {
+		const jobs = deps.jobs;
+		if (!jobs) return sendError(res, 404);
+		if (!fromLoopback(req) || req.headers.origin !== undefined) {
+			return sendError(res, 403);
+		}
+		if (req.method === "GET") return sendJson(res, 200, jobs.view());
+		if (!req.headers["content-type"]?.startsWith("application/json")) {
+			return sendError(res, 415);
+		}
+		let body: unknown;
+		try {
+			body = await readJson(req, maxJobBytes);
+		} catch {
+			return sendJson(res, 400, { ok: false, error: "Invalid JSON body" });
+		}
+		const submitted = jobs.submit(body);
+		return sendJson(res, submitted.ok ? 200 : 400, submitted);
 	};
 
 	const handle = async (req: IncomingMessage, res: ServerResponse) => {
@@ -1843,10 +1965,13 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			route.kind === "runner-register" ||
 			route.kind === "runner-heartbeat" ||
 			route.kind === "runner-poll" ||
-			route.kind === "runner-complete"
+			route.kind === "runner-complete" ||
+			route.kind === "runner-job-result"
 		) {
 			return runnerCall(req, res, route);
 		}
+		if (route.kind === "runner-enrol") return runnerEnrol(req, res);
+		if (route.kind === "jobs") return jobsCall(req, res);
 		if (route.kind === "healthz") return sendJson(res, 200, { ok: true });
 		if (route.kind === "butler-tool") return butlerTool(req, res, route.tool);
 		if (route.kind === "peer-hook") return peerHook(req, res);

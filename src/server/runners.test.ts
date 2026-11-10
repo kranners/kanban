@@ -247,7 +247,7 @@ describe("createRunnerHub", () => {
 		assert.equal(hub.sessions()[0]?.doing, "jimbo is offline");
 		assert.equal(hub.blocker("runner_jimbo"), "jimbo is offline");
 		// Back with the same boot time: it slept, so next silence reads asleep.
-		assert.equal(hub.heartbeat("jimbo", report()), "ok");
+		assert.deepEqual(hub.heartbeat("jimbo", report()), { ok: true });
 		advance(20_000);
 		hub.sweep();
 		assert.equal(hub.views()[1]?.state, "asleep");

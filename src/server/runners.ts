@@ -11,6 +11,7 @@ import {
 import {
 	browseProtocol,
 	heartbeatMs,
+	jobsProtocol,
 	liveRunnerStates,
 	maxAllowClasses,
 	maxCheckouts,
@@ -21,6 +22,9 @@ import {
 	type RunnerCheckout,
 	type RunnerCommand,
 	type RunnerCommandResult,
+	type RunnerHeartbeatReply,
+	type RunnerJobResult,
+	type RunnerJobsReport,
 	type RunnerRegistration,
 	type RunnerReport,
 	type RunnerSession,
@@ -45,7 +49,10 @@ import type {
 	Session,
 	Subagent,
 } from "../shared/types.ts";
+import { type JobCandidate, placeJob } from "./jobPlacement.ts";
+import type { JobQueue } from "./jobQueue.ts";
 import type { DropRecorder } from "./runnerDrops.ts";
+import type { RunnerKeys } from "./runnerKeys.ts";
 import type { PlacementCandidate } from "./wouldPlace.ts";
 
 export type LocalRunner = {
@@ -74,11 +81,35 @@ export type RunnerHubOptions = {
 	/** Records each runner's drops by hour of day; none kept when not given. */
 	drops?: DropRecorder;
 	log?: (line: string) => void;
+	/** The durable job queue; no jobs are placed when not given. */
+	jobs?: JobQueue;
+	/** True while the off-switch file says to offload nothing. */
+	jobsOff?: () => boolean;
+	/** Runners that never take a personal job, whatever their own config lists. */
+	plainOnly?: readonly string[];
+	/** Runners told of a new runner.js only after the others ran it cleanly for updateSettleMs. */
+	updateLast?: readonly string[];
+	updateSettleMs?: number;
+	keys?: RunnerKeys;
 };
+
+export const updateSettleMs = 10 * 60_000;
 
 export type RunnerHub = {
 	register(body: unknown): RunnerRegistration | { ok: false; error: string };
-	heartbeat(id: string, body: unknown): "ok" | "unknown" | { error: string };
+	heartbeat(
+		id: string,
+		body: unknown,
+	): RunnerHeartbeatReply | "unknown" | { error: string };
+	/** One attempt's result from the runner that ran it. */
+	jobResult(
+		id: string,
+		jobId: string,
+		attempt: number,
+		body: unknown,
+	): "accepted" | "late" | "unknown" | { error: string };
+	/** Hands waiting jobs to runners with room. */
+	dispatch(): void;
 	poll(id: string, waitMs: number): Promise<RunnerCommand[] | null>;
 	requeue(id: string, commands: RunnerCommand[]): void;
 	complete(id: string, commandId: string, body: unknown): boolean;
@@ -122,6 +153,11 @@ type Runner = {
 	launching: Map<string, RunnerSession>;
 	/** When a runner of this name last offered a token the hub refused. */
 	refusedAt: number | null;
+	onlineSince: number | null;
+	/** An older runner reads the version only as it registers, so it was sent back to register once. */
+	nudged: boolean;
+	/** Since when it has run its reported version without dropping. */
+	versionSince: number | null;
 };
 
 const maxString = 4096;
@@ -304,6 +340,8 @@ export const parseRunnerReport = (body: unknown): RunnerReport | null => {
 	const sessions = body.sessions.map(parseSession);
 	if (sessions.some((session) => session === null)) return null;
 	const signals = parseSignals(body.signals);
+	const version = str(body.version, 64);
+	const jobs = parseJobsReport(body.jobs);
 	return {
 		protocol: num(body.protocol) ?? 0,
 		name,
@@ -316,6 +354,63 @@ export const parseRunnerReport = (body: unknown): RunnerReport | null => {
 		usage,
 		...(signals ? { signals } : {}),
 		sessions: sessions as RunnerSession[],
+		...(version && /^[0-9a-f]{64}$/.test(version) ? { version } : {}),
+		...(jobs ? { jobs } : {}),
+	};
+};
+
+const jobIdPattern = /^[\w-]{1,64}$/;
+
+export const parseJobsReport = (value: unknown): RunnerJobsReport | null => {
+	if (!isRecord(value)) return null;
+	const slots = num(value.slotsFree);
+	return {
+		classes: Array.isArray(value.classes)
+			? value.classes
+					.filter(isRecord)
+					.flatMap((entry) =>
+						typeof entry.name === "string" && classPattern.test(entry.name)
+							? [{ name: entry.name, personal: entry.personal !== false }]
+							: [],
+					)
+					.slice(0, maxAllowClasses)
+			: [],
+		refusing:
+			value.refusing === null
+				? null
+				: (str(value.refusing, 200) ?? "unreadable"),
+		slotsFree: slots === null ? 0 : Math.floor(slots),
+		running: Array.isArray(value.running)
+			? value.running
+					.filter(isRecord)
+					.flatMap((entry) => {
+						const attempt = num(entry.attempt);
+						return typeof entry.id === "string" &&
+							jobIdPattern.test(entry.id) &&
+							attempt !== null &&
+							Number.isInteger(attempt)
+							? [{ id: entry.id, attempt, paused: entry.paused === true }]
+							: [];
+					})
+					.slice(0, 64)
+			: [],
+	};
+};
+
+export const parseJobResult = (value: unknown): RunnerJobResult | null => {
+	if (!isRecord(value)) return null;
+	const ms = num(value.ms) ?? 0;
+	if (value.ok === true) {
+		return typeof value.output === "string"
+			? { ok: true, output: value.output, ms }
+			: null;
+	}
+	return {
+		ok: false,
+		error: str(value.error, 400) ?? "The runner failed",
+		ms,
+		...(value.requeue === true ? { requeue: true } : {}),
+		...(value.refused === true ? { refused: true } : {}),
 	};
 };
 
@@ -384,9 +479,19 @@ export const createRunnerHub = ({
 	runnerVersion = () => null,
 	drops,
 	log = () => {},
+	jobs,
+	jobsOff = () => false,
+	plainOnly: plainOnlyNames = [],
+	updateLast: updateLastNames = [],
+	updateSettleMs: settleMs = updateSettleMs,
+	keys,
 }: RunnerHubOptions): RunnerHub => {
 	const runners = new Map<string, Runner>();
 	const pending = new Map<string, Pending>();
+	const servingSince = now();
+	const plainOnly = plainOnlyNames.map(runnerIdOf);
+	const updateLast = updateLastNames.map(runnerIdOf);
+	let offSaid = false;
 
 	const blank = (id: string): Runner => ({
 		id,
@@ -399,6 +504,9 @@ export const createRunnerHub = ({
 		waiter: null,
 		launching: new Map(),
 		refusedAt: null,
+		onlineSince: null,
+		versionSince: null,
+		nudged: false,
 	});
 
 	for (const name of expected) {
@@ -429,7 +537,12 @@ export const createRunnerHub = ({
 				Math.abs(report.bootedAt - runner.report.bootedAt) <= bootSlackMs;
 		}
 		// After a hub restart too, so a drop that spanned it still closes.
-		if (!runner.online) drops?.back(runner.id, at, report.bootedAt);
+		if (!runner.online) {
+			drops?.back(runner.id, at, report.bootedAt);
+			runner.onlineSince = at;
+			runner.versionSince = at;
+		}
+		if (report.version !== runner.report?.version) runner.versionSince = at;
 		drops?.seen(runner.id, at);
 		runner.report = report;
 		runner.lastSeen = at;
@@ -532,6 +645,51 @@ export const createRunnerHub = ({
 			return false;
 		});
 
+	const settled = (runner: Runner, version: string, at: number) =>
+		runner.report?.version === version &&
+		runner.versionSince !== null &&
+		at - runner.versionSince >= settleMs;
+
+	// Why a runner updated last isn't told of the runner.js the hub serves yet, or null once it may be.
+	const holdBack = (runner: Runner): string | null => {
+		const served = runnerVersion();
+		if (!served || !updateLast.includes(runner.id)) return null;
+		const at = now();
+		if (at - servingSince < settleMs) {
+			return "updates last, once the board has run this release for 10 minutes";
+		}
+		const unsettled = [...runners.values()].filter(
+			(other) =>
+				other !== runner &&
+				other.online &&
+				other.report?.version !== undefined &&
+				!updateLast.includes(other.id) &&
+				!settled(other, served, at),
+		);
+		if (unsettled.length > 0) {
+			return `updates last, after ${unsettled.map(labelOf).join(", ")} ran the new runner cleanly for 10 minutes`;
+		}
+		if ((jobs?.leasesHeldBy(runner.id) ?? 0) > 0) {
+			return "updates last, once it holds no job";
+		}
+		return null;
+	};
+
+	const versionFor = (runner: Runner): string | undefined => {
+		const served = runnerVersion();
+		return served && holdBack(runner) === null ? served : undefined;
+	};
+
+	const updateNote = (runner: Runner): string | null => {
+		const report = runner.report;
+		const served = runnerVersion();
+		if (!report || !served || report.version === served) return null;
+		if (report.protocol < jobsProtocol) {
+			return `${labelOf(runner)} runs an older runner (protocol ${report.protocol}). It updates itself when idle; if it stays on this one, it predates self-update, so restart kanban-runner on ${labelOf(runner)}.`;
+		}
+		return holdBack(runner) ?? "updates itself once it is idle";
+	};
+
 	const viewOf = (runner: Runner): RunnerView => ({
 		id: runner.id,
 		name: labelOf(runner),
@@ -554,7 +712,83 @@ export const createRunnerHub = ({
 			cpuPercent: runner.online ? session.cpuPercent : null,
 			rss: runner.online ? session.rss : null,
 		})),
+		enrolment: !runner.report
+			? "unseen"
+			: (keys?.state(runner.id) ?? "shared-token"),
+		protocol: runner.report?.protocol ?? null,
+		update: updateNote(runner),
+		jobs: runner.online ? (runner.report?.jobs ?? null) : null,
 	});
+
+	const jobCandidates = (): JobCandidate[] =>
+		[...runners.values()].map((runner) => {
+			const usage = runner.report?.usage;
+			return {
+				id: runner.id,
+				online: runner.online,
+				onlineSince: runner.onlineSince,
+				jobs: runner.report?.jobs
+					? {
+							...runner.report.jobs,
+							slotsFree:
+								runner.report.jobs.slotsFree -
+								Math.max(
+									0,
+									(jobs?.leasesHeldBy(runner.id) ?? 0) -
+										runner.report.jobs.running.length,
+								),
+						}
+					: null,
+				plainOnly: plainOnly.includes(runner.id),
+				enrolled: keys ? keys.state(runner.id) === "enrolled" : true,
+				loadPerCpu:
+					usage?.load1 != null && usage.cpus > 0
+						? usage.load1 / usage.cpus
+						: null,
+				drops: drops?.records()[runner.id] ?? null,
+			};
+		});
+
+	const push = (runner: Runner, command: RunnerCommand) => {
+		runner.queue.push(command);
+		if (runner.waiter) {
+			const waiter = runner.waiter;
+			runner.waiter = null;
+			const commands = deliverable(runner, runner.queue);
+			runner.queue = [];
+			waiter(commands);
+		}
+	};
+
+	const dispatch = () => {
+		if (!jobs) return;
+		if (jobsOff()) {
+			if (!offSaid && jobs.waiting().length > 0) {
+				log(
+					"jobs: offloading is off (its flag file is present), so nothing is placed",
+				);
+			}
+			offSaid = true;
+			return;
+		}
+		offSaid = false;
+		const candidates = jobCandidates();
+		for (const waiting of jobs.waiting()) {
+			const placed = placeJob(waiting, candidates, now());
+			if (!placed.runner) continue;
+			const runner = runners.get(placed.runner);
+			const job = runner && jobs.lease(waiting.id, runner.id);
+			if (!runner || !job) continue;
+			const candidate = candidates.find((entry) => entry.id === runner.id);
+			if (candidate?.jobs) {
+				candidate.jobs = {
+					...candidate.jobs,
+					slotsFree: candidate.jobs.slotsFree - 1,
+				};
+			}
+			push(runner, { type: "job", commandId: newId(), job });
+		}
+	};
 
 	const hub: RunnerHub = {
 		register(body) {
@@ -567,9 +801,9 @@ export const createRunnerHub = ({
 			const runner = runners.get(id) ?? blank(id);
 			runners.set(id, runner);
 			accept(runner, report);
-			const version = runnerVersion();
+			const version = versionFor(runner);
 			log(
-				`runner ${id} registered: protocol ${report.protocol}, ${report.platform}, ${report.signals ? "with" : "without"} placement signals`,
+				`runner ${id} registered: protocol ${report.protocol}, ${report.platform}, ${report.signals ? "with" : "without"} placement signals, ${keys?.state(id) === "enrolled" ? "enrolled" : "on the shared token"}${report.jobs ? `, job classes [${report.jobs.classes.map((entry) => entry.name).join(", ")}]` : ""}`,
 			);
 			return {
 				ok: true,
@@ -586,8 +820,33 @@ export const createRunnerHub = ({
 			if (!report) return { error: "Malformed runner report" };
 			if (runnerIdOf(report.name) !== id) return "unknown";
 			accept(runner, report);
-			return "ok";
+			const stopJobs = jobs?.renew(id, report.jobs?.running ?? []) ?? [];
+			dispatch();
+			const version = versionFor(runner);
+			if (
+				version &&
+				report.protocol < jobsProtocol &&
+				updateLast.includes(id) &&
+				!runner.nudged
+			) {
+				runner.nudged = true;
+				return "unknown";
+			}
+			return {
+				ok: true,
+				...(version ? { runnerVersion: version } : {}),
+				...(stopJobs.length > 0 ? { stopJobs } : {}),
+			};
 		},
+		jobResult(id, jobId, attempt, body) {
+			if (!jobs) return "unknown";
+			const result = parseJobResult(body);
+			if (!result) return { error: "Malformed job result" };
+			const outcome = jobs.result(id, jobId, attempt, result);
+			if (outcome === "accepted") dispatch();
+			return outcome;
+		},
+		dispatch,
 		poll(id, waitMs) {
 			const runner = runners.get(id);
 			if (!runner?.report) return Promise.resolve(null);
@@ -823,6 +1082,8 @@ export const createRunnerHub = ({
 					changed = true;
 				}
 			}
+			jobs?.sweep();
+			dispatch();
 			if (changed) onChange();
 		},
 		stopAll() {

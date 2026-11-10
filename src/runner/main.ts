@@ -15,8 +15,11 @@ import {
 	runnerDocsArgs,
 	runnerDocsCaller,
 } from "./docsMcp.ts";
+import { createJobRunner } from "./jobs.ts";
+import { ownSecret } from "./secret.ts";
 import { createSessionManager } from "./sessions.ts";
 import {
+	allowListPath,
 	createSignalSampler,
 	listCheckouts,
 	servedFolders,
@@ -87,6 +90,18 @@ async function run(config: RunnerConfig) {
 	const current = script.endsWith("runner.js")
 		? await fileVersion(script)
 		: null;
+	const secret = await ownSecret().catch((error: Error) => {
+		console.error(`kanban-runner: can't keep its own secret: ${error.message}`);
+		return null;
+	});
+	let client: ReturnType<typeof startRunnerClient> | null = null;
+	const jobs = createJobRunner({
+		configFile: allowListPath(),
+		post: async (id, attempt, result) => {
+			if (!client) throw new Error("not connected to the hub yet");
+			await client.postJob(id, attempt, result);
+		},
+	});
 	const update = current
 		? createSelfUpdate({
 				script,
@@ -94,14 +109,18 @@ async function run(config: RunnerConfig) {
 				hub: config.hub,
 				token: config.token,
 				idle: () =>
+					!jobs.busy() &&
 					!sessions
 						.list()
 						.some((session) => liveRunnerStates.includes(session.state)),
 				exit: () => shutdown(),
 			})
 		: null;
-	const client = startRunnerClient({
+	client = startRunnerClient({
 		config,
+		secret,
+		jobs,
+		version: current,
 		sessions,
 		sample: createUsageSampler(),
 		signals: createSignalSampler({
@@ -120,8 +139,9 @@ async function run(config: RunnerConfig) {
 		update?.stop();
 		// Sessions are children of this process: stop them rather than leave them
 		// running where the board can no longer see them.
+		jobs.stopAll("the runner is stopping");
 		await sessions.stopAll();
-		await client.stop();
+		await client?.stop();
 		process.exit(0);
 	};
 	process.on("SIGINT", shutdown);

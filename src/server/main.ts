@@ -116,6 +116,9 @@ import { gitMainLog, readHistory } from "./history.ts";
 import { createKanbanServer, newCsrfToken } from "./http.ts";
 import { createIgnoreStore, loadIgnores } from "./ignores.ts";
 import { startBoard } from "./ingest/index.ts";
+import { compareShadow } from "./jobCompare.ts";
+import { createJobQueue } from "./jobQueue.ts";
+import { createJobsHttp, jobsOffFile } from "./jobsHttp.ts";
 import { createLastRunStore, loadLastRuns } from "./lastRuns.ts";
 import { createLayoutStore, loadLayout } from "./layout.ts";
 import { listenAll } from "./listen.ts";
@@ -141,6 +144,7 @@ import {
 	regionMembersOf,
 } from "./reports.ts";
 import { createDropRecorder, dropFile } from "./runnerDrops.ts";
+import { createRunnerKeys, parseRunnerAddresses } from "./runnerKeys.ts";
 import { createRunnerHub } from "./runners.ts";
 import {
 	claudeLauncher,
@@ -408,7 +412,24 @@ const runnerDrops = createDropRecorder(
 	dropFile(join(config.stateDir, "runner-drops.json")),
 );
 const servedRunner = await fileVersion(join(config.dist, "runner.js"));
+const runnerKeys = createRunnerKeys({
+	file: join(config.stateDir, "runner-keys.json"),
+	sharedToken: config.runnerToken,
+	addresses: parseRunnerAddresses(config.runnerAddresses),
+	log: (line) => console.log(line),
+});
+const jobQueue = createJobQueue({
+	file: join(config.stateDir, "jobs.sqlite"),
+	log: (line) => console.log(line),
+	compare: compareShadow,
+});
+const offloadOff = jobsOffFile(config.stateDir);
 const runnerHub = createRunnerHub({
+	jobs: jobQueue,
+	jobsOff: () => existsSync(offloadOff),
+	plainOnly: config.plainOnlyRunners,
+	updateLast: config.updateLastRunners,
+	keys: runnerKeys,
 	runnerVersion: () => servedRunner,
 	expected: config.expectedRunners,
 	hubHome: homedir(),
@@ -882,7 +903,19 @@ const server = createKanbanServer({
 	origins: config.origins,
 	dist: config.dist,
 	authenticate: authenticatorFor(config.auth),
-	runnerToken: runnerTokenCheck(config.runnerToken),
+	runnerToken: (req) => {
+		const held = runnerKeys.credential(req);
+		if (held.kind === "own") return "ok";
+		return held.kind === "shared"
+			? runnerTokenCheck(config.runnerToken)(req)
+			: held.kind;
+	},
+	runnerKeys,
+	jobs: createJobsHttp({
+		queue: jobQueue,
+		offFile: offloadOff,
+		runners: () => runnerHub.views(),
+	}),
 	source,
 	launch,
 	exit: runExit,
@@ -962,6 +995,7 @@ const shutdown = () => {
 	clearInterval(cmuxPoll);
 	clearInterval(runnersPoll);
 	runnerHub.stopAll();
+	jobQueue.close();
 	clearInterval(usagePoll);
 	clearInterval(accountsPoll);
 	clearInterval(failoverPoll);

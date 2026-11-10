@@ -4,10 +4,13 @@
 import type { ReportedSubagent } from "./reportedSubagents.ts";
 import type { Activity, FolderListing, RunsOn } from "./types.ts";
 
-export const runnerProtocol = 2;
+export const runnerProtocol = 3;
 
 /** The first protocol whose runners answer browse commands. */
 export const browseProtocol = 2;
+
+/** The first protocol whose runners take job commands and report their own version. */
+export const jobsProtocol = 3;
 
 /** How often a runner reports, and how long the hub waits before calling it gone. */
 export const heartbeatMs = 5_000;
@@ -140,6 +143,56 @@ export type RunnerReport = {
 	/** Absent from runners older than placement signals. */
 	signals?: RunnerSignals;
 	sessions: RunnerSession[];
+	/** The sha256 of the runner.js it runs; absent from runners older than jobs. */
+	version?: string;
+	/** Absent from runners older than jobs. */
+	jobs?: RunnerJobsReport;
+};
+
+/** A job class as the machine's own config lists it: whether it carries personal data. */
+export type RunnerJobClass = { name: string; personal: boolean };
+
+export type RunnerRunningJob = { id: string; attempt: number; paused: boolean };
+
+export type RunnerJobsReport = {
+	classes: RunnerJobClass[];
+	/** Why the machine takes no new job right now, or null when it would. */
+	refusing: string | null;
+	slotsFree: number;
+	running: RunnerRunningJob[];
+};
+
+/** Bytes in, bytes out: run the class's fixed command on the input. */
+export type RunnerJob = {
+	type: "job";
+	commandId: string;
+	job: {
+		id: string;
+		class: string;
+		attempt: number;
+		/** Epoch ms after which the job is given up. */
+		deadline: number;
+		/** Base64. */
+		input: string;
+	};
+};
+
+/** What a runner posts back for one attempt of a job. */
+export type RunnerJobResult =
+	| { ok: true; output: string; ms: number }
+	| {
+			ok: false;
+			error: string;
+			ms: number;
+			requeue?: boolean;
+			refused?: boolean;
+	  };
+
+export type RunnerHeartbeatReply = {
+	ok: true;
+	runnerVersion?: string;
+	/** Jobs this runner reported that the hub no longer leases to it: stop them. */
+	stopJobs?: string[];
 };
 
 export type RunnerLaunch = {
@@ -167,7 +220,11 @@ export type RunnerBrowse = {
 	hubHome: string | null;
 };
 
-export type RunnerCommand = RunnerLaunch | RunnerStop | RunnerBrowse;
+export type RunnerCommand =
+	| RunnerLaunch
+	| RunnerStop
+	| RunnerBrowse
+	| RunnerJob;
 
 export type RunnerCommandResult =
 	| { ok: true; listing?: FolderListing }
@@ -213,7 +270,19 @@ export type RunnerView = {
 	cap: number;
 	/** Live sessions placed on it, which count against the cap. */
 	sessions: PlacedSession[];
+	/** How its last call proved who it is: its own enrolled secret, or the shared token. */
+	enrolment?: RunnerEnrolment;
+	protocol?: number | null;
+	/** Why it is not on the runner the hub serves, when it isn't. */
+	update?: string | null;
+	jobs?: RunnerJobsReport | null;
 };
+
+export type RunnerEnrolment =
+	| "enrolled"
+	| "shared-token"
+	| "cut-off"
+	| "unseen";
 
 /** A runner's id from its name: lower case letters, digits and dashes. */
 export const runnerIdOf = (name: string): string =>
