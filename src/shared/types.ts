@@ -500,7 +500,7 @@ export type ButlerThreadApproval = {
 	code?: string;
 	/** A call's approval prompt, or a desk session's mission request. */
 	kind?: "call" | "desk";
-	/** The card it shows, as Discord shows it: goal, Needs your approval, Also included, Limits. */
+	/** The card it shows, as Discord shows it: the effect it would have, the call and how to undo it, in Discord Markdown. */
 	body?: string;
 	/** It lists something critical, so Approve needs the hold. */
 	critical?: boolean;

@@ -12,10 +12,10 @@ import {
 	approveAll,
 	fetchApprovals,
 	holdMs,
-	parseApprovalBody,
 } from "./approvalCard.ts";
 import { needing, visitNextNeedingYou } from "./attentionState.ts";
 import { openThreadCard } from "./butlerThreads.ts";
+import { renderMarkdown } from "./markdown.ts";
 import { holdReload, reloadPage } from "./pageBuild.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
 
@@ -124,7 +124,7 @@ export function HoldButton(props: {
 	);
 }
 
-/** One request as its card: what asks, the goal, Needs your approval, Also included, Limits, and its buttons. */
+/** One request as its card, as Discord shows it: what asks, its effect card, and its buttons. */
 export function ApprovalCardView(props: {
 	thread: string;
 	title?: string;
@@ -132,7 +132,6 @@ export function ApprovalCardView(props: {
 	onAnswered?: (text: string) => void;
 }): JSX.Element {
 	const { approval } = props;
-	const sections = parseApprovalBody(approval.body);
 	const [busy, setBusy] = useState(false);
 	const [said, setSaid] = useState<{
 		ok: boolean;
@@ -174,58 +173,8 @@ export function ApprovalCardView(props: {
 					</button>
 				)}
 			</header>
-			{sections.goal && (
-				<p class="approval-goal">
-					<strong>Goal:</strong> {sections.goal}
-				</p>
-			)}
-			{sections.critical.length > 0 ? (
-				<section class="approval-needs">
-					<h4>Needs your approval</h4>
-					<ul>
-						{sections.critical.map((item) => (
-							<li key={`${item.glyph}-${item.capability}-${item.touches}`}>
-								<span class="approval-glyph" aria-hidden="true">
-									{item.glyph}
-								</span>
-								<span>
-									<strong>{item.capability}</strong>
-									{item.touches && <small>{item.touches}</small>}
-								</span>
-							</li>
-						))}
-					</ul>
-				</section>
-			) : (
-				sections.noCritical && (
-					<section class="approval-needs approval-none">
-						<h4>Needs your approval</h4>
-						<p>No critical permissions</p>
-					</section>
-				)
-			)}
-			{sections.included.length > 0 && (
-				<section class="approval-list">
-					<h4>Also included</h4>
-					<ul>
-						{sections.included.map((line) => (
-							<li key={line}>{line}</li>
-						))}
-					</ul>
-				</section>
-			)}
-			{sections.limits.length > 0 && (
-				<section class="approval-list">
-					<h4>Limits</h4>
-					<ul>
-						{sections.limits.map((line) => (
-							<li key={line}>{line}</li>
-						))}
-					</ul>
-				</section>
-			)}
-			{sections.other.length > 0 && (
-				<p class="approval-other">{sections.other.join("\n")}</p>
+			{approval.body && (
+				<div class="approval-body">{renderMarkdown(approval.body)}</div>
 			)}
 			{done ? (
 				<p class="approval-said" role="status">

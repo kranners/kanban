@@ -40,70 +40,23 @@
 	cursor: pointer;
 }
 
-.approval-goal,
-.approval-other {
-	margin: 0;
-	white-space: pre-wrap;
+.approval-body {
+	min-width: 0;
+	overflow-wrap: anywhere;
 }
 
-.approval-card h4 {
-	margin: 2px 0;
-	font-size: 11px;
-	font-weight: 700;
-	letter-spacing: 0.02em;
-	text-transform: uppercase;
-	color: var(--muted);
+.approval-body > :first-child {
+	margin-top: 0;
 }
 
-.approval-needs h4 {
-	color: var(--red);
+.approval-body > :last-child {
+	margin-bottom: 0;
 }
 
-.approval-none h4 {
-	color: var(--muted);
-}
-
-.approval-none p {
-	margin: 0;
-	color: var(--muted);
-}
-
-.approval-card ul {
-	margin: 0;
-	padding: 0 0 0 2px;
-	list-style: none;
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-}
-
-.approval-list li::before {
-	content: "• ";
-	color: var(--muted);
-}
-
-.approval-needs li {
-	display: flex;
-	gap: 8px;
-	align-items: flex-start;
-}
-
-.approval-needs small {
-	display: block;
-	color: var(--muted);
+.approval-body pre {
+	max-height: 12em;
+	overflow: auto;
 	font-size: 11.5px;
-}
-
-.approval-glyph {
-	min-width: 18px;
-	height: 18px;
-	display: inline-grid;
-	place-items: center;
-	border-radius: 50%;
-	background: color-mix(in srgb, var(--red) 14%, var(--surface));
-	color: var(--red);
-	font-family: var(--mono);
-	font-size: 11px;
 }
 
 .approval-buttons {
