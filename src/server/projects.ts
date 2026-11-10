@@ -7,19 +7,24 @@
 //   { updated, projects: [ { id, title, parent, area, kind, stage, state,
 //     next, blocked_on, created, touched, stage_since,
 //     links: [ { type, ref, url? } ], history: [ { at, stage, note } ],
-//     stale, progress, live: [ { type, id, state, title } ] } ] }
+//     stale, progress, live: [ { type, id, state, title } ],
+//     graph?: { updated, nodes: [ { id, title, sub, state, owner, ref } ],
+//       edges: [ { from, to } ] } } ] }
 //
 // No Node imports here, so the browser demo can use the fixture too.
 
 import {
 	emptyListing,
 	type Project,
+	type ProjectGraph,
+	type ProjectGraphNodeState,
 	type ProjectLink,
 	type ProjectLinkKind,
 	type ProjectLive,
 	type ProjectStage,
 	type ProjectStep,
 	type ProjectsListing,
+	projectGraphNodeStates,
 	projectSideStages,
 	projectStages,
 } from "../shared/projects.ts";
@@ -146,6 +151,41 @@ const safeUrl = (value: unknown): string | null => {
 const list = (value: unknown, max: number): Raw[] =>
 	Array.isArray(value) ? value.filter(isRecord).slice(0, max) : [];
 
+export const maxGraphNodes = 40;
+export const maxGraphEdges = 80;
+
+const graphStates = new Set<string>(projectGraphNodeStates);
+
+function graphOf(value: unknown): ProjectGraph | undefined {
+	if (!isRecord(value)) return undefined;
+	const seen = new Set<string>();
+	const nodes = list(value.nodes, maxGraphNodes).flatMap((node) => {
+		const id = text(node.id, 80);
+		if (!id || seen.has(id)) return [];
+		seen.add(id);
+		const state = text(node.state, 20).toLowerCase();
+		return [
+			{
+				id,
+				title: text(node.title, 120) || id,
+				sub: text(node.sub, 200),
+				state: (graphStates.has(state)
+					? state
+					: "unknown") as ProjectGraphNodeState,
+				owner: textOrNull(node.owner, 60),
+				ref: textOrNull(node.ref, 300),
+			},
+		];
+	});
+	if (nodes.length === 0) return undefined;
+	const edges = list(value.edges, maxGraphEdges).flatMap((edge) => {
+		const from = text(edge.from, 80);
+		const to = text(edge.to, 80);
+		return seen.has(from) && seen.has(to) && from !== to ? [{ from, to }] : [];
+	});
+	return { updatedAt: timeOf(value.updated), nodes, edges };
+}
+
 /** A session ref as the board knows it, without a `session:` card prefix. */
 const sessionRef = (ref: string): string => ref.replace(/^session:/, "");
 
@@ -182,6 +222,7 @@ function projectOf(raw: Raw, now: number): Project | null {
 		})
 		.sort((a, b) => a.at - b.at);
 	const stage = stageOf(raw.stage) ?? history.at(-1)?.stage ?? "idea";
+	const graph = graphOf(raw.graph);
 	const touchedAt =
 		timeOf(raw.touched) ?? history.at(-1)?.at ?? timeOf(raw.created);
 	const progress =
@@ -229,6 +270,7 @@ function projectOf(raw: Raw, now: number): Project | null {
 					.filter((word) => /^[a-z0-9]{3,40}$/.test(word)),
 			),
 		],
+		...(graph ? { graph } : {}),
 	};
 }
 
@@ -381,8 +423,54 @@ export function projectsFixture(now: number): unknown {
 					[40, "idea", "Thought of it while away"],
 					[25, "planned", "Parts list written"],
 					[9, "building", "Valves wired"],
+					[4, "building", "Schedule running every morning"],
 				),
 				progress: 0.45,
+				graph: {
+					updated: ago(0.5),
+					nodes: [
+						{ id: "parts", title: "Order parts", state: "done" },
+						{ id: "valves", title: "Wire the valves", state: "done" },
+						{
+							id: "schedule",
+							title: "Watering schedule",
+							sub: "Runs every morning",
+							state: "done",
+						},
+						{
+							id: "sensor-one",
+							title: "Pair soil sensor one",
+							state: "done",
+						},
+						{
+							id: "batteries",
+							title: "Batteries for sensor two",
+							sub: "Waiting on a yes to buy them",
+							state: "aaron",
+						},
+						{
+							id: "sensor-two",
+							title: "Pair soil sensor two",
+							state: "idle",
+							ref: "a1f0c2d4e5",
+						},
+						{
+							id: "dry-alert",
+							title: "Dry soil alert",
+							state: "idle",
+						},
+						{ id: "rain-skip", title: "Skip on rainy days", state: "idle" },
+					],
+					edges: [
+						{ from: "parts", to: "valves" },
+						{ from: "valves", to: "schedule" },
+						{ from: "parts", to: "sensor-one" },
+						{ from: "batteries", to: "sensor-two" },
+						{ from: "sensor-one", to: "sensor-two" },
+						{ from: "sensor-two", to: "dry-alert" },
+						{ from: "schedule", to: "rain-skip" },
+					],
+				},
 				live: [
 					{
 						type: "session",

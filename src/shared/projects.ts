@@ -59,6 +59,35 @@ export type ProjectLive = {
 
 export type ProjectStep = { at: number; stage: ProjectStage; note: string };
 
+export const projectGraphNodeStates = [
+	"done",
+	"progress",
+	"aaron",
+	"other",
+	"idle",
+	"unknown",
+] as const;
+export type ProjectGraphNodeState = (typeof projectGraphNodeStates)[number];
+
+export type ProjectGraphNode = {
+	id: string;
+	title: string;
+	sub: string;
+	/** As last written; a node with a ref takes its state live from the board instead. */
+	state: ProjectGraphNodeState;
+	owner: string | null;
+	/** A change, desk session, thread or board session it is, by the ref a project link would use. */
+	ref: string | null;
+};
+
+/** The project's steps and what blocks what, as Butler or an owner session last wrote them. */
+export type ProjectGraph = {
+	updatedAt: number | null;
+	nodes: ProjectGraphNode[];
+	/** `from` must finish before `to` can. */
+	edges: { from: string; to: string }[];
+};
+
 export type Project = {
 	id: string;
 	title: string;
@@ -85,6 +114,8 @@ export type Project = {
 	sessions: string[];
 	/** Words that name it in a card's title, which Butler keeps, so a card nothing links still finds its region. */
 	keywords?: string[];
+	/** An authored dependency graph, when one was written. */
+	graph?: ProjectGraph;
 };
 
 export type ProjectsStatus = "ok" | "fixture" | "unconfigured" | "unavailable";

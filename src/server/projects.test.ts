@@ -245,3 +245,47 @@ describe("createProjectsSource", () => {
 		assert.ok(listing.projects.length > 0);
 	});
 });
+
+describe("a project's authored graph", () => {
+	const now = Date.parse("2026-01-10T00:00:00Z");
+	const read = (graph: unknown) =>
+		normaliseProjects({ projects: [{ id: "p", graph }] }, now)?.projects[0]
+			?.graph;
+
+	it("keeps nodes and the edges between known nodes, with unknown states as unknown", () => {
+		const graph = read({
+			updated: "2026-01-09T00:00:00Z",
+			nodes: [
+				{ id: "a", title: "A", state: "done" },
+				{ id: "b", state: "nonsense", ref: "20260101-000000-1" },
+				{ id: "a", title: "Duplicate" },
+			],
+			edges: [
+				{ from: "a", to: "b" },
+				{ from: "a", to: "missing" },
+				{ from: "b", to: "b" },
+			],
+		});
+		assert.deepEqual(graph, {
+			updatedAt: Date.parse("2026-01-09T00:00:00Z"),
+			nodes: [
+				{ id: "a", title: "A", sub: "", state: "done", owner: null, ref: null },
+				{
+					id: "b",
+					title: "b",
+					sub: "",
+					state: "unknown",
+					owner: null,
+					ref: "20260101-000000-1",
+				},
+			],
+			edges: [{ from: "a", to: "b" }],
+		});
+	});
+
+	it("leaves the graph out when there is none or it has no nodes", () => {
+		assert.equal(read(undefined), undefined);
+		assert.equal(read({ nodes: [] }), undefined);
+		assert.equal(read("not a graph"), undefined);
+	});
+});

@@ -2,6 +2,7 @@ import "./projects.css";
 import { FolderKanban, OctagonPause, X } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { neighboursIn } from "../shared/projectDashboard.ts";
 import {
 	columnOf,
 	columnProjects,
@@ -15,8 +16,8 @@ import {
 	stageNames,
 } from "../shared/projects.ts";
 import type { Session } from "../shared/types.ts";
+import { ProjectDashboard } from "./ProjectDashboard.tsx";
 import {
-	ancestors,
 	openProject,
 	openProjectId,
 	pollProjects,
@@ -36,6 +37,11 @@ type Column = ProjectMainStage | "aside";
 const columns: Column[] = [...projectStages, "aside"];
 const columnName = (column: Column) =>
 	column === "aside" ? "Paused or dropped" : stageNames[column];
+
+const typingIn = (target: EventTarget | null): boolean =>
+	target instanceof HTMLElement &&
+	(target.isContentEditable ||
+		/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
 
 const dateOf = (at: number) =>
 	new Date(at).toLocaleDateString(undefined, {
@@ -160,128 +166,6 @@ function ProjectCard(props: {
 	);
 }
 
-function ProjectDetail(props: { project: Project; t: number }) {
-	const { project } = props;
-	const byId = projectsById.value;
-	const chain = ancestors(project, byId).reverse();
-	const children = projectsListing.value.projects.filter(
-		(p) => p.parent === project.id,
-	);
-	return (
-		<section class="project-detail" aria-label={project.title}>
-			{chain.length > 0 && (
-				<p class="project-crumbs">
-					{chain.map((p) => (
-						<button
-							key={p.id}
-							type="button"
-							class="project-link"
-							onClick={() => {
-								openProjectId.value = p.id;
-							}}
-						>
-							{p.title}
-						</button>
-					))}
-				</p>
-			)}
-			<h3 class="project-detail-title">{project.title}</h3>
-			<p class="project-detail-meta">
-				{stageNames[project.stage]}
-				{project.area && ` · ${project.area}`}
-				{project.kind && ` · ${project.kind}`}
-				{project.stageSince !== null &&
-					` · since ${dateOf(project.stageSince)}`}
-			</p>
-			<LifecycleStrip project={project} />
-			<Badges project={project} t={props.t} />
-			{project.state && <p>{project.state}</p>}
-			{project.next && (
-				<p>
-					<span class="project-label">Next</span> {project.next}
-				</p>
-			)}
-			{project.blockedOn && (
-				<p class="project-blocked-on">
-					<span class="project-label">Blocked on</span> {project.blockedOn}
-				</p>
-			)}
-			{children.length > 0 && (
-				<>
-					<h4>Sub-projects</h4>
-					<ul class="project-list">
-						{children.map((child) => (
-							<li key={child.id}>
-								<button
-									type="button"
-									class="project-link"
-									onClick={() => {
-										openProjectId.value = child.id;
-									}}
-								>
-									{child.title}
-								</button>{" "}
-								<span class="project-muted">{stageNames[child.stage]}</span>
-							</li>
-						))}
-					</ul>
-				</>
-			)}
-			{project.live.length > 0 && (
-				<>
-					<h4>Live now</h4>
-					<ul class="project-list">
-						{project.live.map((item) => (
-							<li key={`${item.kind}:${item.id}`}>
-								{item.title || item.id}{" "}
-								<span class="project-muted">
-									{item.kind}
-									{item.state && `, ${item.state}`}
-								</span>
-							</li>
-						))}
-					</ul>
-				</>
-			)}
-			{project.links.length > 0 && (
-				<>
-					<h4>Links</h4>
-					<ul class="project-list">
-						{project.links.map((link) => (
-							<li key={`${link.kind}:${link.ref}`}>
-								<span class="project-muted">{link.kind}</span>{" "}
-								{link.url ? (
-									<a href={link.url} target="_blank" rel="noreferrer noopener">
-										{link.ref}
-									</a>
-								) : (
-									link.ref
-								)}
-							</li>
-						))}
-					</ul>
-				</>
-			)}
-			{project.history.length > 0 && (
-				<>
-					<h4>History</h4>
-					<ol class="project-history">
-						{[...project.history].reverse().map((step) => (
-							<li key={`${step.at}-${step.stage}`}>
-								<time class="num">{dateOf(step.at)}</time>
-								<span class={`project-stage-name stage-${step.stage}`}>
-									{stageNames[step.stage]}
-								</span>
-								{step.note && <span>{step.note}</span>}
-							</li>
-						))}
-					</ol>
-				</>
-			)}
-		</section>
-	);
-}
-
 function EmptyState() {
 	const listing = projectsListing.value;
 	if (listing.status === "unconfigured") {
@@ -325,17 +209,44 @@ function ProjectsDialog(props: { onClose: () => void }) {
 		? projectsById.value.get(openProjectId.value)
 		: undefined;
 	const visibleColumns = columns.filter((c) => !hideDone || c !== "done");
+	const selectedColumn = selected ? columnOf(selected.stage) : null;
+	const position = selected
+		? neighboursIn(
+				columnProjects(
+					shown.some((p) => p.id === selected.id) ? shown : listing.projects,
+					selectedColumn as Column,
+				),
+				selected.id,
+			)
+		: { index: -1, count: 0, previous: null, next: null };
 	return (
 		<dialog
 			class="focus-dialog projects-dialog"
 			ref={dialog}
 			onClose={props.onClose}
+			onCancel={(event) => {
+				if (!openProjectId.value) return;
+				event.preventDefault();
+				openProjectId.value = null;
+			}}
 			onKeyDown={(event) => {
 				if (event.key === "Escape") {
 					event.preventDefault();
 					event.stopPropagation();
-					props.onClose();
+					if (selected) openProjectId.value = null;
+					else props.onClose();
+					return;
 				}
+				if (!selected || typingIn(event.target)) return;
+				const to =
+					event.key === "ArrowLeft"
+						? position.previous
+						: event.key === "ArrowRight"
+							? position.next
+							: undefined;
+				if (to === undefined) return;
+				event.preventDefault();
+				if (to) openProjectId.value = to;
 			}}
 			onClick={(event) => {
 				if (event.target === event.currentTarget) props.onClose();
@@ -387,7 +298,16 @@ function ProjectsDialog(props: { onClose: () => void }) {
 				</button>
 			</header>
 			<div class="projects-body">
-				{listing.projects.length === 0 ? (
+				{selected ? (
+					<ProjectDashboard
+						project={selected}
+						position={position}
+						columnName={columnName(selectedColumn as Column)}
+						onClose={() => {
+							openProjectId.value = null;
+						}}
+					/>
+				) : listing.projects.length === 0 ? (
 					<EmptyState />
 				) : (
 					<div class="projects-columns" data-scrollable>
@@ -409,7 +329,7 @@ function ProjectsDialog(props: { onClose: () => void }) {
 												key={project.id}
 												project={project}
 												depth={depth}
-												selected={selected?.id === project.id}
+												selected={false}
 												t={t}
 											/>
 										))}
@@ -418,21 +338,6 @@ function ProjectsDialog(props: { onClose: () => void }) {
 							);
 						})}
 					</div>
-				)}
-				{selected && (
-					<aside class="projects-aside" data-scrollable>
-						<button
-							type="button"
-							class="icon-button project-detail-close"
-							aria-label="Close the project"
-							onClick={() => {
-								openProjectId.value = null;
-							}}
-						>
-							<X size={14} />
-						</button>
-						<ProjectDetail project={selected} t={t} />
-					</aside>
 				)}
 			</div>
 		</dialog>
