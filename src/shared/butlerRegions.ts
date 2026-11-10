@@ -43,41 +43,24 @@ const changeRefPattern = /^\d{8}-\d{6}$/;
 const namesChange = (ref: string, change: string): boolean =>
 	changeRefPattern.test(ref) && change.startsWith(`${ref}-`);
 
-/** Words too common across Aaron's projects and Butler's titles to tell one project from another. */
-const plainWords = new Set([
-	"and",
-	"for",
-	"the",
-	"with",
-	"from",
-	"into",
-	"its",
-	"butler",
-	"butlers",
-	"aaron",
-	"work",
-	"data",
-	"desk",
-	"plan",
-	"get",
-	"new",
-	"fix",
-	"change",
-]);
-
 const wordsOf = (text: string): string[] =>
-	text
-		.toLowerCase()
-		.split(/[^a-z0-9]+/)
-		.filter((word) => word.length >= 3 && !plainWords.has(word));
+	text.toLowerCase().split(/[^a-z0-9]+/);
+
+/** The words that name a project: those Butler keeps for it, and its id when that is one word. */
+const namesOf = (project: Project): string[] => [
+	...(project.keywords ?? []),
+	...(/^[a-z0-9]{3,}$/.test(project.id) && project.id !== "butler"
+		? [project.id]
+		: []),
+];
 
 /** Where a guess may file a card: a project still under way, never one done or dropped. */
 const guessable = (project: Project): boolean =>
 	project.stage !== "done" && project.stage !== "dropped";
 
 /**
- * The project a card's title names, by words of the projects' ids and
- * titles: a word counts when the projects using it lie on one line of
+ * The project a card's title names, by a project's keywords or one-word
+ * id, a plural too: a word counts when the projects using it lie on one line of
  * parent and children, naming the topmost of them, and the most specific
  * named project wins when all lie on one line. Null when no word names
  * one or the words point at unrelated projects, so a doubtful card stays
@@ -109,13 +92,15 @@ export const guessProject = (
 	};
 	const holders = new Map<string, Project[]>();
 	for (const project of open) {
-		for (const word of new Set(wordsOf(`${project.id} ${project.title}`))) {
+		for (const word of new Set(namesOf(project))) {
 			holders.set(word, [...(holders.get(word) ?? []), project]);
 		}
 	}
 	const named = new Set<Project>();
 	for (const word of new Set(wordsOf(title))) {
-		const top = shallowestOnOneLine(holders.get(word) ?? []);
+		const top = shallowestOnOneLine(
+			holders.get(word) ?? holders.get(word.replace(/s$/, "")) ?? [],
+		);
 		if (top) named.add(top);
 	}
 	const deepest = [...named].sort((a, b) => depth(b) - depth(a))[0];

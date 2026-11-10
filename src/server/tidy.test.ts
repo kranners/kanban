@@ -168,38 +168,61 @@ describe("Filing a card no link names", () => {
 		project("pulse-usage-governor", {
 			title: "Pulse usage governor",
 			parent: "pulse",
+			keywords: ["governor"],
 		}),
-		project("call-voice", { title: "Call voice", parent: "butler" }),
+		project("call-voice", {
+			title: "Call voice",
+			parent: "butler",
+			keywords: ["call"],
+		}),
 		project("call-transcripts", {
 			title: "iPhone call transcripts",
 			parent: "butler",
+			keywords: ["call"],
 		}),
-		project("work-hkjc", { title: "Work: HKJC", area: "work" }),
-		project("work-tennis", { title: "Work: tennis data", area: "work" }),
-		project("kanban-oss", { title: "Kanban, Aaron's open source board" }),
+		project("work-hkjc", { title: "Work: HKJC", keywords: ["hkjc"] }),
+		project("work-tennis", {
+			title: "Work: tennis data",
+			keywords: ["tennis"],
+		}),
+		project("subscriptions-sweep", {
+			title: "Subscriptions sweep",
+			keywords: ["subscription"],
+		}),
+		project("kanban-oss", {
+			title: "Kanban, Aaron's open source board",
+			keywords: ["kanban"],
+		}),
 		project("kanban-ipad-app", {
 			title: "Kanban iPad app",
 			parent: "kanban-oss",
+			keywords: ["kanban", "ipad"],
 		}),
-		project("ipad-support", {
-			title: "iPad support for the board",
-			parent: "butler",
+		project("blog-site", {
+			title: "Personal blog site",
+			stage: "done",
+			keywords: ["blog"],
 		}),
-		project("blog-site", { title: "Personal blog site", stage: "done" }),
 	];
 	const owner = (title: string, fields: Partial<ButlerCard> = {}) =>
 		projectsOfCards([card("c", { title, ...fields })], projects).get("c");
 
-	it("files a card by a word only one project's line uses, the most specific named", () => {
+	it("files a card by a keyword, or a one-word id, only one project's line holds, the most specific named", () => {
 		assert.equal(owner("Desk: HKJC audit"), "work-hkjc");
-		assert.equal(owner("Tennis alarms prep"), "work-tennis");
+		assert.equal(owner("Tennis: box scores"), "work-tennis");
 		assert.equal(owner("Kanban board tidy"), "kanban-oss");
+		assert.equal(owner("Kanban iPad TestFlight"), "kanban-ipad-app");
 		assert.equal(owner("Pulse governor sinks"), "pulse-usage-governor");
 		assert.equal(owner("Restart pulse"), "pulse");
+		assert.equal(
+			owner("Cancel the unused subscriptions"),
+			"subscriptions-sweep",
+		);
 	});
 
 	it("leaves a doubtful card in Unsorted rather than guess", () => {
 		assert.equal(owner("Lunch plans"), null);
+		assert.equal(owner("Update the safe prompt sweep"), null);
 		assert.equal(owner("Call me back"), null);
 		assert.equal(owner("HKJC tennis crossover"), null);
 		assert.equal(owner("Butler's new desk"), null);
@@ -223,7 +246,6 @@ describe("Filing a card no link names", () => {
 					selfFix: "20261109-141009",
 					thread: undefined,
 				}),
-				card("parent", { title: "Fox box" }),
 				card("child", { title: "Tennis", parent: "fix" }),
 			],
 			linked,

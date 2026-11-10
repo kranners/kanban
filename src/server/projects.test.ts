@@ -102,6 +102,7 @@ describe("normaliseProjects", () => {
 							{ at: "2026-10-01T00:00:00Z", stage: "idea", note: "x" },
 						],
 						progress: 80,
+						keywords: ["HKJC", "hkjc", "no spaces", 7, "ok"],
 						live: [
 							{ type: "session", id: "def456", state: "working", title: "t" },
 						],
@@ -129,6 +130,11 @@ describe("normaliseProjects", () => {
 			"history is oldest first",
 		);
 		assert.equal(p.stale, false);
+		assert.deepEqual(
+			p.keywords,
+			["hkjc"],
+			"keywords are single words of three or more, lowercased once",
+		);
 	});
 	it("works out staleness when the source does not say", () => {
 		const read = normaliseProjects(

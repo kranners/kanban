@@ -83,6 +83,8 @@ export type Project = {
 	live: ProjectLive[];
 	/** Board sessions or cards it links to, by id. */
 	sessions: string[];
+	/** Words that name it in a card's title, which Butler keeps, so a card nothing links still finds its region. */
+	keywords?: string[];
 };
 
 export type ProjectsStatus = "ok" | "fixture" | "unconfigured" | "unavailable";

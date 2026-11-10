@@ -221,6 +221,14 @@ function projectOf(raw: Raw, now: number): Project | null {
 		progress,
 		live,
 		sessions: [...new Set(sessions)],
+		keywords: [
+			...new Set(
+				(Array.isArray(raw.keywords) ? raw.keywords : [])
+					.slice(0, 20)
+					.map((word) => text(word, 40).toLowerCase())
+					.filter((word) => /^[a-z0-9]{3,40}$/.test(word)),
+			),
+		],
 	};
 }
 

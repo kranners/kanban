@@ -715,6 +715,7 @@ const refreshProjects = async () => {
 			p.parent,
 			p.links,
 			p.sessions,
+			p.keywords,
 		]),
 	);
 	if (shape === projectsShape) return;
