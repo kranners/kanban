@@ -650,3 +650,25 @@ test("a Butler card's subagents move clear of another card dropped under it", ()
 	assert.ok(x);
 	assert.ok(!near(x, other, 0), "clear of the other card");
 });
+
+test("a Butler card's subagents move clear of a session placed by hand under it", () => {
+	const b = board({
+		sessions: [session("a", 1)],
+		subagents: [subagent("x", "self-fix-1")],
+	});
+	const card = { id: "self-fix-1", x: 0, y: 0, w: 312, h: 216 };
+	const saved: Layout = { "session:a": { x: 0, y: 240, pinned: true } };
+	const placed = arrange(
+		b,
+		saved,
+		seedsOf(b, ["self-fix-1"]),
+		new Map(),
+		[card],
+		[],
+		[card],
+	);
+	const x = placed.nodes.get("subagent:x");
+	const a = placed.nodes.get("session:a");
+	assert.ok(x && a);
+	assert.ok(!near(x, a, 0), "clear of the pinned session");
+});

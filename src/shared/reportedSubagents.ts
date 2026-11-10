@@ -85,15 +85,32 @@ export function reportedSubagent(
 	};
 }
 
-/** An owner's reported subagents as the board's own, one under a parent it no longer reports standing under the owner. */
+/** An owner's reported subagents as the board's own, one whose parents are not reported or run in a loop standing under the owner. */
 export function ownedSubagents(
 	reported: readonly ReportedSubagent[],
 	ownerId: string,
 ): Subagent[] {
+	const parentOf = new Map(
+		reported.flatMap((s) => (s.parent ? [[s.id, s.parent] as const] : [])),
+	);
 	const ids = new Set(reported.map((s) => s.id));
+	const looped = (id: string) => {
+		const seen = new Set([id]);
+		for (
+			let up = parentOf.get(id);
+			up !== undefined && ids.has(up);
+			up = parentOf.get(up)
+		) {
+			if (seen.has(up)) return true;
+			seen.add(up);
+		}
+		return false;
+	};
 	return reported.map((s) =>
 		reportedSubagent(
-			s.parent && ids.has(s.parent) ? s : { ...s, parent: undefined },
+			s.parent && ids.has(s.parent) && !looped(s.id)
+				? s
+				: { ...s, parent: undefined },
 			ownerId,
 		),
 	);

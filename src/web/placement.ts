@@ -493,30 +493,6 @@ export function arrange(
 			h: card.h,
 		});
 	}
-	const cardFollowers = new Map<NodeKey, Rect>();
-	for (const [cardKey, card] of anchors) {
-		const natural = board.subagents.flatMap((a) => {
-			const key = nodeKey({ kind: "subagent", id: a.id });
-			const offset = seeds.offsets.get(key);
-			return offset?.session === cardKey && !saved[key]
-				? [[key, followerRect(card, offset)] as const]
-				: [];
-		});
-		if (natural.length === 0) continue;
-		const others = reserved.filter(
-			(rect) => (rect as { id?: string }).id !== card.ref.id,
-		);
-		const shift = clearShift(
-			natural.map(([, rect]) => rect),
-			[...occupied, ...others],
-		);
-		for (const [key, rect] of natural) {
-			const moved = { ...rect, x: rect.x + shift.x, y: rect.y + shift.y };
-			cardFollowers.set(key, moved);
-			occupied.push(moved);
-		}
-	}
-
 	const byStart = (a: Session, b: Session) =>
 		a.startedAt - b.startedAt || a.id.localeCompare(b.id);
 	const savedSpot = (key: NodeKey): Point => ({
@@ -569,6 +545,30 @@ export function arrange(
 		occupied.push(rect);
 		held.add(s.id);
 	}
+	const cardFollowers = new Map<NodeKey, Rect>();
+	for (const [cardKey, card] of anchors) {
+		const natural = board.subagents.flatMap((a) => {
+			const key = nodeKey({ kind: "subagent", id: a.id });
+			const offset = seeds.offsets.get(key);
+			return offset?.session === cardKey && !saved[key]
+				? [[key, followerRect(card, offset)] as const]
+				: [];
+		});
+		if (natural.length === 0) continue;
+		const others = reserved.filter(
+			(rect) => (rect as { id?: string }).id !== card.ref.id,
+		);
+		const shift = clearShift(
+			natural.map(([, rect]) => rect),
+			[...occupied, ...others],
+		);
+		for (const [key, rect] of natural) {
+			const moved = { ...rect, x: rect.x + shift.x, y: rect.y + shift.y };
+			cardFollowers.set(key, moved);
+			occupied.push(moved);
+		}
+	}
+
 	const pinned = (s: Session) => placedByHand(s) || held.has(s.id);
 	const nudged = new Map<NodeKey, Rect>();
 	for (const s of savedSessions.filter(pinned)) {

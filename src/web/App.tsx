@@ -326,6 +326,14 @@ function Placeholder(props: { title: string; body: string; action?: boolean }) {
 	);
 }
 
+/** A Butler card's subagent stands under its card and moves only with it. */
+function followsCard(key: string): boolean {
+	const follows = arrangement.peek()?.nodes.get(key)?.follows;
+	return (
+		follows !== undefined && arrangement.peek()?.anchors.has(follows) === true
+	);
+}
+
 function newestSession(current: Board, placed: Arrangement) {
 	const newest = current.sessions.reduce<Board["sessions"][number] | null>(
 		(top, s) => (top === null || s.startedAt > top.startedAt ? s : top),
@@ -366,7 +374,9 @@ function Stage() {
 			content={placed.bounds}
 			anchor={anchor ? { x: anchor.x, w: anchor.w } : undefined}
 			fitKey="board"
-			rectOf={(key) => arrangement.peek()?.nodes.get(key)}
+			rectOf={(key) =>
+				followsCard(key) ? undefined : arrangement.peek()?.nodes.get(key)
+			}
 			onArrange={arrangeCard}
 			tools={<BoardTools />}
 		>

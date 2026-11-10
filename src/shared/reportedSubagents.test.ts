@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	ownedSubagents,
 	parseReportedSubagents,
 	reportedSubagent,
 } from "./reportedSubagents.ts";
@@ -64,4 +65,24 @@ test("a reported subagent becomes the board's own under its owner", () => {
 		reportedSubagent(sub("c", "working", 3), "s", false).live,
 		false,
 	);
+});
+
+test("a subagent whose parents loop or are not reported stands under its owner", () => {
+	const owned = ownedSubagents(
+		[
+			sub("self", "working", 1, "self"),
+			sub("a", "working", 1, "b"),
+			sub("b", "working", 1, "a"),
+			sub("orphan", "working", 1, "gone"),
+			sub("top", "working", 1),
+			sub("child", "working", 1, "top"),
+		],
+		"card",
+	);
+	const parent = new Map(owned.map((s) => [s.id, s.parentAgentId]));
+	assert.equal(parent.get("self"), null);
+	assert.equal(parent.get("a"), null);
+	assert.equal(parent.get("b"), null);
+	assert.equal(parent.get("orphan"), null);
+	assert.equal(parent.get("child"), "top");
 });
