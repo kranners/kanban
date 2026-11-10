@@ -1,0 +1,1 @@
+Laptop compute step 1: runners report placement signals (power, lid, thermal, idle, sleep setting, checkouts, local allow-list); hub keeps drop record by hour and logs where it would place each launch; acts on nothing.
