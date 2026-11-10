@@ -1,5 +1,5 @@
 import "./butler.css";
-import { Pin, TriangleAlert } from "lucide-preact";
+import { Pin } from "lucide-preact";
 import type { JSX } from "preact";
 import type { RegionColour } from "../shared/colours.ts";
 import type { ButlerCard, Note } from "../shared/types.ts";
@@ -11,32 +11,23 @@ import {
 	ButlerNoteIcon,
 	ButlerWatchingIcon,
 } from "./Butler.tsx";
-import { FromDmChip } from "./ButlerDm.tsx";
 import { butlerPresence, presenceOf } from "./butler.ts";
 import { butlerLanes } from "./butlerCards.ts";
-import {
-	isFromDm,
-	linkedCount,
-	openParent,
-	parentTitle,
-	threadKindLabels,
-} from "./butlerThreads.ts";
+import { linkedCount, threadKindLabels } from "./butlerThreads.ts";
 import { centreOn, detail, view } from "./Canvas.tsx";
 import { SubagentChips } from "./Card.tsx";
-import { AuthorChip, CardFace, StatusBadge } from "./CardFace.tsx";
+import { CardFace } from "./CardFace.tsx";
+import { CardBody, CardFoot, NearPanel } from "./CardParts.tsx";
 import {
 	authorFilter,
-	butlerCardAuthor,
-	butlerCardLastActivity,
+	butlerCardView,
+	type CardView,
 	dimmedByAuthor,
-	statusOf,
 } from "./cardFace.ts";
 import { threads } from "./comments.ts";
 import { nodeKey } from "./layout.ts";
 import type { Rect } from "./placement.ts";
 import { board, now } from "./state.ts";
-import { Timeline } from "./Timeline.tsx";
-import { relativeTime } from "./time.ts";
 
 /** What a Butler card is: a change, one of his Discord threads by its kind, or one he made. */
 function kindOf(card: ButlerCard): string {
@@ -47,33 +38,6 @@ function kindOf(card: ButlerCard): string {
 
 function linkLabel(card: ButlerCard): string {
 	return card.thread ? "Open in Discord ↗" : "Open session ↗";
-}
-
-/** "from <title>" on a card that came from one of Butler's threads. */
-function ParentLine(props: { card: ButlerCard }): JSX.Element | null {
-	const { parent } = props.card;
-	if (
-		isFromDm({ card: parent }, butlerPresence.value.dm?.thread, current.value)
-	) {
-		return <FromDmChip parent={parent} />;
-	}
-	const title = parentTitle(props.card.parent, current.value);
-	if (!title) return null;
-	return (
-		<button
-			type="button"
-			class="butler-card-from"
-			data-no-pan
-			title={`Open ${title}`}
-			onPointerDown={(event) => event.stopPropagation()}
-			onClick={(event) => {
-				event.stopPropagation();
-				openParent(props.card.parent);
-			}}
-		>
-			from {title}
-		</button>
-	);
 }
 
 /** The thread's mission, the machines it drove and whether its question may be stale, as chips; nothing when it has none. */
@@ -120,84 +84,67 @@ function CardSubagentChips(props: { card: ButlerCard; now: number }) {
 	);
 }
 
-/** A Butler card zoomed in, laid out as a session card's near view, with its timeline. */
+function CardLink(props: { card: ButlerCard }) {
+	const { card } = props;
+	if (!card.link) return null;
+	return (
+		<a
+			class="butler-card-link"
+			href={card.link}
+			target="_blank"
+			rel="noopener noreferrer"
+		>
+			{linkLabel(card)}
+		</a>
+	);
+}
+
+function WatchingMark(props: { card: ButlerCard; size: number }) {
+	if (!props.card.watching) return null;
+	return (
+		<ButlerWatchingIcon
+			size={props.size}
+			class="butler-watching-icon"
+			aria-label="Butler is watching"
+		/>
+	);
+}
+
+/** A Butler card zoomed in: the same near view as a session's, with its link, chips, summary and timeline. */
 function ButlerNearPanel(props: {
 	card: ButlerCard;
+	view: CardView;
 	now: number;
 }): JSX.Element {
 	const { card } = props;
 	const kind = kindOf(card);
-	const lastActivity = butlerCardLastActivity(card);
 	return (
-		<div class={`near-panel butler-near butler-${card.state}`} data-scrollable>
-			<header class="near-head">
-				<div class="near-meta">
-					<StatusBadge
-						status={statusOf(card.state, lastActivity, props.now)}
-						lastActivity={lastActivity}
-						now={props.now}
-					/>
-					<span class="near-name butler-near-kind">
-						<AuthorChip author={butlerCardAuthor(card)} />
-						{kind}
-					</span>
-					{card.watching && (
-						<ButlerWatchingIcon
-							size={16}
-							class="butler-watching-icon"
-							aria-label="Butler is watching"
-						/>
-					)}
-					<span class="foot-end">
-						<time class="num">{relativeTime(card.updatedAt, props.now)}</time>
-					</span>
-				</div>
-				<p class="near-goal">{card.title}</p>
-				{card.status &&
-					(card.state === "needs-you" ? (
-						<p class="near-needs">
-							<TriangleAlert size={14} aria-hidden="true" />
-							<span>{card.status}</span>
-						</p>
-					) : (
-						<p class="near-doing">{card.status}</p>
-					))}
-				{card.link && (
-					<a
-						class="butler-card-link"
-						href={card.link}
-						target="_blank"
-						rel="noopener noreferrer"
-					>
-						{linkLabel(card)}
-					</a>
-				)}
-				<ParentLine card={card} />
-				<ButlerChips card={card} />
-				<CardSubagentChips card={card} now={props.now} />
-			</header>
-			<div class="near-content">
-				<div class="near-side">
-					{card.summary && (
-						<section class="detail-section" aria-label="Summary">
-							<div class="detail-head">
-								<span>Summary</span>
-							</div>
-							<p class="butler-near-summary">{card.summary}</p>
-						</section>
-					)}
-				</div>
-				<div class="near-main">
-					<Timeline
-						lanes={butlerLanes(card, props.now)}
-						now={props.now}
-						label={`${kind} timeline`}
-						minuteEm={0.8}
-						labelled
-					/>
-				</div>
-			</div>
-		</div>
+		<NearPanel
+			view={props.view}
+			now={props.now}
+			class={`butler-near butler-${card.state}`}
+			name={<span class="near-name">{kind}</span>}
+			marks={<WatchingMark card={card} size={16} />}
+			extras={
+				<>
+					<CardLink card={card} />
+					<ButlerChips card={card} />
+					<CardSubagentChips card={card} now={props.now} />
+				</>
+			}
+			side={
+				card.summary && (
+					<section class="detail-section" aria-label="Summary">
+						<div class="detail-head">
+							<span>Summary</span>
+						</div>
+						<p class="butler-near-summary">{card.summary}</p>
+					</section>
+				)
+			}
+			lanes={butlerLanes(card, props.now)}
+			timeline={`${kind} timeline`}
+		/>
 	);
 }
 
@@ -212,56 +159,41 @@ function ButlerCardFoot(props: { card: ButlerCard; now: number }) {
 		? linkedCount(card, current.value, board.value?.sessions ?? [])
 		: 0;
 	return (
-		<div class="foot">
-			<span class="foot-project">{kindOf(card)}</span>
-			{linked > 0 && (
-				<span class="butler-card-linked" title="Cards and sessions it started">
-					↳ {linked} linked
-				</span>
-			)}
-			<span class="foot-end">
-				{card.pinned && (
-					<Pin
-						size={13}
-						class="butler-pinned-icon"
-						aria-label="Pinned: Tidy leaves it here"
-					/>
-				)}
-				{card.watching && (
-					<ButlerWatchingIcon
-						size={14}
-						class="butler-watching-icon"
-						aria-label="Butler is watching"
-					/>
-				)}
-				{card.link && (
-					<a
-						class="butler-card-link"
-						href={card.link}
-						target="_blank"
-						rel="noopener noreferrer"
+		<CardFoot
+			label={kindOf(card)}
+			beside={
+				linked > 0 && (
+					<span
+						class="butler-card-linked"
+						title="Cards and sessions it started"
 					>
-						{linkLabel(card)}
-					</a>
-				)}
-				<time class="num">{relativeTime(card.updatedAt, props.now)}</time>
-			</span>
-		</div>
+						↳ {linked} linked
+					</span>
+				)
+			}
+			marks={
+				<>
+					{card.pinned && (
+						<Pin
+							size={13}
+							class="butler-pinned-icon"
+							aria-label="Pinned: Tidy leaves it here"
+						/>
+					)}
+					<WatchingMark card={card} size={14} />
+					<CardLink card={card} />
+				</>
+			}
+			updatedAt={card.updatedAt}
+			now={props.now}
+		/>
 	);
 }
 
-const idleHint: Record<ButlerCard["state"], string> = {
-	working: "Working",
-	"needs-you": "Needs you",
-	idle: "Between turns",
-	done: "Finished",
-	failed: "Failed",
-};
-
 /**
  * One of Butler's cards, a thread, desk session, job or change, drawn by
- * the same card face as a session, with its author on the bar. Away from
- * near zoom nothing in it scrolls, so the wheel always moves the board.
+ * the same card face and parts as a session, with its author on the bar.
+ * Away from near zoom nothing in it scrolls, so the wheel always moves the board.
  */
 export function ButlerCardBody(props: {
 	card: ButlerCard;
@@ -269,42 +201,31 @@ export function ButlerCardBody(props: {
 }): JSX.Element {
 	const { card } = props;
 	const t = now.value;
-	const author = butlerCardAuthor(card);
-	const lastActivity = butlerCardLastActivity(card);
+	const view = butlerCardView(card, t);
 	return (
 		<CardFace
-			status={statusOf(card.state, lastActivity, t)}
-			lastActivity={lastActivity}
-			author={author}
+			status={view.status}
+			lastActivity={view.lastActivity}
+			author={view.author}
 			name={barName(card)}
 			now={t}
 			class={[
 				"butler-face",
-				dimmedByAuthor(author, authorFilter.value) && "dimmed",
+				dimmedByAuthor(view.author, authorFilter.value) && "dimmed",
 				props.region && `grouped region region-${props.region}`,
 			]
 				.filter(Boolean)
 				.join(" ")}
 			frame={
 				detail.value === "near" ? (
-					<ButlerNearPanel card={card} now={t} />
+					<ButlerNearPanel card={card} view={view} now={t} />
 				) : (
 					<>
-						<div class="body">
-							<p class="goal">{card.title}</p>
-							<ParentLine card={card} />
-							{card.state === "needs-you" ? (
-								<div class="needs" title={card.status}>
-									{card.status ?? idleHint[card.state]}
-								</div>
-							) : (
-								<div class="card-doing" title={card.status}>
-									{card.status ?? idleHint[card.state]}
-								</div>
-							)}
-							<ButlerChips card={card} />
-							<CardSubagentChips card={card} now={t} />
-						</div>
+						<CardBody
+							view={view}
+							after={<ButlerChips card={card} />}
+							subagents={<CardSubagentChips card={card} now={t} />}
+						/>
 						<ButlerCardFoot card={card} now={t} />
 					</>
 				)

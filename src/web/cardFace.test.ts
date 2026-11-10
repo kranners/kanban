@@ -5,10 +5,12 @@ import type { ButlerCard } from "../shared/types.ts";
 import {
 	butlerCardAuthor,
 	butlerCardLastActivity,
+	butlerCardView,
 	cardAuthorKinds,
 	dimmedByAuthor,
 	sessionAuthor,
 	sessionLastActivity,
+	sessionView,
 	stalledText,
 	stallMs,
 	statusOf,
@@ -258,5 +260,64 @@ describe("status colours", () => {
 		for (const kind of cardAuthorKinds) {
 			assert.match(face, new RegExp(`case "${kind}":`), kind);
 		}
+	});
+});
+
+describe("one view of every card", () => {
+	it("reads a Butler card as a session reads: its title the goal, its status what it needs or does", () => {
+		const view = butlerCardView(
+			{ ...savedCard, parent: "thread-1300000000000000009" },
+			savedCard.updatedAt,
+		);
+		assert.equal(view.owner, savedCard.id);
+		assert.equal(view.goal, "Book the bike service");
+		assert.equal(view.activity, "working");
+		assert.equal(view.status, "working");
+		assert.equal(view.doing, "reading mail");
+		assert.deepEqual(view.parent, { card: "thread-1300000000000000009" });
+		assert.equal(view.author.kind, "butler");
+		const waiting = butlerCardView(
+			{ ...savedCard, state: "needs-you", status: undefined },
+			savedCard.updatedAt,
+		);
+		assert.equal(waiting.needs, "Needs you");
+		assert.equal(waiting.doing, null);
+	});
+
+	it("reads a session's own fields, and its parent as Butler's thread card", () => {
+		const view = sessionView(
+			{
+				id: "s1",
+				short: null,
+				pid: null,
+				name: "s1",
+				cwd: "/x",
+				project: "x",
+				kind: "background",
+				activity: "needs-you",
+				doing: null,
+				needs: "Allow Bash?",
+				goal: null,
+				startedAt: 0,
+				updatedAt: 10,
+				attachable: false,
+				cmux: false,
+				artifacts: [],
+				tasks: [],
+				steps: [],
+				parent: {
+					thread: "1300000000000000001",
+					card: "thread-1300000000000000001",
+				},
+			},
+			[],
+			20,
+			null,
+		);
+		assert.equal(view.owner, "s1");
+		assert.equal(view.needs, "Allow Bash?");
+		assert.equal(view.goal, null);
+		assert.equal(view.parent?.card, "thread-1300000000000000001");
+		assert.equal(view.author.kind, "butler");
 	});
 });

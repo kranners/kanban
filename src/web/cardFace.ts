@@ -146,3 +146,56 @@ export function setAuthorFilter(filter: AuthorFilter): void {
 
 export const dimmedByAuthor = (author: CardAuthor, filter: AuthorFilter) =>
 	filter !== "all" && author.kind !== filter;
+
+/** What any card on the board shows, whoever started it. */
+export type CardView = {
+	/** Whose subagents it shows: the session's id, or the Butler card's. */
+	owner: string;
+	author: CardAuthor;
+	activity: Activity;
+	status: CardStatus;
+	lastActivity: number;
+	goal: string | null;
+	needs: string | null;
+	doing: string | null;
+	parent?: { card?: string; thread?: string; title?: string };
+	updatedAt: number;
+};
+
+export function sessionView(
+	session: Session,
+	subagents: readonly Pick<Subagent, "sessionId" | "updatedAt" | "live">[],
+	now: number,
+	doing: string | null,
+): CardView {
+	const lastActivity = sessionLastActivity(session, subagents, now);
+	return {
+		owner: session.id,
+		author: sessionAuthor(session),
+		activity: session.activity,
+		status: statusOf(session.activity, lastActivity, now),
+		lastActivity,
+		goal: session.goal,
+		needs: session.needs,
+		doing,
+		...(session.parent ? { parent: session.parent } : {}),
+		updatedAt: session.updatedAt,
+	};
+}
+
+export function butlerCardView(card: ButlerCard, now: number): CardView {
+	const lastActivity = butlerCardLastActivity(card);
+	const status = card.status ?? null;
+	return {
+		owner: card.id,
+		author: butlerCardAuthor(card),
+		activity: card.state,
+		status: statusOf(card.state, lastActivity, now),
+		lastActivity,
+		goal: card.title,
+		needs: card.state === "needs-you" ? (status ?? "Needs you") : null,
+		doing: card.state === "needs-you" ? null : status,
+		...(card.parent ? { parent: { card: card.parent } } : {}),
+		updatedAt: card.updatedAt,
+	};
+}

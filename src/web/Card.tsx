@@ -30,23 +30,16 @@ import { subagentState } from "../shared/subagents.ts";
 import { activityLabel } from "./activity.tsx";
 import { current } from "./annotations.ts";
 import { unreachable } from "./arrangement.ts";
-import { FromDmChip } from "./ButlerDm.tsx";
-import { butlerPresence } from "./butler.ts";
 import { cardOf } from "./butlerSubagents.ts";
-import {
-	isFromDm,
-	openButlerCard,
-	openParent,
-	parentTitle,
-} from "./butlerThreads.ts";
-import { AuthorChip, BusyEdge, CardFace, StatusBadge } from "./CardFace.tsx";
+import { openButlerCard } from "./butlerThreads.ts";
+import { BusyEdge, CardFace } from "./CardFace.tsx";
+import { CardBody, CardFoot, NearPanel } from "./CardParts.tsx";
 import {
 	authorFilter,
+	type CardView,
 	dimmedByAuthor,
-	sessionAuthor,
-	sessionLastActivity,
+	sessionView,
 	stalledText,
-	statusOf,
 } from "./cardFace.ts";
 import { digests, stuckOf } from "./digests.ts";
 import type { PlacedNode } from "./layout.ts";
@@ -61,7 +54,6 @@ import {
 	subagentChips,
 	workflowDetail,
 } from "./subagentChips.ts";
-import { Timeline } from "./Timeline.tsx";
 import { relativeTime } from "./time.ts";
 import { averageTaskMs, type Lane, sessionLane } from "./timeline.ts";
 import { accountChip, accountOf, usage } from "./usage.ts";
@@ -98,65 +90,28 @@ function position(node: PlacedNode) {
 	};
 }
 
-function GoalBody(props: { goal: string | null }) {
-	if (props.goal) return <p class="goal">{props.goal}</p>;
-	return <p class="goal goal-empty">No goal yet</p>;
-}
-
-/** "from <title>" on a session one of Butler's threads started. */
-function SessionParentLine(props: { session: Session }) {
-	const { parent } = props.session;
-	if (
-		parent &&
-		isFromDm(parent, butlerPresence.value.dm?.thread, current.value)
-	) {
-		return <FromDmChip parent={parent.card} class="session-from" />;
-	}
-	const title = parent
-		? parentTitle(parent.card, current.value, parent.title)
-		: null;
-	if (!parent || !title) return null;
-	return (
-		<button
-			type="button"
-			class="butler-card-from session-from"
-			data-no-pan
-			title={`Open ${title}`}
-			onPointerDown={(event) => event.stopPropagation()}
-			onClick={(event) => {
-				event.stopPropagation();
-				openParent(parent.card);
-			}}
-		>
-			from {title}
-		</button>
-	);
-}
-
-function CardBody(props: {
+function SessionBody(props: {
 	session: Session;
 	workflows: readonly Workflow[];
 	now: number;
 }) {
 	const { session } = props;
-	const needs = session.activity === "needs-you" && session.needs;
 	return (
-		<div class="body">
-			<WorkflowBars workflows={props.workflows} />
-			<GoalBody goal={session.goal} />
-			<SessionParentLine session={session} />
-			<SessionProjectChips session={session} />
-			{needs ? (
-				<div class="needs" title={needs}>
-					{needs}
-				</div>
-			) : (
-				<div class="card-doing">
-					{session.doing ? plainText(session.doing) : activityHint(session)}
-				</div>
-			)}
-			<SessionSubagentChips session={session} now={props.now} />
-		</div>
+		<CardBody
+			view={viewOf(session, props.now)}
+			before={<WorkflowBars workflows={props.workflows} />}
+			after={<SessionProjectChips session={session} />}
+			subagents={<SessionSubagentChips session={session} now={props.now} />}
+		/>
+	);
+}
+
+function viewOf(session: Session, now: number): CardView {
+	return sessionView(
+		session,
+		board.value?.subagents ?? [],
+		now,
+		session.doing ? plainText(session.doing) : null,
 	);
 }
 
@@ -352,68 +307,44 @@ function nearLanes(session: Session, now: number): Lane[] {
 	];
 }
 
-function NearPanel(props: {
+function SessionNearPanel(props: {
 	session: Session;
 	workflows: readonly Workflow[];
 	now: number;
 }) {
 	const { session } = props;
 	const digest = digests.value.sessions[session.id];
-	const lastActivity = sessionLastActivity(
-		session,
-		board.value?.subagents ?? [],
-		props.now,
-	);
-	const KindIcon = session.cloud
-		? Cloud
-		: session.runner
-			? Monitor
-			: session.kind === "interactive"
-				? Terminal
-				: Server;
+	const KindIcon = kindIcon(session);
 	return (
-		<div class="near-panel" data-scrollable>
-			<header class="near-head">
-				<div class="near-meta">
-					<StatusBadge
-						status={statusOf(session.activity, lastActivity, props.now)}
-						lastActivity={lastActivity}
-						now={props.now}
-					/>
-					<AuthorChip author={sessionAuthor(session)} />
+		<NearPanel
+			view={viewOf(session, props.now)}
+			now={props.now}
+			name={
+				<>
 					{!repeatsGoal(session) && (
 						<span class="near-name">{session.name}</span>
 					)}
 					<span class="near-project" title={session.cwd}>
 						{session.project}
 					</span>
-					<span class="foot-end">
-						<UnreachableChip sessionId={session.id} />
-						{session.configDir && <AccountChip configDir={session.configDir} />}
-						<KindIcon size={13} aria-hidden="true" />
-						<time class="num">
-							{relativeTime(session.updatedAt, props.now)}
-						</time>
-					</span>
-				</div>
-				<p class={`near-goal${session.goal ? "" : " goal-empty"}`}>
-					{session.goal ?? "No goal yet"}
-				</p>
-				{session.activity === "needs-you" && session.needs && (
-					<p class="near-needs">
-						<TriangleAlert size={14} aria-hidden="true" />
-						<span>{session.needs}</span>
-					</p>
-				)}
-				<UnreachableNote sessionId={session.id} />
-				<p class="near-doing">
-					{session.doing ? plainText(session.doing) : activityHint(session)}
-				</p>
-				<WorkflowBars workflows={props.workflows} />
-				<SessionSubagentChips session={session} now={props.now} />
-			</header>
-			<div class="near-content">
-				<div class="near-side">
+				</>
+			}
+			marks={
+				<>
+					<UnreachableChip sessionId={session.id} />
+					{session.configDir && <AccountChip configDir={session.configDir} />}
+					<KindIcon size={13} aria-hidden="true" />
+				</>
+			}
+			notes={<UnreachableNote sessionId={session.id} />}
+			extras={
+				<>
+					<WorkflowBars workflows={props.workflows} />
+					<SessionSubagentChips session={session} now={props.now} />
+				</>
+			}
+			side={
+				<>
 					{digest && (
 						<ProgressNote
 							digest={digest}
@@ -422,19 +353,22 @@ function NearPanel(props: {
 						/>
 					)}
 					<TaskList tasks={session.tasks} />
-				</div>
-				<div class="near-main">
-					<Timeline
-						lanes={nearLanes(session, props.now)}
-						now={props.now}
-						label="Session timeline"
-						minuteEm={0.8}
-						labelled
-					/>
-				</div>
-			</div>
-		</div>
+				</>
+			}
+			lanes={nearLanes(session, props.now)}
+			timeline="Session timeline"
+		/>
 	);
+}
+
+function kindIcon(session: Session) {
+	return session.cloud
+		? Cloud
+		: session.runner
+			? Monitor
+			: session.kind === "interactive"
+				? Terminal
+				: Server;
 }
 
 const shownArtifacts = 2;
@@ -517,26 +451,15 @@ export function SessionCard(props: {
 	state?: string;
 }) {
 	const { session } = props;
-	const KindIcon = session.cloud
-		? Cloud
-		: session.runner
-			? Monitor
-			: session.kind === "interactive"
-				? Terminal
-				: Server;
+	const KindIcon = kindIcon(session);
 	const open = (event: MouseEvent) => {
 		const control = event.currentTarget as HTMLElement;
 		const frame =
 			control.closest("[data-node]")?.querySelector(".frame") ?? control;
 		props.onOpen(session.id, frame.getBoundingClientRect());
 	};
-	const author = sessionAuthor(session);
-	const lastActivity = sessionLastActivity(
-		session,
-		board.value?.subagents ?? [],
-		props.now,
-	);
-	const status = statusOf(session.activity, lastActivity, props.now);
+	const view = viewOf(session, props.now);
+	const { author, status, lastActivity } = view;
 	return (
 		<CardFace
 			status={status}
@@ -565,48 +488,48 @@ export function SessionCard(props: {
 			corner={props.corner}
 			frame={
 				props.detail === "near" ? (
-					<NearPanel
+					<SessionNearPanel
 						session={session}
 						workflows={props.workflows}
 						now={props.now}
 					/>
 				) : (
 					<>
-						<CardBody
+						<SessionBody
 							session={session}
 							workflows={props.workflows}
 							now={props.now}
 						/>
-						<div class="foot">
-							<span class="foot-project" title={session.cwd}>
-								{session.project}
-							</span>
-							<span class="foot-end">
-								<UnreachableChip sessionId={session.id} />
-								{session.configDir && (
-									<AccountChip configDir={session.configDir} />
-								)}
-								<span
-									class="foot-kind"
-									title={
-										session.cloud
-											? "Cloud"
-											: session.runner
-												? `On ${session.runner.name}`
-												: session.kind === "background"
-													? "Background"
-													: session.cmux
-														? "Interactive · in cmux"
-														: "Interactive"
-									}
-								>
-									<KindIcon size={13} aria-hidden="true" />
-								</span>
-								<time class="num">
-									{relativeTime(session.updatedAt, props.now)}
-								</time>
-							</span>
-						</div>
+						<CardFoot
+							label={session.project}
+							title={session.cwd}
+							marks={
+								<>
+									<UnreachableChip sessionId={session.id} />
+									{session.configDir && (
+										<AccountChip configDir={session.configDir} />
+									)}
+									<span
+										class="foot-kind"
+										title={
+											session.cloud
+												? "Cloud"
+												: session.runner
+													? `On ${session.runner.name}`
+													: session.kind === "background"
+														? "Background"
+														: session.cmux
+															? "Interactive · in cmux"
+															: "Interactive"
+										}
+									>
+										<KindIcon size={13} aria-hidden="true" />
+									</span>
+								</>
+							}
+							updatedAt={session.updatedAt}
+							now={props.now}
+						/>
 					</>
 				)
 			}
@@ -619,25 +542,6 @@ export function SessionCard(props: {
 			)}
 		</CardFace>
 	);
-}
-
-function activityHint(session: Session): string {
-	switch (session.activity) {
-		case "watching":
-			return "Watching background work";
-		case "idle":
-			return "Waiting for a prompt";
-		case "done":
-			return "Finished";
-		case "failed":
-			return "Failed";
-		case "stopped":
-			return "Stopped";
-		case "needs-you":
-			return "Needs you";
-		case "working":
-			return "Working";
-	}
 }
 
 export function SubagentCard(props: {
