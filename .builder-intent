@@ -1,0 +1,1 @@
+Kanban feature scrub: remove shared docs, relations, stickers, unused board tools, Butler layout tools, status reports, old self_fix aliases, transcript endpoint, and log only changing calls. Callers in jimbo and the daemon move to the new names first.
