@@ -158,6 +158,82 @@ describe("Which project a card belongs to", () => {
 	});
 });
 
+describe("Filing a card no link names", () => {
+	const projects = [
+		project("butler", { title: "Butler" }),
+		project("pulse", {
+			title: "Pulse, Butler's event-driven service",
+			parent: "butler",
+		}),
+		project("pulse-usage-governor", {
+			title: "Pulse usage governor",
+			parent: "pulse",
+		}),
+		project("call-voice", { title: "Call voice", parent: "butler" }),
+		project("call-transcripts", {
+			title: "iPhone call transcripts",
+			parent: "butler",
+		}),
+		project("work-hkjc", { title: "Work: HKJC", area: "work" }),
+		project("work-tennis", { title: "Work: tennis data", area: "work" }),
+		project("kanban-oss", { title: "Kanban, Aaron's open source board" }),
+		project("kanban-ipad-app", {
+			title: "Kanban iPad app",
+			parent: "kanban-oss",
+		}),
+		project("ipad-support", {
+			title: "iPad support for the board",
+			parent: "butler",
+		}),
+		project("blog-site", { title: "Personal blog site", stage: "done" }),
+	];
+	const owner = (title: string, fields: Partial<ButlerCard> = {}) =>
+		projectsOfCards([card("c", { title, ...fields })], projects).get("c");
+
+	it("files a card by a word only one project's line uses, the most specific named", () => {
+		assert.equal(owner("Desk: HKJC audit"), "work-hkjc");
+		assert.equal(owner("Tennis alarms prep"), "work-tennis");
+		assert.equal(owner("Kanban board tidy"), "kanban-oss");
+		assert.equal(owner("Pulse governor sinks"), "pulse-usage-governor");
+		assert.equal(owner("Restart pulse"), "pulse");
+	});
+
+	it("leaves a doubtful card in Unsorted rather than guess", () => {
+		assert.equal(owner("Lunch plans"), null);
+		assert.equal(owner("Call me back"), null);
+		assert.equal(owner("HKJC tennis crossover"), null);
+		assert.equal(owner("Butler's new desk"), null);
+		assert.equal(owner("Blog site refresh"), null);
+	});
+
+	it("files a change by a link naming its date and time, and a link or parent beats the guess", () => {
+		const linked = [
+			...projects,
+			project("fox", { links: [change("20261109-141009")] }),
+		];
+		const owners = projectsOfCards(
+			[
+				card("fix", {
+					title: "HKJC thing",
+					selfFix: "20261109-141009-2993862",
+					thread: undefined,
+				}),
+				card("near", {
+					title: "Lunch",
+					selfFix: "20261109-141009",
+					thread: undefined,
+				}),
+				card("parent", { title: "Fox box" }),
+				card("child", { title: "Tennis", parent: "fix" }),
+			],
+			linked,
+		);
+		assert.equal(owners.get("fix"), "fox");
+		assert.equal(owners.get("near"), "fox");
+		assert.equal(owners.get("child"), "fox");
+	});
+});
+
 describe("Tidy's project regions", () => {
 	it("puts each card in its project's region, unlinked ones in Unsorted and those waiting on Aaron in the strip", () => {
 		const { projects, cards } = board(30);
