@@ -2,7 +2,7 @@ import {
 	isTidyRegion,
 	projectCwd,
 	projectOfRegion,
-	projectsOfCards,
+	projectsOf,
 	unsortedCwd,
 	waitingCwd,
 } from "../shared/butlerRegions.ts";
@@ -15,7 +15,7 @@ export {
 	isTidyRegion,
 	projectCwd,
 	projectOfRegion,
-	projectsOfCards,
+	projectsOf,
 	unsortedCwd,
 	waitingCwd,
 } from "../shared/butlerRegions.ts";
@@ -235,7 +235,7 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 			...(notesOn.get(c.id) ?? []),
 		]);
 	const free = input.cards.filter((c) => !isHeld(c, now));
-	const owner = projectsOfCards(input.cards, projects);
+	const owner = projectsOf(input.cards, projects);
 	const regionAt = (cwd: string) => input.regions.find((r) => r.cwd === cwd);
 
 	// Each slot holds a card and, to its right, the notes on it.

@@ -10,7 +10,7 @@ import {
 	orderCards,
 	planTidy,
 	projectCwd,
-	projectsOfCards,
+	projectsOf,
 	subagentReach,
 	unsortedCwd,
 	waitingCwd,
@@ -133,7 +133,7 @@ describe("Which project a card belongs to", () => {
 			card("child", { parent: "desk" }),
 			card("loose"),
 		];
-		const owners = projectsOfCards(cards, projects);
+		const owners = projectsOf(cards, projects);
 		assert.equal(owners.get("change"), "fox");
 		assert.equal(owners.get("desk"), "tennis");
 		assert.equal(owners.get("thread-555"), "ritual");
@@ -146,7 +146,7 @@ describe("Which project a card belongs to", () => {
 			project("butler", { links: [change("fix")] }),
 			project("fox", { parent: "butler", links: [change("fix")] }),
 		];
-		const owners = projectsOfCards(
+		const owners = projectsOf(
 			[
 				card("a", { selfFix: "fix", thread: undefined }),
 				card("x", { parent: "y" }),
@@ -206,7 +206,7 @@ describe("Filing a card no link names", () => {
 		}),
 	];
 	const owner = (title: string, fields: Partial<ButlerCard> = {}) =>
-		projectsOfCards([card("c", { title, ...fields })], projects).get("c");
+		projectsOf([card("c", { title, ...fields })], projects).get("c");
 
 	it("files a card by a keyword, or a one-word id, only one project's line holds, the most specific named", () => {
 		assert.equal(owner("Desk: HKJC audit"), "work-hkjc");
@@ -235,7 +235,7 @@ describe("Filing a card no link names", () => {
 			...projects,
 			project("fox", { links: [change("20261109-141009")] }),
 		];
-		const owners = projectsOfCards(
+		const owners = projectsOf(
 			[
 				card("fix", {
 					title: "HKJC thing",
@@ -262,7 +262,7 @@ describe("Tidy's project regions", () => {
 		const { projects, cards } = board(30);
 		const p = plan(cards, projects);
 		const after = placed(cards, p);
-		const owners = projectsOfCards(cards, projects);
+		const owners = projectsOf(cards, projects);
 		for (const c of after) {
 			const owner = owners.get(c.id);
 			const cwd =

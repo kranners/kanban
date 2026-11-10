@@ -1,5 +1,5 @@
 import { computed, effect, signal } from "@preact/signals";
-import { projectsOfCards } from "../shared/butlerRegions.ts";
+import { projectsOf } from "../shared/butlerRegions.ts";
 import type { ButlerCard, Region } from "../shared/types.ts";
 import { projectsById, projectsListing } from "./projects.ts";
 import {
@@ -9,7 +9,7 @@ import {
 	tileOf,
 } from "./projectTiles.ts";
 import { regions } from "./regionState.ts";
-import { annotations } from "./state.ts";
+import { annotations, board } from "./state.ts";
 
 export * from "./projectTiles.ts";
 
@@ -19,9 +19,13 @@ const butlerCards = computed(() =>
 	),
 );
 
-/** Each of Butler's cards' project, as Tidy reads it. */
+/** Each of Butler's cards' and the board's sessions' project, by the one resolver Tidy reads. */
 export const cardOwners = computed(() =>
-	projectsOfCards(butlerCards.value, projectsListing.value.projects),
+	projectsOf(
+		butlerCards.value,
+		projectsListing.value.projects,
+		board.value?.sessions ?? [],
+	),
 );
 
 export function tileFor(region: Region, now: number): ProjectTile | null {

@@ -93,20 +93,14 @@ export const filterKey = (key: string | null) => key ?? "unsorted";
 /** Whether a card or session stays lit under the project filter. */
 export function inFilter(
 	filter: string | null,
-	ref: { card?: string; session?: string },
+	id: string | undefined,
 	owners: ReadonlyMap<string, string | null>,
 	byId: ReadonlyMap<string, Project>,
 ): boolean {
-	if (filter === null) return true;
-	if (ref.card !== undefined) {
-		const owner = owners.get(ref.card) ?? null;
-		const known = owner !== null && byId.has(owner) ? owner : null;
-		return filterKey(known) === filter;
-	}
-	if (ref.session !== undefined) {
-		return byId.get(filter)?.sessions.includes(ref.session) ?? false;
-	}
-	return true;
+	if (filter === null || id === undefined) return true;
+	const owner = owners.get(id) ?? null;
+	const known = owner !== null && byId.has(owner) ? owner : null;
+	return filterKey(known) === filter;
 }
 
 /** The share of a project's main lifecycle behind it, from its own progress or its stage. */

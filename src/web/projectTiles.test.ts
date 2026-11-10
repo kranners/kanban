@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { projectsOfCards } from "../shared/butlerRegions.ts";
+import { projectsOf } from "../shared/butlerRegions.ts";
 import type { Project } from "../shared/projects.ts";
 import type { ButlerCard } from "../shared/types.ts";
 import {
@@ -69,7 +69,17 @@ describe("A project region's overview tile", () => {
 		card("loose", { state: "working", updatedAt: now }),
 		card("ghost", { selfFix: "gone" }),
 	];
-	const owners = projectsOfCards(cards, projects);
+	const owners = projectsOf(cards, projects, [
+		{ id: "s1", short: null, name: "s1", goal: null },
+		{ id: "s2", short: null, name: "s2", goal: null },
+		{
+			id: "s3",
+			short: null,
+			name: "s3",
+			goal: null,
+			parent: { thread: "1", card: "a" },
+		},
+	]);
 
 	it("counts its cards by status, a working card with no news for 10 minutes as stalled and one waiting in the strip as its own", () => {
 		const tile = tileOf("fox", cards, owners, byId, now);
@@ -113,12 +123,16 @@ describe("A project region's overview tile", () => {
 		assert.equal(progressOf(null), null);
 	});
 
-	it("filters the board to one project's cards and linked sessions", () => {
-		assert.ok(inFilter(null, { card: "loose" }, owners, byId));
-		assert.ok(inFilter("fox", { card: "a" }, owners, byId));
-		assert.ok(!inFilter("fox", { card: "loose" }, owners, byId));
-		assert.ok(inFilter("unsorted", { card: "loose" }, owners, byId));
-		assert.ok(inFilter("fox", { session: "s1" }, owners, byId));
-		assert.ok(!inFilter("fox", { session: "s2" }, owners, byId));
+	it("filters the board to one project's cards and sessions by one resolver", () => {
+		assert.ok(inFilter(null, "loose", owners, byId));
+		assert.ok(inFilter("fox", "a", owners, byId));
+		assert.ok(!inFilter("fox", "loose", owners, byId));
+		assert.ok(inFilter("unsorted", "loose", owners, byId));
+		assert.ok(inFilter("fox", "s1", owners, byId));
+		assert.ok(!inFilter("fox", "s2", owners, byId));
+		assert.ok(
+			inFilter("fox", "s3", owners, byId),
+			"a session a card started belongs to the card's project",
+		);
 	});
 });

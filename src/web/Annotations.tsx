@@ -465,7 +465,7 @@ export function AnnotationLayer(): JSX.Element {
 	const byId = projectsById.value;
 	const dimmed = (annotation: Annotation) =>
 		annotation.kind === "butler-card" &&
-		!inFilter(filter, { card: annotation.id }, owners, byId);
+		!inFilter(filter, annotation.id, owners, byId);
 	const regions = new Map<string, RegionColour>();
 	const underTiles = new Set<string>();
 	const far = detail.value === "far";

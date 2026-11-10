@@ -142,14 +142,7 @@ function visibility(): (key: NodeKey) => boolean {
 			if (!highlighted) return false;
 		}
 		const sessionId = kind === "session" ? id : agents.get(id)?.sessionId;
-		const owner =
-			sessionId && current.value[sessionId]?.kind === "butler-card"
-				? { card: sessionId }
-				: { session: sessionId };
-		if (
-			sessionId &&
-			!inFilter(filter, owner, cardOwners.value, projectsById.value)
-		)
+		if (!inFilter(filter, sessionId, cardOwners.value, projectsById.value))
 			return false;
 		const session = sessionId ? sessions.get(sessionId) : undefined;
 		return session ? sessionMatches(session) : true;

@@ -1,5 +1,5 @@
 import type { Project } from "./projects.ts";
-import type { ButlerCard, Region } from "./types.ts";
+import type { ButlerCard, Region, Session } from "./types.ts";
 
 // Butler's own regions, which Tidy keeps, and which project each of his
 // cards belongs to. Shared by the server's Tidy and the page's region
@@ -109,15 +109,48 @@ export const guessProject = (
 		: null;
 };
 
+/** What the project resolver reads of a card or session. */
+type Claimant = {
+	id: string;
+	refs: string[];
+	parent?: string;
+	title: string;
+	change?: string;
+};
+
+const cardClaimant = (card: ButlerCard): Claimant => ({
+	id: card.id,
+	refs: refsOf(card),
+	...(card.parent ? { parent: card.parent } : {}),
+	title: card.title,
+	...(card.selfFix ? { change: card.selfFix } : {}),
+});
+
+const sessionClaimant = (session: ProjectSession): Claimant => ({
+	id: session.id,
+	refs: [session.id, session.short].filter(
+		(ref): ref is string => typeof ref === "string" && ref !== "",
+	),
+	...(session.parent?.card ? { parent: session.parent.card } : {}),
+	title: session.goal ?? session.name,
+});
+
+/** What the resolver reads of a session. */
+export type ProjectSession = Pick<
+	Session,
+	"id" | "short" | "parent" | "goal" | "name"
+>;
+
 /**
- * The project each card belongs to, by id, or null when none claims it:
- * a project whose links name the card, its change, desk session or
- * thread, a child project before its parent, else the project of the card
- * that started it, else the one its title names.
+ * The project each card and session belongs to, by id, or null when none
+ * claims it: a project whose links name it, its change, desk session,
+ * thread or session, a child project before its parent, else the project
+ * of the card that started it, else the one its title or goal names.
  */
-export const projectsOfCards = (
+export const projectsOf = (
 	cards: readonly ButlerCard[],
 	projects: readonly Project[],
+	sessions: readonly ProjectSession[] = [],
 ): Map<string, string | null> => {
 	const claims = new Map<string, Project>();
 	const changeClaims: [string, Project][] = [];
@@ -133,27 +166,29 @@ export const projectsOfCards = (
 			if (changeRefPattern.test(ref)) changeClaims.push([ref, project]);
 		}
 	}
-	const claimOf = (card: ButlerCard): Project | undefined =>
-		refsOf(card)
-			.map((ref) => claims.get(ref))
-			.find(Boolean) ??
+	const claimants = [
+		...cards.map(cardClaimant),
+		...sessions.map(sessionClaimant),
+	];
+	const claimOf = (item: Claimant): Project | undefined =>
+		item.refs.map((ref) => claims.get(ref)).find(Boolean) ??
 		changeClaims
-			.filter(([ref]) => card.selfFix && namesChange(ref, card.selfFix))
+			.filter(([ref]) => item.change && namesChange(ref, item.change))
 			.map(([, project]) => project)
 			.sort((a, b) => Number(a.parent === null) - Number(b.parent === null))[0];
-	const byId = new Map(cards.map((c) => [c.id, c]));
-	const resolve = (card: ButlerCard, seen: Set<string>): string | null => {
-		const own = claimOf(card);
+	const byId = new Map(claimants.map((item) => [item.id, item]));
+	const resolve = (item: Claimant, seen: Set<string>): string | null => {
+		const own = claimOf(item);
 		if (own) return own.id;
-		const parent = card.parent ? byId.get(card.parent) : undefined;
+		const parent = item.parent ? byId.get(item.parent) : undefined;
 		if (parent && !seen.has(parent.id)) {
 			seen.add(parent.id);
 			const inherited = resolve(parent, seen);
 			if (inherited) return inherited;
 		}
-		return guessProject(card.title, projects)?.id ?? null;
+		return guessProject(item.title, projects)?.id ?? null;
 	};
 	return new Map(
-		cards.map((card) => [card.id, resolve(card, new Set([card.id]))]),
+		claimants.map((item) => [item.id, resolve(item, new Set([item.id]))]),
 	);
 };

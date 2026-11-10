@@ -103,7 +103,7 @@ import type { BoardSource } from "./http.ts";
 import { fromLoopback } from "./loopback.ts";
 import { type MessageEdgeStore, parseDaemonEdges } from "./messageEdges.ts";
 import { createStateFile, readState } from "./stateFile.ts";
-import { isTidyRegion, planTidy, projectsOfCards } from "./tidy.ts";
+import { isTidyRegion, planTidy, projectsOf } from "./tidy.ts";
 
 // Butler, Aaron's assistant bot on spike, reaches the board over ssh and
 // curl on the Mac's loopback. He gets the board agent's own tools under
@@ -1485,7 +1485,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 	/** The project an archived card belonged to, by its title. */
 	const projectOfCard = (card: ButlerCard) => {
 		const projects = deps.projects?.() ?? [];
-		const id = projectsOfCards(butlerCards(), projects).get(card.id);
+		const id = projectsOf(butlerCards(), projects).get(card.id);
 		return projects.find((p) => p.id === id)?.title ?? "Butler";
 	};
 
