@@ -110,7 +110,7 @@ export function seedsOf(board: Board, cardIds: readonly string[] = []): Seeds {
 	return { tree, offsets };
 }
 
-/** A Butler card's subagents stand in one column under it, within its own width, since Tidy lays cards out in a grid. */
+/** A Butler card's leaf subagents stand in one column under it, since Tidy lays cards out in a grid; one with its own subagents branches beside them. */
 const cardFollowers: LayoutOptions = {
 	...defaultLayoutOptions,
 	subagentColumns: 1,
@@ -493,12 +493,28 @@ export function arrange(
 			h: card.h,
 		});
 	}
-	for (const a of board.subagents) {
-		const key = nodeKey({ kind: "subagent", id: a.id });
-		const offset = seeds.offsets.get(key);
-		const card = offset ? anchors.get(offset.session) : undefined;
-		if (offset && card && !saved[key])
-			occupied.push(followerRect(card, offset));
+	const cardFollowers = new Map<NodeKey, Rect>();
+	for (const [cardKey, card] of anchors) {
+		const natural = board.subagents.flatMap((a) => {
+			const key = nodeKey({ kind: "subagent", id: a.id });
+			const offset = seeds.offsets.get(key);
+			return offset?.session === cardKey && !saved[key]
+				? [[key, followerRect(card, offset)] as const]
+				: [];
+		});
+		if (natural.length === 0) continue;
+		const others = reserved.filter(
+			(rect) => (rect as { id?: string }).id !== card.ref.id,
+		);
+		const shift = clearShift(
+			natural.map(([, rect]) => rect),
+			[...occupied, ...others],
+		);
+		for (const [key, rect] of natural) {
+			const moved = { ...rect, x: rect.x + shift.x, y: rect.y + shift.y };
+			cardFollowers.set(key, moved);
+			occupied.push(moved);
+		}
 	}
 
 	const byStart = (a: Session, b: Session) =>
@@ -651,7 +667,10 @@ export function arrange(
 			? (nodes.get(offset.session) ?? anchors.get(offset.session))
 			: undefined;
 		if (offset && session) {
-			const rect = nudged.get(key) ?? followerRect(session, offset);
+			const rect =
+				nudged.get(key) ??
+				cardFollowers.get(key) ??
+				followerRect(session, offset);
 			put(key, ref, rect, offset.session);
 			continue;
 		}

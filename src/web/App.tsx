@@ -54,7 +54,12 @@ import { useNeedsYouShortcut } from "./NeedsYou.tsx";
 import { ProjectTiles } from "./ProjectRegions.tsx";
 import { ProjectsHost } from "./Projects.tsx";
 import type { Arrangement } from "./placement.ts";
-import { inFilter, projectFilter, tileKeyOf } from "./projectRegions.ts";
+import {
+	cardOwners,
+	inFilter,
+	projectFilter,
+	tileKeyOf,
+} from "./projectRegions.ts";
 import { projectsById } from "./projects.ts";
 import { Rail } from "./Rail.tsx";
 import { RegionNotices } from "./RegionControls.tsx";
@@ -112,9 +117,13 @@ function visibility(): (key: NodeKey) => boolean {
 			if (!highlighted) return false;
 		}
 		const sessionId = kind === "session" ? id : agents.get(id)?.sessionId;
+		const owner =
+			sessionId && current.value[sessionId]?.kind === "butler-card"
+				? { card: sessionId }
+				: { session: sessionId };
 		if (
 			sessionId &&
-			!inFilter(filter, { session: sessionId }, new Map(), projectsById.value)
+			!inFilter(filter, owner, cardOwners.value, projectsById.value)
 		)
 			return false;
 		const session = sessionId ? sessions.get(sessionId) : undefined;

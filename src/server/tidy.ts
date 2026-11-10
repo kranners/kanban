@@ -249,6 +249,10 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 		};
 	};
 
+	// A done card whose subagents still show keeps a slot of its own, since a stack would pile them up.
+	const stacked = (card: ButlerCard) =>
+		card.state === "done" && !card.subagents?.length;
+
 	const groupOf = (cwd: string, name: string, cards: ButlerCard[]): Group => {
 		const existing = regionAt(cwd);
 		const ordered = orderCards(cards);
@@ -257,8 +261,8 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 			cwd,
 			name: name.slice(0, maxRegionName),
 			...(existing ? { existing } : {}),
-			cards: open ? ordered : ordered.filter((c) => c.state !== "done"),
-			stack: open ? [] : ordered.filter((c) => c.state === "done"),
+			cards: open ? ordered : ordered.filter((c) => !stacked(c)),
+			stack: open ? [] : ordered.filter(stacked),
 		};
 	};
 
@@ -395,9 +399,11 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 			if (card.x !== spot.x || card.y !== spot.y) {
 				moves.push({ id: card.id, ...spot });
 			}
+			const reach = subagentReach(card);
+			const noteX = spot.x - reach.left + Math.max(card.w, reach.w) + noteGap;
 			let noteY = spot.y;
 			for (const note of notesOn.get(card.id) ?? []) {
-				const at = { x: snap(spot.x + card.w + noteGap), y: snap(noteY) };
+				const at = { x: snap(noteX), y: snap(noteY) };
 				if (note.x !== at.x || note.y !== at.y) {
 					moves.push({ id: note.id, ...at });
 				}
@@ -441,10 +447,7 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 				moveTo(card, { x: snap(spot.x + left), y: spot.y });
 			}
 			if (group.stack.length > 0) {
-				const below = Math.max(
-					...group.stack.map((card) => subagentReach(card).below),
-				);
-				const base = nextSpot(slot, below > 0 ? below + gap : 0);
+				const base = nextSpot(slot);
 				group.stack.forEach((card, index) => {
 					const step = Math.min(index, 2) * stackStep;
 					moveTo(card, { x: snap(base.x + step), y: snap(base.y + step) });

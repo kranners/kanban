@@ -584,6 +584,18 @@ describe("Tidy's project regions", () => {
 });
 
 describe("Room for a card's subagents", () => {
+	it("keeps a done card whose subagents still show out of the done stack", () => {
+		const cards = [
+			card("d1", { state: "done", subagents: [working("x")] }),
+			card("d2", { state: "done" }),
+			card("d3", { state: "done" }),
+		];
+		const after = placed(cards, plan(cards, []));
+		const at = (id: string) => after.find((c) => c.id === id) as Rect;
+		assert.ok(!overlap(at("d1"), at("d2")));
+		assert.ok(overlap(at("d2"), at("d3")), "the rest still stack");
+	});
+
 	const working = (id: string, parent?: string) => ({
 		id,
 		description: id,

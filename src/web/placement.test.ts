@@ -632,3 +632,21 @@ test("a Butler card's subagents stand in a column under the card, clear of sessi
 	assert.ok(a);
 	for (const follower of [x, y]) assert.ok(!near(a, follower, 0));
 });
+
+test("a Butler card's subagents move clear of another card dropped under it", () => {
+	const b = board({ subagents: [subagent("x", "self-fix-1")] });
+	const card = { id: "self-fix-1", x: 0, y: 0, w: 312, h: 216 };
+	const other = { id: "self-fix-2", x: 0, y: 240, w: 312, h: 216 };
+	const placed = arrange(
+		b,
+		{},
+		seedsOf(b, ["self-fix-1"]),
+		new Map(),
+		[card, other],
+		[],
+		[card],
+	);
+	const x = placed.nodes.get("subagent:x");
+	assert.ok(x);
+	assert.ok(!near(x, other, 0), "clear of the other card");
+});
