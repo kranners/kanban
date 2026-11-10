@@ -326,16 +326,6 @@ export type DocStore = {
 	updatedAt: number;
 };
 
-export const butlerCardStates = [
-	"working",
-	"needs-you",
-	"idle",
-	"done",
-	"failed",
-] as const;
-
-export type ButlerCardState = (typeof butlerCardStates)[number];
-
 export const maxButlerTitle = 200;
 export const maxButlerSummary = 4000;
 export const maxButlerLink = 500;
@@ -344,7 +334,7 @@ export const maxButlerHistory = 40;
 /** A state a Butler card was in from `at`, with the status line it had then. */
 export type ButlerCardEvent = {
 	at: number;
-	state: ButlerCardState;
+	state: Activity;
 	status?: string;
 };
 
@@ -356,7 +346,7 @@ export type ButlerCardEvent = {
 export type ButlerCard = Annotated & {
 	kind: "butler-card";
 	title: string;
-	state: ButlerCardState;
+	state: Activity;
 	status?: string;
 	summary?: string;
 	link?: string;
@@ -540,7 +530,7 @@ export type ButlerThreadView = {
 	card: {
 		id: string;
 		title: string;
-		state: ButlerCardState;
+		state: Activity;
 		status?: string;
 		link?: string;
 		thread: ButlerCardThread;
@@ -609,7 +599,7 @@ export type ButlerMood = (typeof butlerMoods)[number];
 export type ButlerDm = {
 	/** The DM's Discord id; its log is the thread card log `thread-<id>`. */
 	thread: string;
-	state: ButlerCardState;
+	state: Activity;
 	status: string;
 	link: string;
 	/** How many approvals wait on Aaron there. */

@@ -1,21 +1,23 @@
 import type {
+	Activity,
 	ButlerCard,
 	ButlerCardEvent,
-	ButlerCardState,
 	Step,
 } from "../shared/types.ts";
 import type { Lane, Span } from "./timeline.ts";
 
-const stateLabel: Record<ButlerCardState, string> = {
+const stateLabel: Record<Activity, string> = {
 	working: "Working",
 	"needs-you": "Needs you",
 	idle: "Idle",
 	done: "Done",
 	failed: "Failed",
+	watching: "Watching",
+	stopped: "Stopped",
 };
 
 /** States that run until the next one, drawn as bars on the timeline. */
-const lasting: ReadonlySet<ButlerCardState> = new Set(["working", "needs-you"]);
+const lasting: ReadonlySet<Activity> = new Set(["working", "needs-you"]);
 
 /** The card's history, or for a card from before timelines, its last update. */
 export function historyOf(card: ButlerCard): ButlerCardEvent[] {

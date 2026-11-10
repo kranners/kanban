@@ -35,10 +35,14 @@ export const tileStatusLabel: Record<TileStatus, string> = {
 	done: "done",
 };
 
-export const statusOf = (card: ButlerCard, now: number): TileStatus =>
-	card.state === "working" && now - card.updatedAt > stalledMs
-		? "stalled"
-		: card.state;
+export const statusOf = (card: ButlerCard, now: number): TileStatus => {
+	if (card.state === "working" && now - card.updatedAt > stalledMs) {
+		return "stalled";
+	}
+	if (card.state === "watching") return "working";
+	if (card.state === "stopped") return "idle";
+	return card.state;
+};
 
 export type ProjectTile = {
 	/** The project's id, or null for Unsorted. */

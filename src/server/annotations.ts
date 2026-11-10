@@ -3,16 +3,16 @@ import {
 	parseReportedSubagents,
 } from "../shared/reportedSubagents.ts";
 import {
+	type Activity,
 	type Annotation,
 	type Annotations,
 	type ArchiveOutcome,
+	activityOrder,
 	archiveOutcomes,
 	type ButlerCardEvent,
 	type ButlerCardMission,
-	type ButlerCardState,
 	type ButlerCardThread,
 	type ButlerThreadKind,
-	butlerCardStates,
 	butlerThreadKinds,
 	discordIdPattern,
 	machinePattern,
@@ -129,7 +129,7 @@ const isCardHistory = (value: unknown): value is ButlerCardEvent[] =>
 			Object.keys(rest).length === 0 &&
 			typeof at === "number" &&
 			Number.isFinite(at) &&
-			butlerCardStates.includes(state as ButlerCardState) &&
+			activityOrder.includes(state as Activity) &&
 			(status === undefined ||
 				(typeof status === "string" && status.length <= maxButlerTitle))
 		);
@@ -271,8 +271,8 @@ export const parseAnnotation = (
 		) {
 			return { error: `title must be 1 to ${maxButlerTitle} characters` };
 		}
-		if (!butlerCardStates.includes(state as ButlerCardState)) {
-			return { error: `state must be one of ${butlerCardStates.join(", ")}` };
+		if (!activityOrder.includes(state as Activity)) {
+			return { error: `state must be one of ${activityOrder.join(", ")}` };
 		}
 		if (
 			status !== undefined &&
@@ -346,7 +346,7 @@ export const parseAnnotation = (
 			...placed,
 			kind: "butler-card",
 			title,
-			state: state as ButlerCardState,
+			state: state as Activity,
 			updatedAt,
 			...(status === undefined ? {} : { status: status as string }),
 			...(summary === undefined ? {} : { summary: summary as string }),

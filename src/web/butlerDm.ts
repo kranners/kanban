@@ -1,4 +1,4 @@
-import type { ButlerCardState } from "../shared/types.ts";
+import type { Activity as CardActivity } from "../shared/types.ts";
 
 // Where Butler's DM face sits on screen, when it shows, and how it moves.
 // Pure: the page measures the board's cards and its own controls and hands
@@ -35,7 +35,7 @@ export const dockReach = 120;
 /** The ring round the face: grey idle, teal and gold working, amber waiting on Aaron, red failed. */
 export type DmRing = "idle" | "working" | "waiting" | "failed";
 
-export function ringOf(state: ButlerCardState, waiting: number): DmRing {
+export function ringOf(state: CardActivity, waiting: number): DmRing {
 	if (state === "failed") return "failed";
 	if (state === "needs-you" || waiting > 0) return "waiting";
 	if (state === "working") return "working";
@@ -299,7 +299,7 @@ export function parseFaceSettings(raw: string | null): FaceSettings {
 export type Activity = {
 	/** When he last looked at or acted on something on the board. */
 	boardAt: number;
-	dmState: ButlerCardState | null;
+	dmState: CardActivity | null;
 	dmWaiting: number;
 	dmMood: string | null;
 };
@@ -307,7 +307,7 @@ export type Activity = {
 export function activityOf(presence: {
 	looking: { at: number } | null;
 	working: { at: number } | null;
-	dm?: { state: ButlerCardState; waiting: number; mood?: string };
+	dm?: { state: CardActivity; waiting: number; mood?: string };
 }): Activity {
 	return {
 		boardAt: Math.max(presence.looking?.at ?? 0, presence.working?.at ?? 0),

@@ -15,6 +15,7 @@ import {
 	type Session,
 } from "../shared/types.ts";
 import { createAnnotationStore } from "./annotations.ts";
+import { type ArchiveStore, createArchiveStore } from "./archive.ts";
 import type { AuditEvent } from "./audit.ts";
 import {
 	type Butler,
@@ -22,7 +23,6 @@ import {
 	createButler,
 	loadWatching,
 	parseFocusReport,
-	selfFixState,
 	withHistory,
 } from "./butler.ts";
 import { createCommentStore } from "./comments.ts";
@@ -62,7 +62,10 @@ const board: Board = {
 	generatedAt: 0,
 };
 
-const setup = async (launched: { landing?: Landing } = {}) => {
+const setup = async (
+	launched: { landing?: Landing } = {},
+	archive?: ArchiveStore,
+) => {
 	const dir = await mkdtemp(join(tmpdir(), "kanban-butler-"));
 	const layout = createLayoutStore({
 		file: join(dir, "l.json"),
@@ -112,6 +115,7 @@ const setup = async (launched: { landing?: Landing } = {}) => {
 		comments,
 		newId: () => `id${++ids}`,
 		now: () => clock,
+		...(archive ? { archive } : {}),
 	});
 	return {
 		butler,
@@ -324,11 +328,69 @@ describe("Butler on the board", () => {
 		assert.deepEqual(butler.current().watching, []);
 	});
 
+	it("keeps an archived change archived unless spike says it runs again", async () => {
+		const archive = createArchiveStore({});
+		const { butler, annotations } = await setup({}, archive);
+		const id = "20261110-000000-9";
+		const card = `self-fix-${id}`;
+		archive.add({
+			id: card,
+			kind: "change",
+			title: "Old change",
+			project: "Unsorted",
+			finishedAt: 1,
+			archivedAt: 2,
+			outcome: "done",
+			reason: "auto",
+		});
+		for (const activity of [undefined, "done", "idle"]) {
+			await butler.tool("self_fixes", {
+				fixes: [{ id, state: "finished", ...(activity ? { activity } : {}) }],
+			});
+			assert.equal(annotations.current()[card], undefined, String(activity));
+			assert.ok(archive.get(card));
+		}
+		await butler.tool("self_fixes", {
+			fixes: [{ id, state: "running", activity: "working" }],
+		});
+		assert.equal(cardOf(annotations, card).state, "working");
+		assert.equal(archive.get(card), undefined);
+	});
+
+	it("takes a change's activity as spike sends it, idle when it sends none the board knows", async () => {
+		const { butler, annotations } = await setup();
+		const fix = (id: string, activity?: string) => ({
+			id,
+			state: "whatever spike says",
+			...(activity ? { activity } : {}),
+		});
+		await butler.tool("self_fixes", {
+			fixes: [
+				fix("20261110-000000-1", "stopped"),
+				fix("20261110-000000-2", "sleeping"),
+				fix("20261110-000000-3"),
+			],
+		});
+		assert.equal(
+			cardOf(annotations, "self-fix-20261110-000000-1").state,
+			"stopped",
+		);
+		assert.equal(
+			cardOf(annotations, "self-fix-20261110-000000-2").state,
+			"idle",
+		);
+		assert.equal(
+			cardOf(annotations, "self-fix-20261110-000000-3").state,
+			"idle",
+		);
+	});
+
 	it("mirrors self-fixes as cards, keeping where they were put", async () => {
 		const { butler, annotations, tick } = await setup();
 		const fix = {
 			id: "20261103-014125-2712401",
 			state: "running",
+			activity: "working",
 			title: "Butler kanban collaborator",
 			link: "https://claude.ai/code/session_01abc",
 			summary: "- ran Bash: npm run check",
@@ -346,7 +408,13 @@ describe("Butler on the board", () => {
 		annotations.put({ ...card, x: 4800, y: 960 });
 		tick(60_000);
 		await butler.tool("self_fixes", {
-			fixes: [{ ...fix, state: "waiting on input (AskUserQuestion)" }],
+			fixes: [
+				{
+					...fix,
+					state: "waiting on input (AskUserQuestion)",
+					activity: "needs-you",
+				},
+			],
 		});
 		const waiting = cardOf(annotations, id);
 		assert.equal(waiting.state, "needs-you");
@@ -364,7 +432,13 @@ describe("Butler on the board", () => {
 
 		tick(60_000);
 		await butler.tool("self_fixes", {
-			fixes: [{ ...fix, state: "waiting on input (AskUserQuestion)" }],
+			fixes: [
+				{
+					...fix,
+					state: "waiting on input (AskUserQuestion)",
+					activity: "needs-you",
+				},
+			],
 		});
 		assert.equal(cardOf(annotations, id).updatedAt, 61_000);
 		assert.equal(cardOf(annotations, id).history?.length, 2);
@@ -711,19 +785,5 @@ describe("Butler's tool calls", () => {
 		}
 		assert.equal(long.history?.length, 40);
 		assert.equal(long.history?.at(-1)?.status, "step 59");
-	});
-
-	it("fold a self-fix's state into a card's", () => {
-		assert.equal(selfFixState("running"), "working");
-		assert.equal(selfFixState("still starting"), "working");
-		assert.equal(selfFixState("waiting on input (Bash)"), "needs-you");
-		assert.equal(selfFixState("finished"), "done");
-		assert.equal(selfFixState("archived"), "done");
-		assert.equal(selfFixState("finished with an error"), "failed");
-		assert.equal(selfFixState("failed to start: no repo"), "failed");
-		assert.equal(
-			selfFixState("unknown, its progress could not be read yet"),
-			"idle",
-		);
 	});
 });

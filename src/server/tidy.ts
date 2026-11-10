@@ -53,8 +53,10 @@ const stateRank: Record<ButlerCard["state"], number> = {
 	working: 0,
 	"needs-you": 1,
 	failed: 2,
-	idle: 3,
-	done: 4,
+	watching: 3,
+	idle: 4,
+	stopped: 5,
+	done: 6,
 };
 
 /** Projects in flight come first, then those being kept, then the rest. */

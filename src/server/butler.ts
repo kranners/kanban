@@ -10,10 +10,12 @@ import {
 } from "../shared/reportedSubagents.ts";
 import {
 	type AaronFocus,
+	type Activity,
 	type Annotation,
 	type ArchiveEntry,
 	type ArchiveOutcome,
 	aaronFocusStaleMs,
+	activityOrder,
 	archiveOutcomes,
 	type Board,
 	type BoardContext,
@@ -22,7 +24,6 @@ import {
 	type ButlerCard,
 	type ButlerCardEvent,
 	type ButlerCardMission,
-	type ButlerCardState,
 	type ButlerDm,
 	type ButlerMood,
 	type ButlerPresence,
@@ -32,7 +33,6 @@ import {
 	type ButlerThreadKind,
 	type ButlerThreadView,
 	type ButlerWaitingApproval,
-	butlerCardStates,
 	butlerMoods,
 	butlerThreadKinds,
 	type CommentThread,
@@ -443,20 +443,9 @@ const number = (fields: Fields, key: string): number | undefined => {
 };
 
 /** Folds a self-fix's free-text state, from `self-fix list`, into a card state. */
-export const selfFixState = (state: string): ButlerCardState => {
-	const s = state.toLowerCase();
-	if (s.startsWith("waiting on input")) return "needs-you";
-	if (s.startsWith("finished with an error") || s.startsWith("failed"))
-		return "failed";
-	if (
-		s.startsWith("finished") ||
-		s.startsWith("archive") ||
-		s.startsWith("dismissed")
-	)
-		return "done";
-	if (s === "running" || s.startsWith("still starting")) return "working";
-	return "idle";
-};
+/** A change's activity as spike sends it, idle when it sends none the board knows. */
+const changeActivity = (value: unknown): Activity =>
+	activityOrder.includes(value as Activity) ? (value as Activity) : "idle";
 
 export const selfFixCardId = (id: string) => `self-fix-${id}`;
 
@@ -590,7 +579,7 @@ export type ThreadEntry = {
 	id: string;
 	title: string;
 	kind: ButlerThreadKind;
-	state: ButlerCardState;
+	state: Activity;
 	status: string;
 	link: string;
 	createdAt: number;
@@ -651,7 +640,7 @@ export const parseThreadEntry = (value: unknown): ThreadEntry | null => {
 	const title = oneLine(f.title, maxButlerTitle);
 	if (title === "") return null;
 	if (!butlerThreadKinds.includes(f.kind as ButlerThreadKind)) return null;
-	if (!butlerCardStates.includes(f.state as ButlerCardState)) return null;
+	if (!activityOrder.includes(f.state as Activity)) return null;
 	if (typeof f.status !== "string") return null;
 	if (!isDiscordLink(f.link)) return null;
 	if (!isTime(f.createdAt) || !isTime(f.lastActiveAt)) return null;
@@ -667,7 +656,7 @@ export const parseThreadEntry = (value: unknown): ThreadEntry | null => {
 		id: f.id,
 		title,
 		kind: f.kind as ButlerThreadKind,
-		state: f.state as ButlerCardState,
+		state: f.state as Activity,
 		status: oneLine(f.status, maxButlerTitle),
 		link: f.link,
 		createdAt: f.createdAt,
@@ -912,11 +901,8 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			if (isOutcome(value)) return value;
 		}
 		const state = fields.state;
-		if (
-			state !== undefined &&
-			!butlerCardStates.includes(state as ButlerCardState)
-		) {
-			return refused(`state must be one of ${butlerCardStates.join(", ")}`);
+		if (state !== undefined && !activityOrder.includes(state as Activity)) {
+			return refused(`state must be one of ${activityOrder.join(", ")}`);
 		}
 		const existing = id ? annotation(id as string) : undefined;
 		if (id && existing && existing.kind !== "butler-card") {
@@ -985,7 +971,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		const card: ButlerCard = {
 			...base,
 			...(title === undefined ? {} : { title: title as string }),
-			...(state === undefined ? {} : { state: state as ButlerCardState }),
+			...(state === undefined ? {} : { state: state as Activity }),
 			...(status === undefined ? {} : { status: status as string }),
 			...(summary === undefined ? {} : { summary: summary as string }),
 			...(link === undefined ? {} : { link: link as string }),
@@ -1254,9 +1240,9 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			const dismissed = actions[fixId] === "dismiss";
 			const archived = deps.archive?.get(id);
 			if (archived) {
-				// Archived on its own once finished, it stays archived unless it starts again.
-				const state = dismissed ? "done" : selfFixState(status as string);
-				if (state === "done" || state === "failed") continue;
+				// Archived on its own once finished, it stays archived unless spike says it runs again.
+				const live: readonly unknown[] = ["working", "needs-you", "watching"];
+				if (dismissed || !live.includes(fix.activity)) continue;
 				deps.archive?.remove(id);
 			}
 			seen.add(id);
@@ -1284,7 +1270,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				z: base.z,
 				updatedAt: base.updatedAt,
 				title: (title as string | undefined)?.trim() || `Self-fix ${fixId}`,
-				state: dismissed ? "done" : selfFixState(status as string),
+				state: dismissed ? "done" : changeActivity(fix.activity),
 				status: dismissed
 					? dismissedStatus(status as string)
 					: (status as string),
