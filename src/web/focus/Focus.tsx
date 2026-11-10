@@ -16,9 +16,16 @@ import {
 	useState,
 } from "preact/hooks";
 import { subagentState } from "../../shared/subagents.ts";
-import type { Activity, Session, Subagent } from "../../shared/types.ts";
+import type {
+	Activity,
+	ButlerCard,
+	Session,
+	Subagent,
+} from "../../shared/types.ts";
 import { ActivityBadge } from "../activity.tsx";
 import { arrangement } from "../arrangement.ts";
+import { ButlerMark } from "../Butler.tsx";
+import { threadKindLabels } from "../butlerThreads.ts";
 import { keepInView } from "../Canvas.tsx";
 import { ArtifactLink } from "../Card.tsx";
 import { nodeKey } from "../layout.ts";
@@ -30,6 +37,7 @@ import {
 	openSubagent,
 	subagentsById,
 } from "../state.ts";
+import { ThreadBody, useThreadView } from "../ThreadCardPanel.tsx";
 import { AgentView } from "./AgentView.tsx";
 import { AttachedTerminal } from "./AttachedTerminal.tsx";
 import { MirroredTerminal } from "./MirroredTerminal.tsx";
@@ -38,7 +46,8 @@ import type { LinkedSubagent, Links } from "./Transcript.tsx";
 
 export type FocusTarget =
 	| { kind: "session"; session: Session }
-	| { kind: "subagent"; subagent: Subagent };
+	| { kind: "subagent"; subagent: Subagent }
+	| { kind: "thread"; thread: string; card: ButlerCard | null };
 
 const kindLabels = { background: "Background", interactive: "Terminal" };
 
@@ -113,9 +122,12 @@ export function Focus(props: {
 		const key = nodeKey(
 			target.kind === "session"
 				? { kind: "session", id: target.session.id }
-				: { kind: "subagent", id: target.subagent.id },
+				: target.kind === "thread"
+					? { kind: "session", id: target.card?.id ?? "" }
+					: { kind: "subagent", id: target.subagent.id },
 		);
-		const node = arrangement.peek()?.nodes.get(key);
+		const placed = arrangement.peek();
+		const node = placed?.nodes.get(key) ?? placed?.anchors.get(key);
 		if (node) keepInView(node);
 	}, [docked]);
 
@@ -141,7 +153,15 @@ export function Focus(props: {
 
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
-			if ((event.metaKey || event.ctrlKey) && event.key === ".") {
+			const typing =
+				event.target instanceof HTMLElement &&
+				event.target.closest("input, textarea, [contenteditable]") !== null;
+			const escapesThread =
+				target.kind === "thread" && event.key === "Escape" && !typing;
+			if (
+				((event.metaKey || event.ctrlKey) && event.key === ".") ||
+				escapesThread
+			) {
 				event.preventDefault();
 				event.stopPropagation();
 				close.current();
@@ -177,11 +197,32 @@ export function Focus(props: {
 
 	const session = target.kind === "session" ? target.session : null;
 	const subagent = target.kind === "subagent" ? target.subagent : null;
+	const thread = target.kind === "thread" ? target : null;
+	const threadView = useThreadView(thread?.thread ?? null);
+	const read = threadView.view?.card;
+	const threadCard = thread
+		? {
+				title: thread.card?.title ?? read?.title,
+				state: thread.card?.state ?? read?.state,
+				status: thread.card?.status ?? read?.status,
+				kind: thread.card?.thread?.kind ?? read?.thread.kind,
+				link: thread.card?.thread?.link ?? read?.link,
+			}
+		: null;
 	const activity: Activity = session
 		? session.activity
-		: subagentState(subagent as Subagent);
-	const name = session?.name ?? subagent?.description ?? subagent?.type ?? "";
-	const said = session ? (session.needs ?? session.doing) : null;
+		: threadCard
+			? (threadCard.state ?? "idle")
+			: subagentState(subagent as Subagent);
+	const name =
+		session?.name ??
+		threadCard?.title ??
+		subagent?.description ??
+		subagent?.type ??
+		(thread ? "Butler thread" : "");
+	const said = session
+		? (session.needs ?? session.doing)
+		: (threadCard?.status ?? null);
 	const doing = said ? plainText(said) : (subagent?.type ?? null);
 	const terminal = session && hasTerminal(session);
 
@@ -207,6 +248,13 @@ export function Focus(props: {
 									{session.cloud ? "Cloud" : kindLabels[session.kind]}
 								</span>
 							</>
+						) : thread ? (
+							<span class="focus-kind">
+								<ButlerMark size={11} />{" "}
+								{threadCard?.kind
+									? threadKindLabels[threadCard.kind]
+									: "Butler"}
+							</span>
 						) : (
 							<span class="focus-kind">
 								<Bot size={11} aria-hidden="true" /> Subagent
@@ -245,6 +293,18 @@ export function Focus(props: {
 						</button>
 					</div>
 				)}
+				{threadCard?.link && (
+					<a
+						class="focus-button focus-cloud-link"
+						href={threadCard.link}
+						target="_blank"
+						rel="noreferrer"
+						title="Open in Discord"
+					>
+						<ExternalLink size={15} aria-hidden="true" />
+						<span class="av-toggle-label">Open in Discord</span>
+					</a>
+				)}
 				{session?.cloud && (
 					<a
 						class="focus-button focus-cloud-link"
@@ -270,7 +330,9 @@ export function Focus(props: {
 				</button>
 			</header>
 			<div class="focus-body">
-				{session && raw ? (
+				{thread ? (
+					<ThreadBody {...threadView} />
+				) : session && raw ? (
 					<RawTerminal session={session} />
 				) : (
 					<AgentView

@@ -269,15 +269,62 @@ function ThreadView(props: {
 	);
 }
 
-/** One of Butler's Discord threads, opened from its card: its log, what waits on Aaron, and a reply box. */
+/** A thread's view, read again every few seconds while it is open; nothing while there is no thread. */
+export function useThreadView(thread: string | null) {
+	const [view, setView] = useState<ButlerThreadView | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	const [reload, setReload] = useState(0);
+	useEffect(() => {
+		if (thread === null) return;
+		let live = true;
+		const load = async () => {
+			const got = await fetchThreadView(thread);
+			if (!live) return;
+			if (got.ok) {
+				setView(got.value);
+				setError(null);
+			} else setError(got.error);
+		};
+		void load();
+		const timer = setInterval(() => void load(), threadPollMs);
+		return () => {
+			live = false;
+			clearInterval(timer);
+		};
+	}, [thread, reload]);
+	return { view, error, refresh: () => setReload((n) => n + 1) };
+}
+
+/** A Butler thread's sections in the board's detail view: its log, what waits on Aaron, what it started and a reply box. */
+export function ThreadBody(props: {
+	view: ButlerThreadView | null;
+	error: string | null;
+	refresh: () => void;
+}): JSX.Element {
+	const { view, error, refresh } = props;
+	return (
+		<div class="thread-body">
+			{error && !view && (
+				<p class="comment-error" role="alert">
+					{error}
+				</p>
+			)}
+			{view ? (
+				<ThreadView view={view} onSent={refresh} />
+			) : (
+				!error && <p class="comment-footnote">Loading…</p>
+			)}
+		</div>
+	);
+}
+
+/** Butler's DM, opened from his face: its log, what waits on Aaron, and a reply box, pinnable beside the board. */
 function ThreadCardPanel(props: {
 	thread: string;
 	onClose: () => void;
 }): JSX.Element {
 	const dialog = useRef<HTMLDialogElement>(null);
-	const [view, setView] = useState<ButlerThreadView | null>(null);
-	const [error, setError] = useState<string | null>(null);
-	const [reload, setReload] = useState(0);
+	const { view, error, refresh } = useThreadView(props.thread);
 	// Swapping between modal and pinned closes the dialog for a moment; that close is not Aaron's.
 	const swapping = useRef(false);
 	useRestoreFocus();
@@ -298,24 +345,6 @@ function ThreadCardPanel(props: {
 		if (pinned) d.show();
 		else d.showModal();
 	}, [pinned]);
-
-	useEffect(() => {
-		let live = true;
-		const load = async () => {
-			const got = await fetchThreadView(props.thread);
-			if (!live) return;
-			if (got.ok) {
-				setView(got.value);
-				setError(null);
-			} else setError(got.error);
-		};
-		void load();
-		const timer = setInterval(() => void load(), threadPollMs);
-		return () => {
-			live = false;
-			clearInterval(timer);
-		};
-	}, [props.thread, reload]);
 
 	const card = view?.card;
 	return (
@@ -396,16 +425,15 @@ function ThreadCardPanel(props: {
 					{error}
 				</p>
 			)}
-			{view && (
-				<ThreadView view={view} onSent={() => setReload((n) => n + 1)} />
-			)}
+			{view && <ThreadView view={view} onSent={refresh} />}
 		</dialog>
 	);
 }
 
+/** The DM's own panel; every other thread opens in the board's detail view. */
 export function ThreadCardPanelHost(): JSX.Element | null {
 	const thread = openThreadCard.value;
-	if (!thread) return null;
+	if (!thread || thread !== butlerPresence.value.dm?.thread) return null;
 	return (
 		<ThreadCardPanel
 			key={thread}

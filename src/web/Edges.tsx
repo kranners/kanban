@@ -1,12 +1,6 @@
 import { GitBranch } from "lucide-preact";
 import type { ComponentChildren } from "preact";
-import type {
-	Annotation,
-	Annotations,
-	Board,
-	Message,
-	Point,
-} from "../shared/types.ts";
+import type { Annotation, Board, Message, Point } from "../shared/types.ts";
 import { isRelayedPair } from "./butlerEdges.ts";
 import {
 	drawnLinks,

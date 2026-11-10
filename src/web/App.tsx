@@ -1,8 +1,11 @@
+import { effect } from "@preact/signals";
 import { Plus } from "lucide-preact";
 import {
+	type Annotation,
 	type Board,
 	hasLanded,
 	type Landing,
+	noButler,
 	type Session,
 	type Subagent,
 } from "../shared/types.ts";
@@ -23,6 +26,8 @@ import { arrived, beckoned } from "./attentionState.ts";
 import { ButlerDmFace } from "./ButlerDm.tsx";
 import { ButlerEdges } from "./ButlerEdges.tsx";
 import { ButlerLayer } from "./ButlerLayer.tsx";
+import { butlerPresence } from "./butler.ts";
+import { openThreadCard } from "./butlerThreads.ts";
 import { Canvas, detail } from "./Canvas.tsx";
 import { SessionCard, SubagentCard } from "./Card.tsx";
 import {
@@ -77,7 +82,9 @@ import {
 	closeFocus,
 	docked,
 	focusedSession,
+	focusedSessionId,
 	focusedSubagent,
+	focusedSubagentId,
 	focusOrigin,
 	knownCwds,
 	litMessage,
@@ -98,6 +105,24 @@ import { sessionsOnly, summariesOf } from "./summaries.ts";
 import { ThreadCardPanelHost } from "./ThreadCardPanel.tsx";
 import { TopBar } from "./TopBar.tsx";
 import { UndoToast, useUndoShortcut } from "./Undo.tsx";
+
+/** One detail view at a time: a Butler thread's or a session's; the DM's own panel stays beside either. */
+const isDm = (thread: string | null) =>
+	thread !== null && thread === butlerPresence.peek().dm?.thread;
+const presenceKnown = () => butlerPresence.peek() !== noButler;
+effect(() => {
+	const thread = openThreadCard.value;
+	if (thread && presenceKnown() && !isDm(thread)) closeFocus();
+});
+effect(() => {
+	const focused = focusedSessionId.value ?? focusedSubagentId.value;
+	if (focused && presenceKnown() && !isDm(openThreadCard.peek())) {
+		openThreadCard.value = null;
+	}
+});
+
+const butlerCardOf = (annotation: Annotation | undefined) =>
+	annotation?.kind === "butler-card" ? annotation : null;
 
 function visibility(): (key: NodeKey) => boolean {
 	const sessions = sessionsById.value;
@@ -398,18 +423,36 @@ export function App() {
 	const session = focusedSession.value;
 	const subagent = focusedSubagent.value;
 	const beside = docked.value;
-	const focus = (session || subagent) && (
+	const thread = openThreadCard.value;
+	const threadTarget =
+		thread && thread !== butlerPresence.value.dm?.thread ? thread : null;
+	const focus = threadTarget ? (
 		<Focus
-			key={session ? `session:${session.id}` : `subagent:${subagent?.id}`}
-			target={
-				session
-					? { kind: "session", session }
-					: { kind: "subagent", subagent: subagent as Subagent }
-			}
-			origin={focusOrigin.value}
-			onClose={closeFocus}
+			key={`thread:${threadTarget}`}
+			target={{
+				kind: "thread",
+				thread: threadTarget,
+				card: butlerCardOf(current.value[`thread-${threadTarget}`]),
+			}}
+			onClose={() => {
+				openThreadCard.value = null;
+			}}
 			docked={beside}
 		/>
+	) : (
+		(session || subagent) && (
+			<Focus
+				key={session ? `session:${session.id}` : `subagent:${subagent?.id}`}
+				target={
+					session
+						? { kind: "session", session }
+						: { kind: "subagent", subagent: subagent as Subagent }
+				}
+				origin={focusOrigin.value}
+				onClose={closeFocus}
+				docked={beside}
+			/>
+		)
 	);
 	return (
 		<>

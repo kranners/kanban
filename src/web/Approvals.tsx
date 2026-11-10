@@ -166,6 +166,7 @@ export function ApprovalCardView(props: {
 						type="button"
 						class="approval-from"
 						onClick={() => {
+							approvalsOpen.value = false;
 							openThreadCard.value = props.thread;
 						}}
 					>
