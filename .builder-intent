@@ -1,0 +1,1 @@
+Kanban unified card model part 2: Butler's changes, desks and threads become real Session cards; one Butler message store; delete parallel Butler card UI. Touches kanban src/server/butler*, src/web, daemon thread-cards, jimbo butler-kanban/kanban.py.
