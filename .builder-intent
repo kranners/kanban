@@ -1,0 +1,1 @@
+Unify kanban cards: Butler threads/changes/desks become ordinary Sessions and Subagents (Board.subagents), one card body, one Activity enum, Link lineage, one detail view; steps land separately in kanban, daemon thread-cards, kanban.py.
