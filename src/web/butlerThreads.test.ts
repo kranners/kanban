@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Annotations, ButlerCard, Session } from "../shared/types.ts";
+import { withButlerCards } from "./butlerSubagents.ts";
 import {
 	isFromDm,
-	lineageEdges,
 	linkedCount,
 	openParent,
 	openThreadCard,
@@ -105,19 +105,12 @@ test("draws an arrow from each thread card to the cards and sessions it started"
 		id: "session_2",
 		parent: { thread: "22222222", card: "thread-22222222" },
 	} as Session;
-	const box = { x: 400, y: 600, w: 300, h: 200 };
-	const edges = lineageEdges(annotations, [started, unplaced], (id) =>
-		id === "session_1" ? box : undefined,
-	);
-	assert.deepEqual(
-		edges.map((e) => e.key),
-		[
-			"thread-11111111>thread-22222222",
-			"thread-22222222>self-fix-20261106-134847-1",
-			"thread-22222222>session-session_1",
-		],
-	);
-	assert.equal(edges[2]?.to, box);
+	assert.deepEqual(spawned(annotations, [started, unplaced]), [
+		"thread-11111111>thread-22222222",
+		"thread-22222222>self-fix-20261106-134847-1",
+		"thread-22222222>session_1",
+		"thread-22222222>session_2",
+	]);
 });
 
 test("knows a card or session that came from the DM, which has no card", () => {
@@ -156,16 +149,31 @@ test("draws no arrow to or from the DM, which is no card, while the rest stay", 
 		} as Session,
 		session("11111111"),
 	];
-	const edges = lineageEdges(all, sessions, () => ({
-		x: 0,
-		y: 0,
-		w: 10,
-		h: 10,
-	}));
+	const links = spawned(all, sessions);
 	assert.equal(
-		edges.some((e) => e.key.includes("99999999") || e.key.includes("33333333")),
+		links.some((key) => key.includes("99999999") || key.includes("33333333")),
 		false,
 	);
-	assert.ok(edges.some((e) => e.key === "thread-11111111>thread-22222222"));
-	assert.ok(edges.some((e) => e.key === "thread-11111111>session-s-11111111"));
+	assert.ok(links.includes("thread-11111111>thread-22222222"));
+	assert.ok(links.includes("thread-11111111>s-11111111"));
 });
+
+/** The spawned links the board gets from Butler's cards, as parent>child ids. */
+function spawned(annotations: Annotations, sessions: Session[]): string[] {
+	return withButlerCards(
+		{
+			sessions,
+			subagents: [],
+			subagentCounts: {},
+			subagentStates: {},
+			workflowRuns: {},
+			workflows: [],
+			links: [],
+			messages: [],
+			generatedAt: 0,
+		},
+		annotations,
+	)
+		.links.filter((link) => link.kind === "spawned")
+		.map((link) => `${link.from.id}>${link.to.id}`);
+}

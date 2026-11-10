@@ -18,15 +18,49 @@ export function butlerCards(annotations: Annotations): ButlerCard[] {
 }
 
 /**
- * The board with each Butler card's subagents as the board's own subagents,
- * owned by the card as a session owns its own, so they are drawn, counted,
- * filtered and hidden the same way. Kept on the page, so the words of a
- * thread's subagents never reach the server's snapshots or history.
+ * The board with Butler's cards in it as the board's own: each card's
+ * subagents owned by the card as a session owns its own, and a spawned link
+ * from each card to the cards and sessions it started, so they are drawn,
+ * counted, filtered and hidden the same way. Kept on the page, so the words
+ * of a thread's subagents never reach the server's snapshots or history.
  */
-export function withButlerSubagents(
-	board: Board,
-	annotations: Annotations,
-): Board {
+export function withButlerCards(board: Board, annotations: Annotations): Board {
+	return withLineage(withButlerSubagents(board, annotations), annotations);
+}
+
+/** A spawned link from each Butler card to the cards and sessions it started, never one to itself. */
+function withLineage(board: Board, annotations: Annotations): Board {
+	const card = (id: string | undefined) =>
+		id !== undefined && annotations[id]?.kind === "butler-card";
+	const started: [string, string][] = [
+		...butlerCards(annotations).flatMap((child): [string, string][] =>
+			card(child.parent) && child.parent !== child.id
+				? [[child.parent as string, child.id]]
+				: [],
+		),
+		...board.sessions.flatMap((session): [string, string][] =>
+			card(session.parent?.card)
+				? [[session.parent?.card as string, session.id]]
+				: [],
+		),
+	];
+	if (started.length === 0) return board;
+	return {
+		...board,
+		links: [
+			...board.links,
+			...started.map(
+				([from, to]): Link => ({
+					from: { kind: "session", id: from },
+					to: { kind: "session", id: to },
+					kind: "spawned",
+				}),
+			),
+		],
+	};
+}
+
+function withButlerSubagents(board: Board, annotations: Annotations): Board {
 	const taken = new Set(board.subagents.map((subagent) => subagent.id));
 	const added: Subagent[] = butlerCards(annotations).flatMap((card) => {
 		const reported = (card.subagents ?? []).filter((s) => !taken.has(s.id));

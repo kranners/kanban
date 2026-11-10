@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Annotations, Board, ButlerCard } from "../shared/types.ts";
-import { cardOf, withButlerSubagents } from "./butlerSubagents.ts";
+import { cardOf, withButlerCards } from "./butlerSubagents.ts";
 import { withSubagentsShown } from "./subagentSetting.ts";
 
 const board = (parts: Partial<Board> = {}): Board => ({
@@ -56,7 +56,7 @@ const cards: Annotations = {
 };
 
 test("a Butler card's subagents become the board's own, owned by the card", () => {
-	const merged = withButlerSubagents(board(), cards);
+	const merged = withButlerCards(board(), cards);
 	const byId = new Map(merged.subagents.map((s) => [s.id, s]));
 	assert.equal(byId.get("top")?.sessionId, "self-fix-1");
 	assert.equal(byId.get("top")?.live, true);
@@ -88,14 +88,14 @@ test("a Butler card's subagents become the board's own, owned by the card", () =
 });
 
 test("one Show subagents setting hides a card's subagents with a session's", () => {
-	const hidden = withSubagentsShown(withButlerSubagents(board(), cards), false);
+	const hidden = withSubagentsShown(withButlerCards(board(), cards), false);
 	assert.equal(hidden.subagents.length, 0);
 	assert.equal(hidden.links.length, 0);
 	assert.deepEqual(hidden.subagentCounts, {});
 });
 
 test("a subagent the board already has is never drawn twice", () => {
-	const own = withButlerSubagents(
+	const own = withButlerCards(
 		board({
 			subagents: [
 				{
@@ -116,5 +116,5 @@ test("a subagent the board already has is never drawn twice", () => {
 	);
 	assert.equal(own.subagents.filter((s) => s.id === "w").length, 1);
 	assert.equal(own.subagents.find((s) => s.id === "w")?.sessionId, "real");
-	assert.equal(withButlerSubagents(board(), {}).subagents.length, 0);
+	assert.equal(withButlerCards(board(), {}).subagents.length, 0);
 });

@@ -41,7 +41,7 @@ export type Seeds = { tree: BoardLayout; offsets: Map<NodeKey, Offset> };
 
 export type Arrangement = {
 	nodes: Map<NodeKey, PlacedNode>;
-	/** Butler's cards that own subagents, as the nodes those subagents follow; drawn as cards, not here. */
+	/** Butler's cards, as the nodes their subagents follow and their links end at; drawn as cards, not here. */
 	anchors: Map<NodeKey, PlacedNode>;
 	bounds: Bounds;
 	auto: Map<NodeKey, Point>;
@@ -478,9 +478,7 @@ export function arrange(
 		return node ? snapPoint(node) : null;
 	};
 
-	const owned = new Set(board.subagents.map((a) => a.sessionId));
 	for (const card of cards) {
-		if (!owned.has(card.id)) continue;
 		const ref: NodeRef = { kind: "session", id: card.id };
 		const key = nodeKey(ref);
 		anchors.set(key, {

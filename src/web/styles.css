@@ -1733,18 +1733,3 @@ button.status-row:hover {
 	letter-spacing: 0.04em;
 	text-transform: uppercase;
 }
-
-/* Butler's family tree: from a thread card to the cards and sessions it started. */
-.lineage {
-	fill: none;
-	stroke: var(--butler);
-	stroke-width: 1.5;
-	stroke-dasharray: 5 4;
-	opacity: 0.7;
-}
-
-.lineage-head {
-	fill: var(--butler);
-	stroke: none;
-	opacity: 0.7;
-}

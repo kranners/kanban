@@ -2,7 +2,7 @@ import { effect, signal } from "@preact/signals";
 import { type Board, type BoardFeed, hasLanded } from "../shared/types.ts";
 import { butlerPresence } from "./butler.ts";
 import { butlerEdges } from "./butlerEdges.ts";
-import { withButlerSubagents } from "./butlerSubagents.ts";
+import { withButlerCards } from "./butlerSubagents.ts";
 import { receiveColours } from "./colours.ts";
 import { receiveComment, receiveComments } from "./comments.ts";
 import { digests } from "./digests.ts";
@@ -40,7 +40,7 @@ effect(() => {
 	const sent = latest.value;
 	if (!sent) return;
 	board.value = withSubagentsShown(
-		withButlerSubagents(sent, annotations.value),
+		withButlerCards(sent, annotations.value),
 		showSubagents.value,
 	);
 });
