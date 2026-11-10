@@ -1,0 +1,1 @@
+Live project dashboards: full-modal dashboard in kanban's projects view (src/web/Projects.tsx + new ProjectDashboard), flip within status column, live refresh; optional graph field documented in butler-memory skills/projects and project-report.
