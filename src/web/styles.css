@@ -1706,6 +1706,14 @@ button.status-row:hover {
 	opacity: 0;
 }
 
+.viewport.snapping .node,
+.viewport.snapping .group-frame,
+.viewport.snapping .annotation,
+.viewport.snapping .edge > path,
+.viewport.snapping .arc > path {
+	transition: none;
+}
+
 .viewport.arranging .node,
 .viewport.arranging .group-frame,
 .viewport.arranging .edge > path,

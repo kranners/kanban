@@ -672,3 +672,68 @@ test("a Butler card's subagents move clear of a session placed by hand under it"
 	assert.ok(x && a);
 	assert.ok(!near(x, a, 0), "clear of the pinned session");
 });
+
+test("a fresh layout never draws a project's frame over another project's session", () => {
+	const projects = ["a", "b", "c", "d", "e"];
+	for (let seed = 1; seed <= 60; seed += 1) {
+		let r = seed * 9301;
+		const random = () => {
+			r = (r * 9301 + 49297) % 233280;
+			return r / 233280;
+		};
+		const sessions = Array.from({ length: 18 }, (_, i) => {
+			const project = projects[Math.floor(random() * projects.length)] ?? "a";
+			return { ...session(`s${i}`, i), project, cwd: `/dev/${project}` };
+		});
+		const links = sessions.slice(1).flatMap((child, i) =>
+			random() < 0.4
+				? [
+						{
+							kind: "spawned" as const,
+							from: s(sessions[Math.floor(random() * (i + 1))]?.id ?? "s0"),
+							to: s(child.id),
+						},
+					]
+				: [],
+		);
+		const b = board({ sessions, links });
+		const placed = place(b);
+		assertApart(placed.nodes.values());
+		const frames = groupsOf(b.sessions, placed.nodes);
+		for (const frame of frames) {
+			for (const node of placed.nodes.values()) {
+				if (frame.members.includes(node.key)) continue;
+				assert.ok(
+					!near(frame.frame, node, 0),
+					`seed ${seed}: ${frame.project}'s frame covers ${node.key}`,
+				);
+			}
+			for (const other of frames) {
+				if (other === frame) continue;
+				assert.ok(
+					!near(frame.frame, other.frame, 0),
+					`seed ${seed}: ${frame.project}'s frame overlaps ${other.project}'s`,
+				);
+			}
+		}
+	}
+});
+
+test("a note beside a project's session never breaks up its frame", () => {
+	const members = ["a0", "a1", "a2"].map((id, i) => ({
+		...session(id, i),
+		project: "a",
+		cwd: "/dev/a",
+	}));
+	const b = board({ sessions: members });
+	const note = { x: 0, y: 264, w: 240, h: 120 };
+	const placed = arrange(
+		b,
+		{ "session:a0": { x: 0, y: 0, pinned: true } },
+		seedsOf(b),
+		new Map(),
+		[note],
+	);
+	assert.equal(groupsOf(b.sessions, placed.nodes).length, 1);
+	for (const node of placed.nodes.values()) assert.ok(!near(node, note, 0));
+});

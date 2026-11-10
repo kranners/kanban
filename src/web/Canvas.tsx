@@ -1,9 +1,10 @@
-import { computed, signal } from "@preact/signals";
+import { computed, effect, signal } from "@preact/signals";
 import { Maximize, Minus, Plus } from "lucide-preact";
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import type { Point } from "../shared/types.ts";
 import type { Arranging } from "./arrangement.ts";
+import { autoLayout } from "./autoLayoutSetting.ts";
 import { dotGrid, snap, snapWithin } from "./grid.ts";
 import type { NodeKey } from "./layout.ts";
 import { takeKeptView } from "./pageBuild.ts";
@@ -46,6 +47,18 @@ export function boardPointAt(clientX: number, clientY: number): Point | null {
 }
 
 export const glideMs = 360;
+
+/** True while the board teleports into a new layout rather than gliding there. */
+export const snapping = signal(false);
+
+/** Frames the whole of `bounds` in the viewport at once. */
+export function fitBoard(bounds: Bounds): void {
+	if (!stage || bounds.width <= 0 || bounds.height <= 0) return;
+	view.value = fromOrigin(
+		fitView(bounds, { width: stage.clientWidth, height: stage.clientHeight }),
+		bounds,
+	);
+}
 
 export function centreOn(rect: Rect): void {
 	const world = stage?.querySelector<HTMLElement>(".world");
@@ -159,6 +172,17 @@ export function Canvas(props: {
 			stage = null;
 		};
 	}, []);
+
+	useEffect(
+		() =>
+			effect(() => {
+				viewport.current?.classList.toggle(
+					"snapping",
+					snapping.value || autoLayout.value,
+				);
+			}),
+		[],
+	);
 
 	useEffect(() => {
 		const el = viewport.current;

@@ -37,6 +37,7 @@ import { PermissionSurveyDialog } from "./PermissionSurvey.tsx";
 import { ProjectsButton } from "./Projects.tsx";
 import { connection, newSessionOpen } from "./state.ts";
 import { cycleTheme, theme } from "./theme.ts";
+import { tidyBoard } from "./tidying.ts";
 
 const themeIcon = { system: SunMoon, light: Sun, dark: Moon };
 const themeName = {
@@ -169,14 +170,7 @@ function TidyButton() {
 	const [said, setSaid] = useState<string | null>(null);
 	const run = async () => {
 		setBusy(true);
-		const response = await fetch("/api/tidy", { method: "POST" }).catch(
-			() => null,
-		);
-		const body = (await response?.json().catch(() => null)) as {
-			ok?: boolean;
-			text?: string;
-			error?: string;
-		} | null;
+		const body = await tidyBoard();
 		setBusy(false);
 		setSaid(
 			body?.ok

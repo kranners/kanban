@@ -39,8 +39,8 @@ const gap = 48;
 const padding = 24;
 const headroom = 72;
 const regionGap = 72;
-/** How wide a row of project regions may grow before the next starts. */
-const rowWidth = 3200;
+/** The screen shape a tidy fills when the page gave none. */
+export const defaultAspect = 16 / 10;
 /** Room between the Butler regions and the sessions to their right. */
 const clearance = 96;
 const slotDefault = { w: 312, h: 216 };
@@ -145,6 +145,10 @@ export type TidyInput = {
 	regions: readonly Region[];
 	/** Butler's projects; with none, every card not waiting on Aaron is Unsorted. */
 	projects?: readonly Project[];
+	/** Notes and stickers inside Tidy's regions, which stay where they are, so cards keep clear of them. */
+	loose?: readonly Rect[];
+	/** Width over height of the screen the board should fill. */
+	aspect?: number;
 	now: number;
 };
 
@@ -201,6 +205,17 @@ const boundsOf = (rects: readonly Rect[]): Rect | null => {
 export const columnsFor = (slots: number): number =>
 	slots <= 1 ? 1 : slots <= 4 ? 2 : slots <= 9 ? 3 : 4;
 
+/** How much worse at filling the screen the board's current rows may be before Tidy reflows them. */
+const keepRowsWithin = 1.15;
+
+/** How many regions the first row of the board's own project regions holds now, or 0 before it has any. */
+const lastPerRow = (groups: readonly Group[]): number => {
+	const tops = groups.flatMap((g) => (g.existing ? [g.existing.y] : []));
+	if (tops.length === 0) return 0;
+	const first = Math.min(...tops);
+	return tops.filter((y) => y === first).length;
+};
+
 type Group = {
 	cwd: string;
 	name: string;
@@ -223,17 +238,20 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 		if (note.kind !== "note" || !note.session) continue;
 		notesOn.set(note.session, [...(notesOn.get(note.session) ?? []), note]);
 	}
-	const heldRects: Rect[] = input.cards
-		.filter((c) => isHeld(c, now))
-		.flatMap((c) => [
-			{
-				...c,
-				x: c.x - subagentReach(c).left,
-				w: Math.max(c.w, subagentReach(c).w),
-				h: c.h + subagentReach(c).below,
-			},
-			...(notesOn.get(c.id) ?? []),
-		]);
+	const heldRects: Rect[] = [
+		...(input.loose ?? []),
+		...input.cards
+			.filter((c) => isHeld(c, now))
+			.flatMap((c) => [
+				{
+					...c,
+					x: c.x - subagentReach(c).left,
+					w: Math.max(c.w, subagentReach(c).w),
+					h: c.h + subagentReach(c).below,
+				},
+				...(notesOn.get(c.id) ?? []),
+			]),
+	];
 	const free = input.cards.filter((c) => !isHeld(c, now));
 	const owner = projectsOf(input.cards, projects);
 	const regionAt = (cwd: string) => input.regions.find((r) => r.cwd === cwd);
@@ -338,11 +356,12 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 	const deeper = new Map<Group, number>();
 	const depthOf = (group: Group) => deeper.get(group) ?? 0;
 
-	const place = () => {
-		// Project regions in rows, by stage, wrapping at rowWidth.
+	const flowing = groups.filter((g) => !g.existing?.manual);
+	const place = (perRow: number) => {
+		// Project regions in rows of perRow, by stage, so a region growing never moves another to a different row.
 		type Spot = { group: Group; x: number; w: number; h: number };
 		const rows: Spot[][] = [];
-		for (const group of groups.filter((g) => !g.existing?.manual)) {
+		for (const group of flowing) {
 			const columns = columnsFor(slotsOf(group));
 			// Never narrower than two cards, so its zoomed-out tile reads.
 			const w = widthFor(Math.max(2, columns));
@@ -354,7 +373,7 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 			const row = rows.at(-1);
 			const end = row ? (row.at(-1) as Spot) : null;
 			const x = end ? end.x + end.w + regionGap : 0;
-			if (row && x + w <= rowWidth) row.push({ group, x, w, h });
+			if (row && row.length < perRow) row.push({ group, x, w, h });
 			else rows.push([{ group, x: 0, w, h }]);
 		}
 		const dashboardW = Math.max(
@@ -478,8 +497,33 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 	};
 
 	// Growing a region can move held cards' overlaps, so a few passes settle it.
-	let laid = place();
-	for (let pass = 0; laid.short && pass < 5; pass += 1) laid = place();
+	const settled = (perRow: number) => {
+		needed.clear();
+		deeper.clear();
+		let laid = place(perRow);
+		for (let pass = 0; laid.short && pass < 5; pass += 1) laid = place(perRow);
+		return laid;
+	};
+	// The row length that lets the whole board, regions and sessions, be shown largest on the screen.
+	const aspect =
+		input.aspect && Number.isFinite(input.aspect) && input.aspect > 0
+			? input.aspect
+			: defaultAspect;
+	const fitted = (laid: ReturnType<typeof place>) => {
+		const whole = boundsOf([...laid.regions, ...(outside ? [outside] : [])]);
+		return whole ? Math.max(whole.w, whole.h * aspect) : 0;
+	};
+	let laid = settled(1);
+	for (let perRow = 2; perRow <= flowing.length; perRow += 1) {
+		const candidate = settled(perRow);
+		if (fitted(candidate) < fitted(laid)) laid = candidate;
+	}
+	// The rows the board has now stay unless another length fills the screen clearly better, so a small change never reflows every region.
+	const current = lastPerRow(flowing);
+	if (current > 0 && current <= flowing.length) {
+		const kept = settled(current);
+		if (fitted(kept) <= fitted(laid) * keepRowsWithin) laid = kept;
+	}
 	const { moves, regions } = laid;
 	const keptCwds = new Set(regions.map((r) => r.cwd));
 	const gone = (region: Region) => {

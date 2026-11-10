@@ -10,8 +10,8 @@ import { butlerCards } from "./butlerSubagents.ts";
 import { departing } from "./exitState.ts";
 import { groupsOf } from "./groups.ts";
 import type { NodeKey } from "./layout.ts";
-import type { Rect } from "./placement.ts";
-import { arrange, seedsOf } from "./placement.ts";
+import type { Bounds, Rect } from "./placement.ts";
+import { arrange, boundsOf, seedsOf } from "./placement.ts";
 import { unreachablePeers } from "./reach.ts";
 import { shownRegions } from "./regionState.ts";
 import { regionGroups, withCards } from "./regions.ts";
@@ -36,6 +36,12 @@ const seeds = computed(() =>
 
 const remembered = new Map<NodeKey, Point>();
 const requested = new Set<NodeKey>();
+
+/** Lets every session the server sent back to auto be laid out afresh, not put back where it was. */
+export function forgetAutoSpots(): void {
+	remembered.clear();
+	requested.clear();
+}
 
 function withOverrides(saved: Layout): Layout {
 	const local = overrides.value;
@@ -73,6 +79,17 @@ export const groups = computed(() => {
 		Object.values(annotations.value).filter((a) => a.kind === "butler-card"),
 	);
 });
+
+/** Everything drawn on the board: sessions, their frames, regions, cards, notes and stickers. */
+export function boardBounds(): Bounds | null {
+	const rects: Rect[] = [
+		...(arrangement.peek()?.nodes.values() ?? []),
+		...groups.peek().map((group) => group.frame),
+		...shownRegions.peek(),
+		...Object.values(annotations.peek()),
+	];
+	return rects.length > 0 ? boundsOf(rects) : null;
+}
 
 export const unreachable = computed(() =>
 	unreachablePeers(groups.value, board.value?.sessions ?? []),

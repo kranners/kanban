@@ -767,6 +767,23 @@ const readJson = (
 		req.on("error", reject);
 	});
 
+/** The page's width over height, when the request says it, kept to a sane range. */
+const screenAspect = async (
+	req: IncomingMessage,
+): Promise<number | undefined> => {
+	if (!req.headers["content-type"]?.startsWith("application/json")) {
+		return undefined;
+	}
+	const body = await readJson(req).catch(() => null);
+	const aspect =
+		body && typeof body === "object" && "aspect" in body
+			? body.aspect
+			: undefined;
+	return typeof aspect === "number" && Number.isFinite(aspect)
+		? Math.min(4, Math.max(0.25, aspect))
+		: undefined;
+};
+
 const isFile = async (path: string): Promise<boolean> => {
 	try {
 		return (await stat(path)).isFile();
@@ -1935,7 +1952,10 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				if (!originOk(req)) return sendError(res, 403);
 				if (!deps.butler) return sendError(res, 404);
 				const butler = deps.butler;
-				const outcome = yours(() => butler.tidy({ sessions: true }));
+				const aspect = await screenAspect(req);
+				const outcome = yours(() =>
+					butler.tidy({ sessions: true, ...(aspect ? { aspect } : {}) }),
+				);
 				return sendJson(res, outcome.ok ? 200 : 409, outcome);
 			}
 			case "delete-annotation":

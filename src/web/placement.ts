@@ -383,6 +383,7 @@ export function arrange(
 	const nodes = new Map<NodeKey, PlacedNode>();
 	const anchors = new Map<NodeKey, PlacedNode>();
 	const occupied: Rect[] = [];
+	const notSessions = new Set<Rect>(reserved);
 	const projects: Project[] = [];
 	const auto = new Map<NodeKey, Point>();
 	const joining = (name: string, area: Rect) =>
@@ -420,7 +421,19 @@ export function arrange(
 				belongsTo(region, session.cwd) ||
 				!near(grown ?? area, region, clearance),
 		);
-		if (!ownRegions || !grown) return ownRegions;
+		if (!ownRegions) return false;
+		if (!grown) {
+			return projects.every((other) => {
+				const theirs = frameOf(other);
+				return !theirs || !near(area, theirs, clearance);
+			});
+		}
+		const foreign = occupied.filter(
+			(o) =>
+				!notSessions.has(o) &&
+				!joined.some((p) => p.areas.some((a) => holds(a, o))),
+		);
+		if (foreign.some((o) => near(grown, o, clearance))) return false;
 		const framedBefore = joined.flatMap((project) => frameOf(project) ?? []);
 		return projects.every((other) => {
 			const theirs = joined.includes(other) ? null : frameOf(other);
@@ -563,6 +576,7 @@ export function arrange(
 		for (const [key, rect] of natural) {
 			const moved = { ...rect, x: rect.x + shift.x, y: rect.y + shift.y };
 			cardFollowers.set(key, moved);
+			notSessions.add(moved);
 			occupied.push(moved);
 		}
 	}

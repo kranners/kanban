@@ -235,7 +235,7 @@ export type Butler = {
 	/** Aaron deleting a thread card: it stays off the board until the thread is active again. */
 	closeThreadCard(cardId: string): ToolOutcome;
 	/** Archives finished cards and lays out the rest; `sessions` also re-lays out the sessions Aaron has not pinned. */
-	tidy(options?: { sessions?: boolean }): ToolOutcome;
+	tidy(options?: { sessions?: boolean; aspect?: number }): ToolOutcome;
 	/** Puts an archived card back on the board, pinned where it lands. */
 	restore(id: string): ToolOutcome;
 	/** Forgets what Aaron was working on once his pages have gone quiet. */
@@ -1612,7 +1612,12 @@ export const createButler = (deps: ButlerDeps): Butler => {
 	 * `sessions` the sessions Aaron has not pinned are laid out afresh.
 	 * Non-destructive: nothing is deleted that the archive does not keep.
 	 */
-	const tidy = (options: { sessions?: boolean }): ToolOutcome => {
+	let screenAspect: number | undefined;
+	const tidy = (options: {
+		sessions?: boolean;
+		aspect?: number;
+	}): ToolOutcome => {
+		if (options.aspect) screenAspect = options.aspect;
 		const at = now();
 		const due = butlerCards().filter((card) => !keepsOnBoard(card, at));
 		let archived = 0;
@@ -1661,8 +1666,11 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		);
 		const onCardIds = new Set(onCards.map((n) => n.id));
 		const tidyRegions = deps.regions.current().filter(isTidyRegion);
-		// A note or sticker inside Tidy's own regions moves with them, so it never pushes them further left.
+		// A note or sticker inside Tidy's own regions never pushes them further left; it stays put and cards keep clear of it.
 		const insideTidy = (r: Rect) => tidyRegions.some((t) => centreIn(r, t));
+		const loose = all.filter(
+			(a) => a.kind !== "butler-card" && !onCardIds.has(a.id) && insideTidy(a),
+		);
 		const obstacles: Rect[] = [
 			...arranged(board(), deps).nodes.values(),
 			...deps.regions.current().filter((r) => !isTidyRegion(r) || r.manual),
@@ -1677,6 +1685,8 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			obstacles,
 			regions: deps.regions.current(),
 			projects,
+			loose,
+			...(screenAspect ? { aspect: screenAspect } : {}),
 			now: at,
 		});
 		const current = deps.annotations.current();

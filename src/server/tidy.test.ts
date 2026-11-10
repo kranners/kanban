@@ -648,3 +648,161 @@ describe("Room for a card's subagents", () => {
 		for (const c of reach) assert.ok(inside(c, region), `${c.id} in Unsorted`);
 	});
 });
+
+describe("Tidy shaped to the screen", () => {
+	const shaped = (cards: ButlerCard[], projects: Project[], aspect: number) =>
+		planTidy({
+			cards,
+			notes: [],
+			obstacles: sessions,
+			regions: [],
+			projects,
+			aspect,
+			now: 0,
+		});
+	const shapeOf = (p: ReturnType<typeof planTidy>) => {
+		const rects = [...p.regions, ...sessions];
+		const left = Math.min(...rects.map((r) => r.x));
+		const top = Math.min(...rects.map((r) => r.y));
+		const right = Math.max(...rects.map((r) => r.x + r.w));
+		const bottom = Math.max(...rects.map((r) => r.y + r.h));
+		return (right - left) / (bottom - top);
+	};
+
+	it("lays the regions out wider for a wide screen and taller for a tall one", () => {
+		const { projects, cards } = board(40);
+		const wide = shapeOf(shaped(cards, projects, 21 / 9));
+		const tall = shapeOf(shaped(cards, projects, 9 / 16));
+		assert.ok(wide > tall, `wide ${wide} tall ${tall}`);
+	});
+
+	it("keeps every region in its row and place in it when one region grows", () => {
+		const { projects, cards } = board(40);
+		const slots = (p: ReturnType<typeof planTidy>) => {
+			const below = p.regions.filter((r) => r.cwd !== waitingCwd);
+			const rows = [...new Set(below.map((r) => r.y))].sort((a, b) => a - b);
+			return Object.fromEntries(
+				below.map((r) => {
+					const row = below.filter((o) => o.y === r.y);
+					return [
+						r.cwd,
+						[rows.indexOf(r.y), row.filter((o) => o.x < r.x).length],
+					];
+				}),
+			);
+		};
+		const first = shaped(cards, projects, 16 / 10);
+		const regions: Region[] = first.regions.map((r, i) => ({
+			...r,
+			id: `r${i}`,
+		}));
+		const grower = projects[0];
+		assert.ok(grower);
+		const extra = Array.from({ length: 12 }, (_, i) =>
+			card(`extra${i}`, {
+				state: "idle",
+				selfFix: `extra-${i}`,
+				thread: undefined,
+			}),
+		);
+		const grown = projects.map((p) =>
+			p === grower
+				? {
+						...p,
+						links: [...p.links, ...extra.map((c) => change(c.selfFix ?? ""))],
+					}
+				: p,
+		);
+		const again = planTidy({
+			cards: [...placed(cards, first), ...extra],
+			notes: [],
+			obstacles: sessions,
+			regions,
+			projects: grown,
+			aspect: 16 / 10,
+			now: 0,
+		});
+		assert.deepEqual(slots(again), slots(first));
+	});
+
+	it("keeps the rows it had when a new project's first cards arrive", () => {
+		const cardsIn = (i: number) =>
+			Array.from({ length: 1 + ((i * 7) % 5) }, (_, j) =>
+				card(`k${i}-${j}`, {
+					selfFix: `k${i}-${j}`,
+					state: "working",
+					startedAt: i * 100 + j,
+					thread: undefined,
+				}),
+			);
+		const boardOf = (n: number) => {
+			const cards = Array.from({ length: n }, (_, i) => cardsIn(i));
+			return {
+				cards: cards.flat(),
+				projects: cards.map((mine, i) =>
+					project(`q${String(i).padStart(2, "0")}`, {
+						links: mine.map((c) => change(c.id)),
+					}),
+				),
+			};
+		};
+		const tidyOf = (
+			{ cards, projects }: ReturnType<typeof boardOf>,
+			regions: Region[],
+		) => {
+			const p = planTidy({
+				cards,
+				notes: [],
+				obstacles: sessions,
+				regions,
+				projects,
+				aspect: 1.6,
+				now: 0,
+			});
+			return {
+				cards: placed(cards, p),
+				regions: p.regions.map((r) => ({ ...r, id: r.id ?? r.cwd })),
+			};
+		};
+		const nine = boardOf(9);
+		const once = tidyOf(nine, []);
+		const settled = tidyOf({ ...nine, cards: once.cards }, once.regions);
+		const ten = boardOf(10);
+		const again = tidyOf(
+			{
+				...ten,
+				cards: [...settled.cards, ...ten.cards.slice(nine.cards.length)],
+			},
+			settled.regions,
+		);
+		for (const region of settled.regions) {
+			if (region.cwd === waitingCwd) continue;
+			const now = again.regions.find((r) => r.cwd === region.cwd);
+			assert.deepEqual(
+				{ x: now?.x, y: now?.y },
+				{ x: region.x, y: region.y },
+				region.cwd,
+			);
+		}
+	});
+
+	it("never puts a card on a note or sticker left inside its regions", () => {
+		const { projects, cards } = board(40);
+		const first = plan(cards, projects);
+		const strip = regionOf(first, projectCwd("p0"));
+		assert.ok(strip);
+		const sticker = { x: strip.x + 24, y: strip.y + 72, w: 200, h: 200 };
+		const p = planTidy({
+			cards,
+			notes: [],
+			obstacles: sessions,
+			regions: [],
+			projects,
+			loose: [sticker],
+			now: 0,
+		});
+		for (const c of placed(cards, p)) {
+			assert.ok(!overlap(c, sticker), `${c.id} on the sticker`);
+		}
+	});
+});

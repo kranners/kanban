@@ -2,6 +2,7 @@ import { Settings } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import "./boardSettings.css";
+import { autoLayout, setAutoLayout } from "./autoLayoutSetting.ts";
 import type { FaceMode } from "./butlerDm.ts";
 import { faceSettings, setFaceSettings } from "./butlerFaceSettings.ts";
 import {
@@ -13,7 +14,7 @@ import {
 } from "./cardFace.ts";
 import { setShowSubagents, showSubagents } from "./subagentSetting.ts";
 
-// The board's settings, kept per browser: whether subagents show, whose cards stand out, and how Butler's DM face shows.
+// The board's settings, kept per browser: whether the board lays itself out, whether subagents show, whose cards stand out, and how Butler's DM face shows.
 
 const authorChoices: { filter: AuthorFilter; label: string }[] = [
 	{ filter: "all", label: "Every card" },
@@ -62,6 +63,24 @@ function SettingsPanel(props: { onClose: () => void }): JSX.Element {
 				}
 			}}
 		>
+			<fieldset class="board-settings-group">
+				<legend>Layout</legend>
+				<label class="board-settings-choice">
+					<input
+						type="checkbox"
+						checked={autoLayout.value}
+						onChange={(event) => setAutoLayout(event.currentTarget.checked)}
+					/>
+					<span>
+						Auto layout
+						<span class="board-settings-hint">
+							A trial: the board tidies itself whenever cards come, go or change
+							state, and frames the whole board; zoom and scroll stay yours
+							until the next tidy
+						</span>
+					</span>
+				</label>
+			</fieldset>
 			<fieldset class="board-settings-group">
 				<legend>Subagents</legend>
 				<label class="board-settings-choice">
