@@ -1,0 +1,1 @@
+Centralise kanban approvals: one decision path in the board's effects engine (claude.ai tools' review included, no polling), one Approvals place on the page; then remove the safe sweep, approve_safe_prompts, allow_safe, the reviewer poll, the survey and permissions-grant. Touches src/agent/tools.ts, README, docs/design.md, butler-kanban and its skill.
