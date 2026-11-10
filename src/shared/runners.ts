@@ -27,6 +27,72 @@ export type RunnerUsage = {
 	diskFree: number | null;
 };
 
+/** A git checkout in a folder the runner serves: where, its origin and HEAD, nothing from inside. */
+export type RunnerCheckout = {
+	path: string;
+	remote: string | null;
+	commit: string | null;
+};
+
+/** The machine's own list of job classes it would take and its ceilings; nothing uses it yet. */
+export type RunnerAllowList = {
+	classes: string[];
+	ceilings: Record<string, number>;
+};
+
+export const maxCheckouts = 200;
+
+/** A remote as host and path alone: quotes, user, password, token, query and fragment dropped. */
+export const remoteWithoutCredentials = (url: string): string => {
+	const bare = url
+		.trim()
+		.replace(/^"(.*)"$/, "$1")
+		.replace(/[?#].*$/, "");
+	const scheme = bare.match(/^[a-z][a-z0-9+.-]*:\/\//i)?.[0];
+	if (scheme) {
+		const rest = bare.slice(scheme.length);
+		const slash = rest.indexOf("/");
+		const authority = slash === -1 ? rest : rest.slice(0, slash);
+		const path = slash === -1 ? "" : rest.slice(slash);
+		return `${scheme}${authority.slice(authority.lastIndexOf("@") + 1)}${path}`;
+	}
+	const scp = bare.match(/^[^/]*@([^:/]+):(.*)$/);
+	return scp ? `git@${scp[1]}:${scp[2]}` : bare;
+};
+export const maxAllowClasses = 64;
+
+/** What a hub would weigh before placing work here; each null when the platform can't tell. */
+export type RunnerSignals = {
+	power: "mains" | "battery" | null;
+	batteryPercent: number | null;
+	lidOpen: boolean | null;
+	thermal: "nominal" | "throttled" | null;
+	/** Seconds since the last keyboard or mouse input; the counter only, never the input. */
+	idleSeconds: number | null;
+	/** The system sleep setting in minutes, 0 for never. */
+	sleepMinutes: number | null;
+	checkouts: RunnerCheckout[];
+	allow: RunnerAllowList;
+	/** Why each null signal is null. */
+	why: Partial<Record<SignalName, string>>;
+};
+
+export const signalNames = [
+	"power",
+	"batteryPercent",
+	"lidOpen",
+	"thermal",
+	"idleSeconds",
+	"sleepMinutes",
+] as const;
+
+export type SignalName = (typeof signalNames)[number];
+
+/** Signals as the board's feed carries them: the checkouts only counted. */
+export type RunnerSignalsView = Omit<RunnerSignals, "checkouts"> & {
+	checkoutCount: number;
+};
+
 export type RunnerSessionState =
 	| "starting"
 	| "working"
@@ -71,6 +137,8 @@ export type RunnerReport = {
 	bootedAt: number;
 	cap: number;
 	usage: RunnerUsage;
+	/** Absent from runners older than placement signals. */
+	signals?: RunnerSignals;
 	sessions: RunnerSession[];
 };
 
@@ -141,6 +209,7 @@ export type RunnerView = {
 	/** When it went offline or asleep, while it is. */
 	goneSince: number | null;
 	usage: RunnerUsage | null;
+	signals?: RunnerSignalsView | null;
 	cap: number;
 	/** Live sessions placed on it, which count against the cap. */
 	sessions: PlacedSession[];

@@ -110,6 +110,7 @@ import {
 } from "./sessions.ts";
 import { isTidyRegion } from "./tidy.ts";
 import type { Undo } from "./undo.ts";
+import type { PlacementReport } from "./wouldPlace.ts";
 
 export type BoardSource = {
 	board(): Board;
@@ -173,6 +174,8 @@ export type ServerDeps = {
 		path: string | null,
 	) => Promise<FolderBrowse>;
 	makeDefault(account: number): Promise<AccountResult>;
+	/** Each machine's placement signals and drops, and the would-place log; read only. */
+	placement?: () => PlacementReport;
 	runners?: Pick<
 		RunnerHub,
 		| "register"
@@ -252,6 +255,7 @@ export type Route =
 	| { kind: "self-fix-action"; id: string; action: SelfFixAction }
 	| { kind: "peer-hook" }
 	| { kind: "runners" }
+	| { kind: "runner-placement" }
 	| { kind: "runner-register" }
 	| { kind: "runner-heartbeat"; runnerId: string }
 	| { kind: "runner-poll"; runnerId: string; waitMs: number }
@@ -634,6 +638,11 @@ export const matchRoute = (method: string, url: URL): Route => {
 	if (path === "/api/runners") {
 		return method === "GET"
 			? { kind: "runners" }
+			: { kind: "method-not-allowed" };
+	}
+	if (path === "/api/runners/placement") {
+		return method === "GET"
+			? { kind: "runner-placement" }
 			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api/runners/register") {
@@ -1908,6 +1917,10 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				return setDefaultAccount(req, res, auth.identity);
 			case "runners":
 				return sendJson(res, 200, { runners: deps.runners?.views() ?? [] });
+			case "runner-placement":
+				return deps.placement
+					? sendJson(res, 200, deps.placement())
+					: sendError(res, 404);
 			case "browse-folders": {
 				if (!deps.browseFolders) return sendError(res, 404);
 				const found = await deps.browseFolders(route.runsOn, route.path);

@@ -12,20 +12,28 @@ import {
 	browseProtocol,
 	heartbeatMs,
 	liveRunnerStates,
+	maxAllowClasses,
+	maxCheckouts,
 	offlineAfterMs,
 	type PlacedSession,
 	pollWaitMs,
+	type RunnerAllowList,
+	type RunnerCheckout,
 	type RunnerCommand,
 	type RunnerCommandResult,
 	type RunnerRegistration,
 	type RunnerReport,
 	type RunnerSession,
 	type RunnerSessionState,
+	type RunnerSignals,
+	type RunnerSignalsView,
 	type RunnerUsage,
 	type RunnerView,
+	remoteWithoutCredentials,
 	runnerIdOf,
 	runnerIdOfRunsOn,
 	runnerRunsOn,
+	signalNames,
 } from "../shared/runners.ts";
 import type {
 	Activity,
@@ -37,10 +45,13 @@ import type {
 	Session,
 	Subagent,
 } from "../shared/types.ts";
+import type { DropRecorder } from "./runnerDrops.ts";
+import type { PlacementCandidate } from "./wouldPlace.ts";
 
 export type LocalRunner = {
 	name: string;
 	usage: RunnerUsage | null;
+	signals?: RunnerSignals | null;
 	cap: number;
 	sessions: PlacedSession[];
 };
@@ -60,6 +71,9 @@ export type RunnerHubOptions = {
 	platform?: string;
 	/** The sha256 of the runner.js the hub serves, told to each runner as it registers. */
 	runnerVersion?: () => string | null;
+	/** Records each runner's drops by hour of day; none kept when not given. */
+	drops?: DropRecorder;
+	log?: (line: string) => void;
 };
 
 export type RunnerHub = {
@@ -78,6 +92,8 @@ export type RunnerHub = {
 	/** How the board names its own machine in the pickers. */
 	localLabel(): string;
 	views(): RunnerView[];
+	/** Every machine with its full signals, for the would-place log. */
+	candidates(): PlacementCandidate[];
 	sessions(): Session[];
 	/** The subagents runner sessions report, shaped for the board. */
 	subagents(): Subagent[];
@@ -148,6 +164,89 @@ const parseUsage = (value: unknown): RunnerUsage | null => {
 	};
 };
 
+const parseCheckout = (value: unknown): RunnerCheckout | null => {
+	if (!isRecord(value)) return null;
+	const path = str(value.path, maxString);
+	if (!path) return null;
+	const raw = value.remote === null ? null : str(value.remote, 1024);
+	const remote = raw === null ? null : remoteWithoutCredentials(raw);
+	const commit = value.commit === null ? null : str(value.commit, 64);
+	return {
+		path,
+		remote: remote ?? null,
+		commit: commit !== null && /^[0-9a-f]{40,64}$/.test(commit) ? commit : null,
+	};
+};
+
+const classPattern = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
+const parseAllow = (value: unknown): RunnerAllowList => {
+	if (!isRecord(value)) return { classes: [], ceilings: {} };
+	const classes = Array.isArray(value.classes)
+		? value.classes
+				.filter(
+					(name): name is string =>
+						typeof name === "string" && classPattern.test(name),
+				)
+				.slice(0, maxAllowClasses)
+		: [];
+	const ceilings = isRecord(value.ceilings)
+		? Object.fromEntries(
+				Object.entries(value.ceilings)
+					.filter(
+						([name, limit]) => classPattern.test(name) && num(limit) !== null,
+					)
+					.slice(0, maxAllowClasses),
+			)
+		: {};
+	return { classes, ceilings: ceilings as Record<string, number> };
+};
+
+const oneOf = <T extends string>(
+	value: unknown,
+	known: readonly T[],
+): T | null => known.find((option) => option === value) ?? null;
+
+const parseWhy = (value: unknown): RunnerSignals["why"] =>
+	isRecord(value)
+		? Object.fromEntries(
+				signalNames.flatMap((name) => {
+					const reason = str(value[name], 200);
+					return reason ? [[name, reason]] : [];
+				}),
+			)
+		: {};
+
+/** A runner's placement signals; anything malformed reads as unknown, never refuses the report. */
+export const parseSignals = (value: unknown): RunnerSignals | undefined => {
+	if (!isRecord(value)) return undefined;
+	const percent = num(value.batteryPercent);
+	return {
+		power: oneOf(value.power, ["mains", "battery"] as const),
+		batteryPercent: percent !== null && percent <= 100 ? percent : null,
+		lidOpen: typeof value.lidOpen === "boolean" ? value.lidOpen : null,
+		thermal: oneOf(value.thermal, ["nominal", "throttled"] as const),
+		idleSeconds: num(value.idleSeconds),
+		sleepMinutes: num(value.sleepMinutes),
+		checkouts: Array.isArray(value.checkouts)
+			? value.checkouts
+					.slice(0, maxCheckouts)
+					.map(parseCheckout)
+					.filter((checkout) => checkout !== null)
+			: [],
+		allow: parseAllow(value.allow),
+		why: parseWhy(value.why),
+	};
+};
+
+export const signalsView = (
+	signals: RunnerSignals | null | undefined,
+): RunnerSignalsView | null => {
+	if (!signals) return null;
+	const { checkouts, ...rest } = signals;
+	return { ...rest, checkoutCount: checkouts.length };
+};
+
 const parseSession = (value: unknown): RunnerSession | null => {
 	if (!isRecord(value)) return null;
 	const id = str(value.id, 64);
@@ -204,6 +303,7 @@ export const parseRunnerReport = (body: unknown): RunnerReport | null => {
 	}
 	const sessions = body.sessions.map(parseSession);
 	if (sessions.some((session) => session === null)) return null;
+	const signals = parseSignals(body.signals);
 	return {
 		protocol: num(body.protocol) ?? 0,
 		name,
@@ -214,6 +314,7 @@ export const parseRunnerReport = (body: unknown): RunnerReport | null => {
 		bootedAt: num(body.bootedAt) ?? 0,
 		cap,
 		usage,
+		...(signals ? { signals } : {}),
 		sessions: sessions as RunnerSession[],
 	};
 };
@@ -281,6 +382,8 @@ export const createRunnerHub = ({
 	newId = randomUUID,
 	platform = process.platform,
 	runnerVersion = () => null,
+	drops,
+	log = () => {},
 }: RunnerHubOptions): RunnerHub => {
 	const runners = new Map<string, Runner>();
 	const pending = new Map<string, Pending>();
@@ -325,6 +428,9 @@ export const createRunnerHub = ({
 			runner.sleeps =
 				Math.abs(report.bootedAt - runner.report.bootedAt) <= bootSlackMs;
 		}
+		// After a hub restart too, so a drop that spanned it still closes.
+		if (!runner.online) drops?.back(runner.id, at, report.bootedAt);
+		drops?.seen(runner.id, at);
 		runner.report = report;
 		runner.lastSeen = at;
 		runner.online = true;
@@ -438,6 +544,7 @@ export const createRunnerHub = ({
 		lastSeen: runner.lastSeen,
 		goneSince: runner.online ? null : (runner.goneSince ?? null),
 		usage: runner.online ? (runner.report?.usage ?? null) : null,
+		signals: runner.online ? signalsView(runner.report?.signals) : null,
 		cap: runner.report?.cap ?? 0,
 		sessions: liveOn(runner).map((session) => ({
 			id: session.id,
@@ -449,7 +556,7 @@ export const createRunnerHub = ({
 		})),
 	});
 
-	return {
+	const hub: RunnerHub = {
 		register(body) {
 			const report = parseRunnerReport(body);
 			if (!report) return { ok: false, error: "Malformed runner report" };
@@ -461,6 +568,9 @@ export const createRunnerHub = ({
 			runners.set(id, runner);
 			accept(runner, report);
 			const version = runnerVersion();
+			log(
+				`runner ${id} registered: protocol ${report.protocol}, ${report.platform}, ${report.signals ? "with" : "without"} placement signals`,
+			);
 			return {
 				ok: true,
 				id,
@@ -632,6 +742,7 @@ export const createRunnerHub = ({
 				lastSeen: now(),
 				goneSince: null,
 				usage: mine.usage,
+				signals: signalsView(mine.signals),
 				cap: mine.cap,
 				sessions: mine.sessions,
 			};
@@ -642,6 +753,15 @@ export const createRunnerHub = ({
 					.map(viewOf)
 					.sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label)),
 			];
+		},
+		candidates() {
+			const views = hub.views();
+			const signalsOf = (runsOn: string): RunnerSignals | null => {
+				if (runsOn === "local") return local().signals ?? null;
+				const runner = runnerFor(runsOn);
+				return runner?.online ? (runner.report?.signals ?? null) : null;
+			};
+			return views.map((view) => ({ view, signals: signalsOf(view.runsOn) }));
 		},
 		sessions() {
 			return [...runners.values()].flatMap((runner) =>
@@ -692,6 +812,12 @@ export const createRunnerHub = ({
 				) {
 					runner.online = false;
 					runner.goneSince = runner.lastSeen;
+					drops?.gone(
+						runner.id,
+						runner.lastSeen,
+						runner.report?.bootedAt ?? 0,
+						runner.report?.signals,
+					);
 					runner.waiter?.([]);
 					runner.waiter = null;
 					changed = true;
@@ -711,4 +837,5 @@ export const createRunnerHub = ({
 			pending.clear();
 		},
 	};
+	return hub;
 };

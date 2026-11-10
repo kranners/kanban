@@ -15,12 +15,15 @@ import type { FolderBrowse } from "../shared/types.ts";
 import { browseFolder } from "./browse.ts";
 import type { RunnerConfig } from "./config.ts";
 import type { SessionManager } from "./sessions.ts";
+import type { SignalSampler } from "./signals.ts";
 import { processStats, type UsageSampler } from "./usage.ts";
 
 export type RunnerClientOptions = {
 	config: RunnerConfig;
 	sessions: SessionManager;
 	sample: UsageSampler;
+	/** Placement signals; reported only, and left out when not given. */
+	signals?: SignalSampler;
 	fetch?: typeof fetch;
 	log?: (line: string) => void;
 	retryMs?: number;
@@ -62,6 +65,7 @@ export const startRunnerClient = ({
 	config,
 	sessions,
 	sample,
+	signals,
 	fetch: fetchImpl = fetch,
 	log = console.error,
 	retryMs = 5_000,
@@ -96,6 +100,7 @@ export const startRunnerClient = ({
 
 	const report = async (): Promise<RunnerReport> => {
 		const usage = await sample();
+		const placement = await signals?.().catch(() => undefined);
 		const pids = sessions.pids();
 		const stats = await processStats([...pids.values()]);
 		return {
@@ -108,6 +113,7 @@ export const startRunnerClient = ({
 			bootedAt: bootedAt(),
 			cap: config.cap,
 			usage,
+			...(placement ? { signals: placement } : {}),
 			sessions: sessions.list().map((session) => {
 				const pid = pids.get(session.id);
 				const stat = pid === undefined ? undefined : stats.get(pid);

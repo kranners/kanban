@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { RunnerReport, RunnerSession } from "../shared/runners.ts";
 import type { FolderListing, Session } from "../shared/types.ts";
-import { createRunnerHub, parseListing, parseRunnerReport } from "./runners.ts";
+import { createDropRecorder } from "./runnerDrops.ts";
+import {
+	createRunnerHub,
+	parseListing,
+	parseRunnerReport,
+	parseSignals,
+} from "./runners.ts";
 
 const usage = {
 	cpus: 8,
@@ -250,6 +256,88 @@ describe("createRunnerHub", () => {
 		advance(20_000);
 		hub.sweep();
 		assert.equal(hub.views()[1]?.state, "offline");
+	});
+
+	it("keeps each runner's signals, shows them without checkouts, and records drops", () => {
+		const drops = createDropRecorder({ hourOf: () => 7 });
+		const { hub, advance } = setup([], { drops });
+		const signals = {
+			power: "battery" as const,
+			batteryPercent: 55,
+			lidOpen: true,
+			thermal: "nominal" as const,
+			idleSeconds: 12,
+			sleepMinutes: 1,
+			checkouts: [
+				{
+					path: "/home/me/workspace/tool",
+					remote: "https://example.com/me/tool.git",
+					commit: "0123456789abcdef0123456789abcdef01234567",
+				},
+			],
+			allow: { classes: [], ceilings: {} },
+			why: {},
+		};
+		hub.register(report({ signals }));
+		const shown = hub.views()[1]?.signals;
+		assert.equal(shown?.checkoutCount, 1);
+		assert.equal("checkouts" in (shown ?? {}), false);
+		assert.deepEqual(
+			hub
+				.candidates()
+				.map((candidate) => [
+					candidate.view.id,
+					candidate.signals?.checkouts.length ?? null,
+				]),
+			[
+				["local", null],
+				["jimbo", 1],
+			],
+		);
+		advance(20_000);
+		hub.sweep();
+		assert.equal(hub.views()[1]?.signals, null);
+		assert.equal(hub.candidates()[1]?.signals, null);
+		assert.equal(drops.records().jimbo?.byHour[7], 1);
+		assert.equal(drops.records().jimbo?.recent[0]?.power, "battery");
+		hub.heartbeat("jimbo", report({ signals }));
+		assert.equal(drops.records().jimbo?.recent[0]?.cause, "same-boot");
+	});
+
+	it("reads malformed signals as unknown rather than refusing the report", () => {
+		const parsed = parseSignals({
+			power: "solar",
+			batteryPercent: 140,
+			lidOpen: "yes",
+			idleSeconds: -1,
+			checkouts: [
+				{ path: "/w/a", remote: 3, commit: "not-a-sha" },
+				{
+					path: "/w/b",
+					remote: "https://u:secret@example.com/b",
+					commit: null,
+				},
+				"junk",
+			],
+			allow: { classes: ["build", "../x"], ceilings: { build: 2, x: -4 } },
+			why: { power: "no power reading", unknown: "dropped" },
+		});
+		assert.deepEqual(parsed, {
+			power: null,
+			batteryPercent: null,
+			lidOpen: null,
+			thermal: null,
+			idleSeconds: null,
+			sleepMinutes: null,
+			checkouts: [
+				{ path: "/w/a", remote: null, commit: null },
+				{ path: "/w/b", remote: "https://example.com/b", commit: null },
+			],
+			allow: { classes: ["build"], ceilings: { build: 2 } },
+			why: { power: "no power reading" },
+		});
+		assert.equal(parseSignals(undefined), undefined);
+		assert.equal(parseRunnerReport(report())?.signals, undefined);
 	});
 
 	it("asks an unknown runner to register again", () => {

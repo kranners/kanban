@@ -16,6 +16,11 @@ import {
 	runnerDocsCaller,
 } from "./docsMcp.ts";
 import { createSessionManager } from "./sessions.ts";
+import {
+	createSignalSampler,
+	listCheckouts,
+	servedFolders,
+} from "./signals.ts";
 import { createSelfUpdate, fileVersion } from "./update.ts";
 import { createUsageSampler } from "./usage.ts";
 
@@ -99,6 +104,9 @@ async function run(config: RunnerConfig) {
 		config,
 		sessions,
 		sample: createUsageSampler(),
+		signals: createSignalSampler({
+			checkouts: () => listCheckouts(servedFolders(config.paths)),
+		}),
 		onVersion: (version) => update?.offer(version),
 	});
 	console.error(

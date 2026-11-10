@@ -58,6 +58,11 @@ import { createRelationStore } from "./relations.ts";
 import { createRegionReportRunner, createReportRunner } from "./reports.ts";
 import { createRunnerHub } from "./runners.ts";
 import { boardParts, createUndo, yourGapMs } from "./undo.ts";
+import {
+	createPlacementLog,
+	type PlacementReport,
+	placementReport,
+} from "./wouldPlace.ts";
 
 const route = (method: string, path: string) =>
 	matchRoute(method, new URL(path, "http://x"));
@@ -744,6 +749,13 @@ describe("createKanbanServer", () => {
 							},
 						};
 			},
+			placement: () =>
+				placementReport(
+					runnerHub.candidates(),
+					{},
+					createPlacementLog({ off: () => false, log: () => {} }),
+					"/state/would-place.off",
+				),
 			runners: {
 				...runnerHub,
 				refused: (name) => {
@@ -1005,6 +1017,27 @@ describe("createKanbanServer", () => {
 		);
 		assert.equal(runners[1]?.usage?.cpus, 4);
 		assert.equal(runnerHub.sessions()[0]?.doing, "Reading the tests");
+		const placement = await fetch(`${base}/api/runners/placement`, {
+			headers: authed,
+		});
+		assert.equal(placement.status, 200);
+		const report = (await placement.json()) as PlacementReport;
+		assert.deepEqual(
+			report.runners.map((runner) => runner.id),
+			["local", "test-runner"],
+		);
+		assert.equal(report.wouldPlace.enabled, true);
+		assert.equal(report.wouldPlace.offFile, "/state/would-place.off");
+		assert.equal((await fetch(`${base}/api/runners/placement`)).status, 401);
+		assert.equal(
+			(
+				await fetch(`${base}/api/runners/placement`, {
+					method: "POST",
+					headers: authed,
+				})
+			).status,
+			405,
+		);
 	});
 
 	it("answers a browse command over the runner protocol without launching", async (t) => {

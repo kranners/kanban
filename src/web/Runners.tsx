@@ -7,6 +7,7 @@ import {
 	platformName,
 	runners,
 	sessionsMeter,
+	signalWords,
 	stateLabel,
 } from "./runners.ts";
 import { now, openSession } from "./state.ts";
@@ -39,6 +40,7 @@ function RunnerRow(props: { runner: RunnerView; at: number }): JSX.Element {
 	const online = runner.state === "online";
 	const platform = platformName(runner.platform);
 	const label = stateLabel(runner, (at) => ago(at, props.at));
+	const signals = online ? signalWords(runner) : null;
 	return (
 		<li
 			class={`usage-runner-row runner-${runner.state}`}
@@ -62,6 +64,7 @@ function RunnerRow(props: { runner: RunnerView; at: number }): JSX.Element {
 					{usage.disk && <RunnerMeter label="Disk" meter={usage.disk} />}
 				</>
 			)}
+			{signals && <div class="usage-runner-signals">{signals}</div>}
 			{(online || runner.sessions.length > 0) && (
 				<RunnerMeter
 					label="Claude"

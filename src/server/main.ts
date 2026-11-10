@@ -1,7 +1,9 @@
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { join, resolve } from "node:path";
 import { browseFolder } from "../runner/browse.ts";
+import { createSignalSampler, listCheckouts } from "../runner/signals.ts";
 import { fileVersion } from "../runner/update.ts";
 import {
 	createUsageSampler,
@@ -10,11 +12,18 @@ import {
 } from "../runner/usage.ts";
 import { readKanbanEnv } from "../shared/envFile.ts";
 import type { Project } from "../shared/projects.ts";
-import type { PlacedSession, RunnerUsage } from "../shared/runners.ts";
+import type {
+	PlacedSession,
+	RunnerSignals,
+	RunnerUsage,
+} from "../shared/runners.ts";
 import {
 	type Activity,
 	type Board,
 	isRunnerTarget,
+	landingId,
+	type NewSessionRequest,
+	type NewSessionResult,
 	noButler,
 	type Session,
 } from "../shared/types.ts";
@@ -120,6 +129,7 @@ import {
 	createReportRunner,
 	regionMembersOf,
 } from "./reports.ts";
+import { createDropRecorder, dropFile } from "./runnerDrops.ts";
 import { createRunnerHub } from "./runners.ts";
 import {
 	claudeLauncher,
@@ -135,6 +145,11 @@ import {
 	loadUsageSamples,
 	usageIntervalMs,
 } from "./usage.ts";
+import {
+	createPlacementLog,
+	placementReport,
+	wouldPlaceOffFile,
+} from "./wouldPlace.ts";
 
 const configOrExit = (): Config => {
 	try {
@@ -345,6 +360,10 @@ const liveActivities: readonly Activity[] = [
 ];
 const sampleUsage = createUsageSampler();
 let localUsage: RunnerUsage | null = null;
+const sampleSignals = createSignalSampler({
+	checkouts: () => listCheckouts([join(homedir(), "workspace")]),
+});
+let localSignals: RunnerSignals | null = null;
 let localStats = new Map<number, ProcessStat>();
 const localPlaced = (): Session[] =>
 	source
@@ -374,14 +393,20 @@ const runnersChanged = () => {
 };
 const hubMachine = hostname().replace(/\.local$/, "");
 // Runners update themselves to the runner.js this release serves.
+const runnerDrops = createDropRecorder(
+	dropFile(join(config.stateDir, "runner-drops.json")),
+);
 const servedRunner = await fileVersion(join(config.dist, "runner.js"));
 const runnerHub = createRunnerHub({
 	runnerVersion: () => servedRunner,
 	expected: config.expectedRunners,
 	hubHome: homedir(),
+	drops: runnerDrops,
+	log: (line) => console.log(line),
 	local: () => ({
 		name: hubMachine,
 		usage: localUsage,
+		signals: localSignals,
 		cap: config.runnerCap,
 		sessions: localPlaced().map((session): PlacedSession => {
 			const stat =
@@ -401,6 +426,7 @@ const runnerHub = createRunnerHub({
 const runnersTick = async () => {
 	runnerHub.sweep();
 	localUsage = await sampleUsage();
+	localSignals = await sampleSignals().catch(() => localSignals);
 	localStats = await processStats(
 		localPlaced().flatMap((session) =>
 			session.pid === null ? [] : [session.pid],
@@ -589,7 +615,53 @@ const routed = routedLauncher(
 	cloud.add,
 	(account) => accountOf(account)?.configDir,
 );
+const placements = createPlacementLog({
+	off: () => existsSync(wouldPlaceOffFile(config.stateDir)),
+});
+// Only notes where a machine launch would have gone, judged on the machines as
+// they stood before it; it still goes where asked.
+const isMachineLaunch = (runsOn: string | undefined): runsOn is string =>
+	runsOn === "local" || (runsOn !== undefined && isRunnerTarget(runsOn));
+const machinesNow = () => {
+	try {
+		return runnerHub.candidates();
+	} catch (error) {
+		console.error(`would-place: ${(error as Error).message}`);
+		return null;
+	}
+};
+const notePlacement = (
+	asked: NewSessionRequest,
+	candidates: ReturnType<typeof runnerHub.candidates>,
+	result: NewSessionResult,
+) => {
+	const runsOn = asked.runsOn ?? "";
+	try {
+		placements.record(
+			{
+				id: result.ok ? landingId(result) : null,
+				cwd: asked.cwd,
+				runsOn,
+				label:
+					candidates.find((candidate) => candidate.view.runsOn === runsOn)?.view
+						.label ?? runsOn,
+			},
+			candidates,
+		);
+	} catch (error) {
+		console.error(`would-place: ${(error as Error).message}`);
+	}
+};
 const launch: SessionLauncher = async (asked) => {
+	const before =
+		isMachineLaunch(asked.runsOn) && placements.enabled()
+			? machinesNow()
+			: null;
+	const result = await launchAsked(asked);
+	if (before) notePlacement(asked, before, result);
+	return result;
+};
+const launchAsked: SessionLauncher = async (asked) => {
 	if (asked.runsOn && isRunnerTarget(asked.runsOn)) {
 		return runnerHub.launch(asked);
 	}
@@ -811,6 +883,13 @@ const server = createKanbanServer({
 			? runnerHub.blocker(runsOn)
 			: runsOnBlocker(accountApi)(cwd, runsOn, account),
 	runners: runnerHub,
+	placement: () =>
+		placementReport(
+			runnerHub.candidates(),
+			runnerDrops.records(),
+			placements,
+			wouldPlaceOffFile(config.stateDir),
+		),
 	remoteHosts: (account) => accountApi(account).hosts(),
 	pickFolder: osascriptFolderPicker(),
 	browseFolders: (runsOn, path) =>

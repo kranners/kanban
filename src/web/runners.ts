@@ -159,3 +159,28 @@ export const sessionsMeter = (runner: RunnerView): Meter => ({
 			? "1 session"
 			: `${runner.sessions.length} sessions`,
 });
+
+const idleWords = (seconds: number): string =>
+	seconds < 60
+		? `idle ${seconds}s`
+		: seconds < 3600
+			? `idle ${Math.floor(seconds / 60)}m`
+			: `idle ${Math.floor(seconds / 3600)}h`;
+
+/** "Battery 62% · lid closed · idle 4m · hot": what a machine says of itself, unknowns left out. */
+export const signalWords = (runner: RunnerView): string | null => {
+	const signals = runner.signals;
+	if (!signals) return null;
+	const words = [
+		signals.power === "battery"
+			? `Battery${signals.batteryPercent === null ? "" : ` ${Math.round(signals.batteryPercent)}%`}`
+			: signals.power === "mains"
+				? "Mains"
+				: null,
+		signals.lidOpen === false ? "lid closed" : null,
+		signals.idleSeconds === null ? null : idleWords(signals.idleSeconds),
+		signals.thermal === "throttled" ? "hot" : null,
+		signals.sleepMinutes === 0 ? "never sleeps" : null,
+	].filter((word) => word !== null);
+	return words.length > 0 ? words.join(" · ") : null;
+};
