@@ -841,6 +841,60 @@ describe("Butler's thread cards", () => {
 		assert.equal(cardOf(annotations, "thread-11111111")?.mission, undefined);
 	});
 
+	it("shows a thread's subagents, dropping a list that is not one, and updates on subagents alone", async () => {
+		const { sync, annotations, snapshotOf } = await setup();
+		const subagent = (id: string, state: string, parent?: string) => ({
+			id,
+			description: `Look into ${id}`,
+			type: "general-purpose",
+			state,
+			...(parent ? { parent } : {}),
+			startedAt: 100,
+			updatedAt: 200,
+		});
+		await sync([
+			entry("11111111", {
+				desk: { id: "1105-3", task: "Drive upload", state: "working" },
+				subagents: [
+					subagent("toolu_a", "working"),
+					subagent("toolu_b", "idle", "toolu_a"),
+				],
+			}),
+			entry("22222222", {
+				subagents: [{ ...subagent("toolu_c", "working"), state: "lost" }],
+			}),
+			entry("33333333", { subagents: [] }),
+		]);
+		assert.deepEqual(cardOf(annotations, "thread-11111111")?.subagents, [
+			subagent("toolu_a", "working"),
+			subagent("toolu_b", "idle", "toolu_a"),
+		]);
+		const invalid = cardOf(annotations, "thread-22222222");
+		assert.ok(invalid);
+		assert.equal(invalid.subagents, undefined);
+		assert.equal(cardOf(annotations, "thread-33333333")?.subagents, undefined);
+		assert.doesNotMatch(JSON.stringify(snapshotOf()), /Look into/);
+
+		const text = await sync([
+			entry("11111111", {
+				desk: { id: "1105-3", task: "Drive upload", state: "working" },
+				subagents: [
+					subagent("toolu_a", "done"),
+					subagent("toolu_b", "done", "toolu_a"),
+				],
+			}),
+			entry("22222222", {
+				subagents: [{ ...subagent("toolu_c", "working"), state: "lost" }],
+			}),
+			entry("33333333", { subagents: [] }),
+		]);
+		assert.match(text, /^3 thread cards: 1 updated, 0 removed\n/);
+		assert.deepEqual(
+			cardOf(annotations, "thread-11111111")?.subagents?.map((s) => s.state),
+			["done", "done"],
+		);
+	});
+
 	it("marks a thread whose question may be stale until a sync drops it", async () => {
 		const { sync, annotations } = await setup();
 		await sync([

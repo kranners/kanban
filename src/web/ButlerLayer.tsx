@@ -109,9 +109,9 @@ function ButlerChips(props: { card: ButlerCard }): JSX.Element | null {
 	);
 }
 
-/** What a desk session's card says in place of subagents, which the board cannot read yet. */
+/** What a desk session's card says while its thread runs no subagents. */
 export const deskSubagentsMissing =
-	"Subagents not shown: desk sessions run in Butler's own Claude home on spike, which the board does not read, so their subagents and workflow runs are not mirrored yet.";
+	"No subagents running: spike mirrors a desk session's subagents and workflow runs from its thread, and none are running now.";
 
 const cardChipLimit = 2;
 
@@ -137,7 +137,7 @@ function CardSubagents(props: {
 				class="butler-card-subagents-missing card-doing"
 				title={deskSubagentsMissing}
 			>
-				Subagents not mirrored yet
+				No subagents running
 			</div>
 		);
 	}

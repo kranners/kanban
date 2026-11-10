@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { parseToolCall, type ToolCall } from "../agent/tools.ts";
 import {
+	type CardSubagent,
 	maxCardSubagents,
 	parseCardSubagents,
 } from "../shared/cardSubagents.ts";
@@ -603,6 +604,7 @@ export type ThreadEntry = {
 	boardThread?: string;
 	mission?: ButlerCardMission;
 	machines?: string[];
+	subagents?: CardSubagent[];
 	/** The daemon's question to Aaron there has waited over 6 hours with nothing since. */
 	stale?: boolean;
 	private: boolean;
@@ -631,6 +633,12 @@ const threadMachines = (raw: unknown): { machines?: string[] } => {
 		.slice(0, maxCardMachines);
 	const machines = parseCardMachines(named);
 	return machines && machines.length > 0 ? { machines } : {};
+};
+
+/** A thread's subagents, nothing when the list is empty or not a valid one. */
+const threadSubagents = (raw: unknown): { subagents?: CardSubagent[] } => {
+	const subagents = parseCardSubagents(raw);
+	return subagents && subagents.length > 0 ? { subagents } : {};
 };
 
 export const parseThreadEntry = (value: unknown): ThreadEntry | null => {
@@ -691,6 +699,7 @@ export const parseThreadEntry = (value: unknown): ThreadEntry | null => {
 			: {}),
 		...threadMission(f.mission),
 		...threadMachines(f.machines),
+		...threadSubagents(f.subagents),
 		...(f.stale === true ? { stale: true } : {}),
 		private: f.private,
 		...(butlerMoods.includes(f.mood as ButlerMood)
@@ -1439,6 +1448,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				...(entry.boardThread ? { boardThread: entry.boardThread } : {}),
 				...(entry.mission ? { mission: entry.mission } : {}),
 				...(entry.machines ? { machines: entry.machines } : {}),
+				...(entry.subagents ? { subagents: entry.subagents } : {}),
 				...(entry.stale ? { stale: true } : {}),
 				...kept(before),
 				startedAt: entry.createdAt,
@@ -1545,6 +1555,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			...(entry.desk ? { desk: entry.desk.id } : {}),
 			...(entry.mission ? { mission: entry.mission } : {}),
 			...(entry.machines ? { machines: entry.machines } : {}),
+			...(entry.subagents ? { subagents: entry.subagents } : {}),
 			startedAt: entry.createdAt,
 			...threadFinish(entry),
 		};
