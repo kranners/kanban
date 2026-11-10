@@ -4,7 +4,10 @@
 // restart. A machine that stops reporting is offline (or asleep), not an error.
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
-import { parseCardSubagents } from "../shared/cardSubagents.ts";
+import {
+	parseReportedSubagents,
+	reportedSubagent,
+} from "../shared/reportedSubagents.ts";
 import {
 	browseProtocol,
 	heartbeatMs,
@@ -166,7 +169,7 @@ const parseSession = (value: unknown): RunnerSession | null => {
 	) {
 		return null;
 	}
-	const subagents = parseCardSubagents(value.subagents);
+	const subagents = parseReportedSubagents(value.subagents);
 	return {
 		id,
 		cwd,
@@ -672,19 +675,8 @@ export const createRunnerHub = ({
 		subagents() {
 			return [...runners.values()].flatMap((runner) =>
 				(runner.report?.sessions ?? []).flatMap((session) =>
-					(session.subagents ?? []).map(
-						(agent): Subagent => ({
-							id: agent.id,
-							kind: "agent",
-							sessionId: session.id,
-							parentAgentId: agent.parent ?? null,
-							type: agent.type,
-							description: agent.description,
-							live: runner.online && agent.state !== "done",
-							done: agent.state === "done",
-							startedAt: agent.startedAt ?? agent.updatedAt,
-							updatedAt: agent.updatedAt,
-						}),
+					(session.subagents ?? []).map((agent) =>
+						reportedSubagent(agent, session.id, runner.online),
 					),
 				),
 			);

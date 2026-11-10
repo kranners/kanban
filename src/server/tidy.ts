@@ -7,6 +7,7 @@ import {
 	waitingCwd,
 } from "../shared/butlerRegions.ts";
 import type { Project, ProjectStage } from "../shared/projects.ts";
+import { ownedSubagents } from "../shared/reportedSubagents.ts";
 import type { Annotation, ButlerCard, Region } from "../shared/types.ts";
 import { snap } from "../web/grid.ts";
 
@@ -19,7 +20,7 @@ export {
 	waitingCwd,
 } from "../shared/butlerRegions.ts";
 
-import type { Rect } from "../web/placement.ts";
+import { cardFollowerReach, type Rect } from "../web/placement.ts";
 
 // Butler's cards are laid out by construction, never left where a sync
 // dropped them: each goes into the region of the project it belongs to,
@@ -164,6 +165,27 @@ export type TidyPlan = {
 	removed: string[];
 };
 
+/** How far a card's subagents reach below it and out to its left, and how wide they stand, laid out as the page lays them. */
+export const subagentReach = (
+	card: ButlerCard,
+): { below: number; left: number; w: number } =>
+	card.subagents?.length
+		? cardFollowerReach(
+				{
+					sessions: [],
+					subagents: ownedSubagents(card.subagents, card.id),
+					subagentCounts: {},
+					subagentStates: {},
+					workflowRuns: {},
+					workflows: [],
+					links: [],
+					messages: [],
+					generatedAt: 0,
+				},
+				card.id,
+			)
+		: { below: 0, left: 0, w: 0 };
+
 const boundsOf = (rects: readonly Rect[]): Rect | null => {
 	if (rects.length === 0) return null;
 	const x = Math.min(...rects.map((r) => r.x));
@@ -201,7 +223,15 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 	}
 	const heldRects: Rect[] = input.cards
 		.filter((c) => isHeld(c, now))
-		.flatMap((c) => [c, ...(notesOn.get(c.id) ?? [])]);
+		.flatMap((c) => [
+			{
+				...c,
+				x: c.x - subagentReach(c).left,
+				w: Math.max(c.w, subagentReach(c).w),
+				h: c.h + subagentReach(c).below,
+			},
+			...(notesOn.get(c.id) ?? []),
+		]);
 	const free = input.cards.filter((c) => !isHeld(c, now));
 	const owner = projectsOfCards(input.cards, projects);
 	const regionAt = (cwd: string) => input.regions.find((r) => r.cwd === cwd);
@@ -213,7 +243,10 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 			? Math.max(...notes.map((n) => n.w)) + noteGap
 			: 0;
 		const noteH = notes.reduce((sum, n) => sum + n.h + noteGap, -noteGap);
-		return { w: card.w + noteW, h: Math.max(card.h, noteH) };
+		return {
+			w: Math.max(card.w, subagentReach(card).w) + noteW,
+			h: Math.max(card.h, noteH),
+		};
 	};
 
 	const groupOf = (cwd: string, name: string, cards: ButlerCard[]): Group => {
@@ -295,6 +328,9 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 	// Slots each group needs, counting those it skips around held cards, which a pass can find it needs more of.
 	const needed = new Map<Group, number>();
 	const slotsNeeded = (group: Group) => needed.get(group) ?? slotsOf(group);
+	// Height each group adds for the subagents standing under its cards, which a pass can find it needs more of.
+	const deeper = new Map<Group, number>();
+	const depthOf = (group: Group) => deeper.get(group) ?? 0;
 
 	const place = () => {
 		// Project regions in rows, by stage, wrapping at rowWidth.
@@ -304,10 +340,11 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 			const columns = columnsFor(slotsOf(group));
 			// Never narrower than two cards, so its zoomed-out tile reads.
 			const w = widthFor(Math.max(2, columns));
-			const h = heightFor(
-				Math.max(1, slotsNeeded(group)),
-				Math.min(columnsIn(w), Math.max(1, slotsOf(group))),
-			);
+			const h =
+				heightFor(
+					Math.max(1, slotsNeeded(group)),
+					Math.min(columnsIn(w), Math.max(1, slotsOf(group))),
+				) + depthOf(group);
 			const row = rows.at(-1);
 			const end = row ? (row.at(-1) as Spot) : null;
 			const x = end ? end.x + end.w + regionGap : 0;
@@ -327,7 +364,8 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 		const kept = (group: Group): Rect | null => {
 			const region = group.existing;
 			if (!region?.manual) return null;
-			const fits = heightFor(slotsNeeded(group), columnsIn(region.w));
+			const fits =
+				heightFor(slotsNeeded(group), columnsIn(region.w)) + depthOf(group);
 			return { ...region, h: Math.max(region.h, fits) };
 		};
 		const bounds = new Map<Group, Rect>();
@@ -335,7 +373,9 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 			x: left,
 			y: top,
 			w: dashboardW,
-			h: heightFor(slotsNeeded(waiting), columnsIn(dashboardW)),
+			h:
+				heightFor(slotsNeeded(waiting), columnsIn(dashboardW)) +
+				depthOf(waiting),
 		};
 		bounds.set(waiting, waitingBox);
 		let y = top + (kept(waiting) ? 0 : waitingBox.h + regionGap);
@@ -371,25 +411,40 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 			const columns = Math.min(columnsIn(box.w), Math.max(1, slotsOf(group)));
 			const origin = { x: box.x + padding, y: box.y + headroom };
 			let slotIndex = 0;
-			// The next slot clear of every card Aaron is holding where it is.
-			const nextSpot = (size: { w: number; h: number }) => {
+			let row = 0;
+			let rowY = origin.y;
+			let rowDepth = 0;
+			let depth = 0;
+			// The next slot clear of every card Aaron is holding where it is, each row as deep as its cards' subagents reach.
+			const nextSpot = (size: { w: number; h: number }, below = 0) => {
 				for (;;) {
+					for (; Math.floor(slotIndex / columns) > row; row += 1) {
+						rowY += slot.h + gap + rowDepth;
+						depth += rowDepth;
+						rowDepth = 0;
+					}
 					const spot = {
 						x: snap(origin.x + (slotIndex % columns) * (slot.w + gap)),
-						y: snap(
-							origin.y + Math.floor(slotIndex / columns) * (slot.h + gap),
-						),
+						y: snap(rowY),
 					};
 					slotIndex += 1;
-					if (
-						!heldRects.some((h) => overlaps({ ...spot, ...size }, h, gap / 2))
-					)
+					const reach = { ...spot, w: size.w, h: size.h + below };
+					if (!heldRects.some((h) => overlaps(reach, h, gap / 2))) {
+						rowDepth = Math.max(rowDepth, below);
 						return spot;
+					}
 				}
 			};
-			for (const card of group.cards) moveTo(card, nextSpot(footprint(card)));
+			for (const card of group.cards) {
+				const { below, left } = subagentReach(card);
+				const spot = nextSpot(footprint(card), below > 0 ? below + gap : 0);
+				moveTo(card, { x: snap(spot.x + left), y: spot.y });
+			}
 			if (group.stack.length > 0) {
-				const base = nextSpot(slot);
+				const below = Math.max(
+					...group.stack.map((card) => subagentReach(card).below),
+				);
+				const base = nextSpot(slot, below > 0 ? below + gap : 0);
 				group.stack.forEach((card, index) => {
 					const step = Math.min(index, 2) * stackStep;
 					moveTo(card, { x: snap(base.x + step), y: snap(base.y + step) });
@@ -397,6 +452,11 @@ export const planTidy = (input: TidyInput): TidyPlan => {
 			}
 			if (slotIndex > slotsNeeded(group)) {
 				needed.set(group, slotIndex);
+				short = true;
+			}
+			depth = snap(depth + rowDepth);
+			if (depth > depthOf(group)) {
+				deeper.set(group, depth);
 				short = true;
 			}
 			regions.push({

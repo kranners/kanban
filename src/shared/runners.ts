@@ -1,7 +1,7 @@
 // The kanban-runner protocol: what a runner reports to the hub, what the hub
 // asks of it, and what the board shows for each machine. Kept free of
 // dependencies so the runner bundles to one small file.
-import type { CardSubagent } from "./cardSubagents.ts";
+import type { ReportedSubagent } from "./reportedSubagents.ts";
 import type { Activity, FolderListing, RunsOn } from "./types.ts";
 
 export const runnerProtocol = 2;
@@ -57,7 +57,7 @@ export type RunnerSession = {
 	cpuPercent: number | null;
 	rss: number | null;
 	/** Its own Agent, Task and Workflow calls; absent from runners older than this field. */
-	subagents?: CardSubagent[];
+	subagents?: ReportedSubagent[];
 };
 
 export type RunnerReport = {

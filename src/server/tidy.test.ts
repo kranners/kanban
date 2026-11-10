@@ -11,6 +11,7 @@ import {
 	planTidy,
 	projectCwd,
 	projectsOfCards,
+	subagentReach,
 	unsortedCwd,
 	waitingCwd,
 } from "./tidy.ts";
@@ -579,5 +580,59 @@ describe("Tidy's project regions", () => {
 		assert.equal(regionOf(p, projectCwd("p"))?.id, "r1");
 		assert.deepEqual(p.removed.sort(), ["old", "stale"]);
 		assert.equal(regionOf(p, unsortedCwd), undefined);
+	});
+});
+
+describe("Room for a card's subagents", () => {
+	const working = (id: string, parent?: string) => ({
+		id,
+		description: id,
+		type: "general-purpose",
+		state: "working" as const,
+		updatedAt: 1,
+		...(parent ? { parent } : {}),
+	});
+
+	it("reaches one column of subagents below a card, nothing for a card without", () => {
+		assert.deepEqual(subagentReach(card("bare")), {
+			below: 0,
+			left: 0,
+			w: 0,
+		});
+		const one = subagentReach(card("one", { subagents: [working("a")] }));
+		const three = subagentReach(
+			card("three", { subagents: ["a", "b", "c"].map((id) => working(id)) }),
+		);
+		assert.ok(one.below > 0);
+		assert.ok(three.below > one.below);
+		assert.ok(three.w <= 312, "one column stays within the card's width");
+	});
+
+	it("never puts a card where another card's subagents stand", () => {
+		const cards = Array.from({ length: 6 }, (_, i) =>
+			card(`c${i}`, {
+				subagents:
+					i % 2 === 0
+						? [
+								working(`s${i}-top`),
+								working(`s${i}-child`, `s${i}-top`),
+								...Array.from({ length: 3 }, (_, n) => working(`s${i}-${n}`)),
+							]
+						: [],
+			}),
+		);
+		const p = plan(cards, []);
+		const after = placed(cards, p);
+		const reach = after.map((c) => {
+			const { below, left, w } = subagentReach(c);
+			return { ...c, x: c.x - left, w: Math.max(c.w, w), h: c.h + below };
+		});
+		for (const [i, a] of reach.entries()) {
+			for (const b of reach.slice(i + 1))
+				assert.ok(!overlap(a, b), `${a.id} ${b.id}`);
+		}
+		const region = regionOf(p, unsortedCwd);
+		assert.ok(region);
+		for (const c of reach) assert.ok(inside(c, region), `${c.id} in Unsorted`);
 	});
 });

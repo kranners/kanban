@@ -32,7 +32,13 @@ import { current } from "./annotations.ts";
 import { unreachable } from "./arrangement.ts";
 import { FromDmChip } from "./ButlerDm.tsx";
 import { butlerPresence } from "./butler.ts";
-import { isFromDm, openParent, parentTitle } from "./butlerThreads.ts";
+import { cardOf } from "./butlerSubagents.ts";
+import {
+	isFromDm,
+	openButlerCard,
+	openParent,
+	parentTitle,
+} from "./butlerThreads.ts";
 import { AuthorChip, BusyEdge, CardFace, StatusBadge } from "./CardFace.tsx";
 import {
 	authorFilter,
@@ -149,7 +155,7 @@ function CardBody(props: {
 					{session.doing ? plainText(session.doing) : activityHint(session)}
 				</div>
 			)}
-			<SubagentChips session={session} now={props.now} />
+			<SessionSubagentChips session={session} now={props.now} />
 		</div>
 	);
 }
@@ -187,15 +193,18 @@ function WorkflowBars(props: { workflows: readonly Workflow[] }) {
 	);
 }
 
-/** The session's newest subagents as chips that open each one. */
-function SubagentChips(props: { session: Session; now: number }) {
-	const { session } = props;
+/** The newest subagents of a session or Butler card as chips that open each one. */
+export function SubagentChips(props: {
+	owner: string;
+	now: number;
+	onOpen: (subagent: Subagent, origin: DOMRect) => void;
+}) {
 	const current = board.value;
 	if (!current) return null;
 	const { shown, more } = subagentChips(
 		current.subagents,
-		session.id,
-		current.subagentCounts[session.id],
+		props.owner,
+		current.subagentCounts[props.owner],
 	);
 	if (shown.length === 0) return null;
 	return (
@@ -214,9 +223,10 @@ function SubagentChips(props: { session: Session; now: number }) {
 						onPointerDown={(event) => event.stopPropagation()}
 						onClick={(event) => {
 							event.stopPropagation();
-							const origin = event.currentTarget.getBoundingClientRect();
-							if (session.cloud) openSession(session.id, origin);
-							else openSubagent(subagent.id, origin);
+							props.onOpen(
+								subagent,
+								event.currentTarget.getBoundingClientRect(),
+							);
 						}}
 					>
 						<span class="sub-chip-dot" aria-hidden="true" />
@@ -236,6 +246,21 @@ function SubagentChips(props: { session: Session; now: number }) {
 				</span>
 			)}
 		</div>
+	);
+}
+
+function SessionSubagentChips(props: { session: Session; now: number }) {
+	const { session } = props;
+	return (
+		<SubagentChips
+			owner={session.id}
+			now={props.now}
+			onOpen={(subagent, origin) =>
+				session.cloud
+					? openSession(session.id, origin)
+					: openSubagent(subagent.id, origin)
+			}
+		/>
 	);
 }
 
@@ -385,7 +410,7 @@ function NearPanel(props: {
 					{session.doing ? plainText(session.doing) : activityHint(session)}
 				</p>
 				<WorkflowBars workflows={props.workflows} />
-				<SubagentChips session={session} now={props.now} />
+				<SessionSubagentChips session={session} now={props.now} />
 			</header>
 			<div class="near-content">
 				<div class="near-side">
@@ -662,14 +687,19 @@ export function SubagentCard(props: {
 					type="button"
 					class="sub-open"
 					aria-label={`Open ${subagent.description || subagent.type}`}
-					onClick={(event) =>
+					onClick={(event) => {
+						const card = cardOf(subagent, current.value);
+						if (card) {
+							openButlerCard(card);
+							return;
+						}
 						props.onOpen(
 							subagent.id,
 							(
 								event.currentTarget.parentElement ?? event.currentTarget
 							).getBoundingClientRect(),
-						)
-					}
+						);
+					}}
 				/>
 			)}
 		</div>

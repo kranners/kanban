@@ -5,6 +5,7 @@ import type {
 	Placement,
 	Point,
 } from "../shared/types.ts";
+import { butlerCards } from "./butlerSubagents.ts";
 import { departing } from "./exitState.ts";
 import { groupsOf } from "./groups.ts";
 import type { NodeKey } from "./layout.ts";
@@ -21,7 +22,16 @@ const echoMs = 3000;
 export const overrides = signal<ReadonlyMap<NodeKey, Placement>>(new Map());
 export const reserved = signal<readonly Rect[]>([]);
 
-const seeds = computed(() => (board.value ? seedsOf(board.value) : null));
+const cardAnchors = computed(() => butlerCards(annotations.value));
+
+const seeds = computed(() =>
+	board.value
+		? seedsOf(
+				board.value,
+				cardAnchors.value.map((card) => card.id),
+			)
+		: null,
+);
 
 const remembered = new Map<NodeKey, Point>();
 const requested = new Set<NodeKey>();
@@ -42,6 +52,7 @@ export const arrangement = computed(() => {
 		remembered,
 		[...reserved.value, ...Object.values(annotations.value)],
 		shownRegions.value,
+		cardAnchors.value,
 	);
 });
 

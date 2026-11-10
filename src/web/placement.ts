@@ -8,7 +8,12 @@ import type {
 } from "../shared/types.ts";
 import { gridSize, snap, snapPoint } from "./grid.ts";
 import type { BoardLayout, NodeKey, PlacedNode } from "./layout.ts";
-import { defaultLayoutOptions, layoutBoard, nodeKey } from "./layout.ts";
+import {
+	defaultLayoutOptions,
+	type LayoutOptions,
+	layoutBoard,
+	nodeKey,
+} from "./layout.ts";
 import type { Size } from "./viewport.ts";
 
 export type Rect = { x: number; y: number; w: number; h: number };
@@ -36,36 +41,95 @@ export type Seeds = { tree: BoardLayout; offsets: Map<NodeKey, Offset> };
 
 export type Arrangement = {
 	nodes: Map<NodeKey, PlacedNode>;
+	/** Butler's cards that own subagents, as the nodes those subagents follow; drawn as cards, not here. */
+	anchors: Map<NodeKey, PlacedNode>;
 	bounds: Bounds;
 	auto: Map<NodeKey, Point>;
 };
 
-export function seedsOf(board: Board): Seeds {
-	const tree = layoutBoard(board);
+/** One of Butler's cards, which owns subagents as a session does. */
+export type Anchor = Rect & { id: string };
+
+/** Where each of an owner's subagents sits relative to it, as the tree lays them out under a session. */
+export function followerOffsets(
+	board: Board,
+	ownerId: string,
+	options: LayoutOptions = defaultLayoutOptions,
+): Map<NodeKey, Offset> {
 	const offsets = new Map<NodeKey, Offset>();
-	for (const session of board.sessions) {
-		const subagents = board.subagents.filter((a) => a.sessionId === session.id);
-		if (subagents.length === 0) continue;
-		const key = nodeKey({ kind: "session", id: session.id });
-		const own = layoutBoard({
+	const subagents = board.subagents.filter((a) => a.sessionId === ownerId);
+	if (subagents.length === 0) return offsets;
+	const key = nodeKey({ kind: "session", id: ownerId });
+	const owner = board.sessions.find((s) => s.id === ownerId) ?? {
+		id: ownerId,
+		startedAt: 0,
+	};
+	const own = layoutBoard(
+		{
 			...board,
-			sessions: [session],
+			sessions: [owner as Session],
 			subagents,
 			links: [],
 			messages: [],
+		},
+		options,
+	);
+	const root = own.nodes.get(key);
+	if (!root) return offsets;
+	for (const node of own.nodes.values()) {
+		if (node.key === key) continue;
+		offsets.set(node.key, {
+			session: key,
+			dx: node.x - root.x,
+			dy: node.y - root.y,
 		});
-		const root = own.nodes.get(key);
-		if (!root) continue;
-		for (const node of own.nodes.values()) {
-			if (node.key === key) continue;
-			offsets.set(node.key, {
-				session: key,
-				dx: node.x - root.x,
-				dy: node.y - root.y,
-			});
+	}
+	return offsets;
+}
+
+/**
+ * The tree seeds and every follower's offset from its owner: a session, or
+ * one of Butler's cards, whose subagents sit under it as a session's do.
+ */
+export function seedsOf(board: Board, cardIds: readonly string[] = []): Seeds {
+	const cards = new Set(cardIds);
+	const tree = layoutBoard({
+		...board,
+		subagents: board.subagents.filter((a) => !cards.has(a.sessionId)),
+	});
+	const offsets = new Map<NodeKey, Offset>();
+	const owners = [
+		...board.sessions.map((s) => [s.id, defaultLayoutOptions] as const),
+		...[...cards].map((id) => [id, cardFollowers] as const),
+	];
+	for (const [id, options] of owners) {
+		for (const [key, offset] of followerOffsets(board, id, options)) {
+			offsets.set(key, offset);
 		}
 	}
 	return { tree, offsets };
+}
+
+/** A Butler card's subagents stand in one column under it, within its own width, since Tidy lays cards out in a grid. */
+const cardFollowers: LayoutOptions = {
+	...defaultLayoutOptions,
+	subagentColumns: 1,
+};
+
+/** How far a card's subagents reach below it and out to its left, and how wide they stand, so nothing is put where they go. */
+export function cardFollowerReach(
+	board: Board,
+	cardId: string,
+): { below: number; left: number; w: number } {
+	const offsets = [...followerOffsets(board, cardId, cardFollowers).values()];
+	if (offsets.length === 0) return { below: 0, left: 0, w: 0 };
+	const bottom = Math.max(...offsets.map((o) => o.dy)) + subagentSize.h;
+	const left = Math.min(0, ...offsets.map((o) => o.dx));
+	const right = Math.max(
+		sessionSize.w,
+		...offsets.map((o) => o.dx + subagentSize.w),
+	);
+	return { below: bottom - sessionSize.h, left: -left, w: right - left };
 }
 
 export function near(a: Rect, b: Rect, gap: number): boolean {
@@ -314,8 +378,10 @@ export function arrange(
 	remembered: ReadonlyMap<NodeKey, Point>,
 	reserved: readonly Rect[] = [],
 	regions: readonly Region[] = [],
+	cards: readonly Anchor[] = [],
 ): Arrangement {
 	const nodes = new Map<NodeKey, PlacedNode>();
+	const anchors = new Map<NodeKey, PlacedNode>();
 	const occupied: Rect[] = [];
 	const projects: Project[] = [];
 	const auto = new Map<NodeKey, Point>();
@@ -411,6 +477,29 @@ export function arrange(
 		const node = seeds.tree.nodes.get(key);
 		return node ? snapPoint(node) : null;
 	};
+
+	const owned = new Set(board.subagents.map((a) => a.sessionId));
+	for (const card of cards) {
+		if (!owned.has(card.id)) continue;
+		const ref: NodeRef = { kind: "session", id: card.id };
+		const key = nodeKey(ref);
+		anchors.set(key, {
+			key,
+			ref,
+			family: 0,
+			x: card.x,
+			y: card.y,
+			w: card.w,
+			h: card.h,
+		});
+	}
+	for (const a of board.subagents) {
+		const key = nodeKey({ kind: "subagent", id: a.id });
+		const offset = seeds.offsets.get(key);
+		const card = offset ? anchors.get(offset.session) : undefined;
+		if (offset && card && !saved[key])
+			occupied.push(followerRect(card, offset));
+	}
 
 	const byStart = (a: Session, b: Session) =>
 		a.startedAt - b.startedAt || a.id.localeCompare(b.id);
@@ -558,7 +647,9 @@ export function arrange(
 		const key = nodeKey(ref);
 		if (saved[key]) continue;
 		const offset = seeds.offsets.get(key);
-		const session = offset ? nodes.get(offset.session) : undefined;
+		const session = offset
+			? (nodes.get(offset.session) ?? anchors.get(offset.session))
+			: undefined;
 		if (offset && session) {
 			const rect = nudged.get(key) ?? followerRect(session, offset);
 			put(key, ref, rect, offset.session);
@@ -568,5 +659,5 @@ export function arrange(
 		if (point) put(key, ref, { ...point, ...subagentSize });
 	}
 
-	return { nodes, bounds: boundsOf(nodes.values()), auto };
+	return { nodes, anchors, bounds: boundsOf(nodes.values()), auto };
 }

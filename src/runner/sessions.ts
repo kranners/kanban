@@ -7,10 +7,6 @@ import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, sep } from "node:path";
 import {
-	type CardSubagent,
-	maxCardSubagents,
-} from "../shared/cardSubagents.ts";
-import {
 	accountName,
 	bestAccount,
 	continuePrompt,
@@ -18,6 +14,10 @@ import {
 	isLimitText,
 	maxRunnerMoves,
 } from "../shared/failover.ts";
+import {
+	maxReportedSubagents,
+	type ReportedSubagent,
+} from "../shared/reportedSubagents.ts";
 import type {
 	RunnerCommandResult,
 	RunnerLaunch,
@@ -322,7 +322,7 @@ type Tracked = {
 	stderr: string;
 	account: AccountUsage | null;
 	moves: number;
-	agents: Map<string, CardSubagent>;
+	agents: Map<string, ReportedSubagent>;
 };
 
 export const createSessionManager = ({
@@ -455,10 +455,10 @@ export const createSessionManager = ({
 				agent.state !== "done" || now() - agent.updatedAt <= keepSubagentMs,
 		);
 		if (agents.length === 0) return tracked.session;
-		const rank = (agent: CardSubagent) => (agent.state === "done" ? 1 : 0);
+		const rank = (agent: ReportedSubagent) => (agent.state === "done" ? 1 : 0);
 		const subagents = agents
 			.sort((a, b) => rank(a) - rank(b) || b.updatedAt - a.updatedAt)
-			.slice(0, maxCardSubagents);
+			.slice(0, maxReportedSubagents);
 		return { ...tracked.session, subagents };
 	};
 

@@ -602,3 +602,33 @@ test("a resize stops at the last size that kept a grid cell clear", () => {
 	assert.deepEqual(spacedResize(grown, card, fits), { ...card, h: 480 });
 	assert.deepEqual(spacedResize(grown, card, fits, false), card);
 });
+
+test("a Butler card's subagents stand in a column under the card, clear of sessions", () => {
+	const b = board({
+		sessions: [session("a", 1)],
+		subagents: [subagent("x", "self-fix-1"), subagent("y", "self-fix-1", 2)],
+	});
+	const cardRect = { id: "self-fix-1", x: 2000, y: 1000, w: 312, h: 216 };
+	const placed = arrange(
+		b,
+		{},
+		seedsOf(b, ["self-fix-1"]),
+		new Map(),
+		[cardRect],
+		[],
+		[cardRect],
+	);
+	const x = placed.nodes.get("subagent:x");
+	const y = placed.nodes.get("subagent:y");
+	assert.ok(x && y);
+	assert.equal(x.follows, "session:self-fix-1");
+	assert.equal(x.x, y.x, "one column");
+	assert.ok(x.y >= cardRect.y + cardRect.h, "under the card");
+	assert.ok(y.y > x.y);
+	assert.ok(x.x >= cardRect.x && x.x + x.w <= cardRect.x + cardRect.w);
+	assert.ok(placed.anchors.has("session:self-fix-1"));
+	assert.equal(placed.nodes.has("session:self-fix-1"), false);
+	const a = placed.nodes.get("session:a");
+	assert.ok(a);
+	for (const follower of [x, y]) assert.ok(!near(a, follower, 0));
+});

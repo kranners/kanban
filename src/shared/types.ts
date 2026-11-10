@@ -1,7 +1,7 @@
-import type { CardSubagent } from "./cardSubagents.ts";
 import type { RegionColours } from "./colours.ts";
 import type { ProjectIgnores } from "./ignores.ts";
 import type { BoardNotification } from "./notifications.ts";
+import type { ReportedSubagent } from "./reportedSubagents.ts";
 import type { RunnerView } from "./runners.ts";
 import type { SubagentCounts, SubagentState } from "./subagents.ts";
 
@@ -390,7 +390,7 @@ export type ButlerCard = Annotated & {
 	/** When the daemon last saw its thread do anything, which tells a stall from a pause. */
 	lastActiveAt?: number;
 	/** The subagents of the cloud session behind it, as spike reads them from its transcript. */
-	subagents?: CardSubagent[];
+	subagents?: ReportedSubagent[];
 };
 
 /** What an archived card or session was. */

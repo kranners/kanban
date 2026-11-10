@@ -1,7 +1,7 @@
 import {
-	maxCardSubagents,
-	parseCardSubagents,
-} from "../shared/cardSubagents.ts";
+	maxReportedSubagents,
+	parseReportedSubagents,
+} from "../shared/reportedSubagents.ts";
 import {
 	type Annotation,
 	type Annotations,
@@ -236,10 +236,10 @@ export const parseAnnotation = (
 			subagents,
 		} = fields;
 		const cardSubagents =
-			subagents === undefined ? undefined : parseCardSubagents(subagents);
+			subagents === undefined ? undefined : parseReportedSubagents(subagents);
 		if (cardSubagents === null) {
 			return {
-				error: `subagents must be at most ${maxCardSubagents} subagents, each with an id, description, type, state and time`,
+				error: `subagents must be at most ${maxReportedSubagents} subagents, each with an id, description, type, state and time`,
 			};
 		}
 		if (pinned !== undefined && typeof pinned !== "boolean") {

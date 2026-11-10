@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { parseToolCall, type ToolCall } from "../agent/tools.ts";
-import {
-	type CardSubagent,
-	maxCardSubagents,
-	parseCardSubagents,
-} from "../shared/cardSubagents.ts";
 import { handoverOpening } from "../shared/failover.ts";
 import type { Project } from "../shared/projects.ts";
+import {
+	maxReportedSubagents,
+	parseReportedSubagents,
+	type ReportedSubagent,
+} from "../shared/reportedSubagents.ts";
 import {
 	type AaronFocus,
 	type Annotation,
@@ -604,7 +604,7 @@ export type ThreadEntry = {
 	boardThread?: string;
 	mission?: ButlerCardMission;
 	machines?: string[];
-	subagents?: CardSubagent[];
+	subagents?: ReportedSubagent[];
 	/** The daemon's question to Aaron there has waited over 6 hours with nothing since. */
 	stale?: boolean;
 	private: boolean;
@@ -636,8 +636,8 @@ const threadMachines = (raw: unknown): { machines?: string[] } => {
 };
 
 /** A thread's subagents, nothing when the list is empty or not a valid one. */
-const threadSubagents = (raw: unknown): { subagents?: CardSubagent[] } => {
-	const subagents = parseCardSubagents(raw);
+const threadSubagents = (raw: unknown): { subagents?: ReportedSubagent[] } => {
+	const subagents = parseReportedSubagents(raw);
 	return subagents && subagents.length > 0 ? { subagents } : {};
 };
 
@@ -1237,10 +1237,10 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			const subagents =
 				fix.subagents === undefined
 					? undefined
-					: parseCardSubagents(fix.subagents);
+					: parseReportedSubagents(fix.subagents);
 			if (subagents === null) {
 				return refused(
-					`${fixId}: subagents must be at most ${maxCardSubagents}, each with an id, description, type, state and time`,
+					`${fixId}: subagents must be at most ${maxReportedSubagents}, each with an id, description, type, state and time`,
 				);
 			}
 			const id = selfFixCardId(fixId);

@@ -1,7 +1,8 @@
-import { effect } from "@preact/signals";
+import { effect, signal } from "@preact/signals";
 import { type Board, type BoardFeed, hasLanded } from "../shared/types.ts";
 import { butlerPresence } from "./butler.ts";
 import { butlerEdges } from "./butlerEdges.ts";
+import { withButlerSubagents } from "./butlerSubagents.ts";
 import { receiveColours } from "./colours.ts";
 import { receiveComment, receiveComments } from "./comments.ts";
 import { digests } from "./digests.ts";
@@ -32,12 +33,16 @@ import { usage } from "./usage.ts";
 
 const attemptsBeforeLost = 4;
 
-/** The board as the server last sent it, before the Show subagents setting. */
-let latest: Board | null = null;
+/** The board as the server last sent it, before Butler's cards' subagents and the Show subagents setting. */
+const latest = signal<Board | null>(null);
 
 effect(() => {
-	const shown = showSubagents.value;
-	if (latest) board.value = withSubagentsShown(latest, shown);
+	const sent = latest.value;
+	if (!sent) return;
+	board.value = withSubagentsShown(
+		withButlerSubagents(sent, annotations.value),
+		showSubagents.value,
+	);
 });
 
 function feedUrl(): string {
@@ -51,8 +56,7 @@ function receive(frame: BoardFeed): void {
 		return;
 	}
 	if (frame.type === "board") {
-		latest = frame.board;
-		board.value = withSubagentsShown(frame.board, showSubagents.peek());
+		latest.value = frame.board;
 		const landing = awaitingLanding.value;
 		const created = landing
 			? frame.board.sessions.find((s) => hasLanded(landing, s))

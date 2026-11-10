@@ -1,6 +1,6 @@
 import { current as shownAnnotations } from "./annotations.ts";
 import { arrangement } from "./arrangement.ts";
-import type { NodeKey } from "./layout.ts";
+import { type NodeKey, nodeKey } from "./layout.ts";
 import type { Rect } from "./placement.ts";
 
 export type Moving = {
@@ -14,8 +14,11 @@ export type Moving = {
  * move with it. Comment pins float over the board and take no room.
  */
 export function standing(moving: Moving = {}): Rect[] {
-	const nodes = new Set(moving.nodes);
 	const annotations = new Set(moving.annotations);
+	const nodes = new Set([
+		...(moving.nodes ?? []),
+		...[...annotations].map((id) => nodeKey({ kind: "session", id })),
+	]);
 	const placed = arrangement.peek()?.nodes.values() ?? [];
 	return [
 		...[...placed].filter(

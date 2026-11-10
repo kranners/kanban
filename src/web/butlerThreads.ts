@@ -123,6 +123,12 @@ export function isFromDm(
 	);
 }
 
+/** Opens one of Butler's cards: its thread's view, or else its link. */
+export function openButlerCard(card: ButlerCard): void {
+	if (card.thread) openThreadCard.value = card.thread.id;
+	else if (card.link) window.open(card.link, "_blank", "noopener,noreferrer");
+}
+
 /** Opens the thread card a card or session came from, when it has one. */
 export function openParent(parent: string | undefined): void {
 	const thread = parent?.match(/^thread-([0-9]{5,25})$/)?.[1];
