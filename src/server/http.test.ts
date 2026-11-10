@@ -2580,6 +2580,15 @@ describe("createKanbanServer", () => {
 			403,
 			"a machine with the runner token never reads a thread's words",
 		);
+		assert.equal(
+			(
+				await fetch(`${base}/api/archive`, {
+					headers: { authorization: `Bearer ${runnerSecret}` },
+				})
+			).status,
+			403,
+			"nor an archived thread's log",
+		);
 
 		const reply = "/api/butler/threads/11111111/messages";
 		assert.equal((await page(reply, { text: "and pay it" })).status, 403);

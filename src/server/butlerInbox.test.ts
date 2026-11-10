@@ -3,7 +3,14 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { createButlerInbox, maxSends, relayStaleMs } from "./butlerInbox.ts";
+import { maxButlerQueue } from "../shared/types.ts";
+import {
+	createButlerInbox,
+	loadCardReplies,
+	maxSends,
+	relayStaleMs,
+} from "./butlerInbox.ts";
+import { legacyThreadReplies } from "./butlerThreads.ts";
 import { createCommentStore, parseComments } from "./comments.ts";
 
 const setup = async () => {
@@ -145,5 +152,121 @@ describe("Butler's inbox on the board", () => {
 		assert.ok("error" in sent && sent.status === 409);
 		assert.equal(inbox.reply("old", "x", "hi", true), null);
 		assert.equal(inbox.take().length, 0);
+	});
+
+	it("queues a thread card's reply with every other message, under one cap and one take", async () => {
+		const { inbox, tick } = await setup();
+		const started = inbox.start({ x: 0, y: 0, text: "from the popup" });
+		assert.ok(!("error" in started));
+		tick(1);
+		const reply = inbox.queueReply({
+			thread: "card-11111111",
+			target: "11111111",
+			text: "yes, send",
+		});
+		assert.ok(!("error" in reply));
+		assert.equal(inbox.replyTarget(reply.id), "11111111");
+		assert.deepEqual(
+			inbox.take().map((m) => [m.thread, m.target, m.text]),
+			[
+				[started.id, undefined, "from the popup"],
+				["card-11111111", "11111111", "yes, send"],
+			],
+		);
+		assert.equal(inbox.ack([reply.id]), 1);
+		assert.deepEqual(
+			inbox.take().map((m) => m.text),
+			["from the popup"],
+		);
+	});
+
+	it("counts card replies and board threads against the same queue limit", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-inbox-cap-"));
+		const store = createCommentStore({
+			file: join(dir, "comments.json"),
+			initial: [],
+			onChange: () => {},
+			onRemove: () => {},
+		});
+		const inbox = createButlerInbox({
+			store,
+			contextAt: () => ({}),
+			onRelay: () => {},
+			initialReplies: Array.from({ length: maxButlerQueue }, (_, i) => ({
+				id: `r-${i}`,
+				thread: "card-11111111",
+				target: "11111111",
+				at: i,
+				text: `reply ${i}`,
+			})),
+		});
+		const refused = inbox.start({ x: 0, y: 0, text: "one more" });
+		assert.ok("error" in refused && refused.status === 429);
+		const reply = inbox.queueReply({
+			thread: "card-11111111",
+			target: "11111111",
+			text: "and another",
+		});
+		assert.ok("error" in reply && reply.status === 429);
+	});
+
+	it("keeps card replies across a restart, and takes in an older board's from its thread logs", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "kanban-inbox-replies-"));
+		const file = join(dir, "butler-replies.json");
+		const store = createCommentStore({
+			file: join(dir, "comments.json"),
+			initial: [],
+			onChange: () => {},
+			onRemove: () => {},
+		});
+		const legacy = legacyThreadReplies({
+			"thread-22222222": {
+				events: [],
+				queued: [{ id: "old-1", at: 5, text: "queued before the update" }],
+			},
+			"not-a-card": { queued: [{ id: "x", at: 1, text: "ignored" }] },
+		});
+		assert.deepEqual(legacy, [
+			{
+				card: "thread-22222222",
+				message: { id: "old-1", at: 5, text: "queued before the update" },
+			},
+		]);
+		const first = createButlerInbox({
+			store,
+			contextAt: () => ({}),
+			onRelay: () => {},
+			repliesFile: file,
+			initialReplies: [
+				{
+					id: "old-1",
+					thread: "card-22222222",
+					target: "22222222",
+					at: 5,
+					text: "queued before the update",
+				},
+			],
+		});
+		const added = first.queueReply({
+			thread: "card-11111111",
+			target: "11111111",
+			text: "go ahead",
+		});
+		assert.ok(!("error" in added));
+		await first.saved();
+		const second = createButlerInbox({
+			store,
+			contextAt: () => ({}),
+			onRelay: () => {},
+			repliesFile: file,
+			initialReplies: await loadCardReplies(file),
+		});
+		assert.deepEqual(
+			second.take().map((m) => [m.target, m.text]),
+			[
+				["22222222", "queued before the update"],
+				["11111111", "go ahead"],
+			],
+		);
 	});
 });

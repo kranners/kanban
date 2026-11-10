@@ -1948,6 +1948,8 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			case "put-annotation":
 				return yours(() => putAnnotation(req, res, route.id));
 			case "archive":
+				// An archived thread card keeps its log, which no machine holding the runner token reads.
+				if (byToken.has(req)) return sendError(res, 403);
 				if (!deps.archive) return sendError(res, 404);
 				return sendJson(res, 200, deps.archive.list(route.query));
 			case "projects":

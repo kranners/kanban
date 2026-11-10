@@ -52,8 +52,19 @@ import {
 	summariesOfBoard,
 } from "./boardTools.ts";
 import { buildIdReader } from "./build.ts";
-import { type Butler, createButler, loadButlerState } from "./butler.ts";
-import { createThreadLogStore, loadThreadLogs } from "./butlerThreads.ts";
+import {
+	type Butler,
+	cardReplyThread,
+	createButler,
+	loadButlerState,
+	threadCardPrefix,
+} from "./butler.ts";
+import { loadCardReplies } from "./butlerInbox.ts";
+import {
+	createThreadLogStore,
+	loadLegacyThreadReplies,
+	loadThreadLogs,
+} from "./butlerThreads.ts";
 import { agentMarker, isAgentDir } from "./claudeRuns.ts";
 import {
 	type CloudApi,
@@ -761,6 +772,16 @@ const tools: typeof boardTools = (threadId, call) =>
 const butlerFile = join(config.stateDir, "butler.json");
 // Thread cards' events and approvals, which only the page's thread view reads.
 const threadLogsFile = join(config.stateDir, "butler-threads.json");
+// Aaron's replies from thread cards and the DM, waiting for spike in the one Butler inbox.
+const repliesFile = join(config.stateDir, "butler-replies.json");
+const savedReplies = await loadCardReplies(repliesFile);
+const threadLogs = createThreadLogStore({
+	file: threadLogsFile,
+	initial: await loadThreadLogs(threadLogsFile),
+});
+const legacyReplies = (await loadLegacyThreadReplies(threadLogsFile)).filter(
+	({ message }) => !savedReplies.some((reply) => reply.id === message.id),
+);
 // Cards and sessions whose work is over, for the sidebar's Archive view.
 const archiveFile = join(config.stateDir, "archive.json");
 const archive = createArchiveStore({
@@ -805,19 +826,38 @@ butler = createButler({
 	audit,
 	file: butlerFile,
 	...(await loadButlerState(butlerFile)),
-	threads: createThreadLogStore({
-		file: threadLogsFile,
-		initial: await loadThreadLogs(threadLogsFile),
-	}),
+	threads: threadLogs,
 	cloud: () => cloud.overview(),
 	edges: messageEdges,
 	onChange: (next) => feed?.butler(next),
 	comments,
+	repliesFile,
+	initialReplies: [
+		...savedReplies,
+		...legacyReplies.map(({ card, message }) => {
+			const target = card.slice(threadCardPrefix.length);
+			return {
+				id: message.id,
+				thread: cardReplyThread(target),
+				target,
+				at: message.at,
+				text: message.text,
+			};
+		}),
+	],
 	archive,
 	schedule: (run, ms) => {
 		setTimeout(run, ms).unref();
 	},
 });
+// An older board's replies now wait in butler-replies.json, so its thread logs drop them once that is saved.
+if (legacyReplies.length > 0) {
+	await butler.saved();
+	const kept = new Set((await loadCardReplies(repliesFile)).map((r) => r.id));
+	if (legacyReplies.every(({ message }) => kept.has(message.id))) {
+		threadLogs.rewrite();
+	}
+}
 const autoAnswer =
 	permissions === "legacy"
 		? null

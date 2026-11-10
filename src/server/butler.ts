@@ -87,6 +87,7 @@ import {
 } from "./boardTools.ts";
 import {
 	type ButlerInbox,
+	type CardReply,
 	createButlerInbox,
 	type InboxMessage,
 	type Refused,
@@ -281,6 +282,9 @@ export type ButlerDeps = Pick<
 	onChange: (presence: ButlerPresence) => void;
 	/** Where Aaron's messages to Butler are kept, in their comment threads. */
 	comments?: CommentStore;
+	/** Where his replies from thread cards and the DM wait for spike, with them in the one inbox. */
+	repliesFile?: string;
+	initialReplies?: CardReply[];
 	/** Where cards go once their work is over; absent keeps no archive. */
 	archive?: ArchiveStore;
 	/** Runs the tidy pass a little after a burst of syncs; absent tidies only when asked. */
@@ -1935,7 +1939,8 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			store: deps.comments,
 			contextAt,
 			onRelay: changed,
-			alsoQueued: () => threadLogs.queued().length,
+			...(deps.repliesFile ? { repliesFile: deps.repliesFile } : {}),
+			...(deps.initialReplies ? { initialReplies: deps.initialReplies } : {}),
 			newId: deps.newId,
 			now,
 		});
@@ -1945,20 +1950,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		const unknown = only(fields, []);
 		if (unknown) return unknown;
 		if (!inbox) return refused("This board keeps no messages");
-		const replies: InboxMessage[] = threadLogs
-			.queued()
-			.map(({ card, message }) => {
-				const thread = card.slice(threadCardPrefix.length);
-				return {
-					id: message.id,
-					thread: cardReplyThread(thread),
-					at: message.at,
-					text: message.text,
-					context: {},
-					target: thread,
-				};
-			});
-		const messages = [...inbox.take(), ...replies, ...pressQueue].sort(
+		const messages = [...inbox.take(), ...pressQueue].sort(
 			(a, b) => a.at - b.at,
 		);
 		return done(JSON.stringify({ messages, aaron: describeAaron() }));
@@ -1995,16 +1987,13 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		const thread = deps.comments
 			?.current()
 			.find((t) => t.queued?.some((m) => m.id === last))?.id;
-		const cardReply = threadLogs
-			.queued()
-			.find(({ message }) => message.id === last)?.card;
+		const replyTo =
+			typeof last === "string" ? inbox.replyTarget(last) : undefined;
+		const cardReply = replyTo ? threadCardId(replyTo) : undefined;
 		const acked = new Set(ids as string[]);
 		const before = pressQueue.length;
 		pressQueue = pressQueue.filter((m) => !acked.has(m.id));
-		const took =
-			inbox.ack(ids as string[]) +
-			threadLogs.ack(acked) +
-			(before - pressQueue.length);
+		const took = inbox.ack(ids as string[]) + (before - pressQueue.length);
 		const spot = thread ? threadSpot(thread) : (cardReply ?? null);
 		if (took > 0 && spot) workOn(spot);
 		return done(`Took ${took}`);
@@ -2222,12 +2211,14 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		if (!inbox) {
 			return { error: "Butler is not set up on this board", status: 409 };
 		}
-		const limit = inbox.admit();
-		if (limit) return limit;
-		const at = now();
-		threadLogs.queue(id, { id: newId(), at, text: body });
+		const queued = inbox.queueReply({
+			thread: cardReplyThread(thread),
+			target: thread,
+			text: body,
+		});
+		if ("error" in queued) return queued;
 		threadLogs.append(id, {
-			at,
+			at: queued.at,
 			kind: "user",
 			text: body.slice(0, maxThreadEventText),
 		});
@@ -2457,6 +2448,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 		saved: async () => {
 			await file.saved();
 			await threadLogs.saved();
+			await inbox?.saved();
 		},
 	};
 };

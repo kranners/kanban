@@ -13,26 +13,22 @@ import {
 import { maxMessage } from "./comments.ts";
 import { createStateFile, readState } from "./stateFile.ts";
 
-// What each of Butler's thread cards says happened in its Discord thread,
-// and Aaron's replies to it from the board still waiting for spike. It is
-// kept here, apart from the cards themselves, so nothing that reads the
+// What each of Butler's thread cards says happened in its Discord thread.
+// Aaron's replies waiting for spike queue in the Butler inbox with every
+// other message to him. It is kept here, apart from the cards themselves, so nothing that reads the
 // board, board_snapshot, board_history, an agent's tools, the audit or a
 // digest, ever sees a thread's words: only the page's thread view does.
 
-/** One card's log: the daemon's events, the board's own since, and what waits for spike. */
+/** One card's log: the daemon's events and the board's own since. */
 export type ThreadLog = {
 	/** The daemon's events from its last sync, oldest first. */
 	events: ButlerThreadEvent[];
 	/** Aaron's replies and Butler's answers the board saw itself, newer than the daemon's. */
 	local: ButlerThreadEvent[];
 	approvals: ButlerThreadApproval[];
-	/** Aaron's replies from the board spike has not taken yet. */
-	queued: ButlerMessage[];
 };
 
 export type ThreadLogs = Record<string, ThreadLog>;
-
-export type QueuedReply = { card: string; message: ButlerMessage };
 
 export type ThreadLogStore = {
 	get(card: string): ThreadLog | undefined;
@@ -47,11 +43,9 @@ export type ThreadLogStore = {
 		approvals: ButlerThreadApproval[],
 	): void;
 	append(card: string, event: ButlerThreadEvent): void;
-	queue(card: string, message: ButlerMessage): void;
-	queued(): QueuedReply[];
-	/** Drops the queued replies spike took; how many it took. */
-	ack(ids: ReadonlySet<string>): number;
 	remove(card: string): void;
+	/** Writes the logs again, dropping what an older board kept beside them. */
+	rewrite(): void;
 	saved(): Promise<void>;
 };
 
@@ -111,7 +105,7 @@ const listOf = <T>(
 		? value.flatMap((raw) => parse(raw) ?? []).slice(-max)
 		: [];
 
-const parseQueued = (value: unknown): ButlerMessage[] =>
+const parseLegacyQueued = (value: unknown): ButlerMessage[] =>
 	listOf(
 		value,
 		(raw) => {
@@ -142,7 +136,6 @@ export const parseThreadLogs = (value: unknown): ThreadLogs => {
 				parseThreadApproval,
 				maxThreadApprovals,
 			),
-			queued: parseQueued(fields.queued),
 		};
 	}
 	return logs;
@@ -151,11 +144,30 @@ export const parseThreadLogs = (value: unknown): ThreadLogs => {
 export const loadThreadLogs = (file: string): Promise<ThreadLogs> =>
 	readState(file, parseThreadLogs);
 
+/** Replies an older board kept in its thread logs, which now queue in the Butler inbox. */
+export const legacyThreadReplies = (
+	value: unknown,
+): { card: string; message: ButlerMessage }[] => {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return [];
+	}
+	return Object.entries(value)
+		.filter(([card]) => /^thread-[0-9]{5,25}$/.test(card))
+		.flatMap(([card, raw]) =>
+			parseLegacyQueued((raw as Record<string, unknown> | null)?.queued).map(
+				(message) => ({ card, message }),
+			),
+		)
+		.slice(-maxButlerQueue);
+};
+
+export const loadLegacyThreadReplies = (file: string) =>
+	readState(file, legacyThreadReplies);
+
 const empty = (): ThreadLog => ({
 	events: [],
 	local: [],
 	approvals: [],
-	queued: [],
 });
 
 const same = (a: ButlerThreadEvent, b: ButlerThreadEvent) =>
@@ -200,37 +212,14 @@ export const createThreadLogStore = (options: {
 			const log = logs[card] ?? empty();
 			set(card, { ...log, local: [...log.local, event].slice(-keptLocal) });
 		},
-		queue(card, message) {
-			const log = logs[card] ?? empty();
-			set(card, {
-				...log,
-				queued: [...log.queued, message].slice(-maxButlerQueue),
-			});
-		},
-		queued: () =>
-			Object.entries(logs).flatMap(([card, log]) =>
-				log.queued.map((message) => ({ card, message })),
-			),
-		ack(ids) {
-			let took = 0;
-			for (const [card, log] of Object.entries(logs)) {
-				const left = log.queued.filter((m) => !ids.has(m.id));
-				if (left.length === log.queued.length) continue;
-				took += log.queued.length - left.length;
-				set(card, { ...log, queued: left });
-			}
-			return took;
-		},
 		remove(card) {
 			const log = logs[card];
 			if (!log) return;
 			const { [card]: _gone, ...rest } = logs;
-			// Aaron's replies spike has not taken yet still go to the thread; only the log goes.
-			logs = log.queued.length
-				? { ...rest, [card]: { ...empty(), queued: log.queued } }
-				: rest;
+			logs = rest;
 			save();
 		},
+		rewrite: save,
 		saved: () => stored?.saved() ?? Promise.resolve(),
 	};
 };

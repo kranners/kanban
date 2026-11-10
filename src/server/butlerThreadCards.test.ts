@@ -246,6 +246,23 @@ describe("Butler's thread cards", () => {
 		assert.doesNotMatch(JSON.stringify(history), /secret words/);
 	});
 
+	it("keeps Aaron's queued replies to a thread off the snapshot and history too", async () => {
+		const { sync, annotations, snapshotOf, butler } = await setup();
+		await sync([entry("11111111")]);
+		assert.deepEqual(butler.sendToThread("11111111", "private reply words"), {
+			ok: true,
+		});
+		assert.doesNotMatch(JSON.stringify(snapshotOf()), /private reply words/);
+		assert.doesNotMatch(
+			JSON.stringify(annotations.current()),
+			/private reply words/,
+		);
+		const history = await butler.tool("board_history", {});
+		assert.doesNotMatch(JSON.stringify(history), /private reply words/);
+		const snapshot = await butler.tool("board_snapshot", {});
+		assert.doesNotMatch(JSON.stringify(snapshot), /private reply words/);
+	});
+
 	it("keeps when the daemon last saw the thread active, without touching the card's update time", async () => {
 		const { sync, annotations, tick } = await setup();
 		await sync([entry("11111111", { lastActiveAt: 5000 })]);
@@ -726,10 +743,6 @@ describe("Butler's thread cards", () => {
 		assert.deepEqual(butler.sendToThread("11111111", "yes, send"), {
 			ok: true,
 		});
-		assert.deepEqual(
-			threads.queued().map((q) => `${q.card} ${q.message.text}`),
-			["thread-11111111 yes, send"],
-		);
 		const { messages } = JSON.parse(
 			(
 				(await butler.tool("board_inbox", {})) as {
