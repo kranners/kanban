@@ -28,14 +28,21 @@ import "./attention.css";
 import "./detail.css";
 import { subagentState } from "../shared/subagents.ts";
 import { activityLabel } from "./activity.tsx";
-import { current } from "./annotations.ts";
 import { unreachable } from "./arrangement.ts";
-import { cardOf } from "./butlerSubagents.ts";
-import { openButlerCard } from "./butlerThreads.ts";
+import {
+	ButlerCardFoot,
+	ButlerChips,
+	ButlerSummary,
+	barName,
+	CardLink,
+	kindOf,
+	WatchingMark,
+} from "./ButlerCardParts.tsx";
 import { BusyEdge, CardFace } from "./CardFace.tsx";
 import { CardBody, CardFoot, NearPanel } from "./CardParts.tsx";
 import {
 	authorFilter,
+	butlerCardView,
 	type CardView,
 	dimmedByAuthor,
 	sessionView,
@@ -96,17 +103,27 @@ function SessionBody(props: {
 	now: number;
 }) {
 	const { session } = props;
+	const card = session.butler?.card;
 	return (
 		<CardBody
 			view={viewOf(session, props.now)}
 			before={<WorkflowBars workflows={props.workflows} />}
-			after={<SessionProjectChips session={session} />}
+			after={
+				card ? (
+					<ButlerChips card={card} />
+				) : (
+					<SessionProjectChips session={session} />
+				)
+			}
 			subagents={<SessionSubagentChips session={session} now={props.now} />}
 		/>
 	);
 }
 
 function viewOf(session: Session, now: number): CardView {
+	if (session.butler?.card.id === session.id) {
+		return butlerCardView(session.butler.card, now);
+	}
 	return sessionView(
 		session,
 		board.value?.subagents ?? [],
@@ -307,12 +324,42 @@ function nearLanes(session: Session, now: number): Lane[] {
 	];
 }
 
+/** One of Butler's cards zoomed in: a session's near view with the card's kind, link, chips and summary. */
+function ButlerNearPanel(props: { session: Session; now: number }) {
+	const { session } = props;
+	const card = session.butler?.card;
+	if (!card) return null;
+	const kind = kindOf(card);
+	return (
+		<NearPanel
+			view={viewOf(session, props.now)}
+			now={props.now}
+			class="butler-near"
+			name={<span class="near-name">{kind}</span>}
+			marks={<WatchingMark card={card} size={16} />}
+			extras={
+				<>
+					<CardLink card={card} />
+					<ButlerChips card={card} />
+					<SessionSubagentChips session={session} now={props.now} />
+				</>
+			}
+			side={<ButlerSummary card={card} />}
+			lanes={nearLanes(session, props.now)}
+			timeline={`${kind} timeline`}
+		/>
+	);
+}
+
 function SessionNearPanel(props: {
 	session: Session;
 	workflows: readonly Workflow[];
 	now: number;
 }) {
 	const { session } = props;
+	if (session.butler?.card.id === session.id) {
+		return <ButlerNearPanel session={session} now={props.now} />;
+	}
 	const digest = digests.value.sessions[session.id];
 	const KindIcon = kindIcon(session);
 	return (
@@ -460,15 +507,21 @@ export function SessionCard(props: {
 	};
 	const view = viewOf(session, props.now);
 	const { author, status, lastActivity } = view;
+	const card =
+		session.butler?.card.id === session.id ? session.butler.card : null;
 	return (
 		<CardFace
 			status={status}
 			lastActivity={lastActivity}
 			author={author}
-			name={session.name}
+			name={card ? barName(card) : session.name}
 			now={props.now}
 			class={nodeClass(
-				[session.artifacts.length > 0 && "has-artifacts", props.state]
+				[
+					session.artifacts.length > 0 && "has-artifacts",
+					card && "butler-face",
+					props.state,
+				]
 					.filter(Boolean)
 					.join(" "),
 				{
@@ -500,36 +553,40 @@ export function SessionCard(props: {
 							workflows={props.workflows}
 							now={props.now}
 						/>
-						<CardFoot
-							label={session.project}
-							title={session.cwd}
-							marks={
-								<>
-									<UnreachableChip sessionId={session.id} />
-									{session.configDir && (
-										<AccountChip configDir={session.configDir} />
-									)}
-									<span
-										class="foot-kind"
-										title={
-											session.cloud
-												? "Cloud"
-												: session.runner
-													? `On ${session.runner.name}`
-													: session.kind === "background"
-														? "Background"
-														: session.cmux
-															? "Interactive · in cmux"
-															: "Interactive"
-										}
-									>
-										<KindIcon size={13} aria-hidden="true" />
-									</span>
-								</>
-							}
-							updatedAt={session.updatedAt}
-							now={props.now}
-						/>
+						{card ? (
+							<ButlerCardFoot card={card} now={props.now} />
+						) : (
+							<CardFoot
+								label={session.project}
+								title={session.cwd}
+								marks={
+									<>
+										<UnreachableChip sessionId={session.id} />
+										{session.configDir && (
+											<AccountChip configDir={session.configDir} />
+										)}
+										<span
+											class="foot-kind"
+											title={
+												session.cloud
+													? "Cloud"
+													: session.runner
+														? `On ${session.runner.name}`
+														: session.kind === "background"
+															? "Background"
+															: session.cmux
+																? "Interactive · in cmux"
+																: "Interactive"
+											}
+										>
+											<KindIcon size={13} aria-hidden="true" />
+										</span>
+									</>
+								}
+								updatedAt={session.updatedAt}
+								now={props.now}
+							/>
+						)}
 					</>
 				)
 			}
@@ -592,9 +649,11 @@ export function SubagentCard(props: {
 					class="sub-open"
 					aria-label={`Open ${subagent.description || subagent.type}`}
 					onClick={(event) => {
-						const card = cardOf(subagent, current.value);
-						if (card) {
-							openButlerCard(card);
+						const owner = board.value?.sessions.find(
+							(session) => session.id === subagent.sessionId,
+						);
+						if (owner?.butler?.card.id === owner?.id) {
+							openSession(subagent.sessionId);
 							return;
 						}
 						props.onOpen(

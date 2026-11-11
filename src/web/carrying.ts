@@ -10,9 +10,10 @@ import {
 	previewPlacement,
 	savedPlacement,
 } from "./arrangement.ts";
+import { ownCards } from "./butlerSessions.ts";
 import { carriedWith } from "./carry.ts";
 import type { Group } from "./groups.ts";
-import type { NodeKey } from "./layout.ts";
+import { type NodeKey, nodeKey } from "./layout.ts";
 import { moved } from "./notes.ts";
 import type { Rect } from "./placement.ts";
 import {
@@ -63,7 +64,11 @@ export function loadOf(
 		Object.values(shownAnnotations.peek()),
 		groups.peek(),
 	);
-	const passengers = [...roots, ...carried.nodes].flatMap((key) => {
+	const cards = new Set(
+		ownCards(current).map((card) => nodeKey({ kind: "session", id: card.id })),
+	);
+	const tidied = carried.nodes.filter((key) => !cards.has(key));
+	const passengers = [...roots, ...tidied].flatMap((key) => {
 		const node = placed.get(key);
 		if (!node) return [];
 		const { x, y, w, h } = node;

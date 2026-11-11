@@ -1,30 +1,3 @@
-/* The annotation only places a Butler card; the card face inside draws it, as it does a session. */
-.annotation.butler-card {
-	display: flex;
-	color: var(--ink);
-	transition:
-		transform calc(320ms * var(--motion)) cubic-bezier(0.2, 0.7, 0.2, 1),
-		width calc(320ms * var(--motion)) cubic-bezier(0.2, 0.7, 0.2, 1),
-		height calc(320ms * var(--motion)) cubic-bezier(0.2, 0.7, 0.2, 1);
-}
-
-.annotation.butler-card > .node {
-	position: relative;
-	flex: 1;
-	min-width: 0;
-	height: 100%;
-	animation: none;
-	transition: opacity calc(160ms * var(--motion));
-}
-
-.annotation.butler-card[data-arranging] {
-	z-index: 3;
-}
-
-.annotation.butler-card[data-arranging="move"] .frame {
-	box-shadow: var(--shadow-pop);
-}
-
 .butler-face .foot {
 	gap: 6px;
 }
@@ -36,12 +9,6 @@
 .card-face .body > .butler-card-from {
 	margin: 0 14px 6px;
 	max-width: calc(100% - 28px);
-}
-
-.butler-near-kind {
-	display: inline-flex;
-	align-items: center;
-	gap: 6px;
 }
 
 .butler-near .butler-card-link {
@@ -264,14 +231,6 @@
 }
 
 .thread-card-desk,
-.thread-card-code {
-	padding: 0 6px;
-	border-radius: 4px;
-	background: var(--hairline);
-	font-family: var(--mono);
-	font-size: 11px;
-}
-
 .thread-card-parent {
 	padding: 0;
 	border: 0;
@@ -519,4 +478,31 @@
 .butler-edge-empty {
 	margin: 0;
 	color: var(--muted);
+}
+
+.butler-card-detail {
+	display: grid;
+	align-content: start;
+	gap: 16px;
+	padding: 16px 20px;
+	overflow: auto;
+}
+
+.butler-card-steps {
+	display: grid;
+	gap: 6px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	font-size: 13px;
+}
+
+.butler-card-steps li {
+	display: flex;
+	gap: 10px;
+}
+
+.butler-card-steps time {
+	color: var(--muted);
+	white-space: nowrap;
 }

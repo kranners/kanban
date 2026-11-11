@@ -1,6 +1,5 @@
 import { signal } from "@preact/signals";
 import type {
-	Annotations,
 	ButlerEdgeEnd,
 	ButlerEdgeMessage,
 	ButlerEdgeSummary,
@@ -51,22 +50,17 @@ export type ResolvedEnd =
 
 export function resolveEnd(
 	end: ButlerEdgeEnd,
-	annotations: Annotations,
 	sessions: readonly Session[],
 	box: (sessionId: string) => Box | undefined,
 	dmThread: string | undefined,
 ): ResolvedEnd {
-	if (end.kind === "thread") {
-		const card = annotations[`thread-${end.id}`];
-		if (card?.kind === "butler-card") {
-			return { kind: "box", box: card, label: card.title };
-		}
-		return end.id === dmThread ? { kind: "dm" } : null;
-	}
-	// A local session Butler started is known by its short id until it lands.
+	if (end.kind === "thread" && end.id === dmThread) return { kind: "dm" };
+	// A thread's card is a session of the board, and a local session Butler started is known by its short id until it lands.
 	const session =
-		sessions.find((s) => s.id === end.id) ??
-		sessions.find((s) => s.short === end.id);
+		end.kind === "thread"
+			? sessions.find((s) => s.id === `thread-${end.id}`)
+			: (sessions.find((s) => s.id === end.id) ??
+				sessions.find((s) => s.short === end.id));
 	const placed = session ? box(session.id) : undefined;
 	return session && placed
 		? { kind: "box", box: placed, label: session.name }
@@ -108,7 +102,6 @@ export type EdgeChip = {
  */
 export function drawnEdges(
 	edges: readonly ButlerEdgeSummary[],
-	annotations: Annotations,
 	sessions: readonly Session[],
 	box: (sessionId: string) => Box | undefined,
 	dmThread: string | undefined,
@@ -141,8 +134,8 @@ export function drawnEdges(
 	const chips: EdgeChip[] = [];
 	const chipsOn = new Map<string, number>();
 	for (const [key, edge] of merged) {
-		const from = resolveEnd(edge.from, annotations, sessions, box, dmThread);
-		const to = resolveEnd(edge.to, annotations, sessions, box, dmThread);
+		const from = resolveEnd(edge.from, sessions, box, dmThread);
+		const to = resolveEnd(edge.to, sessions, box, dmThread);
 		if (!from || !to) continue;
 		if (from.kind === "box" && to.kind === "box") {
 			if (sameBox(from.box, to.box)) continue;

@@ -2,6 +2,7 @@ import "./actions.css";
 import { X } from "lucide-preact";
 import type { JSX } from "preact";
 import type { Session } from "../shared/types.ts";
+import { claudeSessions } from "./butlerSessions.ts";
 import { exitTitle } from "./ExitControls.tsx";
 import { departing } from "./exitState.ts";
 import { askToExitProject, exitSessions, held } from "./exits.ts";
@@ -23,7 +24,7 @@ import { board } from "./state.ts";
 export function sessionsIn(group: Group): Session[] {
 	const members = new Set(group.members);
 	const gone = departing.value;
-	return (board.value?.sessions ?? []).filter(
+	return claudeSessions(board.value?.sessions ?? []).filter(
 		(session) =>
 			members.has(nodeKey({ kind: "session", id: session.id })) &&
 			!gone.has(session.id),

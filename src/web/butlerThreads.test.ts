@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Annotations, ButlerCard, Session } from "../shared/types.ts";
-import { withButlerCards } from "./butlerSubagents.ts";
+import { withButlerCards } from "./butlerSessions.ts";
 import {
 	isFromDm,
 	linkedCount,
@@ -48,12 +48,23 @@ const session = (parent?: string) =>
 		...(parent ? { parent: { thread: parent, card: `thread-${parent}` } } : {}),
 	}) as Session;
 
-test("a thread card counts the cards and sessions it started", () => {
-	assert.equal(
-		linkedCount(thread, annotations, [session("11111111"), session()]),
-		3,
+test("a thread card counts the cards and sessions it started, once each", () => {
+	const { sessions } = withButlerCards(
+		{
+			sessions: [session("11111111"), session()],
+			subagents: [],
+			subagentCounts: {},
+			subagentStates: {},
+			workflowRuns: {},
+			workflows: [],
+			links: [],
+			messages: [],
+			generatedAt: 0,
+		},
+		annotations,
 	);
-	assert.equal(linkedCount(card("butler-x"), annotations, []), 0);
+	assert.equal(linkedCount(thread, sessions), 3);
+	assert.equal(linkedCount(card("butler-x"), sessions), 0);
 });
 
 test("a card names the thread it came from, or falls back while that card is gone", () => {
@@ -105,7 +116,7 @@ test("draws an arrow from each thread card to the cards and sessions it started"
 		id: "session_2",
 		parent: { thread: "22222222", card: "thread-22222222" },
 	} as Session;
-	assert.deepEqual(spawned(annotations, [started, unplaced]), [
+	assert.deepEqual(spawned(annotations, [started, unplaced]).sort(), [
 		"thread-11111111>thread-22222222",
 		"thread-22222222>self-fix-20261106-134847-1",
 		"thread-22222222>session_1",

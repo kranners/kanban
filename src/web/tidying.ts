@@ -1,7 +1,7 @@
 import { effect } from "@preact/signals";
 import { boardBounds, forgetAutoSpots } from "./arrangement.ts";
 import { autoLayout } from "./autoLayoutSetting.ts";
-import { butlerCards } from "./butlerSubagents.ts";
+import { butlerCards } from "./butlerSessions.ts";
 import { fitBoard, snapping } from "./Canvas.tsx";
 import { annotations, board } from "./state.ts";
 

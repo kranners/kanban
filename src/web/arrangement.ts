@@ -5,16 +5,16 @@ import type {
 	Placement,
 	Point,
 } from "../shared/types.ts";
-import { current as drafts } from "./annotations.ts";
-import { butlerCards } from "./butlerSubagents.ts";
+import { current as drafts, save as saveAnnotations } from "./annotations.ts";
+import { ownCards } from "./butlerSessions.ts";
 import { departing } from "./exitState.ts";
 import { groupsOf } from "./groups.ts";
-import type { NodeKey } from "./layout.ts";
+import { type NodeKey, nodeKey } from "./layout.ts";
 import type { Bounds, Rect } from "./placement.ts";
 import { arrange, boundsOf, seedsOf } from "./placement.ts";
 import { unreachablePeers } from "./reach.ts";
 import { shownRegions } from "./regionState.ts";
-import { regionGroups, withCards } from "./regions.ts";
+import { regionGroups } from "./regions.ts";
 import { annotations, board, layout } from "./state.ts";
 
 const settleMs = 1500;
@@ -23,13 +23,25 @@ const echoMs = 3000;
 export const overrides = signal<ReadonlyMap<NodeKey, Placement>>(new Map());
 export const reserved = signal<readonly Rect[]>([]);
 
-const cardAnchors = computed(() => butlerCards(drafts.value));
+/** Butler's cards drawn as sessions stand where Tidy or Aaron put the card, as though placed by hand. */
+const cardPlacements = computed(() => {
+	const shown = drafts.value;
+	return new Map(
+		ownCards(board.value).flatMap((card) => {
+			const { x, y, w, h } = shown[card.id] ?? card;
+			const placement: Placement = { x, y, w, h, pinned: true };
+			return [[nodeKey({ kind: "session", id: card.id }), placement] as const];
+		}),
+	);
+});
+
+const cardKeys = computed(() => new Set(cardPlacements.value.keys()));
 
 const seeds = computed(() =>
 	board.value
 		? seedsOf(
 				board.value,
-				cardAnchors.value.map((card) => card.id),
+				ownCards(board.value).map((card) => card.id),
 			)
 		: null,
 );
@@ -44,8 +56,11 @@ export function forgetAutoSpots(): void {
 }
 
 function withOverrides(saved: Layout): Layout {
-	const local = overrides.value;
-	return local.size === 0 ? saved : { ...saved, ...Object.fromEntries(local) };
+	return {
+		...saved,
+		...Object.fromEntries(cardPlacements.value),
+		...Object.fromEntries(overrides.value),
+	};
 }
 
 export const arrangement = computed(() => {
@@ -57,9 +72,13 @@ export const arrangement = computed(() => {
 		withOverrides(layout.value),
 		seeded,
 		remembered,
-		[...reserved.value, ...Object.values(annotations.value)],
+		[
+			...reserved.value,
+			...Object.values(annotations.value).filter(
+				(annotation) => annotation.kind !== "butler-card",
+			),
+		],
 		shownRegions.value,
-		cardAnchors.value,
 	);
 });
 
@@ -69,14 +88,11 @@ export const groups = computed(() => {
 	if (!current || !placed) return [];
 	const leaving = departing.value;
 	const sessions = current.sessions.filter((s) => !leaving.has(s.id));
-	return withCards(
-		regionGroups(
-			shownRegions.value,
-			groupsOf(sessions, placed.nodes),
-			sessions,
-			placed.nodes,
-		),
-		Object.values(annotations.value).filter((a) => a.kind === "butler-card"),
+	return regionGroups(
+		shownRegions.value,
+		groupsOf(sessions, placed.nodes),
+		sessions,
+		placed.nodes,
 	);
 });
 
@@ -149,10 +165,32 @@ export function previewPlacement(key: NodeKey, placement: Placement): void {
 	overrides.value = new Map(overrides.peek()).set(key, placement);
 }
 
+/** A card of Butler's moved or resized as a session is saved on the card, where Tidy reads it. */
+function commitCard(key: NodeKey, placement: Placement): boolean {
+	if (!cardKeys.peek().has(key)) return false;
+	const id = key.slice(key.indexOf(":") + 1);
+	const card = drafts.peek()[id];
+	if (card?.kind !== "butler-card") return false;
+	const { x, y } = placement;
+	saveAnnotations([
+		{
+			...card,
+			x,
+			y,
+			...(placement.w !== undefined && placement.h !== undefined
+				? { w: placement.w, h: placement.h }
+				: {}),
+		},
+	]);
+	forget(key, overrides.peek().get(key) ?? placement);
+	return true;
+}
+
 export async function commitPlacement(
 	key: NodeKey,
 	placement: Placement,
 ): Promise<void> {
+	if (commitCard(key, placement)) return;
 	previewPlacement(key, placement);
 	try {
 		await putLayout({ key, placement });

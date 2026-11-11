@@ -20,11 +20,13 @@ import type {
 	Activity,
 	ButlerCard,
 	Session,
+	Step,
 	Subagent,
 } from "../../shared/types.ts";
 import { ActivityBadge } from "../activity.tsx";
 import { arrangement } from "../arrangement.ts";
 import { ButlerMark } from "../Butler.tsx";
+import { ButlerChips, ButlerSummary, kindOf } from "../ButlerCardParts.tsx";
 import { threadKindLabels } from "../butlerThreads.ts";
 import { keepInView } from "../Canvas.tsx";
 import { ArtifactLink } from "../Card.tsx";
@@ -99,6 +101,29 @@ function RawTerminal(props: { session: Session }) {
 	);
 }
 
+/** A card of Butler's with no thread of its own, such as a change: its summary, chips and timeline. */
+function ButlerCardDetail(props: { card: ButlerCard; steps: readonly Step[] }) {
+	return (
+		<div class="butler-card-detail">
+			<ButlerChips card={props.card} />
+			<ButlerSummary card={props.card} />
+			<section class="detail-section" aria-label="Timeline">
+				<div class="detail-head">
+					<span>Timeline</span>
+				</div>
+				<ul class="butler-card-steps">
+					{[...props.steps].reverse().map((step) => (
+						<li key={`${step.at}-${step.text}`}>
+							<time class="num">{new Date(step.at).toLocaleString()}</time>
+							<span>{step.text}</span>
+						</li>
+					))}
+				</ul>
+			</section>
+		</div>
+	);
+}
+
 export function Focus(props: {
 	target: FocusTarget;
 	onClose: () => void;
@@ -127,7 +152,7 @@ export function Focus(props: {
 					: { kind: "subagent", id: target.subagent.id },
 		);
 		const placed = arrangement.peek();
-		const node = placed?.nodes.get(key) ?? placed?.anchors.get(key);
+		const node = placed?.nodes.get(key);
 		if (node) keepInView(node);
 	}, [docked]);
 
@@ -195,9 +220,19 @@ export function Focus(props: {
 		};
 	}, []);
 
-	const session = target.kind === "session" ? target.session : null;
+	const card =
+		target.kind === "session" &&
+		target.session.butler?.card.id === target.session.id
+			? target.session.butler.card
+			: null;
+	const session = target.kind === "session" && !card ? target.session : null;
 	const subagent = target.kind === "subagent" ? target.subagent : null;
-	const thread = target.kind === "thread" ? target : null;
+	const thread =
+		target.kind === "thread"
+			? target
+			: card?.thread
+				? { thread: card.thread.id, card }
+				: null;
 	const threadView = useThreadView(thread?.thread ?? null);
 	const read = threadView.view?.card;
 	const threadCard = thread
@@ -208,7 +243,15 @@ export function Focus(props: {
 				kind: thread.card?.thread?.kind ?? read?.thread.kind,
 				link: thread.card?.thread?.link ?? read?.link,
 			}
-		: null;
+		: card
+			? {
+					title: card.title,
+					state: card.state,
+					status: card.status,
+					kind: undefined,
+					link: card.link,
+				}
+			: null;
 	const activity: Activity = session
 		? session.activity
 		: threadCard
@@ -248,12 +291,14 @@ export function Focus(props: {
 									{session.cloud ? "Cloud" : kindLabels[session.kind]}
 								</span>
 							</>
-						) : thread ? (
+						) : threadCard ? (
 							<span class="focus-kind">
 								<ButlerMark size={11} />{" "}
-								{threadCard?.kind
+								{threadCard.kind
 									? threadKindLabels[threadCard.kind]
-									: "Butler"}
+									: card
+										? kindOf(card)
+										: "Butler"}
 							</span>
 						) : (
 							<span class="focus-kind">
@@ -299,10 +344,12 @@ export function Focus(props: {
 						href={threadCard.link}
 						target="_blank"
 						rel="noreferrer"
-						title="Open in Discord"
+						title={thread ? "Open in Discord" : "Open session"}
 					>
 						<ExternalLink size={15} aria-hidden="true" />
-						<span class="av-toggle-label">Open in Discord</span>
+						<span class="av-toggle-label">
+							{thread ? "Open in Discord" : "Open session"}
+						</span>
 					</a>
 				)}
 				{session?.cloud && (
@@ -332,6 +379,11 @@ export function Focus(props: {
 			<div class="focus-body">
 				{thread ? (
 					<ThreadBody {...threadView} />
+				) : card ? (
+					<ButlerCardDetail
+						card={card}
+						steps={target.kind === "session" ? target.session.steps : []}
+					/>
 				) : session && raw ? (
 					<RawTerminal session={session} />
 				) : (

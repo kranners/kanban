@@ -25,7 +25,10 @@ export const authorKindLabels: Record<CardAuthorKind, string> = {
 
 const fromTitle = (title: string | undefined) => (title ? { from: title } : {});
 
-export function sessionAuthor(session: Pick<Session, "parent">): CardAuthor {
+export function sessionAuthor(
+	session: Pick<Session, "parent" | "butler">,
+): CardAuthor {
+	if (session.butler) return butlerCardAuthor(session.butler.card);
 	const { parent } = session;
 	if (!parent) return { kind: "kanban", label: authorKindLabels.kanban };
 	if (parent.desk) {

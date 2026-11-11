@@ -11,7 +11,7 @@ import {
 	treeMidpoint,
 	treePath,
 } from "./geometry.ts";
-import type { NodeKey, PlacedNode } from "./layout.ts";
+import type { NodeKey } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 import type { Arrangement, Rect } from "./placement.ts";
 
@@ -46,8 +46,7 @@ function curveStyle(path: string) {
 	return { d: `path("${path}")` };
 }
 
-type Placed = Pick<Arrangement, "nodes" | "bounds"> &
-	Partial<Pick<Arrangement, "anchors">>;
+type Placed = Pick<Arrangement, "nodes" | "bounds">;
 
 type EdgeProps = {
 	board: Board;
@@ -87,11 +86,7 @@ function EdgeLayer(props: {
 
 export function Links(props: EdgeProps) {
 	const { board, layout } = props;
-	const ends = new Map<NodeKey, PlacedNode>([
-		...(layout.anchors ?? []),
-		...layout.nodes,
-	]);
-	const links = drawnLinks(board.links, ends).map(
+	const links = drawnLinks(board.links, layout.nodes).map(
 		({ link, from, to, index }) => {
 			const path =
 				to.y >= from.y + from.h ? treePath(from, to) : lineageLine(from, to);

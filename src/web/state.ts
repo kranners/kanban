@@ -7,6 +7,7 @@ import type {
 	Layout,
 	Session,
 } from "../shared/types.ts";
+import { claudeSessions } from "./butlerSessions.ts";
 import { totalSubagentCounts } from "./subagentCounts.ts";
 
 export type Connection = "connecting" | "open" | "reconnecting" | "lost";
@@ -75,7 +76,7 @@ export const focusedSession = computed(() =>
 
 export const knownCwds = computed(() => [
 	...new Set(
-		[...(board.value?.sessions ?? [])]
+		claudeSessions(board.value?.sessions ?? [])
 			.sort((a, b) => b.updatedAt - a.updatedAt)
 			.map((s) => s.cwd),
 	),

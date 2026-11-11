@@ -1,5 +1,5 @@
 import { effect } from "@preact/signals";
-import { Plus } from "lucide-preact";
+import { Ellipsis, Plus } from "lucide-preact";
 import {
 	type Annotation,
 	type Board,
@@ -14,6 +14,7 @@ import {
 	AnnotationLayer,
 	AnnotationMenu,
 	BoardTools,
+	openCardMenu,
 	ReportModalHost,
 	StickerPicker,
 	useAnnotationGestures,
@@ -27,6 +28,7 @@ import { ButlerDmFace } from "./ButlerDm.tsx";
 import { ButlerEdges } from "./ButlerEdges.tsx";
 import { ButlerLayer } from "./ButlerLayer.tsx";
 import { butlerPresence } from "./butler.ts";
+import { ownCards } from "./butlerSessions.ts";
 import { openThreadCard } from "./butlerThreads.ts";
 import { Canvas, detail } from "./Canvas.tsx";
 import { SessionCard, SubagentCard } from "./Card.tsx";
@@ -225,14 +227,19 @@ function World(props: { board: Board; layout: Arrangement }) {
 			onOpen={openSession}
 			state={exitStateClass(state)}
 			corner={
-				<>
-					<SessionIgnoreButton session={session} />
-					<ReportButton session={session} state={reporting.get(session.id)} />
-					<CloseButton session={session} state={state} />
-				</>
+				session.butler?.card.id === session.id ? (
+					<ButlerCardMenuButton card={session.id} name={session.name} />
+				) : (
+					<>
+						<SessionIgnoreButton session={session} />
+						<ReportButton session={session} state={reporting.get(session.id)} />
+						<CloseButton session={session} state={state} />
+					</>
+				)
 			}
 			notice={
-				state?.phase === "checking" || state?.phase === "refused" ? (
+				session.butler?.card.id === session.id ? null : state?.phase ===
+						"checking" || state?.phase === "refused" ? (
 					<ExitNotice session={session} state={state} />
 				) : (
 					<ReportNotice session={session} state={reporting.get(session.id)} />
@@ -314,6 +321,22 @@ function World(props: { board: Board; layout: Arrangement }) {
 	);
 }
 
+/** One of Butler's cards' own menu: pin it, close it, or say a change is done. */
+function ButlerCardMenuButton(props: { card: string; name: string }) {
+	return (
+		<button
+			type="button"
+			class="close-bubble"
+			data-no-pan
+			aria-label={`More for ${props.name}`}
+			title="Pin, close or archive"
+			onClick={(event) => openCardMenu(event, props.card)}
+		>
+			<Ellipsis size={14} aria-hidden="true" />
+		</button>
+	);
+}
+
 function NewSessionButton() {
 	return (
 		<button
@@ -342,9 +365,9 @@ function Placeholder(props: { title: string; body: string; action?: boolean }) {
 /** A Butler card's subagent stands under its card and moves only with it. */
 function followsCard(key: string): boolean {
 	const follows = arrangement.peek()?.nodes.get(key)?.follows;
-	return (
-		follows !== undefined && arrangement.peek()?.anchors.has(follows) === true
-	);
+	if (follows === undefined) return false;
+	const id = follows.slice(follows.indexOf(":") + 1);
+	return ownCards(board.peek()).some((card) => card.id === id);
 }
 
 function newestSession(current: Board, placed: Arrangement) {

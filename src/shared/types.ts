@@ -115,7 +115,22 @@ export type Session = {
 	parent?: SessionParent & { card: string };
 	/** A tool call it made has no result yet, so a quiet transcript is not a stall. */
 	toolRunning?: true;
+	/** Set on a card Butler keeps, a change, desk session or thread, which the page draws as a session. */
+	butler?: SessionButler;
 };
+
+/** Where one of Butler's cards came from. */
+export type ButlerOrigin =
+	| "change"
+	| "desk"
+	| "dm"
+	| "job"
+	| "voice"
+	| "thread"
+	| "butler";
+
+/** What only a card of Butler's has: where it came from and the card itself, kept by Butler's syncs. */
+export type SessionButler = { origin: ButlerOrigin; card: ButlerCard };
 
 /** The Discord thread of Butler's that asked for a session, as start_session takes it. */
 export type SessionParent = { thread: string; title?: string; desk?: string };

@@ -41,14 +41,9 @@ export type Seeds = { tree: BoardLayout; offsets: Map<NodeKey, Offset> };
 
 export type Arrangement = {
 	nodes: Map<NodeKey, PlacedNode>;
-	/** Butler's cards, as the nodes their subagents follow and their links end at; drawn as cards, not here. */
-	anchors: Map<NodeKey, PlacedNode>;
 	bounds: Bounds;
 	auto: Map<NodeKey, Point>;
 };
-
-/** One of Butler's cards, which owns subagents as a session does. */
-export type Anchor = Rect & { id: string };
 
 /** Where each of an owner's subagents sits relative to it, as the tree lays them out under a session. */
 export function followerOffsets(
@@ -378,10 +373,8 @@ export function arrange(
 	remembered: ReadonlyMap<NodeKey, Point>,
 	reserved: readonly Rect[] = [],
 	regions: readonly Region[] = [],
-	cards: readonly Anchor[] = [],
 ): Arrangement {
 	const nodes = new Map<NodeKey, PlacedNode>();
-	const anchors = new Map<NodeKey, PlacedNode>();
 	const occupied: Rect[] = [];
 	const notSessions = new Set<Rect>(reserved);
 	const projects: Project[] = [];
@@ -491,19 +484,6 @@ export function arrange(
 		return node ? snapPoint(node) : null;
 	};
 
-	for (const card of cards) {
-		const ref: NodeRef = { kind: "session", id: card.id };
-		const key = nodeKey(ref);
-		anchors.set(key, {
-			key,
-			ref,
-			family: 0,
-			x: card.x,
-			y: card.y,
-			w: card.w,
-			h: card.h,
-		});
-	}
 	const byStart = (a: Session, b: Session) =>
 		a.startedAt - b.startedAt || a.id.localeCompare(b.id);
 	const savedSpot = (key: NodeKey): Point => ({
@@ -556,31 +536,6 @@ export function arrange(
 		occupied.push(rect);
 		held.add(s.id);
 	}
-	const cardFollowers = new Map<NodeKey, Rect>();
-	for (const [cardKey, card] of anchors) {
-		const natural = board.subagents.flatMap((a) => {
-			const key = nodeKey({ kind: "subagent", id: a.id });
-			const offset = seeds.offsets.get(key);
-			return offset?.session === cardKey && !saved[key]
-				? [[key, followerRect(card, offset)] as const]
-				: [];
-		});
-		if (natural.length === 0) continue;
-		const others = reserved.filter(
-			(rect) => (rect as { id?: string }).id !== card.ref.id,
-		);
-		const shift = clearShift(
-			natural.map(([, rect]) => rect),
-			[...occupied, ...others],
-		);
-		for (const [key, rect] of natural) {
-			const moved = { ...rect, x: rect.x + shift.x, y: rect.y + shift.y };
-			cardFollowers.set(key, moved);
-			notSessions.add(moved);
-			occupied.push(moved);
-		}
-	}
-
 	const pinned = (s: Session) => placedByHand(s) || held.has(s.id);
 	const nudged = new Map<NodeKey, Rect>();
 	for (const s of savedSessions.filter(pinned)) {
@@ -675,14 +630,9 @@ export function arrange(
 		const key = nodeKey(ref);
 		if (saved[key]) continue;
 		const offset = seeds.offsets.get(key);
-		const session = offset
-			? (nodes.get(offset.session) ?? anchors.get(offset.session))
-			: undefined;
+		const session = offset ? nodes.get(offset.session) : undefined;
 		if (offset && session) {
-			const rect =
-				nudged.get(key) ??
-				cardFollowers.get(key) ??
-				followerRect(session, offset);
+			const rect = nudged.get(key) ?? followerRect(session, offset);
 			put(key, ref, rect, offset.session);
 			continue;
 		}
@@ -690,5 +640,5 @@ export function arrange(
 		if (point) put(key, ref, { ...point, ...subagentSize });
 	}
 
-	return { nodes, anchors, bounds: boundsOf(nodes.values()), auto };
+	return { nodes, bounds: boundsOf(nodes.values()), auto };
 }

@@ -11,6 +11,7 @@ import {
 	summoned,
 	titleFor,
 } from "./alerts.ts";
+import { claudeSessions } from "./butlerSessions.ts";
 import { ignoredSessions } from "./ignoreState.ts";
 import { board, focusedSessionId, openSession } from "./state.ts";
 
@@ -53,7 +54,7 @@ export async function toggleNotifications(): Promise<void> {
 
 export const needingSessions = computed(() => {
 	const ignored = ignoredSessions.value;
-	return (board.value?.sessions ?? []).filter(
+	return claudeSessions(board.value?.sessions ?? []).filter(
 		(s) => s.activity === "needs-you" && !ignored.has(s.id),
 	);
 });
@@ -66,7 +67,7 @@ const raised = signal<readonly Raised[]>([]);
 const standing = computed(() => {
 	const ignored = ignoredSessions.value;
 	const byId = new Map<string, Session>();
-	for (const s of board.value?.sessions ?? [])
+	for (const s of claudeSessions(board.value?.sessions ?? []))
 		if (!ignored.has(s.id)) byId.set(s.id, s);
 	return byId;
 });
@@ -130,11 +131,12 @@ effect(() => {
 	const current = board.value;
 	if (!current) return;
 	const ignored = ignoredSessions.peek();
+	const sessions = claudeSessions(current.sessions);
 	const fresh = [
-		...summoned(seen, current.sessions),
-		...finished(seen, current.sessions),
+		...summoned(seen, sessions),
+		...finished(seen, sessions),
 	].filter((s) => !ignored.has(s.id));
-	seen = seenActivities(current.sessions);
+	seen = seenActivities(sessions);
 	const viewing = focusedSessionId.peek();
 	const watched = lookingAtBoard();
 	const called = fresh.filter((s) => !(watched && s.id === viewing));

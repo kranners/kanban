@@ -15,7 +15,6 @@ import {
 } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import type { RegionColour } from "../shared/colours.ts";
 import type { Annotation, Note, Point, Sticker } from "../shared/types.ts";
 import { noteColors } from "../shared/types.ts";
 import {
@@ -23,7 +22,6 @@ import {
 	addSticker,
 	annotationMenu,
 	bringSelectionToFront,
-	current,
 	deleteSelection,
 	duplicateSelection,
 	editing,
@@ -42,10 +40,8 @@ import {
 	typeText,
 } from "./annotations.ts";
 import { groups } from "./arrangement.ts";
-import { ButlerByline, ButlerCardBody } from "./ButlerLayer.tsx";
-import { openThreadCard } from "./butlerThreads.ts";
+import { ButlerByline } from "./ButlerLayer.tsx";
 import { boardPointAt, detail, view } from "./Canvas.tsx";
-import { colourOf } from "./colours.ts";
 import { commandKey } from "./focus/platform.ts";
 import {
 	isPlain,
@@ -69,13 +65,6 @@ import {
 } from "./notes.ts";
 import type { Rect } from "./placement.ts";
 import { spacedFrom, spacedMove, spacedResize } from "./placement.ts";
-import {
-	cardOwners,
-	inFilter,
-	projectFilter,
-	tileKeyOf,
-} from "./projectRegions.ts";
-import { projectsById } from "./projects.ts";
 import {
 	openReport,
 	ReportDashboard,
@@ -115,23 +104,6 @@ function onNoteControl(event: MouseEvent): boolean {
 	return onScrollbar || target.closest("a, button, input") !== null;
 }
 
-/** Butler's notes pinned beside a card of his go where the card goes. */
-function withReplies(chosen: readonly Annotation[]): Annotation[] {
-	const cards = new Set(
-		chosen.filter((a) => a.kind === "butler-card").map((a) => a.id),
-	);
-	if (cards.size === 0) return [...chosen];
-	const ids = new Set(chosen.map((a) => a.id));
-	const replies = Object.values(current.peek()).filter(
-		(a) =>
-			a.kind === "note" &&
-			a.session !== undefined &&
-			cards.has(a.session) &&
-			!ids.has(a.id),
-	);
-	return [...chosen, ...replies];
-}
-
 /**
  * Where annotations may go: a grid cell from every card and annotation
  * not moving with them, and from every project frame, unless inside one,
@@ -154,7 +126,7 @@ function grab(event: PointerEvent, annotation: Annotation): void {
 	}
 	const wasSelected = selection.peek().has(annotation.id);
 	if (!wasSelected) select([annotation.id]);
-	const origins = resizing ? [annotation] : withReplies(selected.peek());
+	const origins = resizing ? [annotation] : [...selected.peek()];
 	const start = { x: event.clientX, y: event.clientY };
 	let latest: Annotation[] = origins;
 	const fits = spacing(origins);
@@ -216,6 +188,14 @@ function openMenu(event: MouseEvent, annotation: Annotation): void {
 	event.preventDefault();
 	event.stopPropagation();
 	if (!selection.peek().has(annotation.id)) select([annotation.id]);
+	annotationMenu.value = { client: { x: event.clientX, y: event.clientY } };
+}
+
+/** The menu of one of Butler's cards, drawn as a session: pin it, close it, or say a change is done. */
+export function openCardMenu(event: MouseEvent, card: string): void {
+	event.preventDefault();
+	event.stopPropagation();
+	select([card]);
 	annotationMenu.value = { client: { x: event.clientX, y: event.clientY } };
 }
 
@@ -366,20 +346,17 @@ function StickerBody(props: { sticker: Sticker }): JSX.Element {
 	);
 }
 
-function annotationLabel(annotation: Annotation): string | undefined {
+function annotationLabel(annotation: Note | Sticker): string | undefined {
 	if (annotation.kind === "sticker") {
 		return stickerNames.get(annotation.sticker) ?? annotation.sticker;
 	}
-	if (annotation.kind === "butler-card") return `Butler: ${annotation.title}`;
 	return annotation.text ? undefined : "Empty note";
 }
 
 function AnnotationView(props: {
-	annotation: Annotation;
+	annotation: Note | Sticker;
 	selected: boolean;
 	editing: boolean;
-	region?: RegionColour;
-	dimmed?: boolean;
 }): JSX.Element {
 	const { annotation } = props;
 	const kindClass =
@@ -388,7 +365,7 @@ function AnnotationView(props: {
 			: annotation.kind;
 	return (
 		<div
-			class={`annotation ${kindClass}${props.selected ? " selected" : ""}${props.editing ? " editing" : ""}${props.dimmed ? " filtered-out" : ""}`}
+			class={`annotation ${kindClass}${props.selected ? " selected" : ""}${props.editing ? " editing" : ""}`}
 			style={position(annotation)}
 			data-annotation={annotation.id}
 			data-no-pan
@@ -397,28 +374,7 @@ function AnnotationView(props: {
 			aria-label={annotationLabel(annotation)}
 			onPointerDown={(event) => grab(event, annotation)}
 			onWheel={annotation.kind !== "sticker" ? scrollNoteText : undefined}
-			onClick={(event) => {
-				// A click, not a drag, on one of Butler's thread cards opens its thread.
-				if (annotation.kind !== "butler-card" || !annotation.thread) return;
-				if (justDragged || event.shiftKey) return;
-				if ((event.target as Element).closest("a, button, [data-resize]")) {
-					return;
-				}
-				openThreadCard.value = annotation.thread.id;
-			}}
-			onKeyDown={(event) => {
-				if (event.key !== "Enter" || event.target !== event.currentTarget) {
-					return;
-				}
-				if (annotation.kind === "butler-card" && annotation.thread) {
-					openThreadCard.value = annotation.thread.id;
-				}
-			}}
 			onDblClick={(event) => {
-				if (annotation.kind === "butler-card" && annotation.thread) {
-					openThreadCard.value = annotation.thread.id;
-					return;
-				}
 				if (annotation.kind !== "note" || onNoteControl(event)) return;
 				if (annotation.kind === "note" && annotation.report) {
 					openReport.value = annotation.id;
@@ -431,8 +387,6 @@ function AnnotationView(props: {
 		>
 			{annotation.kind === "note" ? (
 				<NoteBody note={annotation} editing={props.editing} />
-			) : annotation.kind === "butler-card" ? (
-				<ButlerCardBody card={annotation} region={props.region} />
 			) : (
 				<StickerBody sticker={annotation} />
 			)}
@@ -460,33 +414,19 @@ export function ReportModalHost(): JSX.Element | null {
 export function AnnotationLayer(): JSX.Element {
 	const chosen = selection.value;
 	const open = editing.value;
-	const filter = projectFilter.value;
-	const owners = cardOwners.value;
-	const byId = projectsById.value;
-	const dimmed = (annotation: Annotation) =>
-		annotation.kind === "butler-card" &&
-		!inFilter(filter, annotation.id, owners, byId);
-	const regions = new Map<string, RegionColour>();
-	const underTiles = new Set<string>();
-	const far = detail.value === "far";
-	for (const project of groups.value) {
-		for (const id of project.cards ?? []) {
-			regions.set(id, colourOf(project.cwd));
-			if (far && tileKeyOf(project.cwd) !== undefined) underTiles.add(id);
-		}
-	}
 	return (
 		<>
 			{ordered.value
-				.filter((annotation) => !underTiles.has(annotation.id))
+				.filter(
+					(annotation): annotation is Note | Sticker =>
+						annotation.kind !== "butler-card",
+				)
 				.map((annotation) => (
 					<AnnotationView
 						key={annotation.id}
 						annotation={annotation}
 						selected={chosen.has(annotation.id)}
 						editing={open === annotation.id}
-						region={regions.get(annotation.id)}
-						dimmed={dimmed(annotation)}
 					/>
 				))}
 		</>
@@ -574,8 +514,7 @@ export function AnnotationMenu(): JSX.Element | null {
 			: undefined;
 	const fix = butlerCard?.selfFix;
 	const left = Math.min(menu.client.x, innerWidth - 232);
-	const height =
-		(notes.length ? 252 : 156) + (fix ? 72 : 0) + (butlerCard ? 36 : 0);
+	const height = butlerCard ? 84 + (fix ? 72 : 0) : notes.length ? 252 : 156;
 	const top = Math.min(menu.client.y, innerHeight - height);
 	return (
 		<div
@@ -621,24 +560,28 @@ export function AnnotationMenu(): JSX.Element | null {
 					))}
 				</fieldset>
 			)}
-			<MenuItem
-				icon={<Copy size={14} aria-hidden="true" />}
-				label="Duplicate"
-				shortcut={`${commandKey}D`}
-				onSelect={duplicateSelection}
-			/>
-			<MenuItem
-				icon={<BringToFront size={14} aria-hidden="true" />}
-				label="Bring to front"
-				shortcut={`${commandKey}]`}
-				onSelect={bringSelectionToFront}
-			/>
-			<MenuItem
-				icon={<SendToBack size={14} aria-hidden="true" />}
-				label="Send to back"
-				shortcut={`${commandKey}[`}
-				onSelect={sendSelectionToBack}
-			/>
+			{!butlerCard && (
+				<>
+					<MenuItem
+						icon={<Copy size={14} aria-hidden="true" />}
+						label="Duplicate"
+						shortcut={`${commandKey}D`}
+						onSelect={duplicateSelection}
+					/>
+					<MenuItem
+						icon={<BringToFront size={14} aria-hidden="true" />}
+						label="Bring to front"
+						shortcut={`${commandKey}]`}
+						onSelect={bringSelectionToFront}
+					/>
+					<MenuItem
+						icon={<SendToBack size={14} aria-hidden="true" />}
+						label="Send to back"
+						shortcut={`${commandKey}[`}
+						onSelect={sendSelectionToBack}
+					/>
+				</>
+			)}
 			{butlerCard && (
 				<MenuItem
 					icon={
@@ -674,7 +617,9 @@ export function AnnotationMenu(): JSX.Element | null {
 			<span class="board-menu-sep" />
 			<MenuItem
 				icon={<Trash2 size={14} aria-hidden="true" />}
-				label={fix ? "Delete and archive change" : "Delete"}
+				label={
+					fix ? "Delete and archive change" : butlerCard ? "Close" : "Delete"
+				}
 				shortcut="⌫"
 				onSelect={deleteSelection}
 				danger

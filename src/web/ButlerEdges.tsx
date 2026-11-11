@@ -3,7 +3,6 @@ import { X } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { Board, ButlerEdgeMessage } from "../shared/types.ts";
-import { current } from "./annotations.ts";
 import { butlerPresence } from "./butler.ts";
 import {
 	butlerEdges,
@@ -53,7 +52,6 @@ export function ButlerEdges(props: {
 		props.layout.nodes.get(nodeKey({ kind: "session", id }));
 	const { lines, chips } = drawnEdges(
 		butlerEdges.value,
-		current.value,
 		props.board.sessions,
 		box,
 		dmThread(),

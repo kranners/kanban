@@ -8,6 +8,7 @@ import type {
 	UsageSample,
 	UsageWindow,
 } from "../shared/types.ts";
+import { claudeSessions } from "./butlerSessions.ts";
 
 export const usage = signal<Usage | null>(null);
 
@@ -134,7 +135,7 @@ export const sessionsByAccount = (
 ): Map<string, Session[]> => {
 	const byAccount = new Map<string, Session[]>();
 	const fallback = accounts.find((account) => account.isDefault) ?? null;
-	for (const session of sessions) {
+	for (const session of claudeSessions(sessions)) {
 		if (session.runner) continue;
 		const account = session.configDir
 			? accountOf(session.configDir, accounts)

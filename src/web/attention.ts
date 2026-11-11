@@ -1,6 +1,7 @@
 import { subagentState } from "../shared/subagents.ts";
 import type { Activity, Board, Point } from "../shared/types.ts";
 import type { KeyPress } from "./actions.ts";
+import { claudeSessions } from "./butlerSessions.ts";
 import type { NodeKey } from "./layout.ts";
 import { nodeKey } from "./layout.ts";
 
@@ -10,7 +11,7 @@ const markedArrivals: ReadonlySet<Activity> = new Set(["done", "failed"]);
 
 export function activitiesOf(board: Board): Map<NodeKey, Activity> {
 	return new Map([
-		...board.sessions.map(
+		...claudeSessions(board.sessions).map(
 			(s) => [nodeKey({ kind: "session", id: s.id }), s.activity] as const,
 		),
 		...board.subagents.map(

@@ -27,6 +27,7 @@ import {
 import { type Project, stageNames } from "../shared/projects.ts";
 import type { ButlerCard } from "../shared/types.ts";
 import { waitingApprovals } from "./Approvals.tsx";
+import { claudeSessions } from "./butlerSessions.ts";
 import { openThreadCard } from "./butlerThreads.ts";
 import { LifecycleStrip } from "./Projects.tsx";
 import { cardOwners } from "./projectRegions.ts";
@@ -520,7 +521,7 @@ function Children(props: { children: readonly Project[] }) {
 	);
 }
 
-const sessionsOf = () => board.value?.sessions ?? [];
+const sessionsOf = () => claudeSessions(board.value?.sessions ?? []);
 const butlerCards = (): ButlerCard[] =>
 	Object.values(annotations.value).filter(
 		(a): a is ButlerCard => a.kind === "butler-card",

@@ -75,16 +75,12 @@ export async function startJob(
 /** How many cards and sessions came from a thread card. */
 export function linkedCount(
 	card: ButlerCard,
-	annotations: Annotations,
 	sessions: readonly Session[],
 ): number {
 	if (!card.thread) return 0;
 	const id = card.thread.id;
-	return (
-		Object.values(annotations).filter(
-			(a) => a.kind === "butler-card" && a.parent === card.id,
-		).length + sessions.filter((s) => s.parent?.thread === id).length
-	);
+	return sessions.filter((s) => s.id !== card.id && s.parent?.thread === id)
+		.length;
 }
 
 /** The title of the thread card a card or session came from, if it is on the board. */
@@ -121,12 +117,6 @@ export function isFromDm(
 		parent.title === dmTitle &&
 		(parent.card === undefined || annotations[parent.card] === undefined)
 	);
-}
-
-/** Opens one of Butler's cards: its thread's view, or else its link. */
-export function openButlerCard(card: ButlerCard): void {
-	if (card.thread) openThreadCard.value = card.thread.id;
-	else if (card.link) window.open(card.link, "_blank", "noopener,noreferrer");
 }
 
 /** Opens the thread card a card or session came from, when it has one. */

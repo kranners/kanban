@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type {
-	Annotations,
 	ButlerCard,
 	ButlerEdgeSummary,
 	Session,
@@ -34,19 +33,18 @@ const card = (thread: string, x: number): ButlerCard => ({
 	},
 });
 
-const annotations: Annotations = {
-	"thread-11111": card("11111", 0),
-	"thread-22222": card("22222", 600),
-};
+const cards = [card("11111", 0), card("22222", 600)];
 
 const sessions = [
 	{ id: "session_abc", short: null, name: "cloud abc" },
 	{ id: "local-1", short: "ab12cd34", name: "local" },
+	...cards.map((c) => ({ id: c.id, short: null, name: c.title })),
 ] as Session[];
 
 const boxes: Record<string, { x: number; y: number; w: number; h: number }> = {
 	session_abc: { x: 0, y: 600, w: 300, h: 200 },
 	"local-1": { x: 600, y: 600, w: 300, h: 200 },
+	...Object.fromEntries(cards.map((c) => [c.id, c])),
 };
 const box = (id: string) => boxes[id];
 
@@ -77,7 +75,6 @@ test("links threads and sessions on the board, merging the ways one pair went", 
 			}),
 			edge(thread("22222"), sessionEnd("ab12cd34")),
 		],
-		annotations,
 		sessions,
 		box,
 		undefined,
@@ -101,7 +98,6 @@ test("an end that is not on the board draws nothing, and the DM becomes a chip",
 			edge(thread("22222"), thread("33333")),
 			edge(thread("33333"), sessionEnd("gone")),
 		],
-		annotations,
 		sessions,
 		box,
 		"33333",
@@ -119,13 +115,10 @@ test("an end that is not on the board draws nothing, and the DM becomes a chip",
 		"✉ 4 from DM · 5m",
 	);
 	assert.equal(chipLabel(chips[1] as never, 100), "✉ 1 to DM · now");
-	assert.deepEqual(
-		chipSpot({ box: annotations["thread-11111"] as ButlerCard, index: 1 }),
-		{
-			x: 300,
-			y: -30,
-		},
-	);
+	assert.deepEqual(chipSpot({ box: cards[0] as ButlerCard, index: 1 }), {
+		x: 300,
+		y: -30,
+	});
 });
 
 test("a pill says how many and when", () => {

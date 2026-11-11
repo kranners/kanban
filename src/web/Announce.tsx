@@ -1,4 +1,5 @@
 import "./focus/focus.css";
+import { claudeSessions } from "./butlerSessions.ts";
 import "./actions.css";
 import "./permissions.css";
 import { Check, CircleAlert, LoaderCircle, Megaphone, X } from "lucide-preact";
@@ -62,7 +63,7 @@ export function AnnounceDialog(props: { onClose: () => void }): JSX.Element {
 		field.current?.focus();
 	}, []);
 
-	const live = (board.value?.sessions ?? []).filter(
+	const live = claudeSessions(board.value?.sessions ?? []).filter(
 		(session) =>
 			session.activity !== "stopped" && session.activity !== "failed",
 	);

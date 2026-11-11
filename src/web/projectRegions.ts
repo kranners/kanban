@@ -1,6 +1,7 @@
 import { computed, effect, signal } from "@preact/signals";
 import { projectsOf } from "../shared/butlerRegions.ts";
 import type { ButlerCard, Region } from "../shared/types.ts";
+import { claudeSessions } from "./butlerSessions.ts";
 import { projectsById, projectsListing } from "./projects.ts";
 import {
 	filterKey,
@@ -24,7 +25,7 @@ export const cardOwners = computed(() =>
 	projectsOf(
 		butlerCards.value,
 		projectsListing.value.projects,
-		board.value?.sessions ?? [],
+		claudeSessions(board.value?.sessions ?? []),
 	),
 );
 

@@ -603,20 +603,22 @@ test("a resize stops at the last size that kept a grid cell clear", () => {
 	assert.deepEqual(spacedResize(grown, card, fits, false), card);
 });
 
+const cardAt = (rect: { x: number; y: number; w: number; h: number }) => ({
+	...rect,
+	pinned: true as const,
+});
+
 test("a Butler card's subagents stand in a column under the card, clear of sessions", () => {
 	const b = board({
-		sessions: [session("a", 1)],
+		sessions: [session("a", 1), session("self-fix-1", 2)],
 		subagents: [subagent("x", "self-fix-1"), subagent("y", "self-fix-1", 2)],
 	});
-	const cardRect = { id: "self-fix-1", x: 2000, y: 1000, w: 312, h: 216 };
+	const cardRect = { x: 2000, y: 1000, w: 312, h: 216 };
 	const placed = arrange(
 		b,
-		{},
+		{ "session:self-fix-1": cardAt(cardRect) },
 		seedsOf(b, ["self-fix-1"]),
 		new Map(),
-		[cardRect],
-		[],
-		[cardRect],
 	);
 	const x = placed.nodes.get("subagent:x");
 	const y = placed.nodes.get("subagent:y");
@@ -626,25 +628,32 @@ test("a Butler card's subagents stand in a column under the card, clear of sessi
 	assert.ok(x.y >= cardRect.y + cardRect.h, "under the card");
 	assert.ok(y.y > x.y);
 	assert.ok(x.x >= cardRect.x && x.x + x.w <= cardRect.x + cardRect.w);
-	assert.ok(placed.anchors.has("session:self-fix-1"));
-	assert.equal(placed.nodes.has("session:self-fix-1"), false);
+	const card = placed.nodes.get("session:self-fix-1");
+	assert.deepEqual(
+		card && { x: card.x, y: card.y, w: card.w, h: card.h },
+		cardRect,
+		"the card is a session where Tidy put it",
+	);
 	const a = placed.nodes.get("session:a");
 	assert.ok(a);
-	for (const follower of [x, y]) assert.ok(!near(a, follower, 0));
+	for (const follower of [x, y, card])
+		assert.ok(follower && !near(a, follower, 0));
 });
 
 test("a Butler card's subagents move clear of another card dropped under it", () => {
-	const b = board({ subagents: [subagent("x", "self-fix-1")] });
-	const card = { id: "self-fix-1", x: 0, y: 0, w: 312, h: 216 };
-	const other = { id: "self-fix-2", x: 0, y: 240, w: 312, h: 216 };
+	const b = board({
+		sessions: [session("self-fix-1", 1), session("self-fix-2", 2)],
+		subagents: [subagent("x", "self-fix-1")],
+	});
+	const other = { x: 0, y: 240, w: 312, h: 216 };
 	const placed = arrange(
 		b,
-		{},
-		seedsOf(b, ["self-fix-1"]),
+		{
+			"session:self-fix-1": cardAt({ x: 0, y: 0, w: 312, h: 216 }),
+			"session:self-fix-2": cardAt(other),
+		},
+		seedsOf(b, ["self-fix-1", "self-fix-2"]),
 		new Map(),
-		[card, other],
-		[],
-		[card],
 	);
 	const x = placed.nodes.get("subagent:x");
 	assert.ok(x);
@@ -653,20 +662,14 @@ test("a Butler card's subagents move clear of another card dropped under it", ()
 
 test("a Butler card's subagents move clear of a session placed by hand under it", () => {
 	const b = board({
-		sessions: [session("a", 1)],
+		sessions: [session("a", 1), session("self-fix-1", 2)],
 		subagents: [subagent("x", "self-fix-1")],
 	});
-	const card = { id: "self-fix-1", x: 0, y: 0, w: 312, h: 216 };
-	const saved: Layout = { "session:a": { x: 0, y: 240, pinned: true } };
-	const placed = arrange(
-		b,
-		saved,
-		seedsOf(b, ["self-fix-1"]),
-		new Map(),
-		[card],
-		[],
-		[card],
-	);
+	const saved: Layout = {
+		"session:a": { x: 0, y: 240, pinned: true },
+		"session:self-fix-1": cardAt({ x: 0, y: 0, w: 312, h: 216 }),
+	};
+	const placed = arrange(b, saved, seedsOf(b, ["self-fix-1"]), new Map());
 	const x = placed.nodes.get("subagent:x");
 	const a = placed.nodes.get("session:a");
 	assert.ok(x && a);

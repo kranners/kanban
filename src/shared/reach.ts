@@ -8,8 +8,11 @@ export const sameAccount = (a: Reachable, b: Reachable): boolean =>
 	a.configDir === b.configDir;
 
 export const linkRefusal = (
-	session: Pick<Session, "name" | "cloud" | "kind">,
+	session: Pick<Session, "name" | "cloud" | "kind" | "butler">,
 ): string | null => {
+	if (session.butler) {
+		return `${session.name} is one of Butler's cards, which Butler briefs himself`;
+	}
 	if (session.cloud) {
 		return `${session.name} runs in the cloud, where the board can't brief it or give it doc tools`;
 	}
