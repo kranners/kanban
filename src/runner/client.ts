@@ -206,6 +206,8 @@ export const startRunnerClient = ({
 	};
 
 	const register = async (): Promise<void> => {
+		// Its own secret every time, so a hub that couldn't enrol it before, such as one not yet told its address, can now.
+		bearer = secret ?? config.token;
 		let response = await registerWith(bearer);
 		if ((response.status === 401 || response.status === 403) && secret) {
 			const refused = await enrol(secret).catch(
