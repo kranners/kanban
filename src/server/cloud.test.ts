@@ -584,6 +584,7 @@ const storeIn = async (dir: string, fake: FakeCloud) => {
 		dir: join(dir, "cloud"),
 		apiFor: () => fake.api,
 		pollMs: 5,
+		effects: true,
 		onChange: () => {
 			changes += 1;
 		},
@@ -890,7 +891,7 @@ describe("createCloudSessions", () => {
 		assert.equal(refused.ok, false);
 		assert.match(
 			!refused.ok ? refused.error : "",
-			/not in the safe set: pushes to main/,
+			/left for Aaron: pushes to main/,
 		);
 		assert.equal((await store.approveSafe(id, "nope")).ok, false);
 		assert.deepEqual(fake.responses, []);
@@ -1074,7 +1075,7 @@ describe("createCloudSessions", () => {
 		assert.equal(store.prompts(id)[0]?.requestId, "later");
 		assert.match(
 			store.sessions()[0]?.detail ?? "",
-			/Butler's reviewer checks within seconds/,
+			/which the board allows as safe/,
 		);
 		assert.deepEqual(await store.approveSafe(id, "later"), {
 			ok: true,
@@ -1094,7 +1095,11 @@ describe("createCloudSessions", () => {
 		);
 		fake.info.set(id, info("requires_action", "2026-10-30T12:00:05Z"));
 		await until(() => store.prompts(id)[0]?.requestId === "stop");
-		await until(() => /left for you/.test(store.sessions()[0]?.detail ?? ""));
+		await until(() =>
+			/Needs your yes: .*changes environments/.test(
+				store.sessions()[0]?.detail ?? "",
+			),
+		);
 		const refused = await store.approveSafe(id, "stop");
 		assert.equal(refused.ok, false);
 		store.stop();

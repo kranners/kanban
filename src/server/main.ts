@@ -131,7 +131,6 @@ import {
 import { createMirrorHub } from "./mirror.ts";
 import { createNotificationStore, loadNotifications } from "./notifications.ts";
 import { createPeerHook, peerHookSettings } from "./peers.ts";
-import { createPermissions } from "./permissions.ts";
 import { createProjectsSource } from "./projects.ts";
 import { createPromptSender } from "./prompts.ts";
 import { createRegionStore, loadRegions } from "./regions.ts";
@@ -775,7 +774,7 @@ const boardTools = createBoardTools({
 	announce,
 	answer: conversation.respond,
 	approver: promptApprover,
-	namesEffects: answersByEffect,
+	answersPrompts: answersByEffect,
 	history: (since) =>
 		readHistory(
 			{
@@ -970,11 +969,6 @@ const server = createKanbanServer({
 			? runnerHub.browse(runsOn, path)
 			: browseFolder(path, { machine: hubMachine, home: homedir() }),
 	makeDefault,
-	permissions: createPermissions({
-		sessions: () => source.board().sessions,
-		isExiting: runExit.isExiting,
-		ask,
-	}),
 	announce,
 	feed,
 	audit,

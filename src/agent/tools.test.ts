@@ -40,13 +40,6 @@ describe("tool definitions", () => {
 			create_region: { cwd: "/tmp", x: 0, y: 0, w: 480, h: 336 },
 			update_region: { id: "r-1", name: "Acme" },
 			delete_region: { id: "r-1" },
-			pending_reviews: {},
-			review_prompt: {
-				session: "abcd1234",
-				prompt: "p-1",
-				verdict: "hold",
-				reason: "asks for a token",
-			},
 		};
 		for (const tool of toolDefinitions) {
 			const call = parseToolCall(tool.name, minimal[tool.name]);
@@ -277,41 +270,21 @@ describe("parseToolCall", () => {
 		);
 	});
 
-	it("approves safe prompts of one session or of every session needing the user", () => {
-		assert.deepEqual(
-			parseToolCall("answer_prompt", { session: "a", allow_safe: true }),
-			{ tool: "answer_prompt", session: "a", reply: null, allowSafe: true },
-		);
+	it("has no tool that approves a session's prompts for the user", () => {
 		assert.match(
-			error("answer_prompt", { session: "a", allow_safe: false }) ?? "",
-			/allow_safe must be true/,
+			error("answer_prompt", { session: "a", allow_safe: true }) ?? "",
+			/allow_safe/,
 		);
-		assert.match(
-			error("answer_prompt", {
-				session: "a",
-				allow_safe: true,
-				prompt: "p",
-				answers: [{ selected: ["Yes"] }],
-			}) ?? "",
-			/takes no prompt or answers/,
-		);
-		assert.match(error("answer_prompt", { allow_safe: true }) ?? "", /session/);
-		assert.deepEqual(parseToolCall("approve_safe_prompts", {}), {
-			tool: "approve_safe_prompts",
-			sessions: null,
-		});
-		assert.deepEqual(
-			parseToolCall("approve_safe_prompts", { sessions: ["a", "b"] }),
-			{ tool: "approve_safe_prompts", sessions: ["a", "b"] },
-		);
-		assert.match(
-			error("approve_safe_prompts", { sessions: [] }) ?? "",
-			/1 to 100/,
-		);
-		assert.match(
-			error("approve_safe_prompts", { sessions: [""] }) ?? "",
-			/session ids/,
-		);
+		for (const removed of [
+			"approve_safe_prompts",
+			"pending_reviews",
+			"review_prompt",
+		]) {
+			assert.ok(
+				!toolDefinitions.some((tool) => tool.name === removed),
+				removed,
+			);
+		}
 	});
 
 	it("keeps only given optional fields and allows clearing a colour", () => {

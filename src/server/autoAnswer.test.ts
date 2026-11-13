@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Session } from "../shared/types.ts";
 import type { AuditEvent } from "./audit.ts";
-import { createAutoAnswer, permissionsMode } from "./autoAnswer.ts";
+import {
+	createAutoAnswer,
+	permissionsMode,
+	promptDecision,
+} from "./autoAnswer.ts";
 import type { OpenPrompt } from "./boardTools.ts";
-import { effectWhy } from "./cloud.ts";
+import { waitingWhy } from "./cloud.ts";
 
 const session = (id: string, overrides: Partial<Session> = {}) =>
 	({
@@ -77,8 +81,129 @@ describe("the board's automatic answer", () => {
 			["session_a", "test"],
 		]);
 		assert.deepEqual(
-			events.map((event) => event.action === "prompt-approve" && event.via),
-			["safe set", "safe set"],
+			events.map((event) =>
+				"requestId" in event ? [event.action, event.requestId] : null,
+			),
+			[
+				["prompt-approve", "spawn"],
+				["prompt-hold", "push"],
+				["prompt-approve", "test"],
+			],
+		);
+	});
+
+	it("audits each decision once, and nothing for a poll that finds nothing new", async () => {
+		const open = new Map([
+			[
+				"session_a",
+				[
+					prompt("push", "Bash", { command: "git push origin main" }),
+					prompt("test", "Bash", { command: "npm test" }),
+				],
+			],
+		]);
+		const { run, events } = harness([session("session_a")], open);
+		await run();
+		await run();
+		await run();
+		assert.equal(events.length, 2);
+		const hold = events.find((event) => event.action === "prompt-hold");
+		assert.ok(hold && "result" in hold);
+		assert.match(hold.result, /main/);
+	});
+
+	it("holds claude.ai's session tools that ask for secrets, a force push, wider permissions or a session off the board", async () => {
+		const remote = (
+			requestId: string,
+			tool: string,
+			input: Record<string, unknown>,
+		) => prompt(requestId, `mcp__claude-code-remote__${tool}`, input);
+		const open = new Map([
+			[
+				"session_a",
+				[
+					remote("spawn", "create_session", {
+						prompt: "Carry on with the tests",
+					}),
+					remote("secret", "create_session", {
+						prompt: "Paste the GitHub token here",
+					}),
+					remote("force", "send_message", {
+						session_id: "session_b",
+						message: "force-push it",
+					}),
+					remote("wider", "create_session", {
+						prompt: "run with --permission-mode bypassPermissions",
+					}),
+					remote("stranger", "send_message", {
+						session_id: "session_x",
+						message: "hi",
+					}),
+					remote("sibling", "send_message", {
+						session_id: "session_b",
+						message: "done",
+					}),
+					remote("title", "set_session_title", { title: "Tests" }),
+					remote("repo", "add_repo", { owner: "someone", repo: "thing" }),
+				],
+			],
+		]);
+		const { run, allowed, events } = harness(
+			[session("session_a"), session("session_b", { activity: "working" })],
+			open,
+		);
+		await run();
+		assert.deepEqual(
+			allowed.map(([, id]) => id),
+			["spawn", "sibling", "title", "repo"],
+		);
+		assert.deepEqual(
+			events
+				.filter((event) => event.action === "prompt-hold")
+				.map((event) => "result" in event && event.result),
+			[
+				"asks for credentials or secrets",
+				"asks for a force push",
+				"asks to widen permissions",
+				"sends to a session that is not on the board",
+			],
+		);
+	});
+
+	it("decides a prompt the same way wherever it is asked, holding nothing the safe set refuses", () => {
+		const targets = { self: "session_a", onBoard: () => false };
+		assert.equal(
+			promptDecision(
+				{
+					toolName: "Bash",
+					title: "Bash",
+					input: { command: "git push origin main" },
+				},
+				targets,
+			).safe,
+			false,
+		);
+		assert.deepEqual(
+			promptDecision(
+				{
+					toolName: "mcp__claude-code-remote__send_later",
+					title: "Send Later",
+					input: { message: "check CI" },
+				},
+				targets,
+			),
+			{ safe: true },
+		);
+		assert.equal(
+			promptDecision(
+				{
+					toolName: "mcp__claude-code-remote__request_credential",
+					title: "Request Credential",
+					input: {},
+				},
+				targets,
+			).safe,
+			false,
 		);
 	});
 
@@ -152,7 +277,7 @@ describe("the board's automatic answer", () => {
 		assert.equal(permissionsMode("everything"), "legacy");
 	});
 
-	it("says on a cloud card what the board allows and what it leaves for Aaron", () => {
+	it("says on a cloud card what the board decided, and that every prompt waits while it answers none", () => {
 		const open = (command: string) => ({
 			requestId: "r",
 			toolUseId: null,
@@ -165,13 +290,21 @@ describe("the board's automatic answer", () => {
 				? { safe: true }
 				: { safe: false, reason: "pushes to main" };
 		assert.equal(
-			effectWhy([open("npm test"), open("git push origin main")], verdict),
+			waitingWhy(
+				[open("npm test"), open("git push origin main")],
+				verdict,
+				true,
+			),
 			"Needs your yes: asks to use Bash, which pushes to main",
 		);
 		assert.equal(
-			effectWhy([open("npm test")], verdict),
+			waitingWhy([open("npm test")], verdict, true),
 			"Asks to use Bash, which the board allows as safe",
 		);
-		assert.equal(effectWhy([], verdict), null);
+		assert.equal(
+			waitingWhy([open("npm test")], verdict, false),
+			"Needs your yes: asks to use Bash",
+		);
+		assert.match(waitingWhy([], verdict, true), /cannot read/);
 	});
 });

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type {
 	ButlerThreadApproval,
 	ButlerWaitingApproval,
+	Session,
 } from "../shared/types.ts";
 import {
 	answerApproval,
@@ -13,16 +14,21 @@ import {
 	fetchApprovals,
 	holdMs,
 } from "./approvalCard.ts";
-import { needing, visitNextNeedingYou } from "./attentionState.ts";
+import { needing } from "./attentionState.ts";
 import { openThreadCard } from "./butlerThreads.ts";
+import { DialogForm } from "./focus/DialogForm.tsx";
+import { useConversation } from "./focus/useConversation.ts";
+import { nodeKey } from "./layout.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { holdReload, reloadPage } from "./pageBuild.ts";
 import { useRestoreFocus } from "./restoreFocus.ts";
+import { board, openSession } from "./state.ts";
 
-// Approving Butler's requests from the board: each request's card laid out
-// as Discord shows it, with Approve and Decline that count as Aaron's own
-// press, Approve held for a second on anything critical, and the Waiting on
-// you panel, which lists every request and approves the safe ones at once.
+// The board's one place for what waits on Aaron, the Waiting on you panel:
+// each of Butler's requests as Discord shows it, with Approve and Decline
+// that count as Aaron's own press, Approve held for a second on anything
+// critical, and each board session's prompt or question the board's
+// decision path left for him, with why and its own answers.
 
 /** Whether the Waiting on you panel is open. */
 export const approvalsOpen = signal(false);
@@ -256,7 +262,55 @@ export function WaitingApprovalsButton(props: {
 	);
 }
 
-/** Every request waiting on Aaron, with Approve all, and the board's own sessions waiting on a prompt. */
+/** One board session's prompt or question, with why the board left it for Aaron and its answers, over the session's own conversation. */
+function SessionWaiting(props: { session: Session }): JSX.Element {
+	const { session } = props;
+	const { view, request } = useConversation({
+		kind: "session",
+		id: session.id,
+	});
+	return (
+		<article class="approval-card approvals-session" aria-label={session.name}>
+			<header class="approval-card-head">
+				<button
+					type="button"
+					class="approvals-session-name"
+					title="Open the session"
+					onClick={() => openSession(session.id)}
+				>
+					{session.name}
+				</button>
+			</header>
+			{session.needs && <p class="comment-footnote">{session.needs}</p>}
+			{view.dialog ? (
+				<DialogForm
+					dialog={view.dialog}
+					answerable={view.answerable}
+					readOnly={view.drive?.mode === "read" ? view.drive.reason : null}
+					items={view.window.items}
+					onRequest={request}
+					onTerminal={() => openSession(session.id)}
+				/>
+			) : (
+				<p class="comment-footnote">
+					{view.connection === "open"
+						? "Waiting on something this view cannot show; open the session."
+						: "Reading its prompt…"}
+				</p>
+			)}
+		</article>
+	);
+}
+
+/** The board's sessions waiting on Aaron, oldest card first as the board lists them. */
+function waitingSessions(): Session[] {
+	const waiting = needing.value;
+	return (board.value?.sessions ?? []).filter((session) =>
+		waiting.has(nodeKey({ kind: "session", id: session.id })),
+	);
+}
+
+/** Every request waiting on Aaron, with Approve all, and the board's own sessions waiting on a prompt with their answers. */
 function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 	const dialog = useRef<HTMLDialogElement>(null);
 	const [result, setResult] = useState<{
@@ -277,7 +331,7 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 	const open = all.filter((w) => !w.approval.pressed);
 	// Approve all takes every answerable request, critical ones included, with no confirm.
 	const approvable = open.filter((w) => w.approval.answerable);
-	const sessions = needing.value.size;
+	const sessions = waitingSessions();
 	const runAll = async () => {
 		setBusy(true);
 		// Only what the panel shows now: a request arriving after this press waits for its own answer.
@@ -380,26 +434,7 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 						)}
 					</section>
 				)}
-				{sessions > 0 && (
-					<section class="approvals-sessions">
-						<p>
-							{sessions} board session{sessions === 1 ? "" : "s"} wait
-							{sessions === 1 ? "s" : ""} on a prompt. The safe ones are
-							approved for you every minute; the rest show their real prompt
-							with its buttons in the session.
-						</p>
-						<button
-							type="button"
-							onClick={() => {
-								props.onClose();
-								visitNextNeedingYou();
-							}}
-						>
-							Go to the next one
-						</button>
-					</section>
-				)}
-				{open.length === 0 && sessions === 0 && (
+				{open.length === 0 && sessions.length === 0 && (
 					<p class="comment-footnote">Nothing is waiting on you.</p>
 				)}
 				{open.map((w) => (
@@ -409,6 +444,9 @@ function ApprovalsPanel(props: { onClose: () => void }): JSX.Element {
 						title={w.title}
 						approval={w.approval}
 					/>
+				))}
+				{sessions.map((session) => (
+					<SessionWaiting key={session.id} session={session} />
 				))}
 			</div>
 		</dialog>

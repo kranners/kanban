@@ -353,7 +353,7 @@ describe("safeVerdict", () => {
 		assert.ok(
 			SAFE_SESSION_RULES.includes("mcp__claude-code-remote__list_sessions"),
 		);
-		// Butler's reviewer judges every spawn, title, message and repository, so none is granted for good.
+		// Every spawn, title, message and repository is judged on its own, so none is granted for good.
 		for (const tool of [
 			"add_repo",
 			"set_session_title",

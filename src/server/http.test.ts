@@ -10,7 +10,6 @@ import type { ToolCall } from "../agent/tools.ts";
 import { startRunnerClient } from "../runner/client.ts";
 import { createJobRunner } from "../runner/jobs.ts";
 import type { SessionManager } from "../runner/sessions.ts";
-import type { PermissionGrant } from "../shared/permissions.ts";
 import type {
 	RunnerLaunch,
 	RunnerSession,
@@ -136,14 +135,8 @@ describe("matchRoute", () => {
 		assert.deepEqual(route("GET", "/api/sessions/abc-1/report"), {
 			kind: "method-not-allowed",
 		});
-		assert.deepEqual(route("POST", "/api/permissions/survey"), {
-			kind: "survey-permissions",
-		});
 		assert.deepEqual(route("POST", "/api/permissions/grant"), {
-			kind: "grant-permissions",
-		});
-		assert.deepEqual(route("GET", "/api/permissions/grant"), {
-			kind: "method-not-allowed",
+			kind: "not-found",
 		});
 		assert.deepEqual(
 			route("GET", "/api/folders?runsOn=runner_jimbo&path=~/x"),
@@ -441,7 +434,6 @@ describe("createKanbanServer", () => {
 	let butlerIds = 0;
 	const toolCalls: [string, ToolCall][] = [];
 	const madeDefault: number[] = [];
-	const granted: PermissionGrant[] = [];
 	const announced: [string, string | null][] = [];
 	const browsed: [string, string | null][] = [];
 	const refusedRunners: string[] = [];
@@ -787,18 +779,6 @@ describe("createKanbanServer", () => {
 				refused: (name) => {
 					refusedRunners.push(name);
 					runnerHub.refused(name);
-				},
-			},
-			permissions: {
-				survey: async () => ({ entries: [] }),
-				grant: async (grants) => {
-					granted.push(...grants);
-					return grants.map(({ sessionId, rules }) => ({
-						sessionId,
-						settingsPath: `/settings/${sessionId}`,
-						ok: true,
-						added: rules,
-					}));
 				},
 			},
 			announce: async (text, identity) => {
@@ -1925,40 +1905,6 @@ describe("createKanbanServer", () => {
 			[id, false],
 			[id, true],
 		]);
-	});
-
-	it("surveys and grants permissions, auditing each grant", async () => {
-		const surveyed = await send("POST", "/api/permissions/survey", {});
-		assert.equal(surveyed.status, 200);
-		assert.deepEqual(await surveyed.json(), { entries: [] });
-		const grants = [{ sessionId: "s1", rules: ["Bash(npm run test:*)"] }];
-		const response = await send("POST", "/api/permissions/grant", grants);
-		assert.equal(response.status, 200);
-		assert.deepEqual(await response.json(), [
-			{
-				sessionId: "s1",
-				settingsPath: "/settings/s1",
-				ok: true,
-				added: ["Bash(npm run test:*)"],
-			},
-		]);
-		assert.deepEqual(granted, grants);
-		assert.deepEqual(events.at(-1), {
-			action: "permissions-grant",
-			sessionId: "s1",
-			rules: ["Bash(npm run test:*)"],
-			identity: "me@example.com",
-			result: "added 1",
-		});
-		assert.equal(
-			(
-				await send("POST", "/api/permissions/grant", [
-					{ sessionId: "s1", rules: ["rm -rf /"] },
-				])
-			).status,
-			400,
-		);
-		assert.equal(granted.length, 1);
 	});
 
 	it("announces to every session for the signed-in user", async () => {

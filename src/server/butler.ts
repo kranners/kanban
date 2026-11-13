@@ -169,8 +169,6 @@ export const sessionTools = new Set<ToolCall["tool"]>([
 	"send_prompt",
 	"announce",
 	"answer_prompt",
-	"approve_safe_prompts",
-	"review_prompt",
 	"finish_session",
 	"start_session",
 ]);

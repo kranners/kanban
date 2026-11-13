@@ -1,16 +1,10 @@
-// Butler's reviewer for claude.ai's session tools: spike's
-// butler-kanban-reviewer reads the open prompts of this family with
-// pending_reviews, within seconds of each appearing, judges each with one
-// quick model call against what the session is doing, and answers with
-// review_prompt. Only prompts the fixed safe set already allows are ever
-// handed to it, so the reviewer can only hold back what the safe set would
-// approve, never approve anything more. A prompt it holds stays Aaron's,
-// with its one-line reason on the card; while one is being reviewed the safe
-// sweep leaves it alone, and once a review has not answered within
-// reviewWindowMs, or the reviewer says it is unavailable, the fixed safe set
-// takes it again.
+// claude.ai's session tools that spawn, message, title or tag sessions or
+// add a repository. The safe set allows them, but each prompt is judged on
+// its own, never granted for the rest of a session, and the board's one
+// decision path holds any that asks for secrets, a force push or wider
+// permissions, or that messages a session not on the board.
 
-/** claude.ai's session tools whose every prompt Butler's reviewer judges, never granted for the rest of a session. */
+/** claude.ai's session tools whose every prompt is judged alone, never granted for the rest of a session. */
 export const reviewedRemote: ReadonlySet<string> = new Set([
 	"create_session",
 	"send_message",
@@ -22,82 +16,44 @@ export const reviewedRemote: ReadonlySet<string> = new Set([
 
 const remotePrefix = "mcp__claude-code-remote__";
 
-/** Reads of claude.ai's session tools, which the reviewer approves without a model call. */
-const remoteRead = /^(get|list|read)_[a-z_]+$/;
+const redFlags: readonly [RegExp, string][] = [
+	[
+		/\b(passwords?|passwd|api[ _-]?keys?|secret keys?|access keys?|private keys?|ssh keys?|credentials?|(?:api|access|auth|bearer|github|oauth|session) tokens?|\.env\b|one[- ]time code|2fa code|otp)\b/i,
+		"asks for credentials or secrets",
+	],
+	[/(push\s+(-f\b|--force)|force[- ]push)/i, "asks for a force push"],
+	[
+		/(bypasspermissions|dangerously[- ]skip|skip[- ]permissions|--permission-mode|\bsudo\b)/i,
+		"asks to widen permissions",
+	],
+];
 
-/** The reviewer's family, by full tool name: the six above and claude.ai's own reads. */
-export const reviewKind = (toolName: string): "reviewed" | "read" | null => {
+const targetFields = [
+	"session_id",
+	"persistent_session_id",
+	"target_session_id",
+];
+
+/**
+ * Why a prompt of one of those tools stays Aaron's although the safe set
+ * allows it, or null when nothing about it does.
+ */
+export const reviewedHold = (
+	toolName: string,
+	input: Record<string, unknown>,
+	onBoard: (id: string) => boolean,
+): string | null => {
 	if (!toolName.startsWith(remotePrefix)) return null;
-	const tool = toolName.slice(remotePrefix.length);
-	if (reviewedRemote.has(tool)) return "reviewed";
-	return remoteRead.test(tool) ? "read" : null;
-};
-
-/** How long a prompt handed to the reviewer stays out of the sweep's reach. */
-export const reviewWindowMs = 90_000;
-/** How long a hold is remembered after it was made, well past any prompt's life. */
-const heldForMs = 7 * 24 * 60 * 60_000;
-
-type Review =
-	| { state: "reviewing"; at: number }
-	| { state: "held"; at: number; reason: string };
-
-export type PromptReviews = {
-	/** Marks a prompt as in review; false when it is already in review or held. */
-	claim(requestId: string): boolean;
-	/** Keeps a prompt for Aaron, with the reviewer's one-line reason. */
-	hold(requestId: string, reason: string): void;
-	/** Hands a prompt back to the fixed safe set. */
-	release(requestId: string): void;
-	/** The reviewer's reason when it held the prompt. */
-	held(requestId: string): string | null;
-	/** Whether the reviewer is judging it now. */
-	reviewing(requestId: string): boolean;
-};
-
-export const createPromptReviews = (
-	now: () => number = Date.now,
-): PromptReviews => {
-	const reviews = new Map<string, Review>();
-	const current = (requestId: string): Review | undefined => {
-		const review = reviews.get(requestId);
-		if (!review) return undefined;
-		const age = now() - review.at;
-		if (
-			(review.state === "reviewing" && age > reviewWindowMs) ||
-			(review.state === "held" && age > heldForMs)
-		) {
-			reviews.delete(requestId);
-			return undefined;
+	if (!reviewedRemote.has(toolName.slice(remotePrefix.length))) return null;
+	const text = JSON.stringify(input);
+	for (const [pattern, reason] of redFlags) {
+		if (pattern.test(text)) return reason;
+	}
+	for (const field of targetFields) {
+		const target = input[field];
+		if (typeof target === "string" && target !== "" && !onBoard(target)) {
+			return "sends to a session that is not on the board";
 		}
-		return review;
-	};
-	return {
-		claim(requestId) {
-			if (current(requestId)) return false;
-			reviews.set(requestId, { state: "reviewing", at: now() });
-			return true;
-		},
-		hold(requestId, reason) {
-			reviews.set(requestId, {
-				state: "held",
-				at: now(),
-				reason:
-					reason.replace(/\s+/g, " ").trim().slice(0, 200) || "no reason given",
-			});
-		},
-		release(requestId) {
-			reviews.delete(requestId);
-		},
-		held(requestId) {
-			const review = current(requestId);
-			return review?.state === "held" ? review.reason : null;
-		},
-		reviewing(requestId) {
-			return current(requestId)?.state === "reviewing";
-		},
-	};
+	}
+	return null;
 };
-
-/** The board's one store, shared by its tools and its cloud cards. */
-export const promptReviews = createPromptReviews();

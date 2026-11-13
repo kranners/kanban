@@ -87,7 +87,6 @@ import {
 	parseNotificationUpdate,
 } from "./notifications.ts";
 import { type PeerHook, parsePeerHookInput } from "./peers.ts";
-import { type Permissions, parseGrants } from "./permissions.ts";
 import type { ProjectsSource } from "./projects.ts";
 import {
 	isRegionId,
@@ -200,7 +199,6 @@ export type ServerDeps = {
 		| "refused"
 		| "jobResult"
 	>;
-	permissions: Permissions;
 	announce: Announcer;
 	feed: Feed;
 	audit: Audit;
@@ -223,8 +221,6 @@ export type Route =
 	| { kind: "set-default-account" }
 	| { kind: "exit-session"; sessionId: string }
 	| { kind: "report-session"; sessionId: string }
-	| { kind: "survey-permissions" }
-	| { kind: "grant-permissions" }
 	| { kind: "announce" }
 	| { kind: "update-layout" }
 	| { kind: "undo"; direction: "undo" | "redo" }
@@ -432,16 +428,6 @@ export const matchRoute = (method: string, url: URL): Route => {
 	if (report?.[1]) {
 		return method === "POST"
 			? { kind: "report-session", sessionId: report[1] }
-			: { kind: "method-not-allowed" };
-	}
-	if (path === "/api/permissions/survey") {
-		return method === "POST"
-			? { kind: "survey-permissions" }
-			: { kind: "method-not-allowed" };
-	}
-	if (path === "/api/permissions/grant") {
-		return method === "POST"
-			? { kind: "grant-permissions" }
 			: { kind: "method-not-allowed" };
 	}
 	if (path === "/api/announce") {
@@ -1121,38 +1107,6 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 			});
 		}
 		sendJson(res, 202, { ok: true });
-	};
-
-	const surveyPermissions = async (
-		req: IncomingMessage,
-		res: ServerResponse,
-	) => {
-		if (!originOk(req)) return sendError(res, 403);
-		sendJson(res, 200, await deps.permissions.survey());
-	};
-
-	const grantPermissions = async (
-		req: IncomingMessage,
-		res: ServerResponse,
-		identity: string | null,
-	) => {
-		const read = await readBody(req, res);
-		if (!read) return;
-		const parsed = parseGrants(read.body);
-		if ("error" in parsed) {
-			return sendJson(res, 400, { ok: false, error: parsed.error });
-		}
-		const results = await deps.permissions.grant(parsed.grants);
-		for (const [index, result] of results.entries()) {
-			deps.audit({
-				action: "permissions-grant",
-				sessionId: result.sessionId,
-				rules: parsed.grants[index]?.rules ?? [],
-				identity,
-				result: result.ok ? `added ${result.added.length}` : result.error,
-			});
-		}
-		sendJson(res, 200, results);
 	};
 
 	const announce = async (
@@ -2062,10 +2016,6 @@ export const createKanbanServer = (deps: ServerDeps): Server => {
 				);
 			case "report-session":
 				return reportSession(req, res, route.sessionId, auth.identity);
-			case "survey-permissions":
-				return surveyPermissions(req, res);
-			case "grant-permissions":
-				return grantPermissions(req, res, auth.identity);
 			case "announce":
 				return announce(req, res, auth.identity);
 			case "update-layout":

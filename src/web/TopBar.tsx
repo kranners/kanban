@@ -9,7 +9,6 @@ import {
 	Moon,
 	Plus,
 	RotateCw,
-	ShieldCheck,
 	Sun,
 	SunMoon,
 } from "lucide-preact";
@@ -33,7 +32,6 @@ import { optionKey } from "./focus/platform.ts";
 import { Mark } from "./Mark.tsx";
 import { NextNeedingYou } from "./NeedsYou.tsx";
 import { NotificationsMenu } from "./Notifications.tsx";
-import { PermissionSurveyDialog } from "./PermissionSurvey.tsx";
 import { ProjectsButton } from "./Projects.tsx";
 import { connection, newSessionOpen } from "./state.ts";
 import { cycleTheme, theme } from "./theme.ts";
@@ -192,25 +190,6 @@ function TidyButton() {
 	);
 }
 
-function PermissionSurveyButton() {
-	const [open, setOpen] = useState(false);
-	return (
-		<>
-			<button
-				type="button"
-				class="icon-button"
-				aria-haspopup="dialog"
-				aria-label="Gather permissions"
-				title="Gather permissions every running session expects to need"
-				onClick={() => setOpen(true)}
-			>
-				<ShieldCheck size={16} />
-			</button>
-			{open && <PermissionSurveyDialog onClose={() => setOpen(false)} />}
-		</>
-	);
-}
-
 function NewJobButton() {
 	return (
 		<button
@@ -297,7 +276,6 @@ export function TopBar() {
 				<NewJobButton />
 				<ReportButton />
 				<AnnounceButton />
-				<PermissionSurveyButton />
 				<NotificationsMenu />
 				<NotifyToggle />
 				<BoardSettingsButton />

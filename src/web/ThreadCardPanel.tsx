@@ -13,7 +13,7 @@ import {
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ButlerThreadEvent, ButlerThreadView } from "../shared/types.ts";
-import { ApprovalCardView } from "./Approvals.tsx";
+import { approvalsOpen } from "./Approvals.tsx";
 import { ActivityBadge } from "./activity.tsx";
 import { current } from "./annotations.ts";
 import { ButlerAvatar, ButlerMark } from "./Butler.tsx";
@@ -182,27 +182,25 @@ function ThreadView(props: {
 			{view.approvals.length > 0 && (
 				<section class="thread-card-waiting" aria-label="Waiting on you">
 					<h3>Waiting on you</h3>
-					{view.approvals.map((approval) =>
-						approval.code ? (
-							<ApprovalCardView
-								key={`${approval.code}`}
-								thread={card.thread.id}
-								approval={approval}
-								onAnswered={props.onSent}
-							/>
-						) : (
-							<p
-								class="comment-footnote"
-								key={`${approval.at}-${approval.headline}`}
-							>
-								{approval.headline}: answer in Discord.
-							</p>
-						),
+					<ul class="thread-card-waiting-list">
+						{view.approvals.map((approval) => (
+							<li key={`${approval.code ?? approval.at}-${approval.headline}`}>
+								{approval.headline}
+								{!approval.code && ": answer in Discord"}
+							</li>
+						))}
+					</ul>
+					{view.approvals.some((approval) => approval.code) && (
+						<button
+							type="button"
+							class="approvals-all"
+							onClick={() => {
+								approvalsOpen.value = true;
+							}}
+						>
+							Answer in Waiting on you
+						</button>
 					)}
-					<p class="comment-footnote">
-						Approve and Decline here count as your own answer, as the Discord
-						buttons do. Nothing typed here approves anything.
-					</p>
 				</section>
 			)}
 			<div

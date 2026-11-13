@@ -51,13 +51,6 @@ export type AuditEvent =
 			identity: string | null;
 			result: string;
 	  }
-	| {
-			action: "permissions-grant";
-			sessionId: string;
-			rules: string[];
-			identity: string | null;
-			result: string;
-	  }
 	| { action: "mirror-open"; sessionId: string; identity: string | null }
 	| { action: "view-open"; sessionId: string; identity: string | null }
 	| {
@@ -91,8 +84,8 @@ export type AuditEvent =
 			sessionId: string;
 			tool: string;
 			requestId: string;
-			/** Why the board answered it without the user: the safe set, Butler's reviewer within it, or, while permissions are off, a refusal of what the safe set leaves. */
-			via: "safe set" | "butler reviewer" | "refused, permissions off";
+			/** The board's one decision path, which allows, holds for the user with why, or, while permissions are off, refuses what it leaves. */
+			via: "safe set" | "refused, permissions off";
 			identity: string | null;
 			result: string;
 	  }

@@ -112,7 +112,7 @@ const inputFree = [
 export const SAFE_SESSION_RULES: readonly string[] = [
 	...inputFree,
 	// A scheduled task may wake another session, so each is judged again every time,
-	// and Butler's reviewer judges every spawn, title, message and repository.
+	// and every spawn, title, message and repository is judged on its own.
 	...safeRemote
 		.filter((tool) => !triggerTools.has(tool) && !reviewedRemote.has(tool))
 		.map((tool) => `${remotePrefix}${tool}`),

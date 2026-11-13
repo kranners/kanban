@@ -41,17 +41,6 @@ export type ToolCall =
 			tool: "answer_prompt";
 			session: string;
 			reply: PromptReply | null;
-			/** Approve every open prompt of the session that the safe set allows. */
-			allowSafe?: true;
-	  }
-	| { tool: "approve_safe_prompts"; sessions: string[] | null }
-	| { tool: "pending_reviews" }
-	| {
-			tool: "review_prompt";
-			session: string;
-			prompt: string;
-			verdict: ReviewVerdict;
-			reason: string;
 	  }
 	| {
 			tool: "finish_session";
@@ -111,15 +100,6 @@ export type ToolCall =
 	  } & Partial<Bounds>)
 	| { tool: "delete_region"; id: string };
 
-/** Butler's reviewer's answer on a claude.ai session tool's prompt. */
-export type ReviewVerdict = "approve" | "hold" | "unavailable";
-export const reviewVerdicts: readonly ReviewVerdict[] = [
-	"approve",
-	"hold",
-	"unavailable",
-];
-export const maxReviewReason = 200;
-
 export type ToolName = ToolCall["tool"];
 
 export type ToolDefinition = {
@@ -140,7 +120,6 @@ export const maxAnswers = 8;
 export const maxSelected = 16;
 export const maxAnswerText = 4000;
 export const maxArranged = 300;
-export const maxSafeSessions = 100;
 export const maxCoordinate = 10_000_000;
 
 const coordinate = { type: "number", description: "Board pixels" };
@@ -266,19 +245,13 @@ export const toolDefinitions: ToolDefinition[] = [
 	{
 		name: "answer_prompt",
 		description:
-			"Read or answer the question or permission prompt a session is waiting on. Without answers it returns the prompt and its id: each question with its options, or the permission request with its choices. With answers and that prompt id it picks them, as if the user did: one entry per question in order, selected holding exact option labels (one unless the question takes several) and other holding a free-text answer instead. A permission prompt takes one entry selecting one choice. It refuses if the open prompt is no longer the one with that id. Answer only with what the user chose. With allow_safe instead of prompt and answers, it approves every open permission prompt of the session that the board's safe set allows (reads, builds and tests, git on a branch, claude.ai's own session tools), granting a cloud session those tools for the rest of its life, and lists each one approved and each left for the user with its reason, without answering those.",
+			"Read or answer the question or permission prompt a session is waiting on. Without answers it returns the prompt and its id: each question with its options, or the permission request with its choices. With answers and that prompt id it picks them, as if the user did: one entry per question in order, selected holding exact option labels (one unless the question takes several) and other holding a free-text answer instead. A permission prompt takes one entry selecting one choice. It refuses if the open prompt is no longer the one with that id. Answer only with what the user chose. The board's own decision path already answers every prompt it allows as it appears; a prompt it left for the user is answered only with the user's own choice.",
 		inputSchema: object(
 			{
 				session: sessionRef,
 				prompt: {
 					type: "string",
 					description: "The prompt id a read returned; required with answers",
-				},
-				allow_safe: {
-					type: "boolean",
-					const: true,
-					description:
-						"Approve every open prompt the safe set allows, instead of prompt and answers",
 				},
 				answers: {
 					type: "array",
@@ -295,41 +268,6 @@ export const toolDefinitions: ToolDefinition[] = [
 				},
 			},
 			["session"],
-		),
-	},
-	{
-		name: "approve_safe_prompts",
-		description:
-			"Approve, in one call, every open permission prompt that the board's safe set allows, in every session that needs the user, or in the sessions named: reads, builds and tests, git on a branch, claude.ai's own session tools. Each cloud session approved this way is granted those tools for the rest of its life. Guardrails stay prompts for the user: pushing to main, force pushes, deletes outside the folder, deploys, cloud changes, secrets, sends and payments. Returns each prompt approved and each left for the user with its reason.",
-		inputSchema: object({
-			sessions: {
-				type: "array",
-				minItems: 1,
-				maxItems: maxSafeSessions,
-				items: sessionRef,
-				description:
-					"Only these sessions; default every session that needs the user",
-			},
-		}),
-	},
-	{
-		name: "pending_reviews",
-		description:
-			"For spike's prompt reviewer alone: the open prompts of claude.ai's session tools (spawning, titling, messaging, scheduling, adding a repository, and reads) that the safe set allows, on sessions waiting on the user, each with its session's name, folder, region, goal and recent transcript. Each prompt listed stays out of the safe sweep's reach for 90 seconds, until review_prompt answers it.",
-		inputSchema: object({}),
-	},
-	{
-		name: "review_prompt",
-		description:
-			"For spike's prompt reviewer alone: approve a prompt pending_reviews listed, hold it for the user with a one-line reason shown on its card, or say the reviewer is unavailable, which hands it back to the safe set.",
-		inputSchema: object(
-			{
-				session: sessionRef,
-				prompt: { type: "string", maxLength: 64 },
-				verdict: { type: "string", enum: [...reviewVerdicts] },
-				reason: { type: "string", maxLength: maxReviewReason },
-			},
-			["session", "prompt", "verdict", "reason"],
 		),
 	},
 	{
@@ -697,13 +635,6 @@ const readers: { [K in ToolName]: (fields: Fields) => ToolCall } = {
 			}
 			return answers.map(askAnswer);
 		});
-		const allowSafe = fields.allow_safe;
-		if (allowSafe !== undefined && allowSafe !== true) {
-			return fail("allow_safe must be true");
-		}
-		if (allowSafe && (prompt !== undefined || answers !== undefined)) {
-			return fail("allow_safe takes no prompt or answers");
-		}
 		if ((prompt === undefined) !== (answers === undefined)) {
 			return fail("prompt and answers go together; read the prompt first");
 		}
@@ -711,42 +642,6 @@ const readers: { [K in ToolName]: (fields: Fields) => ToolCall } = {
 			tool: "answer_prompt",
 			session,
 			reply: prompt && answers ? { prompt, answers } : null,
-			...(allowSafe ? { allowSafe } : {}),
-		};
-	},
-	approve_safe_prompts: (fields) => {
-		const sessions = fields.sessions;
-		if (sessions === undefined) {
-			return { tool: "approve_safe_prompts", sessions: null };
-		}
-		if (
-			!Array.isArray(sessions) ||
-			sessions.length === 0 ||
-			sessions.length > maxSafeSessions
-		) {
-			return fail(`sessions must be an array of 1 to ${maxSafeSessions} ids`);
-		}
-		return {
-			tool: "approve_safe_prompts",
-			sessions: sessions.map((ref) =>
-				typeof ref === "string" && ref.trim() !== "" && ref.length <= 128
-					? ref
-					: fail("sessions must hold session ids"),
-			),
-		};
-	},
-	pending_reviews: () => ({ tool: "pending_reviews" }),
-	review_prompt: (fields) => {
-		const verdict = fields.verdict;
-		if (!reviewVerdicts.includes(verdict as ReviewVerdict)) {
-			return fail(`verdict must be one of ${reviewVerdicts.join(", ")}`);
-		}
-		return {
-			tool: "review_prompt",
-			session: string(fields, "session", 128),
-			prompt: string(fields, "prompt", 64),
-			verdict: verdict as ReviewVerdict,
-			reason: string(fields, "reason", maxReviewReason),
 		};
 	},
 	finish_session: (fields) => {
