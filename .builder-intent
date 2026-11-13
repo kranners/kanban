@@ -1,0 +1,1 @@
+Centralise approvals: one decision path for session prompts in the board (effects engine, claude.ai tools reviewed inline, no poll), one Approvals place on the page; remove leftover sweep/reviewer poll/approve_safe_prompts/allow_safe/survey/permissions-grant where still present.
