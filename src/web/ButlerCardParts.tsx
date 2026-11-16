@@ -18,12 +18,18 @@ export function barName(card: ButlerCard): string {
 	return card.selfFix && !card.thread ? "Cloud session" : kindOf(card);
 }
 
-/** The thread's mission, the machines it drove and whether its question may be stale, as chips; nothing when it has none. */
+/** The thread's engine when it is not Claude, its mission, the machines it drove and whether its question may be stale, as chips; nothing when it has none. */
 export function ButlerChips(props: { card: ButlerCard }): JSX.Element | null {
 	const { mission, machines, stale } = props.card;
-	if (!mission && !machines?.length && !stale) return null;
+	const engine = props.card.engine === "Claude" ? undefined : props.card.engine;
+	if (!engine && !mission && !machines?.length && !stale) return null;
 	return (
 		<div class="butler-card-chips">
+			{engine && (
+				<span class="butler-chip butler-chip-engine" title={`Ran on ${engine}`}>
+					{engine}
+				</span>
+			)}
 			{stale && (
 				<span class="butler-chip" title="Its question has waited over 6 hours">
 					stale?

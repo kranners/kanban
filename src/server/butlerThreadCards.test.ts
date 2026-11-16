@@ -854,6 +854,42 @@ describe("Butler's thread cards", () => {
 		assert.equal(cardOf(annotations, "thread-11111111")?.mission, undefined);
 	});
 
+	it("carries a thread's engine onto its card and the snapshot, dropping one that is not a short line", async () => {
+		const { sync, annotations, snapshotOf } = await setup();
+		await sync([
+			entry("11111111", { engine: "Codex · Astra" }),
+			entry("22222222", { engine: "Claude" }),
+			entry("33333333", { engine: "<b>Codex</b>\nAstra" }),
+			entry("44444444"),
+		]);
+		assert.equal(
+			cardOf(annotations, "thread-11111111")?.engine,
+			"Codex · Astra",
+		);
+		assert.equal(cardOf(annotations, "thread-22222222")?.engine, "Claude");
+		assert.equal(cardOf(annotations, "thread-33333333")?.engine, undefined);
+		assert.equal(cardOf(annotations, "thread-44444444")?.engine, undefined);
+		const snapshot = snapshotOf() as {
+			butlerCards: { id: string; engine?: string }[];
+		};
+		const shown = Object.fromEntries(
+			snapshot.butlerCards.map((c) => [c.id, c.engine]),
+		);
+		assert.equal(shown["thread-11111111"], "Codex · Astra");
+		assert.equal(shown["thread-22222222"], "Claude");
+		assert.equal(shown["thread-44444444"], undefined);
+
+		// The lane moving the task back to Claude changes the card.
+		const text = await sync([
+			entry("11111111", { engine: "Claude" }),
+			entry("22222222", { engine: "Claude" }),
+			entry("33333333", { engine: "<b>Codex</b>\nAstra" }),
+			entry("44444444"),
+		]);
+		assert.match(text, /^4 thread cards: 1 updated, 0 removed\n/);
+		assert.equal(cardOf(annotations, "thread-11111111")?.engine, "Claude");
+	});
+
 	it("shows a thread's subagents, dropping a list that is not one, and updates on subagents alone", async () => {
 		const { sync, annotations, snapshotOf } = await setup();
 		const subagent = (id: string, state: string, parent?: string) => ({

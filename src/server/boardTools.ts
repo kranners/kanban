@@ -364,6 +364,7 @@ export const snapshot = (
 								: {}),
 							...(a.parent ? { parent: a.parent } : {}),
 							...(a.desk ? { desk: a.desk } : {}),
+							...(a.engine ? { engine: a.engine } : {}),
 						},
 					]
 				: [],

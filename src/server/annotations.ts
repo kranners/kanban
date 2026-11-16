@@ -110,6 +110,13 @@ export const parseCardMission = (value: unknown): ButlerCardMission | null => {
 	return { id, covers };
 };
 
+/** A thread card's engine: one short line of letters, digits and `·`, or null when it is not one. */
+export const parseCardEngine = (value: unknown): string | null =>
+	typeof value === "string" &&
+	/^[\p{L}\p{N}][\p{L}\p{N} ·._-]{0,39}$/u.test(value)
+		? value
+		: null;
+
 /** A thread card's machines: distinct host names, at most maxCardMachines, or null when they are not. */
 export const parseCardMachines = (value: unknown): string[] | null => {
 	if (!Array.isArray(value) || value.length > maxCardMachines) return null;
@@ -226,6 +233,7 @@ export const parseAnnotation = (
 			boardThread,
 			mission,
 			machines,
+			engine,
 			stale,
 			pinned,
 			movedAt,
@@ -342,6 +350,11 @@ export const parseAnnotation = (
 				error: `machines must be at most ${maxCardMachines} host names`,
 			};
 		}
+		const cardEngine =
+			engine === undefined ? undefined : parseCardEngine(engine);
+		if (cardEngine === null) {
+			return { error: "engine must be one short line naming an engine" };
+		}
 		return {
 			...placed,
 			kind: "butler-card",
@@ -361,6 +374,7 @@ export const parseAnnotation = (
 				: { boardThread: boardThread as string }),
 			...(cardMission === undefined ? {} : { mission: cardMission }),
 			...(cardMachines === undefined ? {} : { machines: cardMachines }),
+			...(cardEngine === undefined ? {} : { engine: cardEngine }),
 			...(stale === true ? { stale: true } : {}),
 			...(pinned === true ? { pinned: true } : {}),
 			...(movedAt === undefined ? {} : { movedAt: movedAt as number }),

@@ -93,6 +93,31 @@ describe("parseAnnotation", () => {
 		}
 	});
 
+	it("keeps a Butler card's engine across a reload and refuses one that is not a short line", () => {
+		const card = {
+			kind: "butler-card",
+			x: 0,
+			y: 0,
+			w: 312,
+			h: 216,
+			z: 1,
+			title: "Task: audit",
+			state: "working",
+			updatedAt: 5,
+		};
+		assert.equal(
+			(
+				parseAnnotation("b", { ...card, engine: "Codex · Astra" }) as {
+					engine?: string;
+				}
+			).engine,
+			"Codex · Astra",
+		);
+		for (const bad of ["", "a\nb", "x".repeat(41), 7]) {
+			assert.ok("error" in parseAnnotation("b", { ...card, engine: bad }));
+		}
+	});
+
 	it("holds a long report in one note", () => {
 		assert.ok(maxNoteText >= 20_000);
 		const text = "## Report\n\n".padEnd(maxNoteText, "x");

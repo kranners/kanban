@@ -67,6 +67,7 @@ import type { Rect } from "../web/placement.ts";
 import {
 	type AnnotationStore,
 	parseAnnotation,
+	parseCardEngine,
 	parseCardMachines,
 	parseCardMission,
 } from "./annotations.ts";
@@ -503,6 +504,7 @@ const sameCard = (a: ButlerCard, b: ButlerCard): boolean =>
 	a.boardThread === b.boardThread &&
 	JSON.stringify(a.mission) === JSON.stringify(b.mission) &&
 	JSON.stringify(a.machines) === JSON.stringify(b.machines) &&
+	a.engine === b.engine &&
 	a.stale === b.stale &&
 	a.startedAt === b.startedAt &&
 	a.finishedAt === b.finishedAt &&
@@ -595,6 +597,8 @@ export type ThreadEntry = {
 	boardThread?: string;
 	mission?: ButlerCardMission;
 	machines?: string[];
+	/** What its latest turn ran on, as the daemon names it. */
+	engine?: string;
 	subagents?: ReportedSubagent[];
 	/** The daemon's question to Aaron there has waited over 6 hours with nothing since. */
 	stale?: boolean;
@@ -690,6 +694,7 @@ export const parseThreadEntry = (value: unknown): ThreadEntry | null => {
 			: {}),
 		...threadMission(f.mission),
 		...threadMachines(f.machines),
+		...(parseCardEngine(f.engine) ? { engine: f.engine as string } : {}),
 		...threadSubagents(f.subagents),
 		...(f.stale === true ? { stale: true } : {}),
 		private: f.private,
@@ -1440,6 +1445,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 				...(entry.boardThread ? { boardThread: entry.boardThread } : {}),
 				...(entry.mission ? { mission: entry.mission } : {}),
 				...(entry.machines ? { machines: entry.machines } : {}),
+				...(entry.engine ? { engine: entry.engine } : {}),
 				...(entry.subagents ? { subagents: entry.subagents } : {}),
 				...(entry.stale ? { stale: true } : {}),
 				...kept(before),
@@ -1547,6 +1553,7 @@ export const createButler = (deps: ButlerDeps): Butler => {
 			...(entry.desk ? { desk: entry.desk.id } : {}),
 			...(entry.mission ? { mission: entry.mission } : {}),
 			...(entry.machines ? { machines: entry.machines } : {}),
+			...(entry.engine ? { engine: entry.engine } : {}),
 			...(entry.subagents ? { subagents: entry.subagents } : {}),
 			startedAt: entry.createdAt,
 			...threadFinish(entry),

@@ -146,6 +146,11 @@
 	line-height: 17px;
 }
 
+.butler-chip-engine {
+	border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+	color: var(--accent);
+}
+
 .butler-chip-mission {
 	border-color: color-mix(in srgb, var(--butler) 45%, transparent);
 	color: var(--butler);
