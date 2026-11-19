@@ -1,0 +1,1 @@
+Change 20261119-170042-2408841 (board look in Discord): kanban gets a shared theme token file and a static card-sheet build; the daemon posts card-sheet PNGs on task start lines and task cards behind a switch; jimbo adds a card-sheet command and fonts for render; butler-memory's project report takes the board's tokens.
