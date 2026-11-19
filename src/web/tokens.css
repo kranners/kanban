@@ -1,0 +1,162 @@
+/* The board's design tokens: fonts, colours light and dark, radii and the
+   state colours. Standalone, so pictures drawn outside the board can link it. */
+
+:root {
+	--sans: "Inter Variable", "Inter", system-ui, -apple-system, sans-serif;
+	--mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+	--page: #f7f6f3;
+	--surface: #ffffff;
+	--surface-2: #f1efea;
+	--hairline: #e6e3dd;
+	--hairline-strong: #d6d2ca;
+	--ink: #1d1c1a;
+	--muted: #6f6b64;
+	--accent: #b5502f;
+	--accent-hover: #a0452a;
+	--accent-soft: rgb(181 80 47 / 0.1);
+	--on-accent: #ffffff;
+	--amber: #d29922;
+	--amber-soft: rgb(210 153 34 / 0.14);
+	--amber-ink: #8a6210;
+	--green: #3f9a5b;
+	--red: #cf3d3d;
+	--butler: #1f7a7f;
+	--butler-soft: rgb(31 122 127 / 0.1);
+	--on-butler: #ffffff;
+	--butler-edge: #ffffff;
+	--brass: #8f6a17;
+	--on-brass: #ffffff;
+	--edge: #b9b4aa;
+	--term-bg: #1a1918;
+	--focus-ring: 0 0 0 3px rgb(181 80 47 / 0.28);
+	--shadow-pop: 0 8px 24px rgb(29 28 26 / 0.08);
+
+	--group-bg: color-mix(in srgb, var(--ink) 3.5%, var(--page));
+	--label-height: 48px;
+	--motion: 1;
+	--radius: 10px;
+	--radius-sm: 8px;
+	--topbar: 52px;
+	--rail: 320px;
+
+	color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--page: #141413;
+		--surface: #1d1c1a;
+		--surface-2: #252421;
+		--hairline: #2e2c29;
+		--hairline-strong: #3d3a36;
+		--ink: #ecebe7;
+		--muted: #9a968e;
+		--accent: #e07a55;
+		--accent-hover: #ea8c69;
+		--accent-soft: rgb(224 122 85 / 0.14);
+		--on-accent: #1a0f0a;
+		--amber-soft: rgb(210 153 34 / 0.16);
+		--amber-ink: #e3b54a;
+		--butler: #5cc1c2;
+		--butler-soft: rgb(92 193 194 / 0.14);
+		--on-butler: #0b1d1e;
+		--brass: #d8b257;
+		--on-brass: #1f1606;
+		--edge: #4a4742;
+		--term-bg: #111110;
+		--focus-ring: 0 0 0 3px rgb(224 122 85 / 0.35);
+		--shadow-pop: 0 8px 24px rgb(0 0 0 / 0.35);
+		color-scheme: dark;
+	}
+}
+
+:root[data-theme="dark"] {
+	--page: #141413;
+	--surface: #1d1c1a;
+	--surface-2: #252421;
+	--hairline: #2e2c29;
+	--hairline-strong: #3d3a36;
+	--ink: #ecebe7;
+	--muted: #9a968e;
+	--accent: #e07a55;
+	--accent-hover: #ea8c69;
+	--accent-soft: rgb(224 122 85 / 0.14);
+	--on-accent: #1a0f0a;
+	--amber-soft: rgb(210 153 34 / 0.16);
+	--amber-ink: #e3b54a;
+	--butler: #5cc1c2;
+	--butler-soft: rgb(92 193 194 / 0.14);
+	--on-butler: #0b1d1e;
+	--brass: #d8b257;
+	--on-brass: #1f1606;
+	--edge: #4a4742;
+	--term-bg: #111110;
+	--focus-ring: 0 0 0 3px rgb(224 122 85 / 0.35);
+	--shadow-pop: 0 8px 24px rgb(0 0 0 / 0.35);
+	color-scheme: dark;
+}
+
+:root {
+	--needs-edge: var(--amber);
+	--needs-glow: rgb(210 153 34 / 0.42);
+	--needs-ribbon: #e2a428;
+	--needs-ribbon-ink: #2a1d04;
+	--done-edge: var(--green);
+	--done-soft: rgb(63 154 91 / 0.12);
+	--done-ink: #2f7a46;
+	--failed-edge: var(--red);
+	--failed-soft: rgb(207 61 61 / 0.1);
+	--failed-ink: #b13232;
+	--busy-edge: var(--accent);
+	--busy-rest: color-mix(in srgb, var(--accent) 30%, var(--hairline));
+	--idle-edge: #5b7fa8;
+	--idle-ink: #3f6189;
+	--stopped-edge: var(--hairline-strong);
+	--stalled-edge: #8a55c9;
+	--stalled-ink: #6b3fa6;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--needs-glow: rgb(226 164 40 / 0.5);
+		--done-soft: rgb(79 186 112 / 0.16);
+		--done-ink: #6fcf8d;
+		--done-edge: #4fae6c;
+		--failed-soft: rgb(232 98 98 / 0.16);
+		--failed-ink: #f08a8a;
+		--failed-edge: #e06262;
+		--idle-edge: #7d9fc8;
+		--idle-ink: #9dbbe0;
+		--stopped-edge: #4a4742;
+		--stalled-edge: #b48cf0;
+		--stalled-ink: #c9a8f5;
+	}
+}
+
+:root[data-theme="dark"] {
+	--needs-glow: rgb(226 164 40 / 0.5);
+	--done-soft: rgb(79 186 112 / 0.16);
+	--done-ink: #6fcf8d;
+	--done-edge: #4fae6c;
+	--failed-soft: rgb(232 98 98 / 0.16);
+	--failed-ink: #f08a8a;
+	--failed-edge: #e06262;
+	--idle-edge: #7d9fc8;
+	--idle-ink: #9dbbe0;
+	--stopped-edge: #4a4742;
+	--stalled-edge: #b48cf0;
+	--stalled-ink: #c9a8f5;
+}
+
+/* The board's state vocabulary: what each card status is drawn in. */
+:root {
+	--state-working: var(--accent);
+	--state-watching: var(--accent);
+	--state-needs-you: var(--amber);
+	--state-done: var(--green);
+	--state-failed: var(--red);
+	--state-idle: var(--idle-edge);
+	--state-stopped: var(--muted);
+	--state-stalled: var(--stalled-edge);
+}

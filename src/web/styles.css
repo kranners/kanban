@@ -1,98 +1,4 @@
-:root {
-	--sans: "Inter Variable", "Inter", system-ui, -apple-system, sans-serif;
-	--mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-
-	--page: #f7f6f3;
-	--surface: #ffffff;
-	--surface-2: #f1efea;
-	--hairline: #e6e3dd;
-	--hairline-strong: #d6d2ca;
-	--ink: #1d1c1a;
-	--muted: #6f6b64;
-	--accent: #b5502f;
-	--accent-hover: #a0452a;
-	--accent-soft: rgb(181 80 47 / 0.1);
-	--on-accent: #ffffff;
-	--amber: #d29922;
-	--amber-soft: rgb(210 153 34 / 0.14);
-	--amber-ink: #8a6210;
-	--green: #3f9a5b;
-	--red: #cf3d3d;
-	--butler: #1f7a7f;
-	--butler-soft: rgb(31 122 127 / 0.1);
-	--on-butler: #ffffff;
-	--butler-edge: #ffffff;
-	--brass: #8f6a17;
-	--on-brass: #ffffff;
-	--edge: #b9b4aa;
-	--term-bg: #1a1918;
-	--focus-ring: 0 0 0 3px rgb(181 80 47 / 0.28);
-	--shadow-pop: 0 8px 24px rgb(29 28 26 / 0.08);
-
-	--group-bg: color-mix(in srgb, var(--ink) 3.5%, var(--page));
-	--label-height: 48px;
-	--motion: 1;
-	--radius: 10px;
-	--radius-sm: 8px;
-	--topbar: 52px;
-	--rail: 320px;
-
-	color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-	:root:not([data-theme="light"]) {
-		--page: #141413;
-		--surface: #1d1c1a;
-		--surface-2: #252421;
-		--hairline: #2e2c29;
-		--hairline-strong: #3d3a36;
-		--ink: #ecebe7;
-		--muted: #9a968e;
-		--accent: #e07a55;
-		--accent-hover: #ea8c69;
-		--accent-soft: rgb(224 122 85 / 0.14);
-		--on-accent: #1a0f0a;
-		--amber-soft: rgb(210 153 34 / 0.16);
-		--amber-ink: #e3b54a;
-		--butler: #5cc1c2;
-		--butler-soft: rgb(92 193 194 / 0.14);
-		--on-butler: #0b1d1e;
-		--brass: #d8b257;
-		--on-brass: #1f1606;
-		--edge: #4a4742;
-		--term-bg: #111110;
-		--focus-ring: 0 0 0 3px rgb(224 122 85 / 0.35);
-		--shadow-pop: 0 8px 24px rgb(0 0 0 / 0.35);
-		color-scheme: dark;
-	}
-}
-
-:root[data-theme="dark"] {
-	--page: #141413;
-	--surface: #1d1c1a;
-	--surface-2: #252421;
-	--hairline: #2e2c29;
-	--hairline-strong: #3d3a36;
-	--ink: #ecebe7;
-	--muted: #9a968e;
-	--accent: #e07a55;
-	--accent-hover: #ea8c69;
-	--accent-soft: rgb(224 122 85 / 0.14);
-	--on-accent: #1a0f0a;
-	--amber-soft: rgb(210 153 34 / 0.16);
-	--amber-ink: #e3b54a;
-	--butler: #5cc1c2;
-	--butler-soft: rgb(92 193 194 / 0.14);
-	--on-butler: #0b1d1e;
-	--brass: #d8b257;
-	--on-brass: #1f1606;
-	--edge: #4a4742;
-	--term-bg: #111110;
-	--focus-ring: 0 0 0 3px rgb(224 122 85 / 0.35);
-	--shadow-pop: 0 8px 24px rgb(0 0 0 / 0.35);
-	color-scheme: dark;
-}
+@import "./tokens.css";
 
 *,
 *::before,
@@ -911,28 +817,28 @@ button.reconnecting {
 }
 
 .act-working {
-	--act: var(--accent);
+	--act: var(--state-working);
 }
 .act-needs-you {
-	--act: var(--amber);
+	--act: var(--state-needs-you);
 }
 .act-watching {
-	--act: var(--accent);
+	--act: var(--state-watching);
 }
 .act-idle {
-	--act: var(--idle-edge);
+	--act: var(--state-idle);
 }
 .act-done {
-	--act: var(--green);
+	--act: var(--state-done);
 }
 .act-failed {
-	--act: var(--red);
+	--act: var(--state-failed);
 }
 .act-stopped {
-	--act: var(--muted);
+	--act: var(--state-stopped);
 }
 .act-stalled {
-	--act: var(--stalled-edge);
+	--act: var(--state-stalled);
 }
 
 .badge,
