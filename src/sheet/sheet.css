@@ -1,0 +1,110 @@
+/* The sheet is a still picture: one page width, nothing moving. */
+html,
+body {
+	height: auto;
+}
+
+body {
+	width: var(--sheet-width, 960px);
+}
+
+*,
+*::before,
+*::after {
+	animation: none !important;
+	transition: none !important;
+}
+
+#sheet {
+	--unzoom: 1;
+	--motion: 0;
+}
+
+.sheet-cards {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 24px;
+	padding: 24px;
+}
+
+.sheet-slot {
+	position: relative;
+	flex: none;
+}
+
+.sheet-strip {
+	position: relative;
+	height: 64px;
+}
+
+.sheet-strip .frame.sheet-strip-frame {
+	flex-direction: row;
+	align-items: center;
+	gap: 12px;
+	box-sizing: border-box;
+	height: 100%;
+	padding: 0 16px;
+	cursor: default;
+}
+
+.sheet-strip .busy-edge {
+	top: auto;
+	bottom: 0;
+}
+
+.sheet-strip-frame > svg {
+	flex: none;
+	color: var(--act);
+}
+
+.sheet-strip-text {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	white-space: nowrap;
+}
+
+.sheet-strip-kind {
+	flex: none;
+	color: var(--muted);
+	font-size: 12.5px;
+	font-weight: 600;
+}
+
+.sheet-strip-title {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	font-size: 16px;
+	font-weight: 650;
+	letter-spacing: -0.01em;
+}
+
+.sheet-dash .dash-body {
+	overflow: visible;
+}
+
+.sheet-report {
+	padding: 20px 24px;
+	background: var(--surface);
+}
+
+.sheet-report .report-dashboard {
+	max-width: none;
+}
+
+.sheet-error {
+	margin: 24px;
+	color: var(--red);
+	font-weight: 600;
+}
+
+.busy-edge::after {
+	translate: 60% 0;
+}
+
+.sheet-dash .dash-open {
+	display: none;
+}

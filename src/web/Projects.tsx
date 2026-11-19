@@ -2,13 +2,15 @@ import "./projects.css";
 import { FolderKanban, OctagonPause, X } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+
+export { LifecycleStrip } from "./projectDashboardView.tsx";
+
 import { neighboursIn } from "../shared/projectDashboard.ts";
 import {
 	columnOf,
 	columnProjects,
 	daysSince,
 	isSideStage,
-	lifecycleStrip,
 	type Project,
 	type ProjectMainStage,
 	projectStages,
@@ -17,6 +19,7 @@ import {
 } from "../shared/projects.ts";
 import type { Session } from "../shared/types.ts";
 import { ProjectDashboard } from "./ProjectDashboard.tsx";
+import { LifecycleStrip } from "./projectDashboardView.tsx";
 import {
 	openProject,
 	openProjectId,
@@ -48,26 +51,6 @@ const dateOf = (at: number) =>
 		day: "numeric",
 		month: "short",
 	});
-
-export function LifecycleStrip(props: { project: Project }): JSX.Element {
-	const side = isSideStage(props.project.stage);
-	return (
-		<ol
-			class={`lifecycle${side ? ` lifecycle-${props.project.stage}` : ""}`}
-			aria-label={`Lifecycle: ${stageNames[props.project.stage]}`}
-		>
-			{lifecycleStrip(props.project).map((segment) => (
-				<li
-					key={segment.stage}
-					class={`lifecycle-step step-${segment.state}`}
-					title={`${stageNames[segment.stage]}${
-						segment.since !== null ? `, from ${dateOf(segment.since)}` : ""
-					}${segment.state === "current" ? " (now)" : ""}`}
-				/>
-			))}
-		</ol>
-	);
-}
 
 function Badges(props: { project: Project; t: number }) {
 	const { project } = props;

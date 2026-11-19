@@ -1,4 +1,3 @@
-import { signal } from "@preact/signals";
 import type {
 	Activity,
 	ButlerCard,
@@ -124,28 +123,6 @@ export function stalledText(lastActivity: number, now: number): string {
 
 /** Which authors' cards the board shows at full strength, kept per browser; the rest are dimmed. */
 export type AuthorFilter = CardAuthorKind | "all";
-
-export const authorFilterKey = "kanban.authorFilter";
-
-function readFilter(): AuthorFilter {
-	try {
-		const kept = localStorage.getItem(authorFilterKey);
-		return (cardAuthorKinds as readonly string[]).includes(kept ?? "")
-			? (kept as CardAuthorKind)
-			: "all";
-	} catch {
-		return "all";
-	}
-}
-
-export const authorFilter = signal<AuthorFilter>(readFilter());
-
-export function setAuthorFilter(filter: AuthorFilter): void {
-	authorFilter.value = filter;
-	try {
-		localStorage.setItem(authorFilterKey, filter);
-	} catch {}
-}
 
 export const dimmedByAuthor = (author: CardAuthor, filter: AuthorFilter) =>
 	filter !== "all" && author.kind !== filter;

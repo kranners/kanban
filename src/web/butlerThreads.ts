@@ -2,7 +2,6 @@ import { signal } from "@preact/signals";
 import type {
 	Annotations,
 	ButlerCard,
-	ButlerThreadKind,
 	ButlerThreadView,
 	CommentThread,
 	Session,
@@ -14,6 +13,8 @@ import {
 	request,
 } from "./comments.ts";
 
+export { threadKindLabels } from "./threadKinds.ts";
+
 // The page's side of Butler's thread cards: the card whose thread is open,
 // what each kind of thread is called, and the calls that read a thread's
 // log and send Aaron's replies and new jobs to Butler. A thread's words come
@@ -24,16 +25,6 @@ export const openThreadCard = signal<string | null>(null);
 
 /** Whether the New Butler job composer is open. */
 export const jobComposerOpen = signal(false);
-
-export const threadKindLabels: Record<ButlerThreadKind, string> = {
-	conversation: "Conversation",
-	dm: "DM",
-	board: "Board",
-	job: "Job",
-	desk: "Desk session",
-	scheduled: "Scheduled",
-	voice: "Voice",
-};
 
 /** How often the open thread view reads its thread again. */
 export const threadPollMs = 4000;

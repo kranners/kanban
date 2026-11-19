@@ -29,6 +29,7 @@ import "./detail.css";
 import { subagentState } from "../shared/subagents.ts";
 import { activityLabel } from "./activity.tsx";
 import { unreachable } from "./arrangement.ts";
+import { authorFilter } from "./authorFilter.ts";
 import {
 	ButlerCardFoot,
 	ButlerChips,
@@ -39,9 +40,8 @@ import {
 	WatchingMark,
 } from "./ButlerCardParts.tsx";
 import { BusyEdge, CardFace } from "./CardFace.tsx";
-import { CardBody, CardFoot, NearPanel } from "./CardParts.tsx";
+import { CardBody, CardFoot, NearPanel, ParentLine } from "./CardParts.tsx";
 import {
-	authorFilter,
 	butlerCardView,
 	type CardView,
 	dimmedByAuthor,
@@ -55,8 +55,8 @@ import { SessionProjectChips } from "./Projects.tsx";
 import { RelationHandles } from "./RelationHandles.tsx";
 import { unreachableText } from "./reach.ts";
 import { board, openSession, openSubagent } from "./state.ts";
+import { SubagentChipList } from "./subagentChipList.tsx";
 import {
-	chipName,
 	orderWorkflows,
 	subagentChips,
 	workflowDetail,
@@ -104,9 +104,11 @@ function SessionBody(props: {
 }) {
 	const { session } = props;
 	const card = session.butler?.card;
+	const view = viewOf(session, props.now);
 	return (
 		<CardBody
-			view={viewOf(session, props.now)}
+			view={view}
+			parent={<ParentLine view={view} />}
 			before={<WorkflowBars workflows={props.workflows} />}
 			after={
 				card ? (
@@ -178,46 +180,13 @@ export function SubagentChips(props: {
 		props.owner,
 		current.subagentCounts[props.owner],
 	);
-	if (shown.length === 0) return null;
 	return (
-		<div class="sub-chips">
-			{shown.map((subagent) => {
-				const state = subagentState(subagent);
-				const name = chipName(subagent);
-				return (
-					<button
-						key={subagent.id}
-						type="button"
-						class={`sub-chip act-${state}`}
-						data-no-pan
-						title={`${subagent.description || subagent.type} · ${subagent.type}`}
-						aria-label={`Open subagent ${name}, ${state}`}
-						onPointerDown={(event) => event.stopPropagation()}
-						onClick={(event) => {
-							event.stopPropagation();
-							props.onOpen(
-								subagent,
-								event.currentTarget.getBoundingClientRect(),
-							);
-						}}
-					>
-						<span class="sub-chip-dot" aria-hidden="true" />
-						<span class="sub-chip-name">{name}</span>
-						<time class="sub-chip-time num">
-							{relativeTime(subagent.updatedAt, props.now)}
-						</time>
-					</button>
-				);
-			})}
-			{more > 0 && (
-				<span
-					class="sub-chip-more num"
-					title={`${more} more ${more === 1 ? "subagent" : "subagents"}`}
-				>
-					+{more}
-				</span>
-			)}
-		</div>
+		<SubagentChipList
+			shown={shown}
+			more={more}
+			now={props.now}
+			onOpen={props.onOpen}
+		/>
 	);
 }
 

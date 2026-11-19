@@ -2,15 +2,14 @@ import { Settings } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import "./boardSettings.css";
+import { authorFilter, setAuthorFilter } from "./authorFilter.ts";
 import { autoLayout, setAutoLayout } from "./autoLayoutSetting.ts";
 import type { FaceMode } from "./butlerDm.ts";
 import { faceSettings, setFaceSettings } from "./butlerFaceSettings.ts";
 import {
 	type AuthorFilter,
-	authorFilter,
 	authorKindLabels,
 	cardAuthorKinds,
-	setAuthorFilter,
 } from "./cardFace.ts";
 import { setShowSubagents, showSubagents } from "./subagentSetting.ts";
 

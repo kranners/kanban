@@ -8,6 +8,7 @@ import {
 	rm,
 	writeFile,
 } from "node:fs/promises";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
 
@@ -131,9 +132,50 @@ async function bundle(
 	await swapIn(next, out);
 }
 
+export const sheetMarker =
+	'<script id="sheet-data" type="application/json">{}</script>';
+
+// Inline text must not close the element it sits in.
+const inlineSafe = (text: string, tag: "script" | "style"): string =>
+	text.replace(new RegExp(`</(${tag})`, "gi"), "<\\/$1");
+
+/**
+ * The card sheet as one page with its script, styles and fonts inside it,
+ * so a renderer can draw the board's cards with nothing else to load.
+ */
+export async function buildSheet(outfile: string): Promise<void> {
+	const result = await esbuild.build({
+		entryPoints: [`${root}src/sheet/main.tsx`],
+		outdir: dirname(outfile),
+		write: false,
+		bundle: true,
+		format: "esm",
+		minify: true,
+		target: "es2022",
+		jsx: "automatic",
+		jsxImportSource: "preact",
+		loader: { ".woff2": "dataurl", ".svg": "dataurl", ".webp": "dataurl" },
+		legalComments: "none",
+		logLevel: "warning",
+	});
+	const output = (ext: string) =>
+		result.outputFiles.find((file) => file.path.endsWith(ext))?.text ?? "";
+	const page = await readFile(`${root}src/sheet/index.html`, "utf8");
+	await writeFile(
+		outfile,
+		page
+			.replace("/*__SHEET_CSS__*/", () => inlineSafe(output(".css"), "style"))
+			.replace("/*__SHEET_JS__*/", () => inlineSafe(output(".js"), "script")),
+	);
+}
+
 export const build = (): Promise<void> =>
 	bundle(`${web}main.tsx`, dist, (next) =>
-		esbuild.build(runnerBuildOptions(`${next}runner.js`)),
+		Promise.all([
+			esbuild.build(runnerBuildOptions(`${next}runner.js`)),
+			buildSheet(`${next}sheet.html`),
+			copyFile(`${web}tokens.css`, `${next}tokens.css`),
+		]),
 	);
 
 export const buildSite = async (): Promise<void> => {

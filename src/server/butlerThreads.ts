@@ -1,17 +1,20 @@
 import {
+	isTime,
+	parseThreadApproval,
+	parseThreadEvent,
+} from "../shared/threadEntry.ts";
+import {
 	type ButlerMessage,
 	type ButlerThreadApproval,
 	type ButlerThreadEvent,
-	type ButlerThreadEventKind,
-	butlerThreadEventKinds,
 	maxButlerQueue,
-	maxThreadApprovalBody,
 	maxThreadApprovals,
 	maxThreadEvents,
-	maxThreadEventText,
 } from "../shared/types.ts";
 import { maxMessage } from "./comments.ts";
 import { createStateFile, readState } from "./stateFile.ts";
+
+export { parseThreadApproval, parseThreadEvent };
 
 // What each of Butler's thread cards says happened in its Discord thread.
 // Aaron's replies waiting for spike queue in the Butler inbox with every
@@ -50,51 +53,6 @@ export type ThreadLogStore = {
 };
 
 const keptLocal = maxThreadEvents;
-
-const isTime = (value: unknown): value is number =>
-	typeof value === "number" && Number.isFinite(value) && value >= 0;
-
-/** A thread event as the daemon sends it, clipped, or null when it is not one. */
-export const parseThreadEvent = (value: unknown): ButlerThreadEvent | null => {
-	if (typeof value !== "object" || value === null) return null;
-	const { at, kind, text } = value as Record<string, unknown>;
-	if (!isTime(at) || typeof text !== "string") return null;
-	if (!butlerThreadEventKinds.includes(kind as ButlerThreadEventKind)) {
-		return null;
-	}
-	return {
-		at,
-		kind: kind as ButlerThreadEventKind,
-		text: text.slice(0, maxThreadEventText),
-	};
-};
-
-export const parseThreadApproval = (
-	value: unknown,
-): ButlerThreadApproval | null => {
-	if (typeof value !== "object" || value === null) return null;
-	const { at, headline, code, kind, body, critical, nonce } = value as Record<
-		string,
-		unknown
-	>;
-	if (!isTime(at) || typeof headline !== "string") return null;
-	const line = headline.replace(/\s+/g, " ").trim().slice(0, 300);
-	if (line === "") return null;
-	const coded = typeof code === "string" && /^[A-Za-z0-9-]{1,32}$/.test(code);
-	return {
-		at,
-		headline: line,
-		...(coded ? { code } : {}),
-		...(kind === "call" || kind === "desk" ? { kind } : {}),
-		...(typeof body === "string" && body.trim()
-			? { body: body.slice(0, maxThreadApprovalBody) }
-			: {}),
-		...(critical === true ? { critical: true } : {}),
-		...(coded && typeof nonce === "string" && /^[0-9a-f]{32}$/.test(nonce)
-			? { nonce }
-			: {}),
-	};
-};
 
 const listOf = <T>(
 	value: unknown,

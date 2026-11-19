@@ -3,6 +3,11 @@ import {
 	parseReportedSubagents,
 } from "../shared/reportedSubagents.ts";
 import {
+	parseCardEngine,
+	parseCardMachines,
+	parseCardMission,
+} from "../shared/threadEntry.ts";
+import {
 	type Activity,
 	type Annotation,
 	type Annotations,
@@ -10,12 +15,10 @@ import {
 	activityOrder,
 	archiveOutcomes,
 	type ButlerCardEvent,
-	type ButlerCardMission,
 	type ButlerCardThread,
 	type ButlerThreadKind,
 	butlerThreadKinds,
 	discordIdPattern,
-	machinePattern,
 	maxButlerHistory,
 	maxButlerLink,
 	maxButlerSummary,
@@ -24,7 +27,6 @@ import {
 	maxMissionCovers,
 	maxNoteText,
 	maxReportBytes,
-	missionIdPattern,
 	type NoteColor,
 	noteColors,
 	type StatusReport,
@@ -32,6 +34,8 @@ import {
 import { stickerIds } from "../web/stickers/manifest.ts";
 import { parsePoint } from "./layout.ts";
 import { createStateFile, readState } from "./stateFile.ts";
+
+export { parseCardEngine, parseCardMachines, parseCardMission };
 
 export type AnnotationStore = {
 	current(): Annotations;
@@ -95,35 +99,6 @@ export const parseCardThread = (value: unknown): ButlerCardThread | null => {
 	if (!butlerThreadKinds.includes(kind as ButlerThreadKind)) return null;
 	if (!isWebLink(link) || typeof hidden !== "boolean") return null;
 	return { id, kind: kind as ButlerThreadKind, link, private: hidden };
-};
-
-/** A thread card's mission: its id and one line of what it covers, or null when it is not one. */
-export const parseCardMission = (value: unknown): ButlerCardMission | null => {
-	if (typeof value !== "object" || value === null || Array.isArray(value)) {
-		return null;
-	}
-	const { id, covers } = value as Record<string, unknown>;
-	if (typeof id !== "string" || !missionIdPattern.test(id)) return null;
-	if (typeof covers !== "string" || covers.length > maxMissionCovers) {
-		return null;
-	}
-	return { id, covers };
-};
-
-/** A thread card's engine: one short line of letters, digits and `·`, or null when it is not one. */
-export const parseCardEngine = (value: unknown): string | null =>
-	typeof value === "string" &&
-	/^[\p{L}\p{N}][\p{L}\p{N} ·._-]{0,39}$/u.test(value)
-		? value
-		: null;
-
-/** A thread card's machines: distinct host names, at most maxCardMachines, or null when they are not. */
-export const parseCardMachines = (value: unknown): string[] | null => {
-	if (!Array.isArray(value) || value.length > maxCardMachines) return null;
-	if (!value.every((m) => typeof m === "string" && machinePattern.test(m))) {
-		return null;
-	}
-	return [...new Set(value as string[])];
 };
 
 const isCardHistory = (value: unknown): value is ButlerCardEvent[] =>
