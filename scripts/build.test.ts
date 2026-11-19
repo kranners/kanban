@@ -3,7 +3,13 @@ import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { buildSheet, sheetMarker, shellVersion, swapIn } from "./build.ts";
+import {
+	buildFonts,
+	buildSheet,
+	sheetMarker,
+	shellVersion,
+	swapIn,
+} from "./build.ts";
 
 describe("swapIn", () => {
 	it("replaces the old build and leaves no staging dirs", async () => {
@@ -76,5 +82,18 @@ describe("tokens.css", () => {
 		}
 		assert.match(tokens, /:root\[data-theme="dark"\]/);
 		assert.match(tokens, /prefers-color-scheme: dark/);
+	});
+});
+
+describe("buildFonts", () => {
+	it("writes the board's faces as data: URIs alone", async () => {
+		const file = join(await mkdtemp(join(tmpdir(), "fonts-")), "fonts.css");
+		await buildFonts(file);
+		const css = await readFile(file, "utf8");
+		assert.match(css, /Inter Variable/);
+		assert.match(css, /JetBrains Mono/);
+		for (const url of css.match(/url\([^)]*\)/g) ?? []) {
+			assert.match(url, /^url\("?data:/);
+		}
 	});
 });

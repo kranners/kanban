@@ -169,12 +169,26 @@ export async function buildSheet(outfile: string): Promise<void> {
 	);
 }
 
+/** The board's faces as one stylesheet of data: URIs, for pages that link the tokens and load nothing else. */
+export async function buildFonts(outfile: string): Promise<void> {
+	await esbuild.build({
+		entryPoints: [`${root}src/sheet/fonts.css`],
+		outfile,
+		bundle: true,
+		minify: true,
+		loader: { ".woff2": "dataurl" },
+		legalComments: "none",
+		logLevel: "warning",
+	});
+}
+
 export const build = (): Promise<void> =>
 	bundle(`${web}main.tsx`, dist, (next) =>
 		Promise.all([
 			esbuild.build(runnerBuildOptions(`${next}runner.js`)),
 			buildSheet(`${next}sheet.html`),
 			copyFile(`${web}tokens.css`, `${next}tokens.css`),
+			buildFonts(`${next}fonts.css`),
 		]),
 	);
 
