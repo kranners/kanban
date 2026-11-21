@@ -1,0 +1,1 @@
+Change 20261120-155112-1985861: remove old work integrations (slack, work mail/calendar, pilot host, work context pack, work scenes, Pulse work domain, board work login, work-turn routing). Touches butler-slack, butler-work*, butler-context, wireguard, butler-mac, kanban-tunnel, pulse watches.
