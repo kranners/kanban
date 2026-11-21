@@ -11,8 +11,6 @@ import {
 
 const repo = "/Users/me/dev/acme-api";
 
-process.env.KANBAN_REVIEW_TOOLS = "reviewbot";
-
 const isSafe = (command: string, cwd: string | null = repo) =>
 	bashVerdict(command, cwd ?? undefined).safe;
 
@@ -290,14 +288,6 @@ describe("safeVerdict", () => {
 		assert.match(edit("/home/user/.env", null), /secret-like/);
 	});
 
-	it("allows the work review tooling but its merges, deploys and deletes", () => {
-		assert.equal(toolReason("mcp__reviewbot__review_diff"), "safe");
-		assert.equal(toolReason("mcp__plugin_reviewbot__list_findings"), "safe");
-		assert.match(toolReason("mcp__reviewbot__merge_change"), /merges/);
-		assert.match(toolReason("mcp__reviewbot__deploy"), /deploys/);
-		assert.match(toolReason("mcp__reviewbot__delete_run"), /deletes/);
-	});
-
 	it("allows GitHub reads, pull requests and comments, and branch writes off main", () => {
 		for (const tool of [
 			"get_file_contents",
@@ -516,14 +506,6 @@ describe("bashVerdict", () => {
 		]) {
 			assert.equal(reason(command), "safe", command);
 		}
-	});
-
-	it("allows the work review commands but merges, deploys, deletes and destroys", () => {
-		assert.equal(reason("reviewbot review --pr 12"), "safe");
-		assert.equal(reason("reviewbot-cli findings list"), "safe");
-		assert.match(reason("reviewbot merge 12"), /merges, deploys or deletes/);
-		assert.match(reason("reviewbot deploy staging"), /merges, deploys/);
-		assert.match(reason("reviewbot run --destroy"), /merges, deploys/);
 	});
 
 	it("leaves pushes to main, force pushes and branch deletes for Aaron", () => {

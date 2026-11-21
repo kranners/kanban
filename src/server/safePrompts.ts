@@ -259,28 +259,12 @@ const githubBranchWrites = new Set([
 const mainBranch = (branch: string) =>
 	/^(refs\/)?(heads\/)?(main|master)$/.test(branch);
 
-/**
- * The work review tooling's names, from KANBAN_REVIEW_TOOLS, comma
- * separated: MCP servers whose name holds one and commands that start with
- * one. Kept out of the repository, which is public.
- */
-const reviewTools = (): string[] =>
-	(process.env.KANBAN_REVIEW_TOOLS ?? "")
-		.split(",")
-		.map((name) => name.trim().toLowerCase())
-		.filter((name) => /^[a-z0-9][a-z0-9_-]*$/.test(name));
-
 const mcpVerdict = (
 	toolName: string,
 	input: Record<string, unknown>,
 ): SafeVerdict => {
 	const [, server = "", ...rest] = toolName.split("__");
 	const tool = rest.join("__");
-	if (reviewTools().some((name) => server.toLowerCase().includes(name))) {
-		return /merge|deploy|delete|destroy/i.test(tool)
-			? unsafe("merges, deploys or deletes")
-			: safe;
-	}
 	if (/github/i.test(server)) {
 		if (githubReads.test(tool) || githubWrites.has(tool)) return safe;
 		if (githubBranchWrites.has(tool)) {
@@ -1610,11 +1594,6 @@ const segmentVerdict = (segment: Segment, context: Context): SafeVerdict => {
 	if (command === "security") return unsafe("reads the keychain");
 	if (["sendmail", "mail", "mailx", "mutt"].includes(command)) {
 		return unsafe("sends mail");
-	}
-	if (reviewTools().some((name) => command.toLowerCase().startsWith(name))) {
-		return words.some(({ text }) => /merge|deploy|delete|destroy/i.test(text))
-			? unsafe("merges, deploys or deletes")
-			: safe;
 	}
 	if (
 		runnerCommands.has(command) &&
